@@ -26,6 +26,7 @@
                     @endif
                     @if ($u->isManager())
                         <flux:navlist.item icon="shield-check" :href="route('manage')" :current="request()->routeIs('manage')" wire:navigate>관리자</flux:navlist.item>
+                        <flux:navlist.item icon="users" :href="route('users')" :current="request()->routeIs('users')" wire:navigate>사용자 관리</flux:navlist.item>
                     @endif
                 </flux:navlist.group>
             </flux:navlist>

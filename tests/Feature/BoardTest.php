@@ -259,4 +259,65 @@ class BoardTest extends TestCase
 
         $this->assertSame(1000000, $l->fresh()->expected_price);
     }
+
+    public function test_manager_corrects_identity_on_unsynced_listing(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'), ['vin' => 'OLDVIN001', 'vehicle_number' => '12가0001']);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('manage.index')
+            ->call('openEdit', $l->id)
+            ->set('vin', 'NEWVIN999')
+            ->set('vehicle_number', '99가9999')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $l->refresh();
+        $this->assertSame('NEWVIN999', $l->vin);
+        $this->assertSame('99가9999', $l->vehicle_number);
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'field' => 'vin']);
+    }
+
+    public function test_manager_cannot_correct_identity_once_synced(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'), ['vin' => 'SYNC0001', 'car_erp_vehicle_id' => 555]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('manage.index')
+            ->call('openEdit', $l->id)
+            ->set('vin', 'HACK9999')
+            ->call('save');
+
+        $this->assertSame('SYNC0001', $l->fresh()->vin); // 연동된 차량은 식별값 불변
+    }
+
+    public function test_only_manager_accesses_user_management(): void
+    {
+        $this->actingAs($this->mkUser('sales'))->get('/users')->assertForbidden();
+        $this->actingAs($this->mkUser('manager'))->get('/users')->assertOk();
+    }
+
+    public function test_manager_creates_user(): void
+    {
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('users.index')
+            ->call('openCreate')
+            ->set('name', '새영업')
+            ->set('email', 'new@board.test')
+            ->set('role', 'sales')
+            ->set('password', 'secret123')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseHas('users', ['email' => 'new@board.test', 'role' => 'sales', 'is_active' => true]);
+    }
+
+    public function test_inactive_user_is_blocked_from_views(): void
+    {
+        $u = $this->mkUser('sales');
+        $u->update(['is_active' => false]);
+
+        $this->actingAs($u)->get('/listings')->assertForbidden();
+    }
 }

@@ -21,6 +21,7 @@ Route::middleware(['auth'])->group(function () {
     Volt::route('inspection', 'inspection.index')->middleware('role:inspection,manager')->name('inspection');
     Volt::route('auction', 'auction.index')->middleware('role:auction,manager')->name('auction');
     Volt::route('manage', 'manage.index')->middleware('role:manager')->name('manage');
+    Volt::route('users', 'users.index')->middleware('role:manager')->name('users');
 
     // 설정
     Route::redirect('settings', 'settings/profile');

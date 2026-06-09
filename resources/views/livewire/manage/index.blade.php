@@ -4,12 +4,15 @@ use App\Models\BoardAuditLog;
 use App\Models\PurchaseListing;
 use App\Services\BoardAudit;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
 
 new #[Layout('components.layouts.app')] class extends Component {
     public ?int $editingId = null;
+    public string $vehicle_number = '';
+    public string $vin = '';
     public string $source = 'encar';
     public ?string $expected_price = null;
     public ?string $final_price = null;
@@ -48,6 +51,8 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $l = PurchaseListing::findOrFail($id);
         $this->editingId = $l->id;
+        $this->vehicle_number = $l->vehicle_number;
+        $this->vin = $l->vin ?? '';
         $this->source = $l->source;
         $this->expected_price = $l->expected_price !== null ? (string) $l->expected_price : null;
         $this->final_price = $l->final_price !== null ? (string) $l->final_price : null;
@@ -60,13 +65,15 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'source', 'expected_price', 'final_price', 'status', 'buyer_verdict', 'buyer_name', 'inspection_memo']);
+        $this->reset(['editingId', 'vehicle_number', 'vin', 'source', 'expected_price', 'final_price', 'status', 'buyer_verdict', 'buyer_name', 'inspection_memo']);
         unset($this->editing, $this->listings, $this->recentLogs);
     }
 
     public function save(): void
     {
         $this->validate([
+            'vehicle_number' => 'required|string|max:20',
+            'vin' => ['nullable', 'string', 'max:32', Rule::unique('purchase_listings', 'vin')->ignore($this->editingId)],
             'source' => 'required|in:encar,auction',
             'expected_price' => 'nullable|numeric|min:0',
             'final_price' => 'nullable|numeric|min:0',
@@ -76,9 +83,14 @@ new #[Layout('components.layouts.app')] class extends Component {
         ]);
 
         $l = PurchaseListing::findOrFail($this->editingId);
-        $fields = ['source', 'expected_price', 'final_price', 'status', 'buyer_verdict', 'buyer_name', 'inspection_memo'];
+        $fields = ['vehicle_number', 'vin', 'source', 'expected_price', 'final_price', 'status', 'buyer_verdict', 'buyer_name', 'inspection_memo'];
         $original = $l->only($fields);
 
+        // 식별값(차량번호·VIN)은 car-erp 미연동 차량만 정정 가능 (오타 수정). 연동 후엔 잠금 유지.
+        if ($l->car_erp_vehicle_id === null) {
+            $l->vehicle_number = $this->vehicle_number;
+            $l->vin = $this->vin ?: null;
+        }
         $l->source = $this->source;
         $l->expected_price = ($this->expected_price === null || $this->expected_price === '') ? null : (int) $this->expected_price;
         $l->final_price = ($this->final_price === null || $this->final_price === '') ? null : (int) $this->final_price;
@@ -87,7 +99,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->buyer_name = $this->buyer_name ?: null;
         $l->inspection_memo = $this->inspection_memo ?: null;
 
-        // 시간잠금·상태전이 무관 수정 (차량번호·VIN 은 모델이 여전히 차단)
+        // 시간잠금·상태전이 무관 수정 (식별값은 미연동 차량만 모델이 허용)
         $l->allowManagerOverride = true;
         $l->save();
 
@@ -175,11 +187,21 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <button class="text-gray-400 hover:text-gray-600" wire:click="closeEdit">✕</button>
             </div>
             <div class="px-5 py-4">
-                <div class="card-sm mb-3 bg-gray-50 text-xs text-gray-500">
-                    차량번호 <b>{{ $e->vehicle_number }}</b> · VIN <b>{{ $e->vin }}</b> — 식별값은 수정 불가
-                </div>
+                @if ($e->car_erp_vehicle_id === null)
+                    <label class="label-base">차량번호 <span class="text-xs font-normal text-amber-600">· 오타 정정 가능</span></label>
+                    <input class="input-base" wire:model="vehicle_number">
+                    @error('vehicle_number') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    <label class="label-base mt-3">차대번호 VIN</label>
+                    <input class="input-base" wire:model="vin">
+                    @error('vin') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                @else
+                    <div class="card-sm bg-gray-50 text-xs text-gray-500">
+                        차량번호 <b>{{ $e->vehicle_number }}</b> · VIN <b>{{ $e->vin }}</b><br>
+                        <span class="text-gray-400">🔗 이미 car-erp 연동된 차량 — 식별값 수정 불가</span>
+                    </div>
+                @endif
 
-                <label class="label-base">출처</label>
+                <label class="label-base mt-3">출처</label>
                 <select class="input-base" wire:model="source">
                     <option value="encar">엔카</option>
                     <option value="auction">경매</option>

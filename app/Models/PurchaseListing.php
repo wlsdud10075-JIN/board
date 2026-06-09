@@ -57,10 +57,17 @@ class PurchaseListing extends Model
     protected static function booted(): void
     {
         static::updating(function (PurchaseListing $listing) {
-            // (1) 식별값(차량번호·VIN) 변경 절대 차단 — 관리자 override 도 예외 없음
+            // (1) 식별값(차량번호·VIN) 변경 차단.
+            //     예외: 관리자 override + 아직 car-erp 미연동(car_erp_vehicle_id null) 차량만 = 오타 정정 허용.
             foreach (self::IDENTITY_LOCKED as $col) {
                 if ($listing->isDirty($col)) {
-                    throw new \RuntimeException("식별값({$col})은 등록 후 수정할 수 없습니다.");
+                    $canCorrect = $listing->allowManagerOverride && $listing->car_erp_vehicle_id === null;
+                    if (! $canCorrect) {
+                        throw new \RuntimeException(
+                            "식별값({$col})은 수정할 수 없습니다.".
+                            ($listing->car_erp_vehicle_id !== null ? ' (이미 car-erp 연동된 차량)' : '')
+                        );
+                    }
                 }
             }
 
