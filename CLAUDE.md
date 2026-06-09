@@ -101,6 +101,22 @@ vendor/bin/pint app database tests bootstrap   # .php 포매팅 (.blade.php 는 
 - 테스트 프레임워크 = **PHPUnit(클래스 스타일), Pest 아님**. `phpunit.xml` = sqlite :memory: → **dev DB 안전**.
 - 커밋 전 `.php` 만 pint. `.blade.php`(Volt 단일파일)엔 pint 돌리지 말 것(대량 reformat·깨짐).
 
+## Git 브랜치 전략 / 머지 규칙 (car-erp 규칙 미러)
+- `dev` — 작업 브랜치(기본). **모든 변경은 dev 에 직접 커밋·푸시.** 별도 feature 브랜치·PR 안 만듦(사용자가 "PR 만들어줘" 한 경우만 예외). 한 커밋 = 한 논리적 변경.
+- `master` — 프로덕션(추후 배포 대상). **`.md` 파일 제외.**
+- **`.md` 는 dev 전용** — `CLAUDE.md`·`SKILLS.md`·`meetings/*.md`(전략·개인정보처리방침·인프라 식별값 포함)·README.md 등 **모든 `.md` 는 운영 트리(master)에 두지 않는다.** dev → master 머지 시 `.md` **제외**(modify/delete 충돌 → **삭제 유지**로 해소). 이유 = 운영 서버 트리에 내부 문서/식별값 노출 방지 + 배포 산출물 최소화.
+- **실측 머지 절차** (반드시 `cd /c/xampp/htdocs/board` 먼저):
+  ```bash
+  git checkout master
+  git merge --no-commit --no-ff dev        # 스테이징만(.md 는 modify/delete 충돌로 남음)
+  git ls-files '*.md' | xargs -r git rm -fq   # 추적된 .md 전부 제거 = 충돌을 '삭제'로 해소 + dev 신규 .md 도 제거
+  git commit -m "merge dev → master (.md 제외)"
+  git push origin master                   # (추후 자동배포 붙으면 여기서 deploy 발동)
+  git checkout dev                         # 작업은 항상 dev 로 복귀
+  ```
+  → 결과: master 트리에 `.md` 가 **0개**여야 정상. 코드만 운영에 올라간다.
+- 현재 board 는 **자동배포 미구성**(Lightsail vhost·deploy.yml 추후 — "추후 계획 §4"). 그전까지 master 머지는 "운영용 클린 트리 유지" 목적.
+
 ---
 
 ## 🔗 SSANCAR 4시스템 통합에서 board 의 위치
