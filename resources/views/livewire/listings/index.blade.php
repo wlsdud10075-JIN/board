@@ -19,10 +19,81 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $auction_venue = '';
     public string $lot_number = '';
 
+    // ── 편집 (본인 글 수정) ──
+    public ?int $editingId = null;
+    public ?string $e_expected_price = null;
+    public string $e_encar_url = '';
+    public string $e_encar_dealer = '';
+    public string $e_auction_venue = '';
+    public string $e_lot_number = '';
+
     #[Computed]
     public function listings()
     {
         return PurchaseListing::with('creator')->latest()->get();
+    }
+
+    #[Computed]
+    public function editing(): ?PurchaseListing
+    {
+        return $this->editingId ? PurchaseListing::find($this->editingId) : null;
+    }
+
+    /** 경매가 시간잠금됐으면 영업은 수정 불가 (관리자는 우회). 엔카·잠금 전은 가능. */
+    public function editable(PurchaseListing $l): bool
+    {
+        return ! ($l->isAuction() && $l->isLocked()) || Auth::user()->isManager();
+    }
+
+    public function openEdit(int $id): void
+    {
+        $l = PurchaseListing::findOrFail($id);   // SalesmanScope: 영업은 본인 것만 로드 가능
+        $this->editingId = $l->id;
+        $this->e_expected_price = $l->expected_price !== null ? (string) $l->expected_price : null;
+        $this->e_encar_url = $l->encar_url ?? '';
+        $this->e_encar_dealer = $l->encar_dealer ?? '';
+        $this->e_auction_venue = $l->auction_venue ?? '';
+        $this->e_lot_number = $l->lot_number ?? '';
+        $this->resetErrorBag();
+    }
+
+    public function closeEdit(): void
+    {
+        $this->reset(['editingId', 'e_expected_price', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number']);
+        unset($this->editing);
+    }
+
+    public function update(): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+
+        if (! $this->editable($l)) {
+            $this->addError('e_expected_price', '시간잠금된 경매 차량은 수정할 수 없습니다. (관리자 문의)');
+
+            return;
+        }
+
+        $this->validate([
+            'e_expected_price' => 'nullable|numeric|min:0',
+            'e_encar_url' => 'nullable|string|max:255',
+            'e_encar_dealer' => 'nullable|string|max:100',
+            'e_auction_venue' => 'nullable|string|max:100',
+            'e_lot_number' => 'nullable|string|max:50',
+        ]);
+
+        $l->expected_price = ($this->e_expected_price === null || $this->e_expected_price === '') ? null : (int) $this->e_expected_price;
+        if ($l->source === 'encar') {
+            $l->encar_url = $this->e_encar_url ?: null;
+            $l->encar_dealer = $this->e_encar_dealer ?: null;
+        } else {
+            $l->auction_venue = $this->e_auction_venue ?: null;
+            $l->lot_number = $this->e_lot_number ?: null;
+        }
+        $l->save();
+
+        unset($this->listings);
+        session()->flash('ok', $l->vehicle_number.' 수정되었습니다.');
+        $this->closeEdit();
     }
 
     public function toggleAdd(): void
@@ -184,7 +255,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 </thead>
                 <tbody>
                     @forelse ($this->listings as $l)
-                        <tr>
+                        <tr class="cursor-pointer hover:bg-gray-50" wire:click="openEdit({{ $l->id }})">
                             <td>
                                 <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
                                 <div class="text-xs text-gray-400">VIN ·{{ \Illuminate\Support\Str::limit($l->vin, 10, '') }}{{ $l->isAuction() && $l->lot_number ? ' · '.$l->auction_venue.' '.$l->lot_number : '' }}</div>
@@ -201,5 +272,60 @@ new #[Layout('components.layouts.app')] class extends Component {
                 </tbody>
             </table>
         </div>
+        <p class="mt-2 text-xs text-gray-400">💡 행을 클릭하면 내용을 보고 수정할 수 있습니다 (시간잠금된 경매 차량 제외).</p>
     </div>
+
+    {{-- 편집 드로어 (본인 글 수정) --}}
+    @if ($this->editing)
+        @php $e = $this->editing; $canEdit = $this->editable($e); @endphp
+        <div class="fixed inset-0 z-40 bg-black/40" wire:click="closeEdit"></div>
+        <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[440px]">
+            <div class="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+                <h3 class="font-bold text-gray-800">{{ $e->vehicle_number }} · 매입예정 수정</h3>
+                <button class="text-gray-400 hover:text-gray-600" wire:click="closeEdit">✕</button>
+            </div>
+            <div class="px-5 py-4">
+                <div class="card-sm mb-3 bg-gray-50 text-xs text-gray-500">
+                    차량번호 <b>{{ $e->vehicle_number }}</b> · VIN <b>{{ $e->vin }}</b>
+                    · <span class="badge {{ $e->isAuction() ? 'badge-auction' : 'badge-encar' }}">{{ $e->isAuction() ? '경매' : '엔카' }}</span><br>
+                    <span class="text-gray-400">식별값(차량번호·VIN)·출처는 수정 불가</span>
+                </div>
+
+                @unless ($canEdit)
+                    <div class="card-sm mb-3 border-amber-200 bg-amber-50 text-[13px] text-amber-800">🔒 시간잠금된 경매 차량입니다. 수정은 관리자에게 문의하세요.</div>
+                @endunless
+
+                <label class="label-base">예상가</label>
+                <input class="input-base" wire:model="e_expected_price" inputmode="numeric" @unless ($canEdit) disabled @endunless>
+                @error('e_expected_price') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+
+                @if ($e->source === 'encar')
+                    <label class="label-base mt-3">엔카 매물 URL / 매물번호</label>
+                    <input class="input-base" wire:model="e_encar_url" @unless ($canEdit) disabled @endunless>
+                    <label class="label-base mt-3">판매 딜러 / 지역</label>
+                    <input class="input-base" wire:model="e_encar_dealer" @unless ($canEdit) disabled @endunless>
+                @else
+                    <label class="label-base mt-3">경매장</label>
+                    <input class="input-base" wire:model="e_auction_venue" @unless ($canEdit) disabled @endunless>
+                    <label class="label-base mt-3">출품번호</label>
+                    <input class="input-base" wire:model="e_lot_number" @unless ($canEdit) disabled @endunless>
+                @endif
+
+                {{-- 읽기전용 진행 정보 (현지확인·경매에서 채워짐) --}}
+                <div class="mt-4 grid grid-cols-2 gap-3 text-xs text-gray-500">
+                    <div>현지 최종금액<br><b class="text-sm text-gray-800">{{ $e->final_price ? number_format($e->final_price).'원' : '— (현지확인 후)' }}</b></div>
+                    <div>상태<br><span class="badge {{ $e->statusBadge() }}">{{ $e->statusLabel() }}</span></div>
+                    <div>바이어<br>@if ($e->verdictLabel())<span class="badge {{ $e->verdictBadge() }}">{{ $e->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</div>
+                    <div>바이어명<br><b class="text-gray-800">{{ $e->buyer_name ?: '—' }}</b></div>
+                </div>
+
+                <div class="mt-5 flex gap-2">
+                    @if ($canEdit)
+                        <button class="btn-primary flex-1 justify-center" wire:click="update">저장</button>
+                    @endif
+                    <button class="btn-ghost" wire:click="closeEdit">{{ $canEdit ? '취소' : '닫기' }}</button>
+                </div>
+            </div>
+        </div>
+    @endif
 </div>

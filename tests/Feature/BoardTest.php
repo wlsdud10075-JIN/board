@@ -226,4 +226,37 @@ class BoardTest extends TestCase
         $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'field' => 'expected_price']);
         $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'field' => 'status', 'action' => 'status_change']);
     }
+
+    public function test_sales_can_edit_own_listing(): void
+    {
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['source' => 'encar', 'expected_price' => 1000000]);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')
+            ->call('openEdit', $l->id)
+            ->set('e_expected_price', '2222222')
+            ->call('update')
+            ->assertHasNoErrors();
+
+        $this->assertSame(2222222, $l->fresh()->expected_price);
+    }
+
+    public function test_locked_auction_blocks_sales_edit(): void
+    {
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, [
+            'source' => 'auction', 'auction_venue' => '롯데', 'lot_number' => 'A-1',
+            'expected_price' => 1000000, 'lock_at' => now()->subHour(),
+        ]);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')
+            ->call('openEdit', $l->id)
+            ->set('e_expected_price', '9999999')
+            ->call('update')
+            ->assertHasErrors('e_expected_price');
+
+        $this->assertSame(1000000, $l->fresh()->expected_price);
+    }
 }
