@@ -4,7 +4,9 @@ namespace Tests\Feature;
 
 use App\Models\PurchaseListing;
 use App\Models\User;
+use App\Support\TimeGate;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Livewire\Volt\Volt;
 use Tests\TestCase;
 
@@ -14,13 +16,14 @@ class BoardTest extends TestCase
 
     private int $seq = 0;
 
-    private function mkUser(string $role, ?string $email = null): User
+    private function mkUser(string $role, ?string $email = null, string $permission = 'user'): User
     {
         return User::create([
             'name' => $role,
             'email' => $email ?? $role.(++$this->seq).'@t.test',
             'password' => 'password',
             'role' => $role,
+            'permission' => $permission,
             'is_active' => true,
             'email_verified_at' => now(),
         ]);
@@ -93,19 +96,19 @@ class BoardTest extends TestCase
     public function test_timegate_locks_auction_registration_on_weekday_after_deadline(): void
     {
         // 월요일 09:00 (마감 전) → 미잠금
-        \Illuminate\Support\Carbon::setTestNow('2026-06-08 09:00:00');
-        $this->assertFalse(\App\Support\TimeGate::auctionRegistrationLocked());
+        Carbon::setTestNow('2026-06-08 09:00:00');
+        $this->assertFalse(TimeGate::auctionRegistrationLocked());
 
         // 월요일 11:00 (마감 후) → 잠금
-        \Illuminate\Support\Carbon::setTestNow('2026-06-08 11:00:00');
-        $this->assertTrue(\App\Support\TimeGate::auctionRegistrationLocked());
+        Carbon::setTestNow('2026-06-08 11:00:00');
+        $this->assertTrue(TimeGate::auctionRegistrationLocked());
 
         // 토요일 → 잠금 미적용 (lock_at NULL)
-        \Illuminate\Support\Carbon::setTestNow('2026-06-13 15:00:00');
-        $this->assertFalse(\App\Support\TimeGate::auctionRegistrationLocked());
-        $this->assertNull(\App\Support\TimeGate::auctionLockAt());
+        Carbon::setTestNow('2026-06-13 15:00:00');
+        $this->assertFalse(TimeGate::auctionRegistrationLocked());
+        $this->assertNull(TimeGate::auctionLockAt());
 
-        \Illuminate\Support\Carbon::setTestNow();
+        Carbon::setTestNow();
     }
 
     public function test_adds_listing_through_volt_component(): void
@@ -291,15 +294,31 @@ class BoardTest extends TestCase
         $this->assertSame('SYNC0001', $l->fresh()->vin); // 연동된 차량은 식별값 불변
     }
 
-    public function test_only_manager_accesses_user_management(): void
+    public function test_user_management_is_super_only(): void
     {
         $this->actingAs($this->mkUser('sales'))->get('/users')->assertForbidden();
-        $this->actingAs($this->mkUser('manager'))->get('/users')->assertOk();
+        $this->actingAs($this->mkUser('manager'))->get('/users')->assertForbidden(); // 관리 role 이지만 super 아님
+        $this->actingAs($this->mkUser('manager', null, 'super'))->get('/users')->assertOk();
+    }
+
+    public function test_super_accesses_all_views_and_sees_all_listings(): void
+    {
+        $kim = $this->mkUser('sales');
+        $this->mkListing($kim);
+        $this->mkListing($kim);
+
+        $super = $this->mkUser('sales', null, 'super'); // role 은 sales 지만 super
+        $this->actingAs($super);
+
+        foreach (['/listings', '/inspection', '/auction', '/manage', '/users'] as $route) {
+            $this->get($route)->assertOk();
+        }
+        $this->assertSame(2, PurchaseListing::count()); // super 는 본인격리 예외
     }
 
     public function test_manager_creates_user(): void
     {
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'super'));
 
         Volt::test('users.index')
             ->call('openCreate')

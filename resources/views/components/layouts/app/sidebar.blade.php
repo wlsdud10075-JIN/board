@@ -15,17 +15,19 @@
             @php $u = auth()->user(); @endphp
             <flux:navlist variant="outline">
                 <flux:navlist.group heading="업무" class="grid">
-                    @if ($u->isSales() || $u->isManager())
+                    @if ($u->isSuper() || $u->isSales() || $u->isManager())
                         <flux:navlist.item icon="clipboard-document-list" :href="route('listings')" :current="request()->routeIs('listings')" wire:navigate>매입예정 (영업)</flux:navlist.item>
                     @endif
-                    @if ($u->isInspection() || $u->isManager())
+                    @if ($u->isSuper() || $u->isInspection() || $u->isManager())
                         <flux:navlist.item icon="camera" :href="route('inspection')" :current="request()->routeIs('inspection')" wire:navigate>현지확인</flux:navlist.item>
                     @endif
-                    @if ($u->isAuction() || $u->isManager())
+                    @if ($u->isSuper() || $u->isAuction() || $u->isManager())
                         <flux:navlist.item icon="banknotes" :href="route('auction')" :current="request()->routeIs('auction')" wire:navigate>경매/구매</flux:navlist.item>
                     @endif
-                    @if ($u->isManager())
+                    @if ($u->isSuper() || $u->isManager())
                         <flux:navlist.item icon="shield-check" :href="route('manage')" :current="request()->routeIs('manage')" wire:navigate>관리자</flux:navlist.item>
+                    @endif
+                    @if ($u->isSuper())
                         <flux:navlist.item icon="users" :href="route('users')" :current="request()->routeIs('users')" wire:navigate>사용자 관리</flux:navlist.item>
                     @endif
                 </flux:navlist.group>

@@ -13,23 +13,25 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $name = '';
     public string $email = '';
     public string $role = 'sales';
+    public bool $is_super = false;
     public bool $is_active = true;
+    public ?string $car_erp_salesman_id = null;
     public string $password = '';
 
     #[Computed]
     public function users()
     {
-        return User::orderBy('role')->orderBy('name')->get();
+        return User::orderByDesc('permission')->orderBy('role')->orderBy('name')->get();
     }
 
     public function roleLabel(string $r): string
     {
-        return ['sales' => '영업', 'inspection' => '현지확인', 'auction' => '경매', 'manager' => '관리자'][$r] ?? $r;
+        return User::ROLE_LABELS[$r] ?? $r;
     }
 
     public function openCreate(): void
     {
-        $this->reset(['editingId', 'name', 'email', 'password']);
+        $this->reset(['editingId', 'name', 'email', 'password', 'is_super', 'car_erp_salesman_id']);
         $this->role = 'sales';
         $this->is_active = true;
         $this->showForm = true;
@@ -43,7 +45,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->name = $u->name;
         $this->email = $u->email;
         $this->role = $u->role;
+        $this->is_super = $u->isSuper();
         $this->is_active = $u->is_active;
+        $this->car_erp_salesman_id = $u->car_erp_salesman_id !== null ? (string) $u->car_erp_salesman_id : null;
         $this->password = '';
         $this->showForm = true;
         $this->resetErrorBag();
@@ -51,7 +55,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function close(): void
     {
-        $this->reset(['showForm', 'editingId', 'name', 'email', 'password']);
+        $this->reset(['showForm', 'editingId', 'name', 'email', 'password', 'is_super', 'car_erp_salesman_id']);
         $this->role = 'sales';
         $this->is_active = true;
     }
@@ -62,16 +66,17 @@ new #[Layout('components.layouts.app')] class extends Component {
             'name' => 'required|string|max:50',
             'email' => ['required', 'email', 'max:100', Rule::unique('users', 'email')->ignore($this->editingId)],
             'role' => 'required|in:'.implode(',', User::ROLES),
+            'car_erp_salesman_id' => 'nullable|integer|min:1',
         ];
         if (! $this->editingId || filled($this->password)) {
             $rules['password'] = 'required|string|min:6';
         }
         $this->validate($rules);
 
-        // 본인 계정 보호 — 관리자 권한 해제·비활성화로 자기 잠금 방지
+        // 본인 계정 보호 — 자기 시스템관리자 권한 해제·비활성화로 자기 잠금 방지
         if ($this->editingId === Auth::id()) {
-            if ($this->role !== 'manager') {
-                $this->addError('role', '본인 계정의 관리자 권한은 해제할 수 없습니다.');
+            if (! $this->is_super) {
+                $this->addError('is_super', '본인의 시스템관리자 권한은 해제할 수 없습니다.');
 
                 return;
             }
@@ -82,10 +87,12 @@ new #[Layout('components.layouts.app')] class extends Component {
             'name' => $this->name,
             'email' => $this->email,
             'role' => $this->role,
+            'permission' => $this->is_super ? 'super' : 'user',
             'is_active' => $this->is_active,
+            'car_erp_salesman_id' => ($this->car_erp_salesman_id === null || $this->car_erp_salesman_id === '') ? null : (int) $this->car_erp_salesman_id,
         ];
         if (filled($this->password)) {
-            $data['password'] = $this->password; // 'hashed' cast 가 해시 처리
+            $data['password'] = $this->password; // 'hashed' cast
         }
 
         if ($this->editingId) {
@@ -118,7 +125,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     <div class="mb-4 flex items-center justify-between">
         <div>
             <h1 class="text-xl font-bold text-gray-800">사용자 관리</h1>
-            <p class="mt-0.5 text-xs text-gray-500">로그인 계정 생성·역할 지정·활성/비활성. 비활성 계정은 로그인해도 업무화면 접근이 차단됩니다.</p>
+            <p class="mt-0.5 text-xs text-gray-500">시스템관리자(super) 전용. 계정 생성·역할·시스템관리자 지정·활성여부. 비활성 계정은 업무화면 접근이 차단됩니다.</p>
         </div>
         <button class="btn-primary" wire:click="openCreate">+ 사용자 추가</button>
     </div>
@@ -134,7 +141,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="overflow-x-auto">
             <table class="tbl">
                 <thead>
-                    <tr><th>이름</th><th>이메일</th><th>역할</th><th>상태</th><th></th></tr>
+                    <tr><th>이름</th><th>이메일</th><th>권한 / 역할</th><th>car-erp 영업ID</th><th>상태</th><th></th></tr>
                 </thead>
                 <tbody>
                     @foreach ($this->users as $u)
@@ -144,7 +151,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 @if ($u->id === auth()->id())<span class="badge badge-purple ml-1">나</span>@endif
                             </td>
                             <td class="text-gray-600">{{ $u->email }}</td>
-                            <td><span class="badge {{ $u->role === 'manager' ? 'badge-purple' : 'badge-blue' }}">{{ $this->roleLabel($u->role) }}</span></td>
+                            <td>
+                                @if ($u->isSuper())<span class="badge badge-red">시스템관리자</span> @endif
+                                <span class="badge {{ $u->isManager() ? 'badge-purple' : 'badge-blue' }}">{{ $this->roleLabel($u->role) }}</span>
+                            </td>
+                            <td class="text-gray-500">{{ $u->car_erp_salesman_id ?? '—' }}</td>
                             <td>
                                 @if ($u->is_active)
                                     <span class="badge badge-green">활성</span>
@@ -185,19 +196,32 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @error('email') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 <label class="label-base mt-3">역할</label>
-                <select class="input-base" wire:model="role">
+                <select class="input-base" wire:model.live="role">
                     <option value="sales">영업</option>
                     <option value="inspection">현지확인</option>
                     <option value="auction">경매</option>
-                    <option value="manager">관리자</option>
+                    <option value="manager">관리</option>
                 </select>
                 @error('role') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+
+                {{-- 영업만 car-erp 매핑 --}}
+                @if ($role === 'sales')
+                    <label class="label-base mt-3">car-erp 영업담당자 ID <span class="text-xs font-normal text-gray-400">(연동용 · 선택)</span></label>
+                    <input class="input-base" wire:model="car_erp_salesman_id" inputmode="numeric" placeholder="car-erp salesmen.id">
+                    <p class="mt-1 text-xs text-gray-400">입력하면 추후 연동 B에서 낙찰 차량의 car-erp 영업담당자가 자동 지정됩니다.</p>
+                    @error('car_erp_salesman_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                @endif
 
                 <label class="label-base mt-3">비밀번호 {{ $editingId ? '(변경 시에만 입력)' : '' }}</label>
                 <input class="input-base" wire:model="password" type="password" placeholder="{{ $editingId ? '비워두면 기존 유지' : '6자 이상' }}">
                 @error('password') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                <label class="mt-3 flex items-center gap-2 text-sm text-gray-700">
+                <label class="mt-4 flex items-center gap-2 text-sm text-gray-700">
+                    <input type="checkbox" wire:model="is_super"> <b>시스템관리자</b> (전체 접근 + 사용자관리)
+                </label>
+                @error('is_super') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+
+                <label class="mt-2 flex items-center gap-2 text-sm text-gray-700">
                     <input type="checkbox" wire:model="is_active"> 활성 계정 (로그인 허용)
                 </label>
 

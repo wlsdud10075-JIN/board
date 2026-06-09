@@ -8,7 +8,12 @@ Route::get('/', fn () => redirect()->route('dashboard'))->name('home');
 Route::middleware(['auth'])->group(function () {
     // 로그인 후 role 별 홈으로 분기
     Route::get('dashboard', function () {
-        return redirect()->route(match (auth()->user()->role) {
+        $user = auth()->user();
+        if ($user->isSuper()) {
+            return redirect()->route('manage');
+        }
+
+        return redirect()->route(match ($user->role) {
             'inspection' => 'inspection',
             'auction' => 'auction',
             'manager' => 'manage',
@@ -21,7 +26,7 @@ Route::middleware(['auth'])->group(function () {
     Volt::route('inspection', 'inspection.index')->middleware('role:inspection,manager')->name('inspection');
     Volt::route('auction', 'auction.index')->middleware('role:auction,manager')->name('auction');
     Volt::route('manage', 'manage.index')->middleware('role:manager')->name('manage');
-    Volt::route('users', 'users.index')->middleware('role:manager')->name('users');
+    Volt::route('users', 'users.index')->middleware('super')->name('users');
 
     // 설정
     Route::redirect('settings', 'settings/profile');
