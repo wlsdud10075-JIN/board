@@ -1,0 +1,164 @@
+# SKILLS — board 기술 문서
+
+재구현·이어작업 시 필수 패턴·재발 버그 회피. 도메인/권한/환경은 `CLAUDE.md` 참고.
+
+## 1. Volt 단일파일 컴포넌트
+PHP 클래스 + Blade 가 하나의 `.blade.php`. 화면은 `resources/views/livewire/{name}/index.blade.php` → 라우트 `Volt::route('x', 'name.index')`.
+```php
+<?php
+use Livewire\Attributes\{Computed, Layout};
+use Livewire\Volt\Component;
+
+new #[Layout('components.layouts.app')] class extends Component {
+    public ?int $editingId = null;
+    #[Computed] public function listings() { return PurchaseListing::latest()->get(); }
+    public function save(): void { /* ... */ }
+}; ?>
+<div> {{-- 단일 루트 --}} ... </div>
+```
+- `#[Layout('components.layouts.app')]` 필수(누락 시 500). auth 는 `components.layouts.auth`.
+- `#[Computed]` 캐시 무효화 = `unset($this->listings)`. blade 에서 `$this->listings`.
+- 폼/액션 후 `session()->flash('ok', ...)` + blade `@if(session('ok'))`.
+
+## 2. 상태머신 + 모델 가드 (`PurchaseListing::booted`)
+```php
+public const TRANSITIONS = [
+    'draft' => ['awaiting_buyer'], 'awaiting_buyer' => ['accepted','rejected'],
+    'accepted' => ['won','failed'], 'won' => ['synced'],
+    'rejected' => [], 'failed' => [], 'synced' => [],
+];
+public const IDENTITY_LOCKED = ['vehicle_number', 'vin'];
+public bool $allowManagerOverride = false;
+
+static::updating(function (PurchaseListing $l) {
+    // (1) 식별값 잠금 — 관리자 override + car-erp 미연동(car_erp_vehicle_id null) 만 정정 허용
+    foreach (self::IDENTITY_LOCKED as $col) {
+        if ($l->isDirty($col)) {
+            $canCorrect = $l->allowManagerOverride && $l->car_erp_vehicle_id === null;
+            if (! $canCorrect) throw new \RuntimeException("식별값({$col})...");
+        }
+    }
+    // (2) 전이 검증 (override 우회) + (3) accepted 는 buyer_verdict='accepted' 전제
+    if ($l->isDirty('status') && ! $l->allowManagerOverride) {
+        $from = $l->getOriginal('status'); $to = $l->status;
+        if (! in_array($to, self::TRANSITIONS[$from] ?? [], true)) throw new \RuntimeException("전이 불가 {$from}→{$to}");
+        if ($to === 'accepted' && $l->buyer_verdict !== 'accepted') throw new \RuntimeException("바이어 수락 필요");
+    }
+});
+```
+- **override 사용처**: manage 화면 `save()` 에서 `$l->allowManagerOverride = true; $l->save();` (시간잠금·전이 무관). 식별값은 그래도 미연동 차량만 허용 — 가드 순서 주의(식별값 체크가 override 체크보다 먼저).
+- **accept 전이**: inspection `setVerdict('accepted')` 는 `buyer_verdict`+`status='accepted'` 를 같이 set 후 save → 가드가 새 verdict 값을 보고 통과.
+
+## 3. SalesmanScope (영업 본인격리, Global Scope)
+```php
+#[ScopedBy([SalesmanScope::class])] class PurchaseListing ...
+
+// SalesmanScope::apply
+if ($user && $user->role === 'sales' && ! $user->isSuper()) {
+    $builder->where($model->getTable().'.created_by_user_id', $user->id);
+}
+```
+- **영업(sales) 만 본인격리. super·검차·경매·관리는 전체.** 컴포넌트마다 수동 when() 안 써도 구조적으로 IDOR 차단.
+- **콘솔/시더(비인증)는 격리 안 됨** → bulk 작업 OK. `withoutGlobalScopes()` 로 명시 해제 가능(테스트/복구용).
+
+## 4. 권한 미들웨어
+```php
+// EnsureRole — super 바이패스 + 비활성 차단
+if (! $user || ! $user->is_active) abort(403);
+if ($user->isSuper()) return $next($request);     // super 는 role 무관 통과
+if (! in_array($user->role, $roles, true)) abort(403);
+
+// EnsureSuper — /users 전용 (관리 role 도 차단)
+if (! $user || ! $user->is_active || ! $user->isSuper()) abort(403);
+```
+- alias 등록 = `bootstrap/app.php` `$middleware->alias([...])`.
+- 라우트: `->middleware('role:sales,manager')` / `->middleware('super')`.
+
+## 5. TimeGate (`App\Support\TimeGate`)
+서버시각 단일 판정. 클라 시각 신뢰 금지.
+```php
+public static function auctionLockAt(?Carbon $day = null): ?Carbon {
+    $day = ($day ?? now())->copy();
+    if ($day->isWeekend()) return null;               // 주말 미적용
+    [$h,$m] = explode(':', config('board.auction_lock_time','10:00'));
+    return $day->setTime((int)$h, (int)$m, 0);
+}
+public static function auctionRegistrationLocked(): bool {
+    $lock = self::auctionLockAt(); return $lock !== null && now()->greaterThanOrEqualTo($lock);
+}
+```
+- 경매 등록 시 `lock_at` stamp, `PurchaseListing::isLocked()` = source auction && lock_at && now>=lock_at.
+- 테스트는 `Carbon::setTestNow('2026-06-08 11:00:00')` 로 평일/주말 경계 검증(끝에 `setTestNow()` 리셋).
+
+## 6. BoardAudit (감사 단일 경로)
+```php
+$original = $l->only($fields);    // 변경 전 스냅샷
+// ... $l 값 변경 + save ...
+BoardAudit::logChanges($l, $original, $fields, Auth::id());  // 필드별 old≠new 만 기록
+```
+- `board_audit_logs` 는 append-only(`const UPDATED_AT = null`). action = status 면 'status_change' 아니면 'field_edit'.
+
+## 7. 사진 업로드 (WithFileUploads + 디스크 분리)
+```php
+use Livewire\WithFileUploads; ... use WithFileUploads;
+public array $photos = [];   // wire:model="photos" multiple, <input capture="environment">
+
+$path = $file->store(config('board.inspection_photo_prefix').'/'.$l->id, config('board.photo_disk'));
+$l->photos()->create(['s3_path'=>$path, 'original_name'=>$file->getClientOriginalName(), 'sort'=>...]);
+```
+- 디스크 = `config('board.photo_disk')` → 로컬 `public`(개발, `php artisan storage:link` 필요), 운영 `s3`(.env `BOARD_PHOTO_DISK=s3`).
+- 표시 URL = `Storage::disk(config('board.photo_disk'))->url($path)`.
+- **외관 사진만**(연동 A 시 서류·번호판 제외 — §28 레드라인).
+
+## 8. 슬라이드 드로어 패턴
+```php
+public ?int $editingId = null;
+#[Computed] public function editing(): ?PurchaseListing { return $this->editingId ? PurchaseListing::find($this->editingId) : null; }
+public function openEdit(int $id): void { $l = ...::findOrFail($id); $this->editingId = $l->id; /* 폼 채움 */ }
+public function closeEdit(): void { $this->reset([...]); unset($this->editing); }
+```
+```blade
+@if ($this->editing) @php $e = $this->editing; @endphp
+  <div class="fixed inset-0 z-40 bg-black/40" wire:click="closeEdit"></div>
+  <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[440px]"> ... </div>
+@endif
+```
+- 행 클릭 진입 = `<tr class="cursor-pointer hover:bg-gray-50" wire:click="openEdit({{ $l->id }})">`.
+- `findOrFail` 은 SalesmanScope 적용 → 영업은 본인 것만 열림(타인 id 변조 시 404).
+
+## 9. 디자인 시스템 (car-erp SKILLS §10 이식, `resources/css/app.css`)
+- `@theme` 에 `--color-primary:#7c6fcd`(보라) 등. **라이트 모드**(스타터킷 `class="dark"` 제거함).
+- 유틸: `.card`/`.card-sm` · `.btn-primary`/`.btn-outline`/`.btn-ghost`/`.btn-green`/`.btn-sm` · `.tab-pill` · `.pill-count` · `.input-base`/`.label-base` · `.tbl`(th/td) · `.kpi`.
+- 뱃지: `.badge` + `.badge-{blue,teal,purple,amber,red,green,gray,encar,auction}`.
+- 도메인 매핑: 상태 draft=blue / awaiting=amber / accepted=teal(엔카)·purple(경매) / won=green / rejected=red / failed·synced=gray. 출처 encar=blue / auction=amber.
+- 새 클래스 추가 후 **`npm run build`** 필요(Vite). 블레이드만 바꾸면 `view:clear`.
+
+## 10. 테스트 (PHPUnit — Pest 아님)
+- `tests/Feature/BoardTest.php`, 클래스 스타일 `extends Tests\TestCase` + `use RefreshDatabase`. `phpunit.xml` = sqlite `:memory:`.
+- 컴포넌트 = `Livewire\Volt\Volt::test('listings.index')->set(...)->call('save')->assertHasNoErrors()`.
+- 페이지 = `$this->actingAs($u)->get('/manage')->assertOk()` (레이아웃+컴포넌트 풀 렌더 검증).
+- 헬퍼: `mkUser($role, $email=null, $permission='user')`, `mkListing($owner, $attr=[])`, `assertItThrows($fn)`(베이스 `assertThrows` 와 충돌해 이름 다름).
+- 예외 다건 검증은 try/catch(`assertItThrows`) — `expectException` 은 첫 throw 에서 멈춤.
+
+## 11. 자주 발생한 버그
+1. **cwd 사고** — car-erp 디렉터리에서 board artisan/migrate 실행 → car-erp DB 오염. 항상 `cd /c/xampp/htdocs/board` 명시 + `\DB::connection()->getDatabaseName()` 확인. (CLAUDE.md 경고)
+2. **pint 를 .blade.php 에 돌리면 Volt 클래스 대량 reformat·깨짐** — `vendor/bin/pint app database tests bootstrap` (resources 제외). `.php` 만.
+3. **`self::CONST` 를 Volt blade 에서 접근 불가** — 익명 클래스라 안 됨. `$this->method()` 또는 `\App\Models\X::CONST` FQN. (manage 의 fieldLabel 처럼 public 메서드로)
+4. **MariaDB 시스템테이블 손상** — `CREATE USER`/`GRANT` 시 `Index for table 'db' is corrupt` → `REPAIR TABLE mysql.db; REPAIR TABLE mysql.tables_priv;` 후 재시도.
+5. **role 값 vs permission 혼동** — `manager`(관리 role) ≠ super(시스템관리자 permission). `/users` 는 super 전용, `/manage` 는 관리·super. `isManager()`=role, `isSuper()`=permission.
+6. **식별값 가드 순서** — IDENTITY_LOCKED 체크가 override 체크보다 먼저라 관리자도 연동된(car_erp_vehicle_id≠null) 차량 VIN 은 못 바꿈. 미연동만 정정.
+7. **시더 재실행** — listings `updateOrCreate(by vin)` 가 status 를 시드값으로 되돌리는데, DB 현재 status 가 다르면 전이 가드에 걸릴 수 있음. UI 로 상태 진행시킨 뒤 `db:seed` 재실행 주의(필요시 `migrate:fresh --seed` 또는 query update 로 복구).
+8. **enum unique + NULL** — `unique('vin')` / `unique(['auction_venue','lot_number'])` 는 MySQL/MariaDB 에서 NULL 다중 허용 → 엔카(venue/lot NULL)·VIN 없는 행 충돌 안 함.
+
+## 12. 연동 B 구현 시 참고 (영업담당자 이메일 매칭)
+car-erp `PurchaseSyncController` (신규, 대표 승인 후) 의사코드:
+```php
+// 1. 멱등: VIN 으로 기존 car-erp vehicle 조회 → 있으면 스킵/업데이트
+// 2. 영업 매칭 (이메일 기본 + id 보조)
+$salesman = Salesman::whereHas('user', fn($q)=>$q->where('email', $payload['salesman_email']))->first()
+         ?? ($payload['car_erp_salesman_id'] ? Salesman::find($payload['car_erp_salesman_id']) : null);
+// 3. Vehicle::create([... 'salesman_id' => $salesman?->id ...]) — null 이면 수동 지정 폴백
+// 4. 응답으로 vehicle.id 반환 → board 가 purchase_listings.car_erp_vehicle_id 채움 (이후 VIN 잠금)
+```
+- board push payload(최소): `{vin, vehicle_number, source, final_price, salesman_email, car_erp_salesman_id, c_no?}`. RRN/개인정보 미포함.
+- 선행: car-erp API 1개 + HMAC + 큐 워커(Supervisor). board 는 `status='won'` 가드 + `dispatch()->afterCommit()`.
