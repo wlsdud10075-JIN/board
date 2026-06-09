@@ -206,9 +206,9 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 {{-- 영업만 car-erp 매핑 --}}
                 @if ($role === 'sales')
-                    <label class="label-base mt-3">car-erp 영업담당자 ID <span class="text-xs font-normal text-gray-400">(연동용 · 선택)</span></label>
-                    <input class="input-base" wire:model="car_erp_salesman_id" inputmode="numeric" placeholder="car-erp salesmen.id">
-                    <p class="mt-1 text-xs text-gray-400">입력하면 추후 연동 B에서 낙찰 차량의 car-erp 영업담당자가 자동 지정됩니다.</p>
+                    <label class="label-base mt-3">car-erp 영업담당자 ID <span class="text-xs font-normal text-gray-400">(보조 · 선택)</span></label>
+                    <input class="input-base" wire:model="car_erp_salesman_id" inputmode="numeric" placeholder="이메일이 다를 때만 입력">
+                    <p class="mt-1 text-xs text-gray-400">연동 B는 <b>이메일로 car-erp 영업담당자를 자동 매칭</b>합니다 (이 계정 이메일 = car-erp 영업 이메일). 이 칸은 양쪽 이메일이 다른 예외에만 쓰는 보조 오버라이드입니다.</p>
                     @error('car_erp_salesman_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 @endif
 
