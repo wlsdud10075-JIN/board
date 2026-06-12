@@ -15,7 +15,7 @@ class PurchaseListing extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'created_by_user_id', 'source', 'region', 'vehicle_number', 'vin',
+        'created_by_user_id', 'source', 'region', 'c_no', 'vehicle_number', 'vin',
         'expected_price', 'car_cost', 'discount_rate', 'shipping_usd',
         'final_price', 'encar_url', 'encar_dealer',
         'auction_venue', 'lot_number', 'status', 'buyer_verdict',
