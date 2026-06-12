@@ -13,6 +13,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $source = 'encar';
     public string $vehicle_number = '';
     public string $vin = '';
+    public string $region = '';             // 지역 (검사지역, 자동완성)
     public ?string $car_cost = null;        // 차값 (KRW)
     public ?string $discount_rate = null;   // 할인율 (%)
     public ?int $shipping_usd = null;       // 배송금액 (USD 고정 택1)
@@ -23,6 +24,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     // ── 편집 (본인 글 수정) ──
     public ?int $editingId = null;
+    public string $e_region = '';
     public ?string $e_car_cost = null;
     public ?string $e_discount_rate = null;
     public ?int $e_shipping_usd = null;
@@ -77,6 +79,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $l = PurchaseListing::findOrFail($id);   // SalesmanScope: 영업은 본인 것만 로드 가능
         $this->editingId = $l->id;
+        $this->e_region = $l->region ?? '';
         $this->e_car_cost = $l->car_cost !== null ? (string) $l->car_cost : null;
         $this->e_discount_rate = $l->discount_rate !== null ? (string) $l->discount_rate : null;
         $this->e_shipping_usd = $l->shipping_usd;
@@ -89,7 +92,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number']);
+        $this->reset(['editingId', 'e_region', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number']);
         unset($this->editing);
     }
 
@@ -104,6 +107,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
 
         $this->validate([
+            'e_region' => 'nullable|string|max:60',
             'e_car_cost' => 'nullable|numeric|min:0',
             'e_discount_rate' => 'nullable|numeric|min:0|max:100',
             'e_shipping_usd' => 'nullable|integer|in:'.implode(',', config('board.shipping_options')),
@@ -113,6 +117,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'e_lot_number' => 'nullable|string|max:50',
         ]);
 
+        $l->region = $this->e_region ?: null;
         $l->car_cost = ($this->e_car_cost === null || $this->e_car_cost === '') ? null : (int) $this->e_car_cost;
         $l->discount_rate = ($this->e_discount_rate === null || $this->e_discount_rate === '') ? null : (float) $this->e_discount_rate;
         $l->shipping_usd = $this->e_shipping_usd ?: null;
@@ -149,6 +154,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->validate([
             'source' => 'required|in:encar,auction',
             'vehicle_number' => 'required|string|max:20',
+            'region' => 'nullable|string|max:60',
             'car_cost' => 'nullable|numeric|min:0',
             'discount_rate' => 'nullable|numeric|min:0|max:100',
             'shipping_usd' => 'nullable|integer|in:'.implode(',', config('board.shipping_options')),
@@ -177,6 +183,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'source' => $this->source,
             'vehicle_number' => $this->vehicle_number,
             'vin' => $this->vin ?: null,
+            'region' => $this->region ?: null,
             'car_cost' => $carCost,
             'discount_rate' => $discount,
             'shipping_usd' => $shipping,
@@ -199,7 +206,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     private function resetForm(): void
     {
-        $this->reset(['vehicle_number', 'vin', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
+        $this->reset(['vehicle_number', 'vin', 'region', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
         $this->source = 'encar';
         $this->resetErrorBag();
     }
@@ -258,8 +265,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                         class="px-3 py-1.5 text-[13px] font-semibold {{ $source === 'auction' ? 'bg-[var(--color-auction)] text-white' : 'bg-white text-gray-600' }}">🔨 경매</button>
                 </div>
 
-                {{-- 차량번호 · 차값 · 할인율 (한 행) --}}
-                <div class="grid gap-3 sm:grid-cols-3">
+                {{-- 차량번호 · 차값 · 할인율 · 지역 (한 행) --}}
+                <div class="grid gap-3 sm:grid-cols-4">
                     <div>
                         <label class="label-base">차량번호 <span class="text-red-500">*</span></label>
                         <input class="input-base" wire:model="vehicle_number" placeholder="12가3456">
@@ -275,16 +282,18 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <input class="input-base" wire:model.live.debounce.400ms="discount_rate" inputmode="decimal" placeholder="0">
                         @error('discount_rate') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
-                </div>
-
-                {{-- 출처별 식별 정보 (차량번호 행과 같은 사이즈) --}}
-                @if ($source === 'encar')
-                    <div class="mt-3 grid gap-3 sm:grid-cols-2">
-                        <div><label class="label-base">엔카 매물 URL / 매물번호</label><input class="input-base" wire:model="encar_url" placeholder="encar.com/... 또는 매물번호"></div>
-                        <div><label class="label-base">판매 딜러 / 지역</label><input class="input-base" wire:model="encar_dealer" placeholder="예: 강남지점"></div>
+                    <div>
+                        <label class="label-base">지역</label>
+                        <input class="input-base" wire:model="region" list="regionList" placeholder="예: 경기 수원시">
+                        @error('region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
-                    <p class="mt-2 text-xs text-gray-500">💡 엔카는 공식 API가 없습니다. 매물 URL/번호를 식별용으로만 기록.</p>
-                @else
+                </div>
+                <datalist id="regionList">
+                    @foreach (config('board.regions') as $r)<option value="{{ $r }}">@endforeach
+                </datalist>
+
+                {{-- 경매 전용 식별 정보 --}}
+                @if ($source === 'auction')
                     <div class="mt-3 grid gap-3 sm:grid-cols-2">
                         <div><label class="label-base">경매장</label><input class="input-base" wire:model="auction_venue" placeholder="롯데 / 현대 글로비스"></div>
                         <div><label class="label-base">출품번호</label><input class="input-base" wire:model="lot_number" placeholder="A-1024"></div>
@@ -403,12 +412,14 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <span class="text-sm font-semibold text-gray-700">최종금액</span><span class="text-base font-bold text-[var(--color-primary-text)]">{{ $eTotal !== null ? number_format($eTotal).'원' : '—' }}</span>
                 </div>
 
-                @if ($e->source === 'encar')
-                    <label class="label-base mt-3">엔카 매물 URL / 매물번호</label>
-                    <input class="input-base" wire:model="e_encar_url" @unless ($canEdit) disabled @endunless>
-                    <label class="label-base mt-3">판매 딜러 / 지역</label>
-                    <input class="input-base" wire:model="e_encar_dealer" @unless ($canEdit) disabled @endunless>
-                @else
+                <label class="label-base mt-3">지역</label>
+                <input class="input-base" wire:model="e_region" list="regionListEdit" placeholder="예: 경기 수원시" @unless ($canEdit) disabled @endunless>
+                <datalist id="regionListEdit">
+                    @foreach (config('board.regions') as $r)<option value="{{ $r }}">@endforeach
+                </datalist>
+                @error('e_region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+
+                @if ($e->source === 'auction')
                     <label class="label-base mt-3">경매장</label>
                     <input class="input-base" wire:model="e_auction_venue" @unless ($canEdit) disabled @endunless>
                     <label class="label-base mt-3">출품번호</label>
