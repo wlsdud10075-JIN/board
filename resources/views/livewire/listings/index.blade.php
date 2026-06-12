@@ -292,6 +292,15 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @foreach (config('board.regions') as $r)<option value="{{ $r }}">@endforeach
                 </datalist>
 
+                {{-- 엔카 전용 매물 URL --}}
+                @if ($source === 'encar')
+                    <div class="mt-3">
+                        <label class="label-base">엔카 매물 URL / 매물번호</label>
+                        <input class="input-base" wire:model="encar_url" placeholder="encar.com/... 또는 매물번호">
+                        @error('encar_url') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
+                @endif
+
                 {{-- 경매 전용 식별 정보 --}}
                 @if ($source === 'auction')
                     <div class="mt-3 grid gap-3 sm:grid-cols-2">
@@ -419,7 +428,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                 </datalist>
                 @error('e_region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                @if ($e->source === 'auction')
+                @if ($e->source === 'encar')
+                    <label class="label-base mt-3">엔카 매물 URL / 매물번호</label>
+                    <input class="input-base" wire:model="e_encar_url" @unless ($canEdit) disabled @endunless>
+                @else
                     <label class="label-base mt-3">경매장</label>
                     <input class="input-base" wire:model="e_auction_venue" @unless ($canEdit) disabled @endunless>
                     <label class="label-base mt-3">출품번호</label>
