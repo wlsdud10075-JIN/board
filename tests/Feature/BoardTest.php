@@ -120,13 +120,17 @@ class BoardTest extends TestCase
             ->set('source', 'encar')
             ->set('vehicle_number', '99가9999')
             ->set('vin', 'TESTVIN0001')
-            ->set('expected_price', '13500000')
+            ->set('car_cost', '13000000')
+            ->set('discount_rate', '0')
+            ->set('shipping_usd', 1640)
             ->call('save')
             ->assertHasNoErrors();
 
-        $this->assertTrue(
-            PurchaseListing::where('vin', 'TESTVIN0001')->where('created_by_user_id', $kim->id)->exists()
-        );
+        $l = PurchaseListing::where('vin', 'TESTVIN0001')->where('created_by_user_id', $kim->id)->first();
+        $this->assertNotNull($l);
+        // 차량금액 = 13,000,000 − 0% + 440,000(매도비) = 13,440,000
+        // 최종금액 = 13,440,000 + 1640 × 1380(임시환율) = 15,703,200 스냅샷
+        $this->assertSame(13440000 + 1640 * (int) config('board.default_krw_per_usd'), $l->final_price);
     }
 
     public function test_state_machine_blocks_invalid_transition_but_manager_overrides(): void
@@ -238,11 +242,12 @@ class BoardTest extends TestCase
 
         Volt::test('listings.index')
             ->call('openEdit', $l->id)
-            ->set('e_expected_price', '2222222')
+            ->set('e_car_cost', '2222222')
+            ->set('e_discount_rate', '0')
             ->call('update')
             ->assertHasNoErrors();
 
-        $this->assertSame(2222222, $l->fresh()->expected_price);
+        $this->assertSame(2222222, $l->fresh()->car_cost);
     }
 
     public function test_locked_auction_blocks_sales_edit(): void
@@ -256,11 +261,11 @@ class BoardTest extends TestCase
 
         Volt::test('listings.index')
             ->call('openEdit', $l->id)
-            ->set('e_expected_price', '9999999')
+            ->set('e_car_cost', '9999999')
             ->call('update')
-            ->assertHasErrors('e_expected_price');
+            ->assertHasErrors('e_car_cost');
 
-        $this->assertSame(1000000, $l->fresh()->expected_price);
+        $this->assertNull($l->fresh()->car_cost);
     }
 
     public function test_manager_corrects_identity_on_unsynced_listing(): void

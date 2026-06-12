@@ -13,7 +13,9 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $source = 'encar';
     public string $vehicle_number = '';
     public string $vin = '';
-    public ?string $expected_price = null;
+    public ?string $car_cost = null;        // 차값 (KRW)
+    public ?string $discount_rate = null;   // 할인율 (%)
+    public ?int $shipping_usd = null;       // 배송금액 (USD 고정 택1)
     public string $encar_url = '';
     public string $encar_dealer = '';
     public string $auction_venue = '';
@@ -21,11 +23,37 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     // ── 편집 (본인 글 수정) ──
     public ?int $editingId = null;
-    public ?string $e_expected_price = null;
+    public ?string $e_car_cost = null;
+    public ?string $e_discount_rate = null;
+    public ?int $e_shipping_usd = null;
     public string $e_encar_url = '';
     public string $e_encar_dealer = '';
     public string $e_auction_venue = '';
     public string $e_lot_number = '';
+
+    /** 차량금액(KRW) = 차값 − (차값 × 할인율%) + 매도비(고정). */
+    public function calcCarPrice($cost, $rate): ?int
+    {
+        if ($cost === null || $cost === '') {
+            return null;
+        }
+        $cost = (int) $cost;
+        $discount = (int) round($cost * ((float) $rate / 100));
+
+        return $cost - $discount + (int) config('board.sales_fee');
+    }
+
+    /** 최종금액(KRW) = 차량금액 + 배송(USD→KRW, 임시환율). */
+    public function calcTotal($cost, $rate, $usd): ?int
+    {
+        $car = $this->calcCarPrice($cost, $rate);
+        if ($car === null) {
+            return null;
+        }
+        $shipKrw = $usd ? (int) $usd * (int) config('board.default_krw_per_usd') : 0;
+
+        return $car + $shipKrw;
+    }
 
     #[Computed]
     public function listings()
@@ -49,7 +77,9 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $l = PurchaseListing::findOrFail($id);   // SalesmanScope: 영업은 본인 것만 로드 가능
         $this->editingId = $l->id;
-        $this->e_expected_price = $l->expected_price !== null ? (string) $l->expected_price : null;
+        $this->e_car_cost = $l->car_cost !== null ? (string) $l->car_cost : null;
+        $this->e_discount_rate = $l->discount_rate !== null ? (string) $l->discount_rate : null;
+        $this->e_shipping_usd = $l->shipping_usd;
         $this->e_encar_url = $l->encar_url ?? '';
         $this->e_encar_dealer = $l->encar_dealer ?? '';
         $this->e_auction_venue = $l->auction_venue ?? '';
@@ -59,7 +89,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'e_expected_price', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number']);
+        $this->reset(['editingId', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number']);
         unset($this->editing);
     }
 
@@ -68,20 +98,25 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l = PurchaseListing::findOrFail($this->editingId);
 
         if (! $this->editable($l)) {
-            $this->addError('e_expected_price', '시간잠금된 경매 차량은 수정할 수 없습니다. (관리자 문의)');
+            $this->addError('e_car_cost', '시간잠금된 경매 차량은 수정할 수 없습니다. (관리자 문의)');
 
             return;
         }
 
         $this->validate([
-            'e_expected_price' => 'nullable|numeric|min:0',
+            'e_car_cost' => 'nullable|numeric|min:0',
+            'e_discount_rate' => 'nullable|numeric|min:0|max:100',
+            'e_shipping_usd' => 'nullable|integer|in:'.implode(',', config('board.shipping_options')),
             'e_encar_url' => 'nullable|string|max:255',
             'e_encar_dealer' => 'nullable|string|max:100',
             'e_auction_venue' => 'nullable|string|max:100',
             'e_lot_number' => 'nullable|string|max:50',
         ]);
 
-        $l->expected_price = ($this->e_expected_price === null || $this->e_expected_price === '') ? null : (int) $this->e_expected_price;
+        $l->car_cost = ($this->e_car_cost === null || $this->e_car_cost === '') ? null : (int) $this->e_car_cost;
+        $l->discount_rate = ($this->e_discount_rate === null || $this->e_discount_rate === '') ? null : (float) $this->e_discount_rate;
+        $l->shipping_usd = $this->e_shipping_usd ?: null;
+        $l->final_price = $l->totalKrw() ?? $l->final_price;
         if ($l->source === 'encar') {
             $l->encar_url = $this->e_encar_url ?: null;
             $l->encar_dealer = $this->e_encar_dealer ?: null;
@@ -115,7 +150,9 @@ new #[Layout('components.layouts.app')] class extends Component {
             'source' => 'required|in:encar,auction',
             'vehicle_number' => 'required|string|max:20',
             'vin' => 'required|string|max:32|unique:purchase_listings,vin',
-            'expected_price' => 'nullable|numeric|min:0',
+            'car_cost' => 'nullable|numeric|min:0',
+            'discount_rate' => 'nullable|numeric|min:0|max:100',
+            'shipping_usd' => 'nullable|integer|in:'.implode(',', config('board.shipping_options')),
             'encar_url' => 'nullable|string|max:255',
             'encar_dealer' => 'nullable|string|max:100',
             'auction_venue' => 'nullable|string|max:100',
@@ -132,12 +169,18 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
 
-        PurchaseListing::create([
+        $carCost = ($this->car_cost === null || $this->car_cost === '') ? null : (int) $this->car_cost;
+        $discount = ($this->discount_rate === null || $this->discount_rate === '') ? null : (float) $this->discount_rate;
+        $shipping = $this->shipping_usd ?: null;
+
+        $listing = new PurchaseListing([
             'created_by_user_id' => Auth::id(),
             'source' => $this->source,
             'vehicle_number' => $this->vehicle_number,
             'vin' => $this->vin,
-            'expected_price' => ($this->expected_price === null || $this->expected_price === '') ? null : (int) $this->expected_price,
+            'car_cost' => $carCost,
+            'discount_rate' => $discount,
+            'shipping_usd' => $shipping,
             'encar_url' => $this->source === 'encar' ? ($this->encar_url ?: null) : null,
             'encar_dealer' => $this->source === 'encar' ? ($this->encar_dealer ?: null) : null,
             'auction_venue' => $this->source === 'auction' ? ($this->auction_venue ?: null) : null,
@@ -146,6 +189,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             'status' => 'draft',
             'buyer_verdict' => 'none',
         ]);
+        $listing->final_price = $listing->totalKrw();   // 금액 입력 시 최종금액(KRW) 스냅샷
+        $listing->save();
 
         $this->resetForm();
         $this->showAdd = false;
@@ -155,23 +200,31 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     private function resetForm(): void
     {
-        $this->reset(['vehicle_number', 'vin', 'expected_price', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
+        $this->reset(['vehicle_number', 'vin', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
         $this->source = 'encar';
         $this->resetErrorBag();
     }
 
     public function with(): array
     {
-        return ['auctionLocked' => TimeGate::auctionRegistrationLocked()];
+        return [
+            'auctionLocked' => TimeGate::auctionRegistrationLocked(),
+            'krwPerUsd' => (int) config('board.default_krw_per_usd'),
+        ];
     }
 }; ?>
 
 <div class="p-3 md:p-6">
     {{-- 헤더 --}}
-    <div class="mb-4 flex items-center justify-between">
+    <div class="mb-4 flex items-start justify-between gap-3">
         <div>
             <h1 class="text-xl font-bold text-gray-800">매입예정 (영업)</h1>
             <p class="mt-0.5 text-xs text-gray-500">🔒 본인({{ auth()->user()->name }}) 리스트만 표시 — 서버/DB 레벨 격리</p>
+        </div>
+        {{-- 환율 (임시값 — 슬라이스2에서 네이버/다음 라이브 조회) --}}
+        <div class="card-sm shrink-0 text-right text-[13px]" style="background:#f5f8ff;border-color:#dbeafe">
+            <div class="text-[11px] text-gray-500">💱 적용 환율 <span class="text-gray-400">(임시)</span></div>
+            <div class="font-bold text-gray-800">USD 1 = {{ number_format($krwPerUsd) }}원</div>
         </div>
     </div>
 
@@ -206,7 +259,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                         class="px-3 py-1.5 text-[13px] font-semibold {{ $source === 'auction' ? 'bg-[var(--color-auction)] text-white' : 'bg-white text-gray-600' }}">🔨 경매</button>
                 </div>
 
-                <div class="grid gap-3 sm:grid-cols-3">
+                <div class="grid gap-3 sm:grid-cols-2">
                     <div>
                         <label class="label-base">차량번호 <span class="text-red-500">*</span></label>
                         <input class="input-base" wire:model="vehicle_number" placeholder="12가3456">
@@ -217,11 +270,40 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <input class="input-base" wire:model="vin" placeholder="KMHxxxxxxxxxxxxxx">
                         @error('vin') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
+                </div>
+
+                {{-- 금액 산정 (§6) --}}
+                @php $carPrice = $this->calcCarPrice($car_cost, $discount_rate); $total = $this->calcTotal($car_cost, $discount_rate, $shipping_usd); @endphp
+                <div class="mt-3 grid gap-3 sm:grid-cols-2">
                     <div>
-                        <label class="label-base">예상가 (선택)</label>
-                        <input class="input-base" wire:model="expected_price" placeholder="13500000" inputmode="numeric">
-                        @error('expected_price') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                        <label class="label-base">차값 (원)</label>
+                        <input class="input-base" wire:model.live.debounce.400ms="car_cost" inputmode="numeric" placeholder="13000000">
+                        @error('car_cost') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
+                    <div>
+                        <label class="label-base">할인율 (%)</label>
+                        <input class="input-base" wire:model.live.debounce.400ms="discount_rate" inputmode="decimal" placeholder="0">
+                        @error('discount_rate') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
+                </div>
+                <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
+                    <span>＋ 매도비 (고정)</span><span class="font-semibold text-gray-700">{{ number_format((int) config('board.sales_fee')) }}원</span>
+                </div>
+                <div class="mt-1 flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 text-sm">
+                    <span class="text-gray-600">차량금액 (Car Price)</span>
+                    <span class="font-bold text-gray-800">{{ $carPrice !== null ? number_format($carPrice).'원' : '—' }}</span>
+                </div>
+                <label class="label-base mt-3">배송금액 (USD 고정)</label>
+                <div class="inline-flex overflow-hidden rounded-md border border-gray-300">
+                    @foreach (config('board.shipping_options') as $opt)
+                        <button type="button" wire:click="$set('shipping_usd', {{ $opt }})"
+                            class="px-3 py-1.5 text-[13px] font-semibold {{ (int) $shipping_usd === $opt ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }}">${{ number_format($opt) }}</button>
+                    @endforeach
+                </div>
+                @error('shipping_usd') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                <div class="mt-3 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
+                    <span class="text-sm font-semibold text-gray-700">최종금액 (Total)</span>
+                    <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $total !== null ? number_format($total).'원' : '—' }}</span>
                 </div>
 
                 @if ($source === 'encar')
@@ -237,7 +319,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     </div>
                 @endif
 
-                <p class="mt-2 text-xs text-gray-500">차량번호·VIN은 중복 방지 식별키라 <b>필수</b>이며 등록 후 수정 불가. 예상가는 선택 — 현지 차상태 확인 후 <b>최종금액으로 확정</b>됩니다.</p>
+                <p class="mt-2 text-xs text-gray-500">차량번호·VIN은 중복 방지 식별키라 <b>필수</b>이며 등록 후 수정 불가. 금액은 선택 입력이며 현지 차상태 확인 후 조정될 수 있습니다.</p>
                 @error('source') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 <div class="mt-3 flex gap-2">
@@ -251,7 +333,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="overflow-x-auto">
             <table class="tbl">
                 <thead>
-                    <tr><th class="w-px whitespace-nowrap">차량</th><th>출처</th><th>예상가</th><th>최종금액</th><th>추가검사사항</th><th>바이어</th><th>상태</th></tr>
+                    <tr><th class="w-px whitespace-nowrap">차량</th><th>출처</th><th>최종금액</th><th>추가검사사항</th><th>바이어</th><th>상태</th></tr>
                 </thead>
                 <tbody>
                     @forelse ($this->listings as $l)
@@ -261,14 +343,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <div class="text-xs text-gray-400">VIN ·{{ \Illuminate\Support\Str::limit($l->vin, 10, '') }}</div>
                             </td>
                             <td><span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }}">{{ $l->isAuction() ? '경매' : '엔카' }}</span></td>
-                            <td class="text-gray-700">{{ $l->expected_price ? number_format($l->expected_price).'원' : '—' }}</td>
                             <td class="font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).'원' : '—' }}</td>
                             <td class="max-w-[200px] truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">{{ $l->inspection_note ?: '—' }}</td>
                             <td>@if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</td>
                             <td><span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span></td>
                         </tr>
                     @empty
-                        <tr><td colspan="7" class="py-8 text-center text-gray-400">매입예정이 없습니다. “+ 매입예정 추가”로 등록하세요.</td></tr>
+                        <tr><td colspan="6" class="py-8 text-center text-gray-400">매입예정이 없습니다. “+ 매입예정 추가”로 등록하세요.</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -296,9 +377,37 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <div class="card-sm mb-3 border-amber-200 bg-amber-50 text-[13px] text-amber-800">🔒 시간잠금된 경매 차량입니다. 수정은 관리자에게 문의하세요.</div>
                 @endunless
 
-                <label class="label-base">예상가</label>
-                <input class="input-base" wire:model="e_expected_price" inputmode="numeric" @unless ($canEdit) disabled @endunless>
-                @error('e_expected_price') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                {{-- 금액 산정 (§6) --}}
+                @php $eCar = $this->calcCarPrice($e_car_cost, $e_discount_rate); $eTotal = $this->calcTotal($e_car_cost, $e_discount_rate, $e_shipping_usd); @endphp
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="label-base">차값 (원)</label>
+                        <input class="input-base" wire:model.live.debounce.400ms="e_car_cost" inputmode="numeric" @unless ($canEdit) disabled @endunless>
+                        @error('e_car_cost') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
+                    <div>
+                        <label class="label-base">할인율 (%)</label>
+                        <input class="input-base" wire:model.live.debounce.400ms="e_discount_rate" inputmode="decimal" @unless ($canEdit) disabled @endunless>
+                        @error('e_discount_rate') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
+                </div>
+                <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
+                    <span>＋ 매도비 (고정)</span><span class="font-semibold text-gray-700">{{ number_format((int) config('board.sales_fee')) }}원</span>
+                </div>
+                <div class="mt-1 flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 text-sm">
+                    <span class="text-gray-600">차량금액</span><span class="font-bold text-gray-800">{{ $eCar !== null ? number_format($eCar).'원' : '—' }}</span>
+                </div>
+                <label class="label-base mt-3">배송금액 (USD 고정)</label>
+                <div class="inline-flex overflow-hidden rounded-md border border-gray-300">
+                    @foreach (config('board.shipping_options') as $opt)
+                        <button type="button" @if ($canEdit) wire:click="$set('e_shipping_usd', {{ $opt }})" @else disabled @endif
+                            class="px-3 py-1.5 text-[13px] font-semibold {{ (int) $e_shipping_usd === $opt ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }}">${{ number_format($opt) }}</button>
+                    @endforeach
+                </div>
+                @error('e_shipping_usd') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                <div class="mt-3 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
+                    <span class="text-sm font-semibold text-gray-700">최종금액</span><span class="text-base font-bold text-[var(--color-primary-text)]">{{ $eTotal !== null ? number_format($eTotal).'원' : '—' }}</span>
+                </div>
 
                 @if ($e->source === 'encar')
                     <label class="label-base mt-3">엔카 매물 URL / 매물번호</label>
