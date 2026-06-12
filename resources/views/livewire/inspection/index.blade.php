@@ -16,6 +16,37 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $buyer_name = '';
     public array $photos = [];
 
+    // ── 검사지역 + 금액 재설계 (§6) ──
+    public string $region = '';
+    public string $inspection_note = '';
+    public ?string $car_cost = null;       // 차값 (KRW)
+    public ?string $discount_rate = null;  // 할인율 (%)
+    public ?int $shipping_usd = null;      // 배송금액 (USD 고정 택1)
+
+    /** 입력값 기준 차량금액(KRW) 미리보기 = 차값 − (차값 × 할인율%) + 매도비. */
+    public function carPricePreview(): ?int
+    {
+        if ($this->car_cost === null || $this->car_cost === '') {
+            return null;
+        }
+        $cost = (int) $this->car_cost;
+        $discount = (int) round($cost * ((float) $this->discount_rate / 100));
+
+        return $cost - $discount + (int) config('board.sales_fee');
+    }
+
+    /** 최종금액(KRW) 미리보기 = 차량금액 + 배송(USD→KRW, 임시환율). */
+    public function totalPreview(): ?int
+    {
+        $car = $this->carPricePreview();
+        if ($car === null) {
+            return null;
+        }
+        $shipKrw = $this->shipping_usd ? $this->shipping_usd * (int) config('board.default_krw_per_usd') : 0;
+
+        return $car + $shipKrw;
+    }
+
     #[Computed]
     public function groups()
     {
@@ -39,14 +70,37 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->final_price = $l->final_price !== null ? (string) $l->final_price : null;
         $this->inspection_memo = $l->inspection_memo ?? '';
         $this->buyer_name = $l->buyer_name ?? '';
+        $this->region = $l->region ?? '';
+        $this->inspection_note = $l->inspection_note ?? '';
+        $this->car_cost = $l->car_cost !== null ? (string) $l->car_cost : null;
+        $this->discount_rate = $l->discount_rate !== null ? (string) $l->discount_rate : null;
+        $this->shipping_usd = $l->shipping_usd;
         $this->photos = [];
         $this->resetErrorBag();
     }
 
     public function closeDrawer(): void
     {
-        $this->reset(['editingId', 'final_price', 'inspection_memo', 'buyer_name', 'photos']);
+        $this->reset(['editingId', 'final_price', 'inspection_memo', 'buyer_name', 'photos',
+            'region', 'inspection_note', 'car_cost', 'discount_rate', 'shipping_usd']);
         unset($this->editing, $this->groups);
+    }
+
+    /** 입력된 검사지역·금액 필드를 모델에 반영 + final_price 에 최종금액(KRW) 스냅샷. */
+    private function applyInspectionFields(PurchaseListing $l): void
+    {
+        $l->region = $this->region ?: null;
+        $l->inspection_note = $this->inspection_note ?: null;
+        $l->car_cost = ($this->car_cost === null || $this->car_cost === '') ? null : (int) $this->car_cost;
+        $l->discount_rate = ($this->discount_rate === null || $this->discount_rate === '') ? null : (float) $this->discount_rate;
+        $l->shipping_usd = $this->shipping_usd ?: null;
+        // 최종금액(KRW) 스냅샷 — 공식 입력이 있으면 자동 계산, 없으면 수동 final_price 유지.
+        $computed = $l->totalKrw();
+        if ($computed !== null) {
+            $l->final_price = $computed;
+        } elseif ($this->final_price !== null && $this->final_price !== '') {
+            $l->final_price = (int) $this->final_price;
+        }
     }
 
     private function persistPhotos(PurchaseListing $l): void
@@ -69,15 +123,27 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->photos = [];
     }
 
+    private function pricingRules(): array
+    {
+        return [
+            'final_price' => 'nullable|numeric|min:0',
+            'region' => 'nullable|string|max:60',
+            'inspection_note' => 'nullable|string|max:255',
+            'car_cost' => 'nullable|numeric|min:0',
+            'discount_rate' => 'nullable|numeric|min:0|max:100',
+            'shipping_usd' => 'nullable|integer|in:'.implode(',', config('board.shipping_options')),
+        ];
+    }
+
     public function saveDraft(): void
     {
-        $this->validate(['final_price' => 'nullable|numeric|min:0']);
+        $this->validate($this->pricingRules());
         $l = PurchaseListing::findOrFail($this->editingId);
-        $l->final_price = ($this->final_price === null || $this->final_price === '') ? null : (int) $this->final_price;
         $l->inspection_memo = $this->inspection_memo ?: null;
         if ($this->buyer_name !== '') {
             $l->buyer_name = $this->buyer_name;
         }
+        $this->applyInspectionFields($l);
         $l->save();
         $this->persistPhotos($l);
         session()->flash('ok', '저장되었습니다.');
@@ -86,15 +152,21 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function sendToBuyer(): void
     {
-        $this->validate([
-            'final_price' => 'required|numeric|min:0',
+        $this->validate($this->pricingRules() + [
             'buyer_name' => 'required|string|max:100',
-        ], attributes: ['final_price' => '현지 최종금액', 'buyer_name' => '바이어명']);
+        ], attributes: ['buyer_name' => '바이어명']);
+
+        // 최종금액 = 공식(차값) 또는 수동 final_price 중 하나는 있어야 전달 가능.
+        if ($this->carPricePreview() === null && ($this->final_price === null || $this->final_price === '')) {
+            $this->addError('car_cost', '차값(또는 최종금액)을 입력해야 바이어에게 전달할 수 있습니다.');
+
+            return;
+        }
 
         $l = PurchaseListing::findOrFail($this->editingId);
-        $l->final_price = (int) $this->final_price;
         $l->inspection_memo = $this->inspection_memo ?: null;
         $l->buyer_name = $this->buyer_name;
+        $this->applyInspectionFields($l);
         if ($l->status === 'draft') {
             $l->status = 'awaiting_buyer';
             $l->buyer_verdict = 'pending';
@@ -211,14 +283,65 @@ new #[Layout('components.layouts.app')] class extends Component {
                     </div>
                 @endif
 
+                {{-- 검사지역 --}}
+                <div class="section-title-sm">검사지역</div>
+                <input class="input-base" wire:model="region" list="regionList" placeholder="예: 경기 수원시 (입력 시 자동완성)">
+                <datalist id="regionList">
+                    @foreach (config('board.regions') as $r)<option value="{{ $r }}">@endforeach
+                </datalist>
+                @error('region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+
                 {{-- 메모 --}}
                 <div class="section-title-sm">차 상태 메모</div>
                 <input class="input-base" wire:model="inspection_memo" placeholder="예: 운전석 시트 사용감, 앞범퍼 미세 스크래치">
 
-                {{-- 최종금액 --}}
-                <div class="section-title-sm">현지 최종금액 (차 상태 반영)</div>
-                <input class="input-base" wire:model="final_price" inputmode="numeric" placeholder="예: 13200000">
-                @error('final_price') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                {{-- 추가검사사항 (listings 표에 표시) --}}
+                <div class="section-title-sm">추가검사사항</div>
+                <input class="input-base" wire:model="inspection_note" placeholder="예: 보증서 미비, 타이어 교체 권장">
+                @error('inspection_note') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+
+                {{-- 금액 산정 (§6) --}}
+                <div class="section-title-sm">금액 산정</div>
+                @php
+                    $carPrice = $this->carPricePreview();
+                    $total = $this->totalPreview();
+                    $rate = (int) config('board.default_krw_per_usd');
+                @endphp
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="label-base">차값 (원)</label>
+                        <input class="input-base" wire:model.live.debounce.400ms="car_cost" inputmode="numeric" placeholder="13000000">
+                        @error('car_cost') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
+                    <div>
+                        <label class="label-base">할인율 (%)</label>
+                        <input class="input-base" wire:model.live.debounce.400ms="discount_rate" inputmode="decimal" placeholder="0">
+                        @error('discount_rate') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
+                </div>
+                <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
+                    <span>＋ 매도비 (고정)</span>
+                    <span class="font-semibold text-gray-700">{{ number_format((int) config('board.sales_fee')) }}원</span>
+                </div>
+                <div class="mt-1 flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 text-sm">
+                    <span class="text-gray-600">차량금액 (Car Price)</span>
+                    <span class="font-bold text-gray-800">{{ $carPrice !== null ? number_format($carPrice).'원' : '—' }}</span>
+                </div>
+
+                <label class="label-base mt-3">배송금액 (USD 고정)</label>
+                <div class="inline-flex overflow-hidden rounded-md border border-gray-300">
+                    @foreach (config('board.shipping_options') as $opt)
+                        <button type="button" wire:click="$set('shipping_usd', {{ $opt }})"
+                            class="px-3 py-1.5 text-[13px] font-semibold {{ (int) $shipping_usd === $opt ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }}">${{ number_format($opt) }}</button>
+                    @endforeach
+                </div>
+                @error('shipping_usd') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+
+                <div class="mt-3 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
+                    <span class="text-sm font-semibold text-gray-700">최종금액 (Total)</span>
+                    <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $total !== null ? number_format($total).'원' : '—' }}</span>
+                </div>
+                <p class="mt-1 text-[11px] text-gray-400">배송 ${{ number_format((int) $shipping_usd) }} × {{ number_format($rate) }}원(임시환율) 적용 · USD/EUR 변환은 다음 단계</p>
 
                 {{-- 바이어 --}}
                 <div class="section-title-sm">바이어에게 전달 / 회신</div>

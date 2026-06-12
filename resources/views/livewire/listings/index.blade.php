@@ -251,23 +251,24 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="overflow-x-auto">
             <table class="tbl">
                 <thead>
-                    <tr><th>차량</th><th>출처</th><th>예상가</th><th>현지 최종금액</th><th>바이어</th><th>상태</th></tr>
+                    <tr><th class="w-px whitespace-nowrap">차량</th><th>출처</th><th>예상가</th><th>최종금액</th><th>추가검사사항</th><th>바이어</th><th>상태</th></tr>
                 </thead>
                 <tbody>
                     @forelse ($this->listings as $l)
                         <tr class="cursor-pointer hover:bg-gray-50" wire:click="openEdit({{ $l->id }})">
-                            <td>
+                            <td class="w-px whitespace-nowrap">
                                 <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
-                                <div class="text-xs text-gray-400">VIN ·{{ \Illuminate\Support\Str::limit($l->vin, 10, '') }}{{ $l->isAuction() && $l->lot_number ? ' · '.$l->auction_venue.' '.$l->lot_number : '' }}</div>
+                                <div class="text-xs text-gray-400">VIN ·{{ \Illuminate\Support\Str::limit($l->vin, 10, '') }}</div>
                             </td>
                             <td><span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }}">{{ $l->isAuction() ? '경매' : '엔카' }}</span></td>
                             <td class="text-gray-700">{{ $l->expected_price ? number_format($l->expected_price).'원' : '—' }}</td>
                             <td class="font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).'원' : '—' }}</td>
+                            <td class="max-w-[200px] truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">{{ $l->inspection_note ?: '—' }}</td>
                             <td>@if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</td>
                             <td><span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span></td>
                         </tr>
                     @empty
-                        <tr><td colspan="6" class="py-8 text-center text-gray-400">매입예정이 없습니다. “+ 매입예정 추가”로 등록하세요.</td></tr>
+                        <tr><td colspan="7" class="py-8 text-center text-gray-400">매입예정이 없습니다. “+ 매입예정 추가”로 등록하세요.</td></tr>
                     @endforelse
                 </tbody>
             </table>

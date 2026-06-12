@@ -15,20 +15,59 @@ class PurchaseListing extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'created_by_user_id', 'source', 'vehicle_number', 'vin',
-        'expected_price', 'final_price', 'encar_url', 'encar_dealer',
+        'created_by_user_id', 'source', 'region', 'vehicle_number', 'vin',
+        'expected_price', 'car_cost', 'discount_rate', 'shipping_usd',
+        'final_price', 'encar_url', 'encar_dealer',
         'auction_venue', 'lot_number', 'status', 'buyer_verdict',
-        'buyer_name', 'inspection_memo', 'lock_at', 'car_erp_vehicle_id',
+        'buyer_name', 'inspection_memo', 'inspection_note', 'lock_at', 'car_erp_vehicle_id',
     ];
 
     protected function casts(): array
     {
         return [
             'expected_price' => 'integer',
+            'car_cost' => 'integer',
+            'discount_rate' => 'decimal:2',
+            'shipping_usd' => 'integer',
             'final_price' => 'integer',
             'lock_at' => 'datetime',
             'car_erp_vehicle_id' => 'integer',
         ];
+    }
+
+    // ─────────────────────── 금액 (§6) ───────────────────────
+
+    /** 차량금액(Car Price, KRW) = 차값 − (차값 × 할인율%) + 매도비(고정). 입력 없으면 null. */
+    public function carPriceKrw(): ?int
+    {
+        if ($this->car_cost === null) {
+            return null;
+        }
+        $discount = (int) round($this->car_cost * ((float) $this->discount_rate / 100));
+
+        return $this->car_cost - $discount + (int) config('board.sales_fee');
+    }
+
+    /** 배송금액을 KRW 로 환산 (임시환율 — 슬라이스2에서 라이브 환율로 대체). */
+    public function shippingKrw(?int $krwPerUsd = null): ?int
+    {
+        if ($this->shipping_usd === null) {
+            return null;
+        }
+        $rate = $krwPerUsd ?? (int) config('board.default_krw_per_usd');
+
+        return $this->shipping_usd * $rate;
+    }
+
+    /** 최종금액(Total, KRW) = 차량금액 + 배송금액(KRW 환산). 둘 중 하나라도 없으면 차량금액만/ null. */
+    public function totalKrw(?int $krwPerUsd = null): ?int
+    {
+        $car = $this->carPriceKrw();
+        if ($car === null) {
+            return null;
+        }
+
+        return $car + (int) ($this->shippingKrw($krwPerUsd) ?? 0);
     }
 
     // ─────────────────────── 상태머신 ───────────────────────
