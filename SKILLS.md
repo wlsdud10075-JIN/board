@@ -166,6 +166,7 @@ $salesman = Salesman::whereHas('user', fn($q)=>$q->where('email', $payload['sale
 ### 연동 B/A 추가 스키마 (codex/gemini 리뷰 수용, 2026-06-12)
 - **`integration_events`** (append-only, board_audit_logs 와 별개): `id · direction(outbound/inbound) · target(car_erp/respond_io) · event_type · purchase_listing_id(nullable) · external_event_id(nullable, inbound 중복제거 키) · request_payload(json) · response_status · response_body · error · created_at`. updated_at 없음. **연동 B 에서 신설, 연동 A inbound 가 `external_event_id` 로 멱등성 확보 시 재사용.**
 - **`purchase_listings` 추가 컬럼**(연동 A 시): `c_no`(string nullable, **index, non-unique** — 조인 thread 이지 중복키 아님. dedup 은 그대로 vin·(venue,lot)) · `respond_contact_id`(string nullable) · `respond_conversation_id`(string nullable). **`phone_hash` 등 전화 파생값 금지**(contact_id 로 충분 + PII 최소보유).
+  - **c_no 채움 = 출처 분기**: ssancar.com 클릭 유입만 c_no 따라옴(우리 소유 → 채팅 링크에 c_no 보장) → 연동 A inbound 가 자동 채움. **엔카·기타 출처는 c_no = NULL 정상**(예외만 수동입력). 모든 listing 필수값 아님.
 - **`config/services.php`**: `car_erp` => `{base_url, hmac_secret}`, `respond_io` => `{api_token, webhook_secret}`. (`.env` 키: `CAR_ERP_BASE_URL`/`CAR_ERP_HMAC_SECRET`/`RESPOND_API_TOKEN`/`RESPOND_WEBHOOK_SECRET`)
 - **멱등 컬럼 비대화 금지**: B 의 outbound 멱등은 `car_erp_vehicle_id` null 가드 + car-erp VIN 사전조회로 끝. `idempotency_key`/`sync_attempts`/`last_sync_error` 를 purchase_listings 에 추가하지 말 것 — 시도/에러 이력은 `integration_events` 로.
 - **api 라우팅**: `bootstrap/app.php` 에 `api: __DIR__.'/../routes/api.php'` 추가 + `WebhookController`(HMAC 검증) — 현재 web only.
