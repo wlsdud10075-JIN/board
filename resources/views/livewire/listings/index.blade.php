@@ -149,7 +149,6 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->validate([
             'source' => 'required|in:encar,auction',
             'vehicle_number' => 'required|string|max:20',
-            'vin' => 'required|string|max:32|unique:purchase_listings,vin',
             'car_cost' => 'nullable|numeric|min:0',
             'discount_rate' => 'nullable|numeric|min:0|max:100',
             'shipping_usd' => 'nullable|integer|in:'.implode(',', config('board.shipping_options')),
@@ -177,7 +176,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'created_by_user_id' => Auth::id(),
             'source' => $this->source,
             'vehicle_number' => $this->vehicle_number,
-            'vin' => $this->vin,
+            'vin' => $this->vin ?: null,
             'car_cost' => $carCost,
             'discount_rate' => $discount,
             'shipping_usd' => $shipping,
@@ -259,22 +258,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                         class="px-3 py-1.5 text-[13px] font-semibold {{ $source === 'auction' ? 'bg-[var(--color-auction)] text-white' : 'bg-white text-gray-600' }}">🔨 경매</button>
                 </div>
 
-                <div class="grid gap-3 sm:grid-cols-2">
+                {{-- 차량번호 · 차값 · 할인율 (한 행) --}}
+                <div class="grid gap-3 sm:grid-cols-3">
                     <div>
                         <label class="label-base">차량번호 <span class="text-red-500">*</span></label>
                         <input class="input-base" wire:model="vehicle_number" placeholder="12가3456">
                         @error('vehicle_number') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
-                    <div>
-                        <label class="label-base">차대번호 VIN <span class="text-red-500">*</span></label>
-                        <input class="input-base" wire:model="vin" placeholder="KMHxxxxxxxxxxxxxx">
-                        @error('vin') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                    </div>
-                </div>
-
-                {{-- 금액 산정 (§6) --}}
-                @php $carPrice = $this->calcCarPrice($car_cost, $discount_rate); $total = $this->calcTotal($car_cost, $discount_rate, $shipping_usd); @endphp
-                <div class="mt-3 grid gap-3 sm:grid-cols-2">
                     <div>
                         <label class="label-base">차값 (원)</label>
                         <input class="input-base" wire:model.live.debounce.400ms="car_cost" inputmode="numeric" placeholder="13000000">
@@ -286,7 +276,24 @@ new #[Layout('components.layouts.app')] class extends Component {
                         @error('discount_rate') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                 </div>
-                <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
+
+                {{-- 출처별 식별 정보 (차량번호 행과 같은 사이즈) --}}
+                @if ($source === 'encar')
+                    <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                        <div><label class="label-base">엔카 매물 URL / 매물번호</label><input class="input-base" wire:model="encar_url" placeholder="encar.com/... 또는 매물번호"></div>
+                        <div><label class="label-base">판매 딜러 / 지역</label><input class="input-base" wire:model="encar_dealer" placeholder="예: 강남지점"></div>
+                    </div>
+                    <p class="mt-2 text-xs text-gray-500">💡 엔카는 공식 API가 없습니다. 매물 URL/번호를 식별용으로만 기록.</p>
+                @else
+                    <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                        <div><label class="label-base">경매장</label><input class="input-base" wire:model="auction_venue" placeholder="롯데 / 현대 글로비스"></div>
+                        <div><label class="label-base">출품번호</label><input class="input-base" wire:model="lot_number" placeholder="A-1024"></div>
+                    </div>
+                @endif
+
+                {{-- 금액 산정 (§6) --}}
+                @php $carPrice = $this->calcCarPrice($car_cost, $discount_rate); $total = $this->calcTotal($car_cost, $discount_rate, $shipping_usd); @endphp
+                <div class="mt-3 flex items-center justify-between text-xs text-gray-500">
                     <span>＋ 매도비 (고정)</span><span class="font-semibold text-gray-700">{{ number_format((int) config('board.sales_fee')) }}원</span>
                 </div>
                 <div class="mt-1 flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 text-sm">
@@ -306,20 +313,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $total !== null ? number_format($total).'원' : '—' }}</span>
                 </div>
 
-                @if ($source === 'encar')
-                    <div class="mt-3 grid gap-3 sm:grid-cols-2">
-                        <div><label class="label-base">엔카 매물 URL / 매물번호</label><input class="input-base" wire:model="encar_url" placeholder="encar.com/... 또는 매물번호"></div>
-                        <div><label class="label-base">판매 딜러 / 지역</label><input class="input-base" wire:model="encar_dealer" placeholder="예: 강남지점"></div>
-                    </div>
-                    <p class="mt-2 text-xs text-gray-500">💡 엔카는 공식 API가 없습니다. 매물 URL/번호를 식별용으로만 기록.</p>
-                @else
-                    <div class="mt-3 grid gap-3 sm:grid-cols-2">
-                        <div><label class="label-base">경매장</label><input class="input-base" wire:model="auction_venue" placeholder="롯데 / 현대 글로비스"></div>
-                        <div><label class="label-base">출품번호</label><input class="input-base" wire:model="lot_number" placeholder="A-1024"></div>
-                    </div>
-                @endif
-
-                <p class="mt-2 text-xs text-gray-500">차량번호·VIN은 중복 방지 식별키라 <b>필수</b>이며 등록 후 수정 불가. 금액은 선택 입력이며 현지 차상태 확인 후 조정될 수 있습니다.</p>
+                <p class="mt-2 text-xs text-gray-500"><b>차량번호</b> 필수. 금액은 선택 입력이며 현지 차상태 확인 후 조정될 수 있습니다.</p>
                 @error('source') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 <div class="mt-3 flex gap-2">
