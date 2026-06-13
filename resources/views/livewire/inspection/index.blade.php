@@ -111,6 +111,42 @@ new #[Layout('components.layouts.app')] class extends Component {
             ->distinct()->orderBy('region')->pluck('region');
     }
 
+    // ── 배정 현황 요약 정렬 ──
+    public string $sortBy = 'region';   // region | cars | people
+    public string $sortDir = 'asc';
+
+    public function sortByCol(string $col): void
+    {
+        if ($this->sortBy === $col) {
+            $this->sortDir = $this->sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+            $this->sortBy = $col;
+            $this->sortDir = 'asc';
+        }
+    }
+
+    /** 관리용 배정 현황 요약: 지역별 [배정인원 · 차량수] (정렬 가능). */
+    #[Computed]
+    public function assignmentSummary()
+    {
+        $cars = $this->regionGroups;            // 관리/super = 전체 지역
+        $assign = $this->assignmentsByRegion;
+        $regions = $cars->keys()->merge($assign->keys())->unique()->values();
+
+        $rows = $regions->map(fn ($r) => [
+            'region' => $r,
+            'cars' => $cars->get($r)?->count() ?? 0,
+            'people' => $assign->get($r)?->pluck('user.name')->all() ?? [],
+            'peopleCount' => $assign->get($r)?->count() ?? 0,
+        ]);
+
+        return $rows->sortBy(
+            fn ($x) => $this->sortBy === 'cars' ? $x['cars'] : ($this->sortBy === 'people' ? $x['peopleCount'] : $x['region']),
+            SORT_REGULAR,
+            $this->sortDir === 'desc',
+        )->values();
+    }
+
     public function assign(): void
     {
         abort_unless($this->canAssign(), 403);
@@ -139,7 +175,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'user_id' => $this->assignUserId,
         ]);
         $this->assignUserId = null;
-        unset($this->assignmentsByRegion, $this->regionGroups);
+        unset($this->assignmentsByRegion, $this->regionGroups, $this->assignmentSummary);
         session()->flash('ok', '배정되었습니다.');
     }
 
@@ -147,7 +183,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         abort_unless($this->canAssign(), 403);
         InspectionAssignment::whereKey($id)->delete();
-        unset($this->assignmentsByRegion, $this->regionGroups);
+        unset($this->assignmentsByRegion, $this->regionGroups, $this->assignmentSummary);
     }
 
     #[Computed]
@@ -337,16 +373,50 @@ new #[Layout('components.layouts.app')] class extends Component {
             @if ($this->pendingRegions->isEmpty())
                 <p class="mt-2 text-xs text-gray-400">검차대기 차량에 <b>지역</b>이 지정되면 여기서 배정할 수 있습니다. (매입예정에서 지역 입력)</p>
             @endif
+
+            {{-- 배정 현황 요약 (정렬 가능) --}}
+            @if ($this->assignmentSummary->isNotEmpty())
+                @php $arrow = fn ($c) => $sortBy === $c ? ($sortDir === 'asc' ? ' ▲' : ' ▼') : ''; @endphp
+                <div class="mt-3 overflow-x-auto">
+                    <table class="tbl text-[13px]">
+                        <thead>
+                            <tr>
+                                <th class="cursor-pointer select-none" wire:click="sortByCol('region')">지역{{ $arrow('region') }}</th>
+                                <th class="cursor-pointer select-none" wire:click="sortByCol('people')">배정 인원{{ $arrow('people') }}</th>
+                                <th class="cursor-pointer select-none" wire:click="sortByCol('cars')">차량 수{{ $arrow('cars') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($this->assignmentSummary as $row)
+                                <tr>
+                                    <td class="font-semibold text-gray-800">📍 {{ $row['region'] }}</td>
+                                    <td>
+                                        @forelse ($row['people'] as $name)
+                                            <span class="badge badge-blue">🧑‍🔧 {{ $name }}</span>
+                                        @empty
+                                            <span class="text-xs text-amber-600">미배정</span>
+                                        @endforelse
+                                    </td>
+                                    <td class="{{ $row['cars'] ? 'font-semibold text-gray-700' : 'text-gray-300' }}">{{ $row['cars'] }}건</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            @endif
         </div>
     @endif
 
     {{-- ─────────── 지역별 차량 ─────────── --}}
     @forelse ($this->regionGroups as $region => $items)
         @php $assigned = $this->assignmentsByRegion->get($region, collect()); @endphp
-        <div class="card mb-3">
-            <div class="mb-2 flex flex-wrap items-center gap-2">
-                <h2 class="font-bold text-gray-800">📍 {{ $region }}</h2>
-                <span class="pill-count">{{ $items->count() }}건</span>
+        <div class="card mb-3" x-data="{ open: false }">
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="button" class="flex items-center gap-2" @click="open = !open">
+                    <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span>
+                    <h2 class="font-bold text-gray-800">📍 {{ $region }}</h2>
+                    <span class="pill-count">{{ $items->count() }}건</span>
+                </button>
                 <span class="ml-1 flex flex-wrap items-center gap-1">
                     @forelse ($assigned as $a)
                         <span class="badge badge-blue inline-flex items-center gap-1">
@@ -358,7 +428,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @endforelse
                 </span>
             </div>
-            <div class="flex flex-col gap-2">
+            <div class="mt-2 flex flex-col gap-2" x-show="open" x-cloak>
                 @foreach ($items as $l)
                     <div class="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2.5">
                         <div class="min-w-0 flex-1">
