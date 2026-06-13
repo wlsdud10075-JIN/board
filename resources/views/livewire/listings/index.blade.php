@@ -69,6 +69,28 @@ new #[Layout('components.layouts.app')] class extends Component {
         return $this->krwPerUsd ?: (int) config('board.default_krw_per_usd');
     }
 
+    private function eurRate(): int
+    {
+        return $this->krwPerEur ?: (int) config('board.default_krw_per_eur');
+    }
+
+    // ── 표시통화 토글 (KRW/USD/EUR) ──
+    public string $displayCurrency = 'KRW';
+
+    /** KRW 금액을 표시통화로 변환+포맷. 차량(KRW)·배송(USD×환율=KRW)·합계 모두 KRW 로 정규화 후 변환. */
+    public function fmt(?int $krw): string
+    {
+        if ($krw === null) {
+            return '—';
+        }
+
+        return match ($this->displayCurrency) {
+            'USD' => '$'.number_format($krw / max(1, $this->usdRate()), 2),
+            'EUR' => '€'.number_format($krw / max(1, $this->eurRate()), 2),
+            default => number_format($krw).'원',
+        };
+    }
+
     /** 차량금액(KRW) = 차값 − (차값 × 할인율%) + 매도비(고정). */
     public function calcCarPrice($cost, $rate): ?int
     {
@@ -364,13 +386,26 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @endif
 
                 {{-- 금액 산정 (§6) --}}
-                @php $carPrice = $this->calcCarPrice($car_cost, $discount_rate); $total = $this->calcTotal($car_cost, $discount_rate, $shipping_usd); @endphp
-                <div class="mt-3 flex items-center justify-between text-xs text-gray-500">
+                @php
+                    $carPrice = $this->calcCarPrice($car_cost, $discount_rate);
+                    $total = $this->calcTotal($car_cost, $discount_rate, $shipping_usd);
+                    $shipKrw = $shipping_usd ? (int) $shipping_usd * $this->usdRate() : null;
+                @endphp
+                <div class="mt-3 flex items-center justify-between">
+                    <span class="text-xs font-semibold text-gray-600">금액 산정</span>
+                    <div class="inline-flex overflow-hidden rounded-md border border-gray-300 text-xs">
+                        @foreach (['KRW' => '원', 'USD' => '$', 'EUR' => '€'] as $cur => $sym)
+                            <button type="button" wire:click="$set('displayCurrency', '{{ $cur }}')"
+                                class="px-2 py-1 font-semibold {{ $displayCurrency === $cur ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }}">{{ $sym }}</button>
+                        @endforeach
+                    </div>
+                </div>
+                <div class="mt-1 flex items-center justify-between text-xs text-gray-500">
                     <span>＋ 매도비 (고정)</span><span class="font-semibold text-gray-700">{{ number_format((int) config('board.sales_fee')) }}원</span>
                 </div>
                 <div class="mt-1 flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 text-sm">
                     <span class="text-gray-600">차량금액 (Car Price)</span>
-                    <span class="font-bold text-gray-800">{{ $carPrice !== null ? number_format($carPrice).'원' : '—' }}</span>
+                    <span class="font-bold text-gray-800">{{ $this->fmt($carPrice) }}</span>
                 </div>
                 <label class="label-base mt-3">배송금액 (USD 고정)</label>
                 <div class="inline-flex overflow-hidden rounded-md border border-gray-300">
@@ -380,9 +415,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @endforeach
                 </div>
                 @error('shipping_usd') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                <div class="mt-3 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
+                @if ($shipKrw !== null)<div class="mt-1 text-right text-xs text-gray-500">배송 {{ $this->fmt($shipKrw) }}</div>@endif
+                <div class="mt-2 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
                     <span class="text-sm font-semibold text-gray-700">최종금액 (Total)</span>
-                    <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $total !== null ? number_format($total).'원' : '—' }}</span>
+                    <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $this->fmt($total) }}</span>
                 </div>
 
                 <p class="mt-2 text-xs text-gray-500"><b>차량번호</b> 필수. 금액은 선택 입력이며 현지 차상태 확인 후 조정될 수 있습니다.</p>
@@ -444,7 +480,19 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @endunless
 
                 {{-- 금액 산정 (§6) --}}
-                @php $eCar = $this->calcCarPrice($e_car_cost, $e_discount_rate); $eTotal = $this->calcTotal($e_car_cost, $e_discount_rate, $e_shipping_usd); @endphp
+                @php
+                    $eCar = $this->calcCarPrice($e_car_cost, $e_discount_rate);
+                    $eTotal = $this->calcTotal($e_car_cost, $e_discount_rate, $e_shipping_usd);
+                    $eShipKrw = $e_shipping_usd ? (int) $e_shipping_usd * $this->usdRate() : null;
+                @endphp
+                <div class="mb-2 flex justify-end">
+                    <div class="inline-flex overflow-hidden rounded-md border border-gray-300 text-xs">
+                        @foreach (['KRW' => '원', 'USD' => '$', 'EUR' => '€'] as $cur => $sym)
+                            <button type="button" wire:click="$set('displayCurrency', '{{ $cur }}')"
+                                class="px-2 py-1 font-semibold {{ $displayCurrency === $cur ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }}">{{ $sym }}</button>
+                        @endforeach
+                    </div>
+                </div>
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="label-base">차값 (원)</label>
@@ -461,7 +509,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <span>＋ 매도비 (고정)</span><span class="font-semibold text-gray-700">{{ number_format((int) config('board.sales_fee')) }}원</span>
                 </div>
                 <div class="mt-1 flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 text-sm">
-                    <span class="text-gray-600">차량금액</span><span class="font-bold text-gray-800">{{ $eCar !== null ? number_format($eCar).'원' : '—' }}</span>
+                    <span class="text-gray-600">차량금액</span><span class="font-bold text-gray-800">{{ $this->fmt($eCar) }}</span>
                 </div>
                 <label class="label-base mt-3">배송금액 (USD 고정)</label>
                 <div class="inline-flex overflow-hidden rounded-md border border-gray-300">
@@ -471,8 +519,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @endforeach
                 </div>
                 @error('e_shipping_usd') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                <div class="mt-3 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
-                    <span class="text-sm font-semibold text-gray-700">최종금액</span><span class="text-base font-bold text-[var(--color-primary-text)]">{{ $eTotal !== null ? number_format($eTotal).'원' : '—' }}</span>
+                @if ($eShipKrw !== null)<div class="mt-1 text-right text-xs text-gray-500">배송 {{ $this->fmt($eShipKrw) }}</div>@endif
+                <div class="mt-2 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
+                    <span class="text-sm font-semibold text-gray-700">최종금액</span><span class="text-base font-bold text-[var(--color-primary-text)]">{{ $this->fmt($eTotal) }}</span>
                 </div>
 
                 <label class="label-base mt-3">지역</label>

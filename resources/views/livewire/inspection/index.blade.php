@@ -25,12 +25,33 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $assignRegion = '';
     public ?int $assignUserId = null;
 
-    // ── 환율 (§6a 라이브) ──
+    // ── 환율 (§6a 라이브) + 표시통화 토글 ──
     public int $krwPerUsd = 0;
+    public int $krwPerEur = 0;
+    public string $displayCurrency = 'KRW';
 
     private function usdRate(): int
     {
         return $this->krwPerUsd ?: (int) config('board.default_krw_per_usd');
+    }
+
+    private function eurRate(): int
+    {
+        return $this->krwPerEur ?: (int) config('board.default_krw_per_eur');
+    }
+
+    /** KRW 금액을 표시통화로 변환+포맷. */
+    public function fmt(?int $krw): string
+    {
+        if ($krw === null) {
+            return '—';
+        }
+
+        return match ($this->displayCurrency) {
+            'USD' => '$'.number_format($krw / max(1, $this->usdRate()), 2),
+            'EUR' => '€'.number_format($krw / max(1, $this->eurRate()), 2),
+            default => number_format($krw).'원',
+        };
     }
 
     // ── 검사지역 + 금액 재설계 (§6) ──
@@ -68,6 +89,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $this->assignDate = now()->toDateString();
         $this->krwPerUsd = $rates->krwPerUsd();
+        $this->krwPerEur = $rates->krwPerEur();
     }
 
     /** 관리/시스템관리자만 인원 배정 가능. 현지확인 담당자는 본인 배정만 열람. */
@@ -514,11 +536,20 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @error('inspection_note') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 {{-- 금액 산정 (§6) --}}
-                <div class="section-title-sm">금액 산정</div>
+                <div class="section-title-sm flex items-center justify-between">
+                    <span>금액 산정</span>
+                    <div class="inline-flex overflow-hidden rounded-md border border-gray-300 text-xs font-normal">
+                        @foreach (['KRW' => '원', 'USD' => '$', 'EUR' => '€'] as $cur => $sym)
+                            <button type="button" wire:click="$set('displayCurrency', '{{ $cur }}')"
+                                class="px-2 py-1 font-semibold {{ $displayCurrency === $cur ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }}">{{ $sym }}</button>
+                        @endforeach
+                    </div>
+                </div>
                 @php
                     $carPrice = $this->carPricePreview();
                     $total = $this->totalPreview();
                     $rate = $this->usdRate();
+                    $shipKrw = $shipping_usd ? (int) $shipping_usd * $rate : null;
                 @endphp
                 <div class="grid grid-cols-2 gap-3">
                     <div>
@@ -538,7 +569,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 </div>
                 <div class="mt-1 flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 text-sm">
                     <span class="text-gray-600">차량금액 (Car Price)</span>
-                    <span class="font-bold text-gray-800">{{ $carPrice !== null ? number_format($carPrice).'원' : '—' }}</span>
+                    <span class="font-bold text-gray-800">{{ $this->fmt($carPrice) }}</span>
                 </div>
 
                 <label class="label-base mt-3">배송금액 (USD 고정)</label>
@@ -549,12 +580,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @endforeach
                 </div>
                 @error('shipping_usd') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                @if ($shipKrw !== null)<div class="mt-1 text-right text-xs text-gray-500">배송 {{ $this->fmt($shipKrw) }}</div>@endif
 
-                <div class="mt-3 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
+                <div class="mt-2 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
                     <span class="text-sm font-semibold text-gray-700">최종금액 (Total)</span>
-                    <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $total !== null ? number_format($total).'원' : '—' }}</span>
+                    <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $this->fmt($total) }}</span>
                 </div>
-                <p class="mt-1 text-[11px] text-gray-400">배송 ${{ number_format((int) $shipping_usd) }} × {{ number_format($rate) }}원 적용 · USD/EUR 변환은 다음 단계</p>
+                <p class="mt-1 text-[11px] text-gray-400">배송 ${{ number_format((int) $shipping_usd) }} × {{ number_format($rate) }}원 적용</p>
 
                 {{-- 바이어 --}}
                 <div class="section-title-sm">바이어에게 전달 / 회신</div>
