@@ -304,6 +304,24 @@ class BoardTest extends TestCase
         $this->assertSame('won', $l->fresh()->status);
     }
 
+    public function test_auction_row_detail_drawer_and_conclude(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted',
+            'source' => 'auction', 'final_price' => 9000000, 'region' => '부산광역시',
+        ]);
+        $this->actingAs($this->mkUser('auction'));
+
+        Volt::test('auction.index')
+            ->call('openDetail', $l->id)
+            ->assertSee('부산광역시')
+            ->assertSee($l->vehicle_number)
+            ->call('conclude', $l->id, 'won')
+            ->assertHasNoErrors();
+
+        $this->assertSame('won', $l->fresh()->status);
+    }
+
     public function test_manager_edit_writes_audit_log_and_overrides(): void
     {
         $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft', 'expected_price' => 1000000]);

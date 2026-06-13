@@ -463,7 +463,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             </div>
             <div class="mt-2 flex flex-col gap-2" x-show="open" x-cloak>
                 @foreach ($items as $l)
-                    <div class="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2.5">
+                    <div class="flex cursor-pointer items-center gap-3 rounded-lg border border-gray-200 px-3 py-2.5 hover:bg-gray-50" wire:click="openDrawer({{ $l->id }})">
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-2">
                                 <span class="font-semibold text-gray-800">{{ $l->vehicle_number }}</span>
@@ -476,7 +476,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             </div>
                         </div>
                         <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span>
-                        <button class="btn-primary btn-sm" wire:click="openDrawer({{ $l->id }})">차상태·금액</button>
+                        <span class="text-gray-300">›</span>
                     </div>
                 @endforeach
             </div>
