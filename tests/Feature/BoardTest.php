@@ -10,6 +10,7 @@ use App\Services\ExchangeRateService;
 use App\Support\TimeGate;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Livewire\Volt\Volt;
 use Tests\TestCase;
@@ -270,6 +271,22 @@ class BoardTest extends TestCase
         $svc->refresh();   // 실패해도 예외 없이
         $this->assertSame((int) config('board.default_krw_per_usd'), $svc->krwPerUsd());
         $this->assertDatabaseMissing('exchange_rates', ['currency' => 'USD']);
+    }
+
+    public function test_lazy_refresh_runs_only_when_stale(): void
+    {
+        config(['board.rate_auto_refresh' => true]);   // 테스트 기본 false → 이 테스트만 켬
+        Cache::flush();
+        Http::fake([
+            '*from=USD*' => Http::response(['rates' => ['KRW' => 1400]]),
+            '*from=EUR*' => Http::response(['rates' => ['KRW' => 1600]]),
+        ]);
+        $svc = app(ExchangeRateService::class);
+
+        $this->assertTrue($svc->isStale());   // 캐시 없음 → stale
+        $svc->refreshIfStale();
+        $this->assertSame(1400, $svc->krwPerUsd());
+        $this->assertFalse($svc->isStale());  // 방금 갱신 → 신선(TTL 1h)
     }
 
     public function test_auction_conclude_marks_won(): void

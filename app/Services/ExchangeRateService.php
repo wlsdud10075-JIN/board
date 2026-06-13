@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\ExchangeRate;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -56,6 +58,36 @@ class ExchangeRateService
         return $currency === 'EUR'
             ? (int) config('board.default_krw_per_eur')
             : (int) config('board.default_krw_per_usd');
+    }
+
+    /** 캐시가 TTL(config rate_ttl_hours) 보다 오래됐거나 없으면 stale. */
+    public function isStale(): bool
+    {
+        $latest = ExchangeRate::whereNotNull('fetched_at')->max('fetched_at');
+        if (! $latest) {
+            return true;
+        }
+
+        return Carbon::parse($latest)->lt(now()->subHours((int) config('board.rate_ttl_hours')));
+    }
+
+    /**
+     * 화면 진입 시 호출 — stale 일 때만 갱신(lazy). cron 없이도 신선도 유지.
+     * 실패 재시도 폭주 방지: 10분에 1회만 시도(성공/실패 무관).
+     */
+    public function refreshIfStale(): void
+    {
+        if (! config('board.rate_auto_refresh')) {
+            return;
+        }
+        if (! $this->isStale()) {
+            return;
+        }
+        if (Cache::get('exchange_rate_attempt_at')) {
+            return;
+        }
+        Cache::put('exchange_rate_attempt_at', now()->toDateTimeString(), now()->addMinutes(10));
+        $this->refresh();
     }
 
     /** 라이브 조회 후 캐시 갱신. 통화별로 독립 실패 허용(부분 성공). 반환 = 갱신된 통화맵. */

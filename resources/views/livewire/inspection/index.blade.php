@@ -88,6 +88,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function mount(ExchangeRateService $rates): void
     {
         $this->assignDate = now()->toDateString();
+        $rates->refreshIfStale();   // 오래됐을 때만 갱신(lazy)
         $this->krwPerUsd = $rates->krwPerUsd();
         $this->krwPerEur = $rates->krwPerEur();
     }

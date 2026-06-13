@@ -21,11 +21,14 @@ return [
     'default_krw_per_usd' => (int) env('BOARD_DEFAULT_KRW_PER_USD', 1380),
     'default_krw_per_eur' => (int) env('BOARD_DEFAULT_KRW_PER_EUR', 1500),
 
-    // 환율 캐시 신선도 (시간) — 이보다 오래되면 조회 시도
-    'rate_ttl_hours' => (int) env('BOARD_RATE_TTL_HOURS', 12),
+    // 환율 캐시 신선도 (시간) — 이보다 오래되면 화면 진입 시 lazy 갱신
+    'rate_ttl_hours' => (int) env('BOARD_RATE_TTL_HOURS', 1),
 
     // 환율 조회 소스 (키 불필요, ECB 기준). 네이버/다음 등으로 바꾸려면 base + 파서만 교체.
     'rate_api_base' => env('BOARD_RATE_API_BASE', 'https://api.frankfurter.app'),
+
+    // 화면 진입 시 lazy 자동갱신 on/off (테스트에선 false 로 네트워크 차단)
+    'rate_auto_refresh' => (bool) env('BOARD_RATE_AUTO_REFRESH', true),
 
     // 검사지역 자동완성 — 한국 도+주요 시 (정적 번들, 외부 API 미사용)
     'regions' => [

@@ -44,6 +44,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function mount(ExchangeRateService $rates): void
     {
+        $rates->refreshIfStale();   // 오래됐을 때만 갱신(lazy, cron 불필요)
         $this->loadRates($rates);
     }
 

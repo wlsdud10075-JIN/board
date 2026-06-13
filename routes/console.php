@@ -15,5 +15,5 @@ Artisan::command('board:refresh-rates', function (ExchangeRateService $rates) {
     $this->info($updated ? '환율 갱신: '.json_encode($updated, JSON_UNESCAPED_UNICODE) : '갱신 실패 — 기존 캐시/폴백 유지');
 })->purpose('환율(USD·EUR) 라이브 조회·캐시');
 
-// 평일·주말 매일 오전 9시 자동 갱신 (큐 워커 불필요, scheduler cron)
-Schedule::command('board:refresh-rates')->dailyAt('09:00');
+// 서버에 scheduler cron 이 있으면 매시 자동 갱신. (cron 없어도 화면 진입 lazy 갱신으로 신선도 유지)
+Schedule::command('board:refresh-rates')->hourly();
