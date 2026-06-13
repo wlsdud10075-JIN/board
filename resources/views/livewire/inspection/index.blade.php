@@ -3,6 +3,7 @@
 use App\Models\InspectionAssignment;
 use App\Models\PurchaseListing;
 use App\Models\User;
+use App\Services\ExchangeRateService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Computed;
@@ -23,6 +24,14 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $assignDate = '';
     public string $assignRegion = '';
     public ?int $assignUserId = null;
+
+    // ── 환율 (§6a 라이브) ──
+    public int $krwPerUsd = 0;
+
+    private function usdRate(): int
+    {
+        return $this->krwPerUsd ?: (int) config('board.default_krw_per_usd');
+    }
 
     // ── 검사지역 + 금액 재설계 (§6) ──
     public string $region = '';
@@ -50,14 +59,15 @@ new #[Layout('components.layouts.app')] class extends Component {
         if ($car === null) {
             return null;
         }
-        $shipKrw = $this->shipping_usd ? $this->shipping_usd * (int) config('board.default_krw_per_usd') : 0;
+        $shipKrw = $this->shipping_usd ? $this->shipping_usd * $this->usdRate() : 0;
 
         return $car + $shipKrw;
     }
 
-    public function mount(): void
+    public function mount(ExchangeRateService $rates): void
     {
         $this->assignDate = now()->toDateString();
+        $this->krwPerUsd = $rates->krwPerUsd();
     }
 
     /** 관리/시스템관리자만 인원 배정 가능. 현지확인 담당자는 본인 배정만 열람. */
@@ -224,7 +234,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->discount_rate = ($this->discount_rate === null || $this->discount_rate === '') ? null : (float) $this->discount_rate;
         $l->shipping_usd = $this->shipping_usd ?: null;
         // 최종금액(KRW) 스냅샷 — 공식 입력이 있으면 자동 계산, 없으면 수동 final_price 유지.
-        $computed = $l->totalKrw();
+        $computed = $l->totalKrw($this->usdRate());
         if ($computed !== null) {
             $l->final_price = $computed;
         } elseif ($this->final_price !== null && $this->final_price !== '') {
@@ -508,7 +518,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @php
                     $carPrice = $this->carPricePreview();
                     $total = $this->totalPreview();
-                    $rate = (int) config('board.default_krw_per_usd');
+                    $rate = $this->usdRate();
                 @endphp
                 <div class="grid grid-cols-2 gap-3">
                     <div>
@@ -544,7 +554,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <span class="text-sm font-semibold text-gray-700">최종금액 (Total)</span>
                     <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $total !== null ? number_format($total).'원' : '—' }}</span>
                 </div>
-                <p class="mt-1 text-[11px] text-gray-400">배송 ${{ number_format((int) $shipping_usd) }} × {{ number_format($rate) }}원(임시환율) 적용 · USD/EUR 변환은 다음 단계</p>
+                <p class="mt-1 text-[11px] text-gray-400">배송 ${{ number_format((int) $shipping_usd) }} × {{ number_format($rate) }}원 적용 · USD/EUR 변환은 다음 단계</p>
 
                 {{-- 바이어 --}}
                 <div class="section-title-sm">바이어에게 전달 / 회신</div>

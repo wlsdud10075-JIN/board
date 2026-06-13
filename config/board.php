@@ -17,8 +17,12 @@ return [
     // 배송금액 선택지 (USD 고정값)
     'shipping_options' => [1640, 1740, 1840],
 
-    // 임시 환율 (슬라이스1) — 슬라이스2에서 네이버/다음 라이브 조회로 대체
+    // 환율 폴백 (라이브 조회 실패 시) — 평시엔 exchange_rates 캐시값 사용
     'default_krw_per_usd' => (int) env('BOARD_DEFAULT_KRW_PER_USD', 1380),
+    'default_krw_per_eur' => (int) env('BOARD_DEFAULT_KRW_PER_EUR', 1500),
+
+    // 환율 캐시 신선도 (시간) — 이보다 오래되면 조회 시도
+    'rate_ttl_hours' => (int) env('BOARD_RATE_TTL_HOURS', 12),
 
     // 검사지역 자동완성 — 한국 도+주요 시 (정적 번들, 외부 API 미사용)
     'regions' => [

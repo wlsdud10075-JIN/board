@@ -2,12 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Models\ExchangeRate;
 use App\Models\InspectionAssignment;
 use App\Models\PurchaseListing;
 use App\Models\User;
+use App\Services\ExchangeRateService;
 use App\Support\TimeGate;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Http;
 use Livewire\Volt\Volt;
 use Tests\TestCase;
 
@@ -239,6 +242,34 @@ class BoardTest extends TestCase
         // 배정된 담당자는 보임
         $this->actingAs($i1);
         Volt::test('inspection.index')->assertSee('경기 수원시');
+    }
+
+    public function test_exchange_rate_service_fetches_and_falls_back(): void
+    {
+        Http::fake([
+            '*FX_USDKRW*' => Http::response(['closePrice' => '1,400.50']),
+            '*FX_EURKRW*' => Http::response(['closePrice' => '1,550.00']),
+        ]);
+
+        $svc = app(ExchangeRateService::class);
+        $svc->refresh();
+
+        $this->assertSame(1401, $svc->krwPerUsd());   // round(1400.50)
+        $this->assertSame(1550, $svc->krwPerEur());
+        $this->assertDatabaseHas('exchange_rates', ['currency' => 'USD']);
+
+        // 캐시 없으면 config 폴백
+        ExchangeRate::query()->delete();
+        $this->assertSame((int) config('board.default_krw_per_usd'), $svc->krwPerUsd());
+    }
+
+    public function test_exchange_rate_fetch_failure_keeps_fallback(): void
+    {
+        Http::fake(['*' => Http::response('', 500)]);
+        $svc = app(ExchangeRateService::class);
+        $svc->refresh();   // 실패해도 예외 없이
+        $this->assertSame((int) config('board.default_krw_per_usd'), $svc->krwPerUsd());
+        $this->assertDatabaseMissing('exchange_rates', ['currency' => 'USD']);
     }
 
     public function test_auction_conclude_marks_won(): void

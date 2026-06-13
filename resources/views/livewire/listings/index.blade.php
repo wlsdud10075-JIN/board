@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\PurchaseListing;
+use App\Services\ExchangeRateService;
 use App\Support\TimeGate;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
@@ -35,6 +36,39 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $e_auction_venue = '';
     public string $e_lot_number = '';
 
+    // ── 환율 (§6a 라이브) ──
+    public int $krwPerUsd = 0;
+    public int $krwPerEur = 0;
+    public ?string $rateFetchedAt = null;
+    public bool $rateLive = false;
+
+    public function mount(ExchangeRateService $rates): void
+    {
+        $this->loadRates($rates);
+    }
+
+    private function loadRates(ExchangeRateService $rates): void
+    {
+        $snap = $rates->snapshot();
+        $this->krwPerUsd = $snap['USD'];
+        $this->krwPerEur = $snap['EUR'];
+        $this->rateFetchedAt = $snap['fetched_at'];
+        $this->rateLive = $snap['is_live'];
+    }
+
+    public function refreshRate(ExchangeRateService $rates): void
+    {
+        $rates->refresh();
+        $this->loadRates($rates);
+        session()->flash('ok', '환율을 갱신했습니다.');
+    }
+
+    /** 배송 USD→KRW 환산에 쓸 환율 (라이브 우선, 없으면 config 폴백). */
+    private function usdRate(): int
+    {
+        return $this->krwPerUsd ?: (int) config('board.default_krw_per_usd');
+    }
+
     /** 차량금액(KRW) = 차값 − (차값 × 할인율%) + 매도비(고정). */
     public function calcCarPrice($cost, $rate): ?int
     {
@@ -54,7 +88,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         if ($car === null) {
             return null;
         }
-        $shipKrw = $usd ? (int) $usd * (int) config('board.default_krw_per_usd') : 0;
+        $shipKrw = $usd ? (int) $usd * $this->usdRate() : 0;
 
         return $car + $shipKrw;
     }
@@ -126,7 +160,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->car_cost = ($this->e_car_cost === null || $this->e_car_cost === '') ? null : (int) $this->e_car_cost;
         $l->discount_rate = ($this->e_discount_rate === null || $this->e_discount_rate === '') ? null : (float) $this->e_discount_rate;
         $l->shipping_usd = $this->e_shipping_usd ?: null;
-        $l->final_price = $l->totalKrw() ?? $l->final_price;
+        $l->final_price = $l->totalKrw($this->usdRate()) ?? $l->final_price;
         if ($l->source === 'encar') {
             $l->encar_url = $this->e_encar_url ?: null;
             $l->encar_dealer = $this->e_encar_dealer ?: null;
@@ -202,7 +236,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'status' => 'draft',
             'buyer_verdict' => 'none',
         ]);
-        $listing->final_price = $listing->totalKrw();   // 금액 입력 시 최종금액(KRW) 스냅샷
+        $listing->final_price = $listing->totalKrw($this->usdRate());   // 금액 입력 시 최종금액(KRW) 스냅샷
         $listing->save();
 
         $this->resetForm();
@@ -222,7 +256,6 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         return [
             'auctionLocked' => TimeGate::auctionRegistrationLocked(),
-            'krwPerUsd' => (int) config('board.default_krw_per_usd'),
         ];
     }
 }; ?>
@@ -234,10 +267,16 @@ new #[Layout('components.layouts.app')] class extends Component {
             <h1 class="text-xl font-bold text-gray-800">매입예정 (영업)</h1>
             <p class="mt-0.5 text-xs text-gray-500">🔒 본인({{ auth()->user()->name }}) 리스트만 표시 — 서버/DB 레벨 격리</p>
         </div>
-        {{-- 환율 (임시값 — 슬라이스2에서 네이버/다음 라이브 조회) --}}
+        {{-- 환율 (네이버/다음 라이브 · 실패 시 폴백) --}}
         <div class="card-sm shrink-0 text-right text-[13px]" style="background:#f5f8ff;border-color:#dbeafe">
-            <div class="text-[11px] text-gray-500">💱 적용 환율 <span class="text-gray-400">(임시)</span></div>
+            <div class="flex items-center justify-end gap-1 text-[11px] text-gray-500">
+                💱 적용 환율
+                <span class="font-semibold {{ $rateLive ? 'text-green-600' : 'text-amber-600' }}">{{ $rateLive ? 'LIVE' : '임시' }}</span>
+                <button wire:click="refreshRate" wire:loading.attr="disabled" class="text-blue-500 hover:text-blue-700" title="환율 갱신">↻</button>
+            </div>
             <div class="font-bold text-gray-800">USD 1 = {{ number_format($krwPerUsd) }}원</div>
+            <div class="font-bold text-gray-800">EUR 1 = {{ number_format($krwPerEur) }}원</div>
+            @if ($rateFetchedAt)<div class="text-[10px] text-gray-400">{{ $rateFetchedAt }} 기준</div>@endif
         </div>
     </div>
 
