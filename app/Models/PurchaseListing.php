@@ -19,7 +19,8 @@ class PurchaseListing extends Model
         'expected_price', 'car_cost', 'discount_rate', 'shipping_usd',
         'final_price', 'encar_url', 'encar_dealer',
         'auction_venue', 'lot_number', 'status', 'buyer_verdict',
-        'buyer_name', 'inspection_memo', 'inspection_note', 'lock_at', 'car_erp_vehicle_id',
+        'buyer_name', 'payee_name', 'payee_bank', 'payee_account',
+        'inspection_memo', 'inspection_note', 'lock_at', 'car_erp_vehicle_id',
     ];
 
     protected function casts(): array
@@ -30,6 +31,7 @@ class PurchaseListing extends Model
             'discount_rate' => 'decimal:2',
             'shipping_usd' => 'integer',
             'final_price' => 'integer',
+            'payee_account' => 'encrypted',   // 계좌번호 at-rest 암호화 (§6e)
             'lock_at' => 'datetime',
             'car_erp_vehicle_id' => 'integer',
         ];

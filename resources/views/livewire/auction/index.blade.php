@@ -9,6 +9,20 @@ use Livewire\Volt\Component;
 new #[Layout('components.layouts.app')] class extends Component {
     public ?int $detailId = null;
 
+    // 매입 정산 입금정보 (§6e) — 판매자/경매장 계좌. won 단계 입력 → 연동 B 전달.
+    public string $payee_name = '';
+    public string $payee_bank = '';
+    public string $payee_account = '';
+
+    private function payeeRules(): array
+    {
+        return [
+            'payee_name' => 'nullable|string|max:60',
+            'payee_bank' => 'nullable|string|max:40',
+            'payee_account' => 'nullable|string|max:40',
+        ];
+    }
+
     #[Computed]
     public function listings()
     {
@@ -27,12 +41,35 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function openDetail(int $id): void
     {
         $this->detailId = $id;
+        $l = PurchaseListing::findOrFail($id);
+        $this->payee_name = $l->payee_name ?? '';
+        $this->payee_bank = $l->payee_bank ?? '';
+        $this->payee_account = $l->payee_account ?? '';
+        $this->resetErrorBag();
     }
 
     public function closeDetail(): void
     {
-        $this->detailId = null;
+        $this->reset(['detailId', 'payee_name', 'payee_bank', 'payee_account']);
         unset($this->detail);
+    }
+
+    private function applyPayee(PurchaseListing $l): void
+    {
+        $l->payee_name = $this->payee_name ?: null;
+        $l->payee_bank = $this->payee_bank ?: null;
+        $l->payee_account = $this->payee_account ?: null;
+    }
+
+    /** 입금정보만 저장(이미 won 인 차량 보정용). */
+    public function savePayee(): void
+    {
+        $this->validate($this->payeeRules());
+        $l = PurchaseListing::findOrFail($this->detailId);
+        $this->applyPayee($l);
+        $l->save();
+        unset($this->detail, $this->listings);
+        session()->flash('ok', '입금정보를 저장했습니다.');
     }
 
     public function photoUrl(string $path): string
@@ -53,8 +90,14 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
 
+        if ($result === 'won') {
+            $this->validate($this->payeeRules());
+            $this->applyPayee($l);   // 낙찰/구매확정 시 입금정보 함께 저장
+        }
+
         $l->status = $result;
         $l->save();
+        $this->reset(['detailId', 'payee_name', 'payee_bank', 'payee_account']);
         unset($this->listings, $this->detail);
         session()->flash('ok', $l->vehicle_number.' — '.$l->statusLabel().' 처리되었습니다.');
     }
@@ -93,17 +136,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <td class="font-semibold text-[var(--color-primary-text)]">{{ $l->final_price ? number_format($l->final_price).'원' : '—' }}</td>
                             <td>
                                 @if ($l->status === 'accepted')
-                                    @if ($l->isAuction())
-                                        <div class="flex gap-2">
-                                            <button class="btn-green btn-sm" wire:click.stop="conclude({{ $l->id }}, 'won')">낙찰</button>
-                                            <button class="btn-ghost btn-sm" wire:click.stop="conclude({{ $l->id }}, 'failed')">유찰</button>
-                                        </div>
-                                    @else
-                                        <div class="flex gap-2">
-                                            <button class="btn-green btn-sm" wire:click.stop="conclude({{ $l->id }}, 'won')">구매확정</button>
-                                            <button class="btn-ghost btn-sm" wire:click.stop="conclude({{ $l->id }}, 'failed')">취소</button>
-                                        </div>
-                                    @endif
+                                    <span class="badge badge-amber">집행 대기 · 클릭</span>
                                 @else
                                     <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }} ✓</span>
                                 @endif
@@ -164,13 +197,29 @@ new #[Layout('components.layouts.app')] class extends Component {
                     </div>
                 @endif
 
-                {{-- 집행 (accepted 일 때만) --}}
+                {{-- 입금정보 (정산 = 판매자/경매장 계좌) — accepted·won 에서 입력/수정 --}}
+                @if (in_array($d->status, ['accepted', 'won'], true))
+                    <div class="section-title-sm">입금정보 <span class="text-[11px] font-normal text-gray-400">(매입 정산 계좌 · car-erp 전달)</span></div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <input class="input-base" wire:model="payee_name" placeholder="예금주">
+                        <input class="input-base" wire:model="payee_bank" placeholder="은행">
+                    </div>
+                    <input class="input-base mt-2" wire:model="payee_account" placeholder="계좌번호 (암호화 저장)" inputmode="numeric">
+                    @error('payee_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    @error('payee_bank') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    @error('payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                @endif
+
+                {{-- 집행 --}}
                 @if ($d->status === 'accepted')
                     <div class="section-title-sm">집행</div>
+                    <p class="mb-1 text-[11px] text-gray-400">낙찰/구매확정 시 위 입금정보가 함께 저장됩니다.</p>
                     <div class="flex gap-2">
                         <button class="btn-green flex-1 justify-center" wire:click="conclude({{ $d->id }}, 'won')">{{ $d->isAuction() ? '낙찰' : '구매확정' }}</button>
                         <button class="btn-ghost flex-1 justify-center" wire:click="conclude({{ $d->id }}, 'failed')">{{ $d->isAuction() ? '유찰' : '취소' }}</button>
                     </div>
+                @elseif ($d->status === 'won')
+                    <button class="btn-primary mt-3 w-full justify-center" wire:click="savePayee">입금정보 저장</button>
                 @endif
             </div>
         </div>

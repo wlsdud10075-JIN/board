@@ -322,6 +322,32 @@ class BoardTest extends TestCase
         $this->assertSame('won', $l->fresh()->status);
     }
 
+    public function test_auction_won_saves_encrypted_payee(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000,
+        ]);
+        $this->actingAs($this->mkUser('auction'));
+
+        Volt::test('auction.index')
+            ->call('openDetail', $l->id)
+            ->set('payee_name', '홍판매')
+            ->set('payee_bank', '국민')
+            ->set('payee_account', '123-456-7890')
+            ->call('conclude', $l->id, 'won')
+            ->assertHasNoErrors();
+
+        $l->refresh();
+        $this->assertSame('won', $l->status);
+        $this->assertSame('홍판매', $l->payee_name);
+        $this->assertSame('123-456-7890', $l->payee_account);   // cast 로 복호화
+
+        // at-rest 암호화 확인: DB raw 값에는 평문이 없어야
+        $raw = \DB::table('purchase_listings')->where('id', $l->id)->value('payee_account');
+        $this->assertNotNull($raw);
+        $this->assertNotSame('123-456-7890', $raw);
+    }
+
     public function test_manager_edit_writes_audit_log_and_overrides(): void
     {
         $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft', 'expected_price' => 1000000]);

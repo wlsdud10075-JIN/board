@@ -160,7 +160,7 @@ $salesman = Salesman::whereHas('user', fn($q)=>$q->where('email', $payload['sale
 // 3. Vehicle::create([... 'salesman_id' => $salesman?->id ...]) — null 이면 수동 지정 폴백
 // 4. 응답으로 vehicle.id 반환 → board 가 purchase_listings.car_erp_vehicle_id 채움 (이후 VIN 잠금)
 ```
-- board push payload(최소): `{vin, vehicle_number, source, final_price, salesman_email, car_erp_salesman_id, c_no?}`. RRN/개인정보 미포함.
+- board push payload(최소): `{vin, vehicle_number, source, final_price, salesman_email, car_erp_salesman_id, c_no?, payee_name?, payee_bank?, payee_account?}`. RRN/전화/서류 미포함. **payee_account 는 board 에 암호화 보관(§6e), 전송은 HMAC+HTTPS 한정** — car-erp 매입탭 정산계좌로 수신·저장.
 - 선행: car-erp API 1개 + HMAC + 큐 워커(Supervisor). board 는 `status='won'` 가드 + `dispatch()->afterCommit()`.
 
 ### 연동 B/A 추가 스키마 (codex/gemini 리뷰 수용, 2026-06-12)
