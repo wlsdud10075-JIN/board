@@ -7,8 +7,9 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
- * 환율 조회/캐시 (§6a). 네이버 마켓인덱스 JSON 을 1차 소스로,
+ * 환율 조회/캐시 (§6a). 기본 소스 = Frankfurter(키 불필요, ECB 기준).
  * 실패 시 마지막 캐시값 → config 폴백 순으로 항상 값을 보장한다.
+ * 소스 교체(네이버/다음 등)는 config('board.rate_api_base') + fetch() 파서만 수정.
  *
  * 차량금액은 KRW 원장, 배송금액은 USD 원장 → 표시통화로 변환 시 이 환율 사용.
  */
@@ -79,26 +80,21 @@ class ExchangeRateService
         return $updated;
     }
 
-    /** 네이버 마켓인덱스 JSON — 실패/형식오류 시 null(상위에서 폴백 유지). */
+    /**
+     * 환율 조회 (1 {currency} = ? KRW). 실패/형식오류 시 null(상위에서 폴백 유지).
+     * 기본 소스 = Frankfurter(키 불필요, ECB 기준). config('board.rate_api_base') 로 교체 가능.
+     */
     protected function fetch(string $currency): ?float
     {
-        $code = 'FX_'.$currency.'KRW';
-        $res = Http::timeout(8)
-            ->withHeaders(['User-Agent' => 'Mozilla/5.0'])
-            ->get("https://api.stock.naver.com/marketindex/exchange/{$code}/basic");
+        $base = rtrim((string) config('board.rate_api_base'), '/');
+        $res = Http::timeout(8)->get("{$base}/latest", ['from' => $currency, 'to' => 'KRW']);
 
         if (! $res->ok()) {
             return null;
         }
 
-        // closePrice 예: "1,380.50"
-        $raw = $res->json('closePrice');
-        if (! $raw) {
-            return null;
-        }
+        $rate = $res->json('rates.KRW');
 
-        $value = (float) str_replace(',', '', (string) $raw);
-
-        return $value > 0 ? $value : null;
+        return ($rate && (float) $rate > 0) ? (float) $rate : null;
     }
 }

@@ -24,6 +24,9 @@ return [
     // 환율 캐시 신선도 (시간) — 이보다 오래되면 조회 시도
     'rate_ttl_hours' => (int) env('BOARD_RATE_TTL_HOURS', 12),
 
+    // 환율 조회 소스 (키 불필요, ECB 기준). 네이버/다음 등으로 바꾸려면 base + 파서만 교체.
+    'rate_api_base' => env('BOARD_RATE_API_BASE', 'https://api.frankfurter.app'),
+
     // 검사지역 자동완성 — 한국 도+주요 시 (정적 번들, 외부 API 미사용)
     'regions' => [
         '서울특별시', '부산광역시', '대구광역시', '인천광역시', '광주광역시', '대전광역시', '울산광역시', '세종특별자치시',

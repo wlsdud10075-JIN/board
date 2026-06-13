@@ -247,8 +247,8 @@ class BoardTest extends TestCase
     public function test_exchange_rate_service_fetches_and_falls_back(): void
     {
         Http::fake([
-            '*FX_USDKRW*' => Http::response(['closePrice' => '1,400.50']),
-            '*FX_EURKRW*' => Http::response(['closePrice' => '1,550.00']),
+            '*from=USD*' => Http::response(['rates' => ['KRW' => 1400.50]]),
+            '*from=EUR*' => Http::response(['rates' => ['KRW' => 1550.00]]),
         ]);
 
         $svc = app(ExchangeRateService::class);
