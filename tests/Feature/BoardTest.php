@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\InspectionAssignment;
 use App\Models\PurchaseListing;
 use App\Models\User;
 use App\Support\TimeGate;
@@ -197,6 +198,47 @@ class BoardTest extends TestCase
         $l->refresh();
         $this->assertSame('accepted', $l->status);
         $this->assertSame('accepted', $l->buyer_verdict);
+    }
+
+    public function test_region_assignment_role_limit_and_inspector_filter(): void
+    {
+        $mgr = $this->mkUser('manager');
+        $sales = $this->mkUser('sales');
+        $i1 = $this->mkUser('inspection');
+        $i2 = $this->mkUser('inspection');
+        $i3 = $this->mkUser('inspection');
+        $i4 = $this->mkUser('inspection');
+        $this->mkListing($sales, ['status' => 'draft', 'region' => '경기 수원시']);
+        $today = now()->toDateString();
+
+        $this->actingAs($mgr);
+
+        // 정상 배정
+        Volt::test('inspection.index')
+            ->set('assignRegion', '경기 수원시')->set('assignUserId', $i1->id)
+            ->call('assign')->assertHasNoErrors();
+        $this->assertDatabaseHas('inspection_assignments', ['date' => $today, 'region' => '경기 수원시', 'user_id' => $i1->id]);
+
+        // 영업 계정은 배정 불가 (현지확인 role 만)
+        Volt::test('inspection.index')
+            ->set('assignRegion', '경기 수원시')->set('assignUserId', $sales->id)
+            ->call('assign')->assertHasErrors('assignUserId');
+
+        // 지역당 최대 3인
+        InspectionAssignment::create(['date' => $today, 'region' => '경기 수원시', 'user_id' => $i2->id]);
+        InspectionAssignment::create(['date' => $today, 'region' => '경기 수원시', 'user_id' => $i3->id]);
+        Volt::test('inspection.index')
+            ->set('assignRegion', '경기 수원시')->set('assignUserId', $i4->id)
+            ->call('assign')->assertHasErrors('assignUserId');
+        $this->assertSame(3, InspectionAssignment::where('region', '경기 수원시')->count());
+
+        // 미배정 현지확인 담당자는 해당 지역이 안 보임
+        $this->actingAs($i4);
+        Volt::test('inspection.index')->assertDontSee('경기 수원시');
+
+        // 배정된 담당자는 보임
+        $this->actingAs($i1);
+        Volt::test('inspection.index')->assertSee('경기 수원시');
     }
 
     public function test_auction_conclude_marks_won(): void

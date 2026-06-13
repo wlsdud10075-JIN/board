@@ -1,6 +1,9 @@
 <?php
 
+use App\Models\InspectionAssignment;
 use App\Models\PurchaseListing;
+use App\Models\User;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
@@ -15,6 +18,11 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $inspection_memo = '';
     public string $buyer_name = '';
     public array $photos = [];
+
+    // ── 지역 배정 (§6c) ──
+    public string $assignDate = '';
+    public string $assignRegion = '';
+    public ?int $assignUserId = null;
 
     // ── 검사지역 + 금액 재설계 (§6) ──
     public string $region = '';
@@ -47,14 +55,99 @@ new #[Layout('components.layouts.app')] class extends Component {
         return $car + $shipKrw;
     }
 
-    #[Computed]
-    public function groups()
+    public function mount(): void
     {
-        return PurchaseListing::with(['creator', 'photos'])
+        $this->assignDate = now()->toDateString();
+    }
+
+    /** 관리/시스템관리자만 인원 배정 가능. 현지확인 담당자는 본인 배정만 열람. */
+    public function canAssign(): bool
+    {
+        return Auth::user()->isManager() || Auth::user()->isSuper();
+    }
+
+    /** 배정 대상 = 활성 현지확인(inspection) 계정. */
+    #[Computed]
+    public function inspectors()
+    {
+        return User::where('role', 'inspection')->where('is_active', true)->orderBy('name')->get();
+    }
+
+    /** 오늘(assignDate) 배정 — 지역별 그룹. */
+    #[Computed]
+    public function assignmentsByRegion()
+    {
+        return InspectionAssignment::with('user')
+            ->where('date', $this->assignDate)
+            ->get()
+            ->groupBy('region');
+    }
+
+    /** 현지확인 대상 차량을 지역별로 그룹. 담당자(비관리)는 본인 오늘 배정 지역만. */
+    #[Computed]
+    public function regionGroups()
+    {
+        $listings = PurchaseListing::with(['creator', 'photos'])
             ->whereIn('status', ['draft', 'awaiting_buyer', 'accepted'])
             ->latest()
-            ->get()
-            ->groupBy(fn ($l) => $l->creator->name);
+            ->get();
+
+        if (! $this->canAssign()) {
+            $myRegions = InspectionAssignment::where('date', $this->assignDate)
+                ->where('user_id', Auth::id())
+                ->pluck('region')->all();
+            $listings = $listings->filter(fn ($l) => in_array($l->region, $myRegions, true));
+        }
+
+        return $listings->groupBy(fn ($l) => $l->region ?: '지역 미지정');
+    }
+
+    /** 배정 대상 지역 후보 = 현재 검차대기 차량이 있는 지역(미지정 제외). */
+    #[Computed]
+    public function pendingRegions()
+    {
+        return PurchaseListing::whereIn('status', ['draft', 'awaiting_buyer', 'accepted'])
+            ->whereNotNull('region')
+            ->distinct()->orderBy('region')->pluck('region');
+    }
+
+    public function assign(): void
+    {
+        abort_unless($this->canAssign(), 403);
+        $this->validate([
+            'assignRegion' => 'required|string|max:60',
+            'assignUserId' => 'required|integer|exists:users,id',
+        ], attributes: ['assignRegion' => '지역', 'assignUserId' => '담당자']);
+
+        $count = InspectionAssignment::where('date', $this->assignDate)->where('region', $this->assignRegion)->count();
+        if ($count >= InspectionAssignment::MAX_PER_REGION) {
+            $this->addError('assignUserId', '지역당 최대 '.InspectionAssignment::MAX_PER_REGION.'인까지 배정할 수 있습니다.');
+
+            return;
+        }
+
+        $u = User::find($this->assignUserId);
+        if (! $u || $u->role !== 'inspection') {
+            $this->addError('assignUserId', '현지확인 담당자만 배정할 수 있습니다.');
+
+            return;
+        }
+
+        InspectionAssignment::firstOrCreate([
+            'date' => $this->assignDate,
+            'region' => $this->assignRegion,
+            'user_id' => $this->assignUserId,
+        ]);
+        $this->assignUserId = null;
+        unset($this->assignmentsByRegion, $this->regionGroups);
+        session()->flash('ok', '배정되었습니다.');
+    }
+
+    public function unassign(int $id): void
+    {
+        abort_unless($this->canAssign(), 403);
+        InspectionAssignment::whereKey($id)->delete();
+        unset($this->assignmentsByRegion, $this->regionGroups);
     }
 
     #[Computed]
@@ -83,7 +176,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $this->reset(['editingId', 'final_price', 'inspection_memo', 'buyer_name', 'photos',
             'region', 'inspection_note', 'car_cost', 'discount_rate', 'shipping_usd']);
-        unset($this->editing, $this->groups);
+        unset($this->editing, $this->regionGroups);
     }
 
     /** 입력된 검사지역·금액 필드를 모델에 반영 + final_price 에 최종금액(KRW) 스냅샷. */
@@ -208,23 +301,62 @@ new #[Layout('components.layouts.app')] class extends Component {
 <div class="p-3 md:p-6">
     <div class="mb-4">
         <h1 class="text-xl font-bold text-gray-800">현지확인</h1>
-        <p class="mt-0.5 text-xs text-gray-500">👁 전체 영업 리스트 · 차 상태 확인 → 최종금액 산정 → 바이어에게 사진+최종금액 전달</p>
-    </div>
-
-    <div class="card-sm mb-3 flex items-start gap-2 text-[13px] text-amber-800" style="background:#fffbeb;border-color:#fde68a">
-        <span>⏱</span>
-        <span><b>시간 흐름 안내</b> — 현지 금액 산정은 실시간, 바이어 회신은 몇 시간 뒤일 수 있습니다. "회신대기"로 두고 다른 차량을 먼저 처리하세요.</span>
+        <p class="mt-0.5 text-xs text-gray-500">📍 지역별 그룹 · {{ $this->canAssign() ? '관리: 그날치 인원 배정' : '본인 배정 지역만 표시' }} → 차 상태 확인 → 최종금액 산정 → 바이어 전달</p>
     </div>
 
     @if (session('ok'))
         <div class="card-sm mb-3 border-green-200 bg-green-50 text-[13px] text-green-700">✓ {{ session('ok') }}</div>
     @endif
 
-    @forelse ($this->groups as $salesman => $items)
+    {{-- ─────────── 지역 배정 패널 (관리/super) ─────────── --}}
+    @if ($this->canAssign())
+        <div class="card mb-3" style="background:#f8f9fb">
+            <div class="mb-2 flex items-center justify-between">
+                <h2 class="font-bold text-gray-800">📋 오늘 지역 배정 <span class="text-xs font-normal text-gray-400">({{ $assignDate }})</span></h2>
+                <span class="text-xs text-gray-400">지역당 최대 {{ \App\Models\InspectionAssignment::MAX_PER_REGION }}인</span>
+            </div>
+            <div class="flex flex-wrap items-end gap-2">
+                <div class="min-w-[160px] flex-1">
+                    <label class="label-base">지역</label>
+                    <select class="input-base" wire:model="assignRegion">
+                        <option value="">지역 선택</option>
+                        @foreach ($this->pendingRegions as $r)<option value="{{ $r }}">{{ $r }}</option>@endforeach
+                    </select>
+                </div>
+                <div class="min-w-[140px] flex-1">
+                    <label class="label-base">담당자 (현지확인)</label>
+                    <select class="input-base" wire:model="assignUserId">
+                        <option value="">담당자 선택</option>
+                        @foreach ($this->inspectors as $u)<option value="{{ $u->id }}">{{ $u->name }}</option>@endforeach
+                    </select>
+                </div>
+                <button class="btn-primary btn-sm" wire:click="assign">+ 배정</button>
+            </div>
+            @error('assignRegion') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            @error('assignUserId') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            @if ($this->pendingRegions->isEmpty())
+                <p class="mt-2 text-xs text-gray-400">검차대기 차량에 <b>지역</b>이 지정되면 여기서 배정할 수 있습니다. (매입예정에서 지역 입력)</p>
+            @endif
+        </div>
+    @endif
+
+    {{-- ─────────── 지역별 차량 ─────────── --}}
+    @forelse ($this->regionGroups as $region => $items)
+        @php $assigned = $this->assignmentsByRegion->get($region, collect()); @endphp
         <div class="card mb-3">
-            <div class="mb-2 flex items-center gap-2">
-                <h2 class="font-bold text-gray-800">{{ $salesman }}</h2>
+            <div class="mb-2 flex flex-wrap items-center gap-2">
+                <h2 class="font-bold text-gray-800">📍 {{ $region }}</h2>
                 <span class="pill-count">{{ $items->count() }}건</span>
+                <span class="ml-1 flex flex-wrap items-center gap-1">
+                    @forelse ($assigned as $a)
+                        <span class="badge badge-blue inline-flex items-center gap-1">
+                            🧑‍🔧 {{ $a->user->name }}
+                            @if ($this->canAssign())<button wire:click="unassign({{ $a->id }})" class="text-blue-400 hover:text-blue-700">✕</button>@endif
+                        </span>
+                    @empty
+                        <span class="text-xs text-gray-400">{{ $this->canAssign() ? '미배정' : '' }}</span>
+                    @endforelse
+                </span>
             </div>
             <div class="flex flex-col gap-2">
                 @foreach ($items as $l)
@@ -233,10 +365,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <div class="flex items-center gap-2">
                                 <span class="font-semibold text-gray-800">{{ $l->vehicle_number }}</span>
                                 <span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }}">{{ $l->isAuction() ? '경매' : '엔카' }}</span>
+                                <span class="text-xs text-gray-400">{{ $l->creator->name }}</span>
                             </div>
                             <div class="mt-0.5 text-xs text-gray-500">
-                                {{ $l->final_price ? '최종 '.number_format($l->final_price).'원' : ($l->expected_price ? '예상가 '.number_format($l->expected_price).'원' : '금액 미정') }}
-                                · VIN {{ \Illuminate\Support\Str::limit($l->vin, 8, '') }}
+                                {{ $l->final_price ? '최종 '.number_format($l->final_price).'원' : '금액 미정' }}
+                                {{ $l->inspection_note ? '· '.$l->inspection_note : '' }}
                             </div>
                         </div>
                         <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span>
@@ -246,7 +379,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             </div>
         </div>
     @empty
-        <div class="card text-center text-gray-400">현지확인 대상 차량이 없습니다.</div>
+        <div class="card text-center text-gray-400">{{ $this->canAssign() ? '현지확인 대상 차량이 없습니다.' : '오늘 배정된 지역이 없습니다. (관리자 배정 대기)' }}</div>
     @endforelse
 
     {{-- ─────────── 드로어 ─────────── --}}
