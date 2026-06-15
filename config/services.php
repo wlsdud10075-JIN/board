@@ -35,4 +35,16 @@ return [
         ],
     ],
 
+    // 연동 B — car-erp purchase-sync (board → car-erp, HMAC). 대표 승인 후 사용.
+    'car_erp' => [
+        'base_url' => env('CAR_ERP_BASE_URL'),
+        'hmac_secret' => env('CAR_ERP_HMAC_SECRET'),
+    ],
+
+    // 연동 A — respond.io (사진/영상 전송 + inbound webhook). 도메인+HTTPS 후 사용.
+    'respond_io' => [
+        'api_token' => env('RESPOND_API_TOKEN'),
+        'webhook_secret' => env('RESPOND_WEBHOOK_SECRET'),
+    ],
+
 ];

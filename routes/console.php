@@ -17,3 +17,6 @@ Artisan::command('board:refresh-rates', function (ExchangeRateService $rates) {
 
 // 서버에 scheduler cron 이 있으면 매시 자동 갱신. (cron 없어도 화면 진입 lazy 갱신으로 신선도 유지)
 Schedule::command('board:refresh-rates')->hourly();
+
+// board DB 야간 백업 03:00 (30일 보관). 서버 scheduler cron 필요.
+Schedule::command('db:backup --keep=30')->dailyAt('03:00');
