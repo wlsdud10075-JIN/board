@@ -6,6 +6,41 @@
 > - **받는 절반(권위)** = car-erp `docs/integration/purchase-sync-receiver.md` (← car-erp 세션이 작성·커밋).
 > - 상호링크, **복사 금지(drift)**.
 
+## 🔴 2차 수정 필요 (2026-06-15 로컬 e2e 발견) — car-erp 세션에 전달
+
+1차 수신측(daa4c16)은 잘 만들었는데, board와 로컬 연동 테스트에서 **버그 2개 + 계약 정정 1개**가 나왔어. car-erp 세션에 아래를 전달:
+
+```
+연동 B 수신측(daa4c16)에 로컬 e2e 테스트로 버그 2개 + 계약 정정이 나왔어. 고쳐줘.
+board 보내는 스펙은 board SKILLS.md §12 최신본 기준(C:\xampp\htdocs\board\SKILLS.md).
+
+[버그1 — 500] sales_channel='heyman' 으로 truncate 에러.
+  car-erp vehicles.sales_channel enum 은 2026-05-14 마이그(simplify_sales_channel_to_export_only)
+  로 이미 'export' 단일값으로 축소됐음. 'heyman' 은 무효값.
+  → PurchaseSyncController 에서 sales_channel 줄을 빼고 default('export') 그대로 두기.
+
+[계약 정정 — board 는 VIN 을 모름] (이게 핵심)
+  board 는 VIN 을 못 보낸다. VIN 은 NICE 차량조회로만 나오고 그건 car-erp 책임.
+  board payload 가 vin → (vehicle_number + owner_name) 으로 바뀜. 그래서:
+  - validation: 'vin' required 제거 → 'vehicle_number' required + 'owner_name' nullable.
+  - 멱등 매칭: nice_reg_vin → vehicle_number 로 변경
+    (Vehicle::where('vehicle_number',$x)->first(); 있으면 기존 id 반환, NICE 재호출 방지).
+  - 신규 생성 시: NICE(vehicle_number + owner_name) 조회 → 받은 VIN 을 nice_reg_vin 에 저장
+    (+ NICE 가 주는 다른 차량정보도 기존 차량등록 로직대로 채움).
+  - owner_name 이 없으면 NICE 불가 → vehicle_number 로만 생성하고 VIN 은 수동/후속(에러 말고 graceful).
+
+[버그2 가능성 — 422 검증] 위 계약 정정(vin→vehicle_number)으로 해소됨.
+
+[테스트 갱신] 기존 13케이스 중 vin 기반 가정 → vehicle_number 기반으로 수정.
+  NICE 호출은 fake/mock 로. 'owner_name 없으면 graceful' 케이스 추가.
+
+[문서] docs/integration/purchase-sync-receiver.md 갱신(매칭키=vehicle_number, NICE 단계 명시).
+```
+
+배포 순서: car-erp 2차 수정 배포 → board master 배포(env 는 이미 세팅). 그 전엔 운영 미배포.
+
+---
+
 ## 상태 (2026-06-15)
 - board 보내는 절반 = **구현+테스트 완료** (`SyncWonListingToCarErp` Job · `integration_events` · HMAC · dispatch 훅 · 테스트 4종, 총 31통과). dev 커밋, **master 미배포**(안전밸브로 no-op).
 - 남은 것 = **car-erp 수신 `PurchaseSyncController`** (아래) + 양쪽 env + 배포.

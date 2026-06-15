@@ -22,6 +22,9 @@
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BOARD_RATE_AUTO_REFRESH" value="false"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
+        <!-- 연동 B: 테스트는 hermetic — .env 의 실제 car-erp 주소를 안 읽도록 비움(개별 테스트가 config()로 주입). -->
+        <env name="CAR_ERP_BASE_URL" value=""/>
+        <env name="CAR_ERP_HMAC_SECRET" value=""/>
         <env name="CACHE_STORE" value="array"/>
         <env name="DB_CONNECTION" value="sqlite"/>
         <env name="DB_DATABASE" value=":memory:"/>

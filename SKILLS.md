@@ -161,25 +161,29 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 - 서명대상 = **직렬화된 raw request body** (`json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)`). car-erp 는 **수신 raw body 그대로** `hash_hmac('sha256', $rawBody, $secret)` 로 재계산해 `hash_equals` 비교 — **재직렬화 금지**(바이트 달라지면 불일치). 비밀키 = `CAR_ERP_HMAC_SECRET` (양쪽 공유).
 - board 전송은 `Http::withBody($body,'application/json')` 로 그 raw body 를 그대로 전송(프레임워크 재인코딩 회피).
 
+**⚠️ 매칭키 = `vehicle_number` (VIN 아님 — 2026-06-15 정정)**: board 는 **VIN 을 모른다**. VIN 은 **NICE 차량조회로만** 나오고 그건 **car-erp 책임**이다. board 가 가진 건 **차량번호 + 소유자명**뿐. 그래서 board 는 `vehicle_number + owner_name` 을 보내고 **car-erp 가 NICE 로 VIN 을 조회**해 채운다. **멱등/매칭/식별 키 = `vehicle_number`** (board IDENTITY_LOCKED 도 vehicle_number 가 실질 키 — vin 은 항상 null). → 과거 이 계약을 vin 기반으로 짰던 건 drift(이 결정이 문서에 없어서). 다시 vin 으로 되돌리지 말 것.
+
 **payload**:
 ```json
 {
   "contract_version": 1,
-  "vin": "...", "vehicle_number": "...", "source": "encar|auction",
+  "vehicle_number": "...", "owner_name": "...", "source": "encar|auction",
   "final_price": 0, "salesman_email": "...", "car_erp_salesman_id": null,
   "c_no": null, "payee_name": null, "payee_bank": null, "payee_account": null
 }
 ```
+- `owner_name`(소유자/차주명) = car-erp NICE 조회 입력값. board 입력 UX = payee 와 동일(매입예정 영업 선택입력 → 경매/구매 드로어 보정). nullable 이지만 없으면 car-erp NICE 불가 → car-erp 는 owner_name 없으면 vehicle_number 로만 생성 후 VIN 수동.
+- **vin 은 payload 에 없음**(board 가 모름). car-erp 가 NICE 로 채워 `nice_reg_vin` 에 저장.
 - **응답(계약)**: `2xx` + `{"vehicle_id": <int>}`. board 는 이 id 를 `car_erp_vehicle_id` 에 저장 후 `won→synced` 전이. 비-2xx 또는 vehicle_id 없으면 Job 예외 → 큐 재시도(`$tries=5`, backoff 60/300/900/1800s).
 - **버전·전방호환**: `contract_version` 명시. **양쪽 모두 "모르는 필드는 무시"** → 필드 추가해도 안 깨짐.
 - **로그**: 모든 시도(성공/실패) = `integration_events`(outbound/car_erp/purchase_sync) append-only. **`payee_account` 는 로그에 `***` 마스킹**(전송 본문엔 실값). board_audit_logs 와 별개.
 - **안전밸브**: `services.car_erp.base_url`/`hmac_secret` 미설정 시 Job no-op → car-erp 수신측 배포 전 board 를 master 배포해도 안 터짐(아무것도 안 보냄).
 - **보안경계**: RRN/전화/서류 미포함. `payee_account` 는 board 암호화 보관(§6e), 전송은 HMAC+HTTPS 한정 → car-erp 매입탭 정산계좌로 수신.
-- **멱등**: board `car_erp_vehicle_id` null 가드 + car-erp VIN 사전조회(중복=스킵). 응답 `{vehicle_id}` → board `purchase_listings.car_erp_vehicle_id` 채움 → 이후 VIN 잠금.
+- **멱등**: board `car_erp_vehicle_id` null 가드 + car-erp `vehicle_number` 사전조회(중복=스킵, NICE 재조회 방지). 응답 `{vehicle_id}` → board `purchase_listings.car_erp_vehicle_id` 채움.
 - ⚠️ **계약 변경 시 배포 순서**: 필드 추가/변경은 **수신측(car-erp) 먼저 배포**(받을 준비) → 그 다음 board 가 보내기 시작. (car-erp 배포 `artisan down` 1~3분은 board 큐+재시도가 자동 흡수.)
-- **수신 스펙(권위) = car-erp docs**: `PurchaseSyncController` — 영업 매칭(이메일→salesman→`manager_user_id`로 담당 관리 자동 솔팅), VIN 멱등, payee→정산계좌.
+- **수신 스펙(권위) = car-erp docs**: `PurchaseSyncController` — 영업 매칭(이메일→salesman→`manager_user_id`로 담당 관리 자동 솔팅), `vehicle_number` 멱등, **NICE(vehicle_number+owner_name) → VIN**, payee→정산계좌.
 - 선행: car-erp API 1개(**승인됨 2026-06-15**) + HMAC + 큐 워커(board **설치 완료**). board 는 `status='won'` 가드 + afterCommit.
-- **진행상태 (2026-06-15)**: **board 보내는 절반 = 구현+테스트 완료**(Job·integration_events·HMAC·dispatch 훅·테스트 4종, dev 커밋). **남은 것 = car-erp 수신측 `PurchaseSyncController` (car-erp 세션·repo 에서 구현·커밋)** + 양쪽 `CAR_ERP_BASE_URL`/`CAR_ERP_HMAC_SECRET` .env 세팅. 배포순서 = car-erp 먼저 → board env 채움.
+- **진행상태 (2026-06-15, 로컬 e2e 중)**: board 보내는 절반 = 구현+테스트 완료(31통과). car-erp 수신측 1차 구현됨(daa4c16). **로컬 e2e 에서 2버그 발견 → car-erp 2차 수정 필요**: ① `sales_channel='heyman'` 제거(enum 이 `export` 단일로 축소됨 2026-05-14 → truncate 500) ② vin 필수 검증 → `vehicle_number`+`owner_name` 으로 변경 + 매칭을 nice_reg_vin→vehicle_number + **NICE 조회로 VIN 채우기**. 핸드오프 = `meetings/handoff-car-erp-purchase-sync.md`.
 
 ### 연동 B/A 추가 스키마 (codex/gemini 리뷰 수용, 2026-06-12)
 - **`integration_events`** (append-only, board_audit_logs 와 별개): `id · direction(outbound/inbound) · target(car_erp/respond_io) · event_type · purchase_listing_id(nullable) · external_event_id(nullable, inbound 중복제거 키) · request_payload(json) · response_status · response_body · error · created_at`. updated_at 없음. **연동 B 에서 신설, 연동 A inbound 가 `external_event_id` 로 멱등성 확보 시 재사용.**

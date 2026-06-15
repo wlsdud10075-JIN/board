@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Http;
  * 연동 B — board `won` 차량을 car-erp 로 단방향 push (HMAC 서명).
  *
  * 가드: won 상태 + car_erp_vehicle_id null + car_erp.base_url 설정(안전밸브).
- * 멱등: car_erp_vehicle_id null 가드 + car-erp 측 VIN 사전조회(중복=스킵, 기존 id 반환).
+ * 멱등: car_erp_vehicle_id null 가드 + car-erp 측 vehicle_number 사전조회(중복=스킵, 기존 id 반환).
  * 성공: 응답 vehicle_id → car_erp_vehicle_id 저장 → won→synced 전이.
  * 보내는 스펙(payload·HMAC 권위) = SKILLS.md §12. 받는 스펙 = car-erp docs.
  */
@@ -52,10 +52,11 @@ class SyncWonListingToCarErp implements ShouldQueue
             return;
         }
 
+        // board 는 VIN 을 모른다(NICE 조회=car-erp). 매칭키 = vehicle_number, NICE 입력 = owner_name.
         $payload = [
             'contract_version' => 1,
-            'vin' => $l->vin,
             'vehicle_number' => $l->vehicle_number,
+            'owner_name' => $l->owner_name,
             'source' => $l->source,
             'final_price' => $l->final_price,
             'salesman_email' => $l->creator?->email,

@@ -10,6 +10,9 @@ use Livewire\Volt\Component;
 new #[Layout('components.layouts.app')] class extends Component {
     public ?int $detailId = null;
 
+    // 소유자/차주명 (연동 B: car-erp NICE 조회 입력값) — 매입예정에서 미리 입력, 여기서 보정.
+    public string $owner_name = '';
+
     // 매입 정산 입금정보 (§6e) — 판매자/경매장 계좌. won 단계 입력 → 연동 B 전달.
     public string $payee_name = '';
     public string $payee_bank = '';
@@ -18,6 +21,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     private function payeeRules(): array
     {
         return [
+            'owner_name' => 'nullable|string|max:60',
             'payee_name' => 'nullable|string|max:60',
             'payee_bank' => 'nullable|string|max:40',
             'payee_account' => 'nullable|string|max:40',
@@ -43,6 +47,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $this->detailId = $id;
         $l = PurchaseListing::findOrFail($id);
+        $this->owner_name = $l->owner_name ?? '';
         $this->payee_name = $l->payee_name ?? '';
         $this->payee_bank = $l->payee_bank ?? '';
         $this->payee_account = $l->payee_account ?? '';
@@ -51,12 +56,13 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function closeDetail(): void
     {
-        $this->reset(['detailId', 'payee_name', 'payee_bank', 'payee_account']);
+        $this->reset(['detailId', 'owner_name', 'payee_name', 'payee_bank', 'payee_account']);
         unset($this->detail);
     }
 
     private function applyPayee(PurchaseListing $l): void
     {
+        $l->owner_name = $this->owner_name ?: null;
         $l->payee_name = $this->payee_name ?: null;
         $l->payee_bank = $this->payee_bank ?: null;
         $l->payee_account = $this->payee_account ?: null;
@@ -108,7 +114,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $l->status = $result;
         $l->save();
-        $this->reset(['detailId', 'payee_name', 'payee_bank', 'payee_account']);
+        $this->reset(['detailId', 'owner_name', 'payee_name', 'payee_bank', 'payee_account']);
         unset($this->listings, $this->detail);
         session()->flash('ok', $l->vehicle_number.' — '.$l->statusLabel().' 처리되었습니다.');
     }
@@ -210,6 +216,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                             @endif
                         @endforeach
                     </div>
+                @endif
+
+                {{-- 소유자(차주) — accepted·won 에서 입력/보정 (car-erp NICE 조회 입력값) --}}
+                @if (in_array($d->status, ['accepted', 'won'], true))
+                    <div class="section-title-sm">소유자 <span class="text-[11px] font-normal text-gray-400">(차주명 · car-erp VIN 조회용)</span></div>
+                    <input wire:model.blur="owner_name" class="input-base" placeholder="등록 소유자명" maxlength="60">
+                    @error('owner_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 @endif
 
                 {{-- 입금정보 (정산 = 판매자/경매장 계좌) — accepted·won 에서 입력/수정 --}}

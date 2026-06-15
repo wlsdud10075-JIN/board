@@ -513,14 +513,17 @@ class BoardTest extends TestCase
         $owner = $this->mkUser('sales', 'kim@board.test');
         $l = $this->mkListing($owner, [
             'status' => 'won', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000,
-            'payee_name' => '판매상사', 'payee_account' => '110-222-333444',
+            'owner_name' => '김소유', 'payee_name' => '판매상사', 'payee_account' => '110-222-333444',
         ]);
 
         (new SyncWonListingToCarErp($l->id))->handle();
 
+        // board 는 vin 을 모름 → 매칭키 = vehicle_number + owner_name (car-erp 가 NICE 로 vin 조회)
         Http::assertSent(fn ($request) => str_contains($request->url(), '/api/internal/purchase-sync')
             && str_starts_with($request->header('X-Board-Signature')[0], 'sha256=')
-            && $request['vin'] === $l->vin
+            && $request['vehicle_number'] === $l->vehicle_number
+            && $request['owner_name'] === '김소유'
+            && ! array_key_exists('vin', $request->data())
             && $request['salesman_email'] === 'kim@board.test'
             && $request['payee_account'] === '110-222-333444');   // 전송 본문엔 실값
 

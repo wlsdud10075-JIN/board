@@ -13,6 +13,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public string $source = 'encar';
     public string $vehicle_number = '';
+    public string $owner_name = '';         // 소유자/차주명 (연동 B: car-erp NICE 조회 입력값)
     public string $vin = '';
     public string $region = '';             // 지역 (검사지역, 자동완성)
     public string $c_no = '';               // 매물번호 (ssancar c_no, 조인키)
@@ -32,6 +33,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public ?int $editingId = null;
     public string $e_region = '';
     public string $e_c_no = '';
+    public string $e_owner_name = '';
     public string $e_payee_name = '';
     public string $e_payee_bank = '';
     public string $e_payee_account = '';
@@ -147,6 +149,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->editingId = $l->id;
         $this->e_region = $l->region ?? '';
         $this->e_c_no = $l->c_no ?? '';
+        $this->e_owner_name = $l->owner_name ?? '';
         $this->e_payee_name = $l->payee_name ?? '';
         $this->e_payee_bank = $l->payee_bank ?? '';
         $this->e_payee_account = $l->payee_account ?? '';
@@ -162,7 +165,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number']);
+        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number']);
         unset($this->editing);
     }
 
@@ -179,6 +182,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->validate([
             'e_region' => 'nullable|string|max:60',
             'e_c_no' => 'nullable|string|max:50',
+            'e_owner_name' => 'nullable|string|max:60',
             'e_payee_name' => 'nullable|string|max:60',
             'e_payee_bank' => 'nullable|string|max:40',
             'e_payee_account' => 'nullable|string|max:40',
@@ -193,6 +197,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $l->region = $this->e_region ?: null;
         $l->c_no = $this->e_c_no ?: null;
+        $l->owner_name = $this->e_owner_name ?: null;
         $l->payee_name = $this->e_payee_name ?: null;
         $l->payee_bank = $this->e_payee_bank ?: null;
         $l->payee_account = $this->e_payee_account ?: null;
@@ -232,6 +237,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->validate([
             'source' => 'required|in:encar,auction',
             'vehicle_number' => 'required|string|max:20',
+            'owner_name' => 'nullable|string|max:60',
             'region' => 'nullable|string|max:60',
             'c_no' => 'nullable|string|max:50',
             'payee_name' => 'nullable|string|max:60',
@@ -264,6 +270,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'created_by_user_id' => Auth::id(),
             'source' => $this->source,
             'vehicle_number' => $this->vehicle_number,
+            'owner_name' => $this->owner_name ?: null,
             'vin' => $this->vin ?: null,
             'region' => $this->region ?: null,
             'c_no' => $this->c_no ?: null,
@@ -292,7 +299,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     private function resetForm(): void
     {
-        $this->reset(['vehicle_number', 'vin', 'region', 'c_no', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
+        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
         $this->source = 'encar';
         $this->resetErrorBag();
     }
@@ -362,6 +369,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <label class="label-base">차량번호 <span class="text-red-500">*</span></label>
                         <input class="input-base" wire:model="vehicle_number" placeholder="12가3456">
                         @error('vehicle_number') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
+                    <div>
+                        <label class="label-base">소유자 <span class="text-gray-400">(차주명)</span></label>
+                        <input class="input-base" wire:model="owner_name" placeholder="등록 소유자명">
+                        @error('owner_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                     <div>
                         <label class="label-base">차값 (원)</label>
@@ -586,6 +598,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @foreach (config('board.regions') as $r)<option value="{{ $r }}">@endforeach
                 </datalist>
                 @error('e_region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+
+                <label class="label-base mt-3">소유자 <span class="text-gray-400">(차주명)</span></label>
+                <input class="input-base" wire:model="e_owner_name" placeholder="등록 소유자명" maxlength="60" @unless ($canEdit) disabled @endunless>
+                @error('e_owner_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 @if ($e->source === 'encar')
                     <label class="label-base mt-3">엔카 매물 URL</label>
