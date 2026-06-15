@@ -111,10 +111,11 @@ class PurchaseListing extends Model
 
     /** 감사 대상 필드 — 변경 시 board_audit_logs 자동 기록(옵저버). 출처 무관 단일 경로. */
     public const AUDITED = [
-        'source', 'status', 'buyer_verdict', 'buyer_name',
+        'source', 'status', 'buyer_verdict', 'buyer_name', 'c_no',
         'expected_price', 'final_price', 'car_cost', 'discount_rate', 'shipping_usd',
         'owner_name', 'payee_name', 'payee_bank', 'payee_account',
         'vehicle_number', 'vin', 'car_erp_vehicle_id', 'region', 'inspection_note', 'inspection_memo',
+        'encar_url', 'encar_dealer', 'auction_venue', 'lot_number',
     ];
 
     protected static function booted(): void

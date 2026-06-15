@@ -388,6 +388,8 @@ class BoardTest extends TestCase
         Volt::test('manage.index')
             ->call('openEdit', $l->id)
             ->set('expected_price', '2000000')
+            ->set('owner_name', '김차주')          // 확장 필드
+            ->set('payee_account', '333-444-5555')  // 암호화 + 마스킹 감사
             ->set('status', 'won') // 전이행렬 무시 override
             ->call('save')
             ->assertHasNoErrors();
@@ -395,9 +397,14 @@ class BoardTest extends TestCase
         $l->refresh();
         $this->assertSame(2000000, $l->expected_price);
         $this->assertSame('won', $l->status);
+        $this->assertSame('김차주', $l->owner_name);
+        $this->assertSame('333-444-5555', $l->payee_account);   // 복호화 읽기
 
         $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'field' => 'expected_price']);
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'field' => 'owner_name', 'new_value' => '김차주']);
         $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'field' => 'status', 'action' => 'status_change']);
+        // 계좌번호는 감사로그에 마스킹(***)으로만
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'field' => 'payee_account', 'new_value' => '***']);
     }
 
     public function test_sales_can_edit_own_listing(): void

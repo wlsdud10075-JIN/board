@@ -2,6 +2,7 @@
 
 use App\Models\BoardAuditLog;
 use App\Models\IntegrationEvent;
+use App\Models\PurchaseListing;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
@@ -17,8 +18,24 @@ new #[Layout('components.layouts.app')] class extends Component {
             'expected_price' => '예상가', 'final_price' => '최종금액', 'car_cost' => '차값', 'discount_rate' => '할인율',
             'shipping_usd' => '배송비', 'owner_name' => '소유자', 'payee_name' => '예금주', 'payee_bank' => '은행',
             'payee_account' => '계좌', 'vehicle_number' => '차량번호', 'vin' => 'VIN', 'car_erp_vehicle_id' => 'car-erp차량',
-            'region' => '지역', 'inspection_note' => '추가검사', 'inspection_memo' => '메모',
+            'region' => '지역', 'inspection_note' => '추가검사', 'inspection_memo' => '메모', 'c_no' => '매물번호',
+            'encar_url' => '엔카URL', 'encar_dealer' => '엔카딜러', 'auction_venue' => '경매장', 'lot_number' => '출품번호',
         ][$f] ?? (string) $f;
+    }
+
+    /** 코드값(status/verdict/source)을 한글로 — 비개발자용 표시. */
+    public function valueLabel(?string $field, ?string $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return $value;
+        }
+
+        return match ($field) {
+            'status' => PurchaseListing::STATUS_LABELS[$value] ?? $value,
+            'buyer_verdict' => ['none' => '없음', 'pending' => '회신대기', 'accepted' => '수락', 'rejected' => '거절'][$value] ?? $value,
+            'source' => ['encar' => '엔카', 'auction' => '경매'][$value] ?? $value,
+            default => $value,
+        };
     }
 
     #[Computed]
@@ -55,7 +72,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <td class="text-gray-700">{{ $log->user?->name ?? '시스템' }}</td>
                             <td class="text-gray-600">{{ $log->listing?->vehicle_number ?? '#'.$log->purchase_listing_id }}</td>
                             <td><span class="badge {{ $log->action === 'status_change' ? 'badge-purple' : 'badge-gray' }}">{{ $this->fieldLabel($log->field) }}</span></td>
-                            <td class="text-gray-500">{{ $log->old_value ?? '∅' }} → <b class="text-gray-800">{{ $log->new_value ?? '∅' }}</b></td>
+                            <td class="text-gray-500">{{ $this->valueLabel($log->field, $log->old_value) ?? '∅' }} → <b class="text-gray-800">{{ $this->valueLabel($log->field, $log->new_value) ?? '∅' }}</b></td>
                         </tr>
                     @empty
                         <tr><td colspan="5" class="py-8 text-center text-gray-400">기록된 변경이 없습니다.</td></tr>
