@@ -23,11 +23,18 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $encar_dealer = '';
     public string $auction_venue = '';
     public string $lot_number = '';
+    // 입금정보 (선택 — 영업이 미리 알면 입력, 모르면 구매단계에서) §6e
+    public string $payee_name = '';
+    public string $payee_bank = '';
+    public string $payee_account = '';
 
     // ── 편집 (본인 글 수정) ──
     public ?int $editingId = null;
     public string $e_region = '';
     public string $e_c_no = '';
+    public string $e_payee_name = '';
+    public string $e_payee_bank = '';
+    public string $e_payee_account = '';
     public ?string $e_car_cost = null;
     public ?string $e_discount_rate = null;
     public ?int $e_shipping_usd = null;
@@ -140,6 +147,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->editingId = $l->id;
         $this->e_region = $l->region ?? '';
         $this->e_c_no = $l->c_no ?? '';
+        $this->e_payee_name = $l->payee_name ?? '';
+        $this->e_payee_bank = $l->payee_bank ?? '';
+        $this->e_payee_account = $l->payee_account ?? '';
         $this->e_car_cost = $l->car_cost !== null ? (string) $l->car_cost : null;
         $this->e_discount_rate = $l->discount_rate !== null ? (string) $l->discount_rate : null;
         $this->e_shipping_usd = $l->shipping_usd;
@@ -152,7 +162,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number']);
+        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number']);
         unset($this->editing);
     }
 
@@ -169,6 +179,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->validate([
             'e_region' => 'nullable|string|max:60',
             'e_c_no' => 'nullable|string|max:50',
+            'e_payee_name' => 'nullable|string|max:60',
+            'e_payee_bank' => 'nullable|string|max:40',
+            'e_payee_account' => 'nullable|string|max:40',
             'e_car_cost' => 'nullable|numeric|min:0',
             'e_discount_rate' => 'nullable|numeric|min:0|max:100',
             'e_shipping_usd' => 'nullable|integer|in:'.implode(',', config('board.shipping_options')),
@@ -180,6 +193,9 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $l->region = $this->e_region ?: null;
         $l->c_no = $this->e_c_no ?: null;
+        $l->payee_name = $this->e_payee_name ?: null;
+        $l->payee_bank = $this->e_payee_bank ?: null;
+        $l->payee_account = $this->e_payee_account ?: null;
         $l->car_cost = ($this->e_car_cost === null || $this->e_car_cost === '') ? null : (int) $this->e_car_cost;
         $l->discount_rate = ($this->e_discount_rate === null || $this->e_discount_rate === '') ? null : (float) $this->e_discount_rate;
         $l->shipping_usd = $this->e_shipping_usd ?: null;
@@ -218,6 +234,9 @@ new #[Layout('components.layouts.app')] class extends Component {
             'vehicle_number' => 'required|string|max:20',
             'region' => 'nullable|string|max:60',
             'c_no' => 'nullable|string|max:50',
+            'payee_name' => 'nullable|string|max:60',
+            'payee_bank' => 'nullable|string|max:40',
+            'payee_account' => 'nullable|string|max:40',
             'car_cost' => 'nullable|numeric|min:0',
             'discount_rate' => 'nullable|numeric|min:0|max:100',
             'shipping_usd' => 'nullable|integer|in:'.implode(',', config('board.shipping_options')),
@@ -248,6 +267,9 @@ new #[Layout('components.layouts.app')] class extends Component {
             'vin' => $this->vin ?: null,
             'region' => $this->region ?: null,
             'c_no' => $this->c_no ?: null,
+            'payee_name' => $this->payee_name ?: null,
+            'payee_bank' => $this->payee_bank ?: null,
+            'payee_account' => $this->payee_account ?: null,
             'car_cost' => $carCost,
             'discount_rate' => $discount,
             'shipping_usd' => $shipping,
@@ -270,7 +292,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     private function resetForm(): void
     {
-        $this->reset(['vehicle_number', 'vin', 'region', 'c_no', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
+        $this->reset(['vehicle_number', 'vin', 'region', 'c_no', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
         $this->source = 'encar';
         $this->resetErrorBag();
     }
@@ -422,6 +444,16 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $this->fmt($total) }}</span>
                 </div>
 
+                {{-- 입금정보 (선택 — 알면 미리, 모르면 구매단계에서) §6e --}}
+                <label class="label-base mt-3">입금정보 <span class="text-gray-400">(선택 · 정산계좌)</span></label>
+                <div class="grid gap-2 sm:grid-cols-3">
+                    <input class="input-base" wire:model="payee_name" placeholder="예금주">
+                    <input class="input-base" wire:model="payee_bank" placeholder="은행">
+                    <input class="input-base" wire:model="payee_account" placeholder="계좌번호" inputmode="numeric">
+                </div>
+                @error('payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                <p class="mt-1 text-[11px] text-gray-400">💡 지금 알면 미리 입력 → 구매단계에 자동 표시. 비워두면 구매담당자가 입력. (계좌번호 암호화 저장)</p>
+
                 <p class="mt-2 text-xs text-gray-500"><b>차량번호</b> 필수. 금액은 선택 입력이며 현지 차상태 확인 후 조정될 수 있습니다.</p>
                 @error('source') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
@@ -524,6 +556,15 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <div class="mt-2 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
                     <span class="text-sm font-semibold text-gray-700">최종금액</span><span class="text-base font-bold text-[var(--color-primary-text)]">{{ $this->fmt($eTotal) }}</span>
                 </div>
+
+                {{-- 입금정보 (선택) §6e --}}
+                <label class="label-base mt-3">입금정보 <span class="text-gray-400">(선택 · 정산계좌)</span></label>
+                <div class="grid gap-2 sm:grid-cols-3">
+                    <input class="input-base" wire:model="e_payee_name" placeholder="예금주" @unless ($canEdit) disabled @endunless>
+                    <input class="input-base" wire:model="e_payee_bank" placeholder="은행" @unless ($canEdit) disabled @endunless>
+                    <input class="input-base" wire:model="e_payee_account" placeholder="계좌번호" inputmode="numeric" @unless ($canEdit) disabled @endunless>
+                </div>
+                @error('e_payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 <label class="label-base mt-3">지역</label>
                 <input class="input-base" wire:model="e_region" list="regionListEdit" placeholder="수원 입력 → 자동완성" @unless ($canEdit) disabled @endunless>

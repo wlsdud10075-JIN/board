@@ -128,11 +128,17 @@ class BoardTest extends TestCase
             ->set('car_cost', '13000000')
             ->set('discount_rate', '0')
             ->set('shipping_usd', 1640)
+            ->set('payee_name', '판매상사')
+            ->set('payee_account', '110-222-333444')
             ->call('save')
             ->assertHasNoErrors();
 
         $l = PurchaseListing::where('vin', 'TESTVIN0001')->where('created_by_user_id', $kim->id)->first();
         $this->assertNotNull($l);
+        // 영업이 미리 입력한 입금정보가 저장(계좌번호 암호화)
+        $this->assertSame('판매상사', $l->payee_name);
+        $this->assertSame('110-222-333444', $l->payee_account);
+        $this->assertNotSame('110-222-333444', \DB::table('purchase_listings')->where('id', $l->id)->value('payee_account'));
         // 차량금액 = 13,000,000 − 0% + 440,000(매도비) = 13,440,000
         // 최종금액 = 13,440,000 + 1640 × 1380(임시환율) = 15,703,200 스냅샷
         $this->assertSame(13440000 + 1640 * (int) config('board.default_krw_per_usd'), $l->final_price);
