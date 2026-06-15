@@ -2,14 +2,17 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\SyncWonListingToCarErp;
 use App\Models\ExchangeRate;
 use App\Models\InspectionAssignment;
+use App\Models\IntegrationEvent;
 use App\Models\PurchaseListing;
 use App\Models\User;
 use App\Services\ExchangeRateService;
 use App\Support\TimeGate;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Livewire\Volt\Volt;
@@ -179,11 +182,13 @@ class BoardTest extends TestCase
         $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft']);
         $this->actingAs($this->mkUser('inspection'));
 
+        // 수동씬: 전달 선택 → 저장 눌러야 반영
         Volt::test('inspection.index')
             ->call('openDrawer', $l->id)
             ->set('final_price', '13200000')
             ->set('buyer_name', '드라간')
-            ->call('sendToBuyer')
+            ->set('sendSelected', true)
+            ->call('save')
             ->assertHasNoErrors();
 
         $l->refresh();
@@ -200,14 +205,34 @@ class BoardTest extends TestCase
         ]);
         $this->actingAs($this->mkUser('inspection'));
 
+        // 수동씬: 회신 결과 선택 → 저장 눌러야 반영
         Volt::test('inspection.index')
             ->call('openDrawer', $l->id)
-            ->call('setVerdict', 'accepted')
+            ->set('selectedVerdict', 'accepted')
+            ->call('save')
             ->assertHasNoErrors();
 
         $l->refresh();
         $this->assertSame('accepted', $l->status);
         $this->assertSame('accepted', $l->buyer_verdict);
+    }
+
+    public function test_inspection_verdict_selection_without_save_does_not_commit(): void
+    {
+        // 수동씬 핵심: 선택만 하고 저장 안 하면 상태 변화 없음
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'final_price' => 9000000, 'buyer_name' => 'X',
+        ]);
+        $this->actingAs($this->mkUser('inspection'));
+
+        Volt::test('inspection.index')
+            ->call('openDrawer', $l->id)
+            ->set('selectedVerdict', 'accepted')   // 선택만, save 미호출
+            ->assertHasNoErrors();
+
+        $l->refresh();
+        $this->assertSame('awaiting_buyer', $l->status);   // 그대로
+        $this->assertSame('pending', $l->buyer_verdict);
     }
 
     public function test_region_assignment_role_limit_and_inspector_filter(): void
@@ -483,5 +508,82 @@ class BoardTest extends TestCase
         $u->update(['is_active' => false]);
 
         $this->actingAs($u)->get('/listings')->assertForbidden();
+    }
+
+    // ─────────────────────── 연동 B (car-erp purchase-sync) ───────────────────────
+
+    public function test_won_dispatches_car_erp_sync_job(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000,
+        ]);
+
+        $l->update(['status' => 'won']);
+
+        Bus::assertDispatched(
+            SyncWonListingToCarErp::class,
+            fn ($job) => $job->listingId === $l->id,
+        );
+    }
+
+    public function test_sync_job_pushes_payload_and_marks_synced(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh']);
+        Http::fake(['*/api/internal/purchase-sync' => Http::response(['vehicle_id' => 777], 200)]);
+
+        $owner = $this->mkUser('sales', 'kim@board.test');
+        $l = $this->mkListing($owner, [
+            'status' => 'won', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000,
+            'owner_name' => '김소유', 'payee_name' => '판매상사', 'payee_account' => '110-222-333444',
+        ]);
+
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        // board 는 vin 을 모름 → 매칭키 = vehicle_number + owner_name (car-erp 가 NICE 로 vin 조회)
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/api/internal/purchase-sync')
+            && str_starts_with($request->header('X-Board-Signature')[0], 'sha256=')
+            && $request['vehicle_number'] === $l->vehicle_number
+            && $request['owner_name'] === '김소유'
+            && ! array_key_exists('vin', $request->data())
+            && $request['salesman_email'] === 'kim@board.test'
+            && $request['payee_account'] === '110-222-333444');   // 전송 본문엔 실값
+
+        $fresh = $l->fresh();
+        $this->assertSame(777, $fresh->car_erp_vehicle_id);
+        $this->assertSame('synced', $fresh->status);
+
+        $ev = IntegrationEvent::first();
+        $this->assertSame('outbound', $ev->direction);
+        $this->assertSame('car_erp', $ev->target);
+        $this->assertSame(200, $ev->response_status);
+        $this->assertSame('***', $ev->request_payload['payee_account']);   // 로그엔 마스킹
+    }
+
+    public function test_sync_job_skips_when_already_synced(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh']);
+        Http::fake();
+
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'won', 'source' => 'auction', 'car_erp_vehicle_id' => 555,
+        ]);
+
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        Http::assertNothingSent();
+    }
+
+    public function test_sync_job_noops_without_config(): void
+    {
+        config(['services.car_erp.base_url' => null, 'services.car_erp.hmac_secret' => null]);
+        Http::fake();
+
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'won', 'source' => 'auction']);
+
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        Http::assertNothingSent();
+        $this->assertNull($l->fresh()->car_erp_vehicle_id);
     }
 }
