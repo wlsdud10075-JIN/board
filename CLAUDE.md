@@ -4,6 +4,11 @@
 
 SSANCAR 의 매입 *확정 전* 워크플로우(영업 매입예정 → 현지 검차·금액산정 → 바이어 수락 → 경매/구매 → car-erp 재고 전환)를 디지털화하는 신규 앱. v2 목업(`docs/purchase-board-mockup2.html`, car-erp repo)을 현실화한 것.
 
+> 🔗 **형제 앱 `car-erp` + 연동** (별도 repo/DB/APP_KEY/배포):
+> - `car-erp` = 중고차 수출 **ERP** (`C:\xampp\htdocs\car-erp`, 자체 CLAUDE.md/SKILLS.md). board 매입 *확정* → **car-erp(heyman) 재고 전환**. 현재 **heyman만 연동**.
+> - **연동 B**: `POST /api/internal/purchase-sync` (HMAC+멱등). 보내는 스펙=board `SKILLS.md §12`(payload 권위) ↔ 받는 스펙=car-erp `docs/integration/purchase-sync-receiver.md`(수신 권위). 상호링크, **복사 금지(drift)**.
+> - ⚠️ **크로스 레포 규칙**: 레포 X 관련 결정/변경은 **X의 *커밋된 파일*에 남기고 X 세션에서 커밋**한다. 메모리는 레포별·PC별이라 안 따라옴 — **git 커밋된 파일만** 모든 세션·PC에 전파. (car-erp 수정 = car-erp 세션·car-erp repo에 커밋.)
+
 ## 위치/환경
 - **경로**: `C:/xampp/htdocs/board` (car-erp 와 형제 디렉터리)
 - **프레임워크**: Laravel 12 + Livewire 4 (Volt 1.6 단일파일) + Flux UI 2 + Tailwind v4 + Alpine
