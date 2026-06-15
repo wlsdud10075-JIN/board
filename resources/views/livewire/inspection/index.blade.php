@@ -609,8 +609,8 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 {{-- 전달 (draft 단계) — 클릭=선택만, 저장 눌러야 전달 --}}
                 @if ($e->status === 'draft')
-                    <button type="button" wire:click="$toggle('sendSelected')"
-                            class="btn-outline btn-sm mt-2 w-full justify-center {{ $sendSelected ? 'border-[var(--color-primary)] bg-[#f5f8ff] font-semibold text-[var(--color-primary-text)]' : '' }}">
+                    <button type="button" wire:click="$toggle('sendSelected')" class="btn-outline btn-sm mt-2 w-full justify-center"
+                            @style(['background-color:var(--color-primary);border-color:var(--color-primary);color:#fff;font-weight:700' => $sendSelected])>
                         📤 사진 + 최종금액 바이어에게 전달 {{ $sendSelected ? '— 선택됨 ✓' : '' }}
                     </button>
                     <p class="mt-1 text-xs text-gray-400">선택 후 아래 <b>저장</b>을 눌러야 전달됩니다. (전달 후 "회신대기")</p>
@@ -620,9 +620,12 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @if ($e->status === 'awaiting_buyer')
                     <div class="section-title-sm">바이어 회신 결과</div>
                     <div class="flex gap-2">
-                        <button type="button" class="btn-outline btn-sm flex-1 justify-center {{ $selectedVerdict === 'pending' ? 'border-amber-400 bg-amber-50 font-semibold text-amber-700' : '' }}" wire:click="$set('selectedVerdict', 'pending')">⏳ 회신대기</button>
-                        <button type="button" class="btn-outline btn-sm flex-1 justify-center {{ $selectedVerdict === 'accepted' ? 'border-green-500 bg-green-50 font-semibold text-green-700' : '' }}" wire:click="$set('selectedVerdict', 'accepted')">👍 수락</button>
-                        <button type="button" class="btn-outline btn-sm flex-1 justify-center {{ $selectedVerdict === 'rejected' ? 'border-red-500 bg-red-50 font-semibold text-red-700' : '' }}" wire:click="$set('selectedVerdict', 'rejected')">👎 거절</button>
+                        <button type="button" wire:click="$set('selectedVerdict', 'pending')" class="btn-outline btn-sm flex-1 justify-center"
+                                @style(['background-color:#f59e0b;border-color:#f59e0b;color:#fff;font-weight:700' => $selectedVerdict === 'pending'])>⏳ 회신대기 {{ $selectedVerdict === 'pending' ? '✓' : '' }}</button>
+                        <button type="button" wire:click="$set('selectedVerdict', 'accepted')" class="btn-outline btn-sm flex-1 justify-center"
+                                @style(['background-color:#16a34a;border-color:#16a34a;color:#fff;font-weight:700' => $selectedVerdict === 'accepted'])>👍 수락 {{ $selectedVerdict === 'accepted' ? '✓' : '' }}</button>
+                        <button type="button" wire:click="$set('selectedVerdict', 'rejected')" class="btn-outline btn-sm flex-1 justify-center"
+                                @style(['background-color:#dc2626;border-color:#dc2626;color:#fff;font-weight:700' => $selectedVerdict === 'rejected'])>👎 거절 {{ $selectedVerdict === 'rejected' ? '✓' : '' }}</button>
                     </div>
                     <p class="mt-1 text-xs text-gray-400">선택 후 아래 <b>저장</b>을 눌러야 반영됩니다. 수락한 차량만 경매/구매로 진입.</p>
                 @endif
