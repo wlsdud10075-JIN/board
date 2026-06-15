@@ -90,13 +90,17 @@ public static function auctionRegistrationLocked(): bool {
 - 경매 등록 시 `lock_at` stamp, `PurchaseListing::isLocked()` = source auction && lock_at && now>=lock_at.
 - 테스트는 `Carbon::setTestNow('2026-06-08 11:00:00')` 로 평일/주말 경계 검증(끝에 `setTestNow()` 리셋).
 
-## 6. BoardAudit (감사 단일 경로)
+## 6. BoardAudit (감사 단일 경로 = 모델 옵저버)
+- **수정 출처 무관 자동기록**: `PurchaseListing::booted()` 의 `static::updated` 옵저버가 변경된 `AUDITED` 필드를 diff 해 `BoardAudit::logChanges($l, $original, $changed, Auth::id())` 호출. 관리/검차/경매/**연동 Job(won→synced)** 어디서 바꾸든 자동. UI 마다 명시 호출하지 말 것(이중기록).
 ```php
-$original = $l->only($fields);    // 변경 전 스냅샷
-// ... $l 값 변경 + save ...
-BoardAudit::logChanges($l, $original, $fields, Auth::id());  // 필드별 old≠new 만 기록
+$changed = array_values(array_intersect(self::AUDITED, array_keys($l->getChanges())));
+// $original[$f] = $l->getOriginal($f);  → BoardAudit::logChanges(..., Auth::id())
 ```
-- `board_audit_logs` 는 append-only(`const UPDATED_AT = null`). action = status 면 'status_change' 아니면 'field_edit'.
+- `BoardAudit::logChanges(..., ?int $userId)` — **userId null = 시스템**(비로그인 Job). `board_audit_logs.user_id` nullable.
+- **민감필드 마스킹**: `payee_account` 는 로그에 `***`(MASKED 상수). 값 노출 금지(§6e).
+- append-only(`const UPDATED_AT = null`). action = status 면 'status_change' 아니면 'field_edit'.
+- **표시**: `/audit`(super 전용)에서 status/buyer_verdict/source 코드값을 한글로(`valueLabel()`, 표시시점 변환이라 기존 기록도 한글). 저장값은 코드 그대로(car-erp 대조용).
+- **`/manage` 목록**: 전체로드 금지 → `paginate(20)` + `when()` 필터(상태/출처/회신/검색) + KPI 는 별도 `count()`. 필터 컬럼 인덱스(status·source·buyer_verdict·created_by·created_at·car_erp_vehicle_id).
 
 ## 7. 사진 업로드 (WithFileUploads + 디스크 분리)
 ```php
@@ -149,6 +153,8 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 6. **식별값 가드 순서** — IDENTITY_LOCKED 체크가 override 체크보다 먼저라 관리자도 연동된(car_erp_vehicle_id≠null) 차량 VIN 은 못 바꿈. 미연동만 정정.
 7. **시더 재실행** — listings `updateOrCreate(by vin)` 가 status 를 시드값으로 되돌리는데, DB 현재 status 가 다르면 전이 가드에 걸릴 수 있음. UI 로 상태 진행시킨 뒤 `db:seed` 재실행 주의(필요시 `migrate:fresh --seed` 또는 query update 로 복구).
 8. **enum unique + NULL** — `unique('vin')` / `unique(['auction_venue','lot_number'])` 는 MySQL/MariaDB 에서 NULL 다중 허용 → 엔카(venue/lot NULL)·VIN 없는 행 충돌 안 함.
+9. **Tailwind v4 `!important` 위치 (★2회 발생)** — v4 는 **후행** `bg-red-500!`, 선행 `!bg-red-500`(v3 문법)은 **무시됨**. `input-base{width:100%}`·`btn-outline{background:#fff}` 같은 커스텀 클래스를 못 덮어 "세로로 쌓임/배경 안 변함" 증상. 해결 = 인라인 `style`/`@style` 디렉티브(확실, 빌드 불필요) 또는 grid 레이아웃. blade 새 클래스는 `npm run build` 필요도 주의.
+10. **목록 전체로드 금지** — `->latest()->get()` 는 수천 건에서 느림. `/manage` 처럼 `paginate()` + DB 필터 + 별도 `count()` KPI. (옛 코드 답습 말 것)
 
 ## 12. 연동 B 계약 — board "보내는 절반" (수신 = car-erp/heyman)
 > 두 앱(board·car-erp)이 만나는 **유일한 접점 = 이 API 계약**. DB·보안경계 다른 별도 앱이라 합치지 않고 계약으로 느슨하게 연결.
@@ -184,7 +190,7 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 - ⚠️ **계약 변경 시 배포 순서**: 필드 추가/변경은 **수신측(car-erp) 먼저 배포**(받을 준비) → 그 다음 board 가 보내기 시작. (car-erp 배포 `artisan down` 1~3분은 board 큐+재시도가 자동 흡수.)
 - **수신 스펙(권위) = car-erp docs**: `PurchaseSyncController` — 영업 매칭(이메일→salesman→`manager_user_id`로 담당 관리 자동 솔팅), `vehicle_number` 멱등, **NICE(vehicle_number+owner_name) → VIN**, payee→정산계좌.
 - 선행: car-erp API 1개(**승인됨 2026-06-15**) + HMAC + 큐 워커(board **설치 완료**). board 는 `status='won'` 가드 + afterCommit.
-- **진행상태 (2026-06-15, 로컬 e2e 중)**: board 보내는 절반 = 구현+테스트 완료(31통과). car-erp 수신측 1차 구현됨(daa4c16). **로컬 e2e 에서 2버그 발견 → car-erp 2차 수정 필요**: ① `sales_channel='heyman'` 제거(enum 이 `export` 단일로 축소됨 2026-05-14 → truncate 500) ② vin 필수 검증 → `vehicle_number`+`owner_name` 으로 변경 + 매칭을 nice_reg_vin→vehicle_number + **NICE 조회로 VIN 채우기**. 핸드오프 = `meetings/handoff-car-erp-purchase-sync.md`.
+- **🟢 진행상태 (2026-06-15, 운영 LIVE 완료)**: board+car-erp 양쪽 master 배포 + 로컬 e2e 통과. car-erp 수신측 = `daa4c16`(1차) → `44eab1d`(2차: sales_channel='heyman' 제거(enum export 단일), vin→vehicle_number 멱등 + NICE(vehicle_number+owner_name)→VIN). 양쪽 운영 `.env` `CAR_ERP_HMAC_SECRET` 공유(값=문서 미기재) + board `CAR_ERP_BASE_URL=https://heysellcar.com`. 안전밸브·멱등 작동. **첫 실거래 won 대기** — 검증: `/audit` integration_events 201 + car-erp 매입목록. 핸드오프 = `meetings/handoff-car-erp-purchase-sync.md`.
 
 ### 연동 B/A 추가 스키마 (codex/gemini 리뷰 수용, 2026-06-12)
 - **`integration_events`** (append-only, board_audit_logs 와 별개): `id · direction(outbound/inbound) · target(car_erp/respond_io) · event_type · purchase_listing_id(nullable) · external_event_id(nullable, inbound 중복제거 키) · request_payload(json) · response_status · response_body · error · created_at`. updated_at 없음. **연동 B 에서 신설, 연동 A inbound 가 `external_event_id` 로 멱등성 확보 시 재사용.**

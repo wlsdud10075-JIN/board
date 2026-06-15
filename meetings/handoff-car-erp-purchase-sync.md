@@ -2,13 +2,19 @@
 
 > **왜 이 문서가 있나**: Claude 세션끼리는 실시간 통신 채널이 없다(컨텍스트·메모리 격리). board↔car-erp 협업의 유일한 다리 = **git 커밋된 파일 + 사용자가 옮기는 인계 문서**. board 세션이 만든 이 노트를 사용자가 car-erp 세션에 전달한다.
 >
-> - **보내는 절반(권위)** = board `SKILLS.md §12` (구현 완료, dev `e633555`).
+> - **보내는 절반(권위)** = board `SKILLS.md §12`.
 > - **받는 절반(권위)** = car-erp `docs/integration/purchase-sync-receiver.md` (← car-erp 세션이 작성·커밋).
 > - 상호링크, **복사 금지(drift)**.
 
-## 🔴 2차 수정 필요 (2026-06-15 로컬 e2e 발견) — car-erp 세션에 전달
+## 🟢 완료 — 연동 B 운영 LIVE (2026-06-15)
+- **board + car-erp 양쪽 master 배포 완료.** 로컬 e2e 통과 → 운영 라이브.
+- car-erp 수신측: `daa4c16`(1차) → `44eab1d`(2차 수정 반영). board 발신: `SyncWonListingToCarErp` + 계약 정정(vehicle_number+owner_name).
+- 양쪽 운영 `.env` `CAR_ERP_HMAC_SECRET` 공유 + board `CAR_ERP_BASE_URL=https://heysellcar.com`. 엔드포인트 401(살아있음)·시크릿 일치 확인.
+- **남은 것 = 첫 실거래 won 검증**(board `/audit` integration_events 201 + car-erp 매입목록). 아래 섹션들은 **이력 보존**(완료된 작업).
 
-1차 수신측(daa4c16)은 잘 만들었는데, board와 로컬 연동 테스트에서 **버그 2개 + 계약 정정 1개**가 나왔어. car-erp 세션에 아래를 전달:
+## ✅ 2차 수정 (2026-06-15 로컬 e2e 발견 → car-erp 44eab1d 반영 완료, 이력)
+
+1차 수신측(daa4c16)에서 board 로컬 연동 테스트로 **버그 2개 + 계약 정정 1개**가 나왔고, car-erp 가 `44eab1d`로 반영함:
 
 ```
 연동 B 수신측(daa4c16)에 로컬 e2e 테스트로 버그 2개 + 계약 정정이 나왔어. 고쳐줘.
@@ -37,14 +43,7 @@ board 보내는 스펙은 board SKILLS.md §12 최신본 기준(C:\xampp\htdocs\
 [문서] docs/integration/purchase-sync-receiver.md 갱신(매칭키=vehicle_number, NICE 단계 명시).
 ```
 
-배포 순서: car-erp 2차 수정 배포 → board master 배포(env 는 이미 세팅). 그 전엔 운영 미배포.
-
----
-
-## 상태 (2026-06-15)
-- board 보내는 절반 = **구현+테스트 완료** (`SyncWonListingToCarErp` Job · `integration_events` · HMAC · dispatch 훅 · 테스트 4종, 총 31통과). dev 커밋, **master 미배포**(안전밸브로 no-op).
-- 남은 것 = **car-erp 수신 `PurchaseSyncController`** (아래) + 양쪽 env + 배포.
-- 대표 승인됨: "car-erp 무수정 원칙의 명시적 예외" (purchase-sync API 1개 추가).
+배포 순서(완료): car-erp 2차 배포 → board master 배포 → 양쪽 env 시크릿 일치.
 
 ---
 
