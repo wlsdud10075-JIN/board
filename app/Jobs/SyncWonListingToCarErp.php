@@ -59,7 +59,8 @@ class SyncWonListingToCarErp implements ShouldQueue
             'owner_name' => $l->owner_name,
             'source' => $l->source,
             'final_price' => $l->final_price,
-            'salesman_email' => $l->creator?->email,
+            // car-erp 영업 매칭 이메일 — 오버라이드(car_erp_salesman_email) 있으면 그걸, 없으면 로그인 이메일.
+            'salesman_email' => $l->creator?->car_erp_salesman_email ?: $l->creator?->email,
             'car_erp_salesman_id' => $l->creator?->car_erp_salesman_id,
             'c_no' => $l->c_no,
             'payee_name' => $l->payee_name,

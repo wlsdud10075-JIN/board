@@ -560,6 +560,21 @@ class BoardTest extends TestCase
         $this->assertSame('***', $ev->request_payload['payee_account']);   // 로그엔 마스킹
     }
 
+    public function test_sync_uses_car_erp_salesman_email_override(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh']);
+        Http::fake(['*/api/internal/purchase-sync' => Http::response(['vehicle_id' => 1], 200)]);
+
+        $owner = $this->mkUser('sales', 'login@board.test');
+        $owner->update(['car_erp_salesman_email' => 'real@carerp.com']);   // 로그인 ≠ car-erp 이메일
+        $l = $this->mkListing($owner, ['status' => 'won', 'source' => 'auction', 'final_price' => 9000000]);
+
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        // 오버라이드 이메일이 salesman_email 로 나가야 함 (로그인 이메일 아님)
+        Http::assertSent(fn ($request) => $request['salesman_email'] === 'real@carerp.com');
+    }
+
     public function test_sync_job_skips_when_already_synced(): void
     {
         config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh']);
