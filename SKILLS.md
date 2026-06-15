@@ -150,18 +150,27 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 7. **시더 재실행** — listings `updateOrCreate(by vin)` 가 status 를 시드값으로 되돌리는데, DB 현재 status 가 다르면 전이 가드에 걸릴 수 있음. UI 로 상태 진행시킨 뒤 `db:seed` 재실행 주의(필요시 `migrate:fresh --seed` 또는 query update 로 복구).
 8. **enum unique + NULL** — `unique('vin')` / `unique(['auction_venue','lot_number'])` 는 MySQL/MariaDB 에서 NULL 다중 허용 → 엔카(venue/lot NULL)·VIN 없는 행 충돌 안 함.
 
-## 12. 연동 B 구현 시 참고 (영업담당자 이메일 매칭)
-car-erp `PurchaseSyncController` (신규, 대표 승인 후) 의사코드:
-```php
-// 1. 멱등: VIN 으로 기존 car-erp vehicle 조회 → 있으면 스킵/업데이트
-// 2. 영업 매칭 (이메일 기본 + id 보조)
-$salesman = Salesman::whereHas('user', fn($q)=>$q->where('email', $payload['salesman_email']))->first()
-         ?? ($payload['car_erp_salesman_id'] ? Salesman::find($payload['car_erp_salesman_id']) : null);
-// 3. Vehicle::create([... 'salesman_id' => $salesman?->id ...]) — null 이면 수동 지정 폴백
-// 4. 응답으로 vehicle.id 반환 → board 가 purchase_listings.car_erp_vehicle_id 채움 (이후 VIN 잠금)
+## 12. 연동 B 계약 — board "보내는 절반" (수신 = car-erp/heyman)
+> 두 앱(board·car-erp)이 만나는 **유일한 접점 = 이 API 계약**. DB·보안경계 다른 별도 앱이라 합치지 않고 계약으로 느슨하게 연결.
+> **계약은 두 면**: board=보내는 스펙(여기), car-erp=받는 스펙(car-erp docs). **문서 복사 금지(drift) → 각자 자기 절반 + 상호 링크.** 수신 로직(VIN 멱등·영업 매칭·vehicle 생성)은 car-erp 책임.
+
+**전송**: `POST {CAR_ERP_BASE_URL}/api/internal/purchase-sync` (HMAC 서명 + HTTPS). `status='won'` 만, `dispatch()->afterCommit()`, 큐 비동기.
+
+**payload**:
+```json
+{
+  "contract_version": 1,
+  "vin": "...", "vehicle_number": "...", "source": "encar|auction",
+  "final_price": 0, "salesman_email": "...", "car_erp_salesman_id": null,
+  "c_no": null, "payee_name": null, "payee_bank": null, "payee_account": null
+}
 ```
-- board push payload(최소): `{vin, vehicle_number, source, final_price, salesman_email, car_erp_salesman_id, c_no?, payee_name?, payee_bank?, payee_account?}`. RRN/전화/서류 미포함. **payee_account 는 board 에 암호화 보관(§6e), 전송은 HMAC+HTTPS 한정** — car-erp 매입탭 정산계좌로 수신·저장.
-- 선행: car-erp API 1개 + HMAC + 큐 워커(Supervisor). board 는 `status='won'` 가드 + `dispatch()->afterCommit()`.
+- **버전·전방호환**: `contract_version` 명시. **양쪽 모두 "모르는 필드는 무시"** → 필드 추가해도 안 깨짐.
+- **보안경계**: RRN/전화/서류 미포함. `payee_account` 는 board 암호화 보관(§6e), 전송은 HMAC+HTTPS 한정 → car-erp 매입탭 정산계좌로 수신.
+- **멱등**: board `car_erp_vehicle_id` null 가드 + car-erp VIN 사전조회(중복=스킵). 응답 `{vehicle_id}` → board `purchase_listings.car_erp_vehicle_id` 채움 → 이후 VIN 잠금.
+- ⚠️ **계약 변경 시 배포 순서**: 필드 추가/변경은 **수신측(car-erp) 먼저 배포**(받을 준비) → 그 다음 board 가 보내기 시작. (car-erp 배포 `artisan down` 1~3분은 board 큐+재시도가 자동 흡수.)
+- **수신 스펙(권위) = car-erp docs**: `PurchaseSyncController` — 영업 매칭(이메일→salesman→`manager_user_id`로 담당 관리 자동 솔팅), VIN 멱등, payee→정산계좌.
+- 선행: car-erp API 1개(**승인됨 2026-06-15**) + HMAC + 큐 워커(board **설치 완료**). board 는 `status='won'` 가드 + afterCommit.
 
 ### 연동 B/A 추가 스키마 (codex/gemini 리뷰 수용, 2026-06-12)
 - **`integration_events`** (append-only, board_audit_logs 와 별개): `id · direction(outbound/inbound) · target(car_erp/respond_io) · event_type · purchase_listing_id(nullable) · external_event_id(nullable, inbound 중복제거 키) · request_payload(json) · response_status · response_body · error · created_at`. updated_at 없음. **연동 B 에서 신설, 연동 A inbound 가 `external_event_id` 로 멱등성 확보 시 재사용.**
