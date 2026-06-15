@@ -44,7 +44,7 @@ npm ci && npm run build
 ### B-3. .env 작성 (가장 중요)
 ```bash
 cp .env.example .env
-nano .env   # DB_PASSWORD, AWS_*, APP_URL=https://board.도메인, APP_ENV=production, APP_DEBUG=false,
+nano .env   # DB_PASSWORD, AWS_*, APP_URL=https://board.heysellcar.com, APP_ENV=production, APP_DEBUG=false,
             #  BOARD_PHOTO_DISK=s3, DB_BACKUP_DISK=s3, AWS_BUCKET 등 채움
 php artisan key:generate          # ⚠️ APP_KEY 1회 생성 → 즉시 백업(payee 암호화 키, 분실=복호화 불가)
 php artisan migrate --force
@@ -68,7 +68,7 @@ sudo systemctl reload php8.4-fpm
 ```nginx
 server {
     listen 80;
-    server_name board.도메인;
+    server_name board.heysellcar.com;
     root /var/www/board/public;
     index index.php;
     client_max_body_size 100M;   # 검차 영상 업로드 대비
@@ -87,9 +87,9 @@ sudo nginx -t && sudo systemctl reload nginx
 ```
 
 ### B-5. DNS + HTTPS
-- 도메인 등록기관에서 **A 레코드**: `board.도메인 → Lightsail 고정 IP`
+- 도메인 등록기관에서 **A 레코드**: `board.heysellcar.com → Lightsail 고정 IP`
 - ```bash
-  sudo certbot --nginx -d board.도메인   # HTTPS 자동 + 자동갱신
+  sudo certbot --nginx -d board.heysellcar.com   # HTTPS 자동 + 자동갱신
   ```
 
 ### B-6. 큐 워커 (Supervisor — `/etc/supervisor/conf.d/board-worker.conf`)
@@ -140,7 +140,7 @@ git checkout dev
 → 서버에서 git pull·build·migrate·cache·fpm reload·queue:restart 자동.
 
 ## D. 배포 후 검증
-- [ ] `https://board.도메인` 접속 → 로그인(admin@board.test) 됨
+- [ ] `https://board.heysellcar.com` 접속 → 로그인(admin@board.test) 됨
 - [ ] 매입예정 환율 배너 **LIVE** (lazy/스케줄 갱신)
 - [ ] 검차 사진 업로드 → S3 저장 확인
 - [ ] `php artisan db:backup` 수동 1회 → storage/backups/db + (s3) 확인
