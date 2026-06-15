@@ -53,6 +53,7 @@ class BackupDatabase extends Command
             $cmd[] = '--password='.$cfg['password'];
         }
         $cmd[] = '--single-transaction';
+        $cmd[] = '--no-tablespaces';   // board_user 는 PROCESS 권한 없음 → tablespace 덤프 스킵(경고 제거)
         $cmd[] = '--quick';
         $cmd[] = '--default-character-set=utf8mb4';
         $cmd[] = $database;
