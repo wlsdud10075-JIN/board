@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\PurchaseListing;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
@@ -74,7 +75,17 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function photoUrl(string $path): string
     {
-        return Storage::disk(config('board.photo_disk'))->url($path);
+        $disk = config('board.photo_disk');
+        if ($disk !== 's3') {
+            return Storage::disk($disk)->url($path);
+        }
+
+        // presigned URL — 렌더링마다 재서명되면 영상 재생이 리셋되므로 캐시로 문자열 고정 (TTL < 만료)
+        return Cache::remember(
+            "photo_url:{$path}",
+            now()->addMinutes(20),
+            fn () => Storage::disk('s3')->temporaryUrl($path, now()->addMinutes(30)),
+        );
     }
 
     public function conclude(int $id, string $result): void
