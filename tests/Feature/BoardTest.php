@@ -182,11 +182,13 @@ class BoardTest extends TestCase
         $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft']);
         $this->actingAs($this->mkUser('inspection'));
 
+        // 수동씬: 전달 선택 → 저장 눌러야 반영
         Volt::test('inspection.index')
             ->call('openDrawer', $l->id)
             ->set('final_price', '13200000')
             ->set('buyer_name', '드라간')
-            ->call('sendToBuyer')
+            ->set('sendSelected', true)
+            ->call('save')
             ->assertHasNoErrors();
 
         $l->refresh();
@@ -203,14 +205,34 @@ class BoardTest extends TestCase
         ]);
         $this->actingAs($this->mkUser('inspection'));
 
+        // 수동씬: 회신 결과 선택 → 저장 눌러야 반영
         Volt::test('inspection.index')
             ->call('openDrawer', $l->id)
-            ->call('setVerdict', 'accepted')
+            ->set('selectedVerdict', 'accepted')
+            ->call('save')
             ->assertHasNoErrors();
 
         $l->refresh();
         $this->assertSame('accepted', $l->status);
         $this->assertSame('accepted', $l->buyer_verdict);
+    }
+
+    public function test_inspection_verdict_selection_without_save_does_not_commit(): void
+    {
+        // 수동씬 핵심: 선택만 하고 저장 안 하면 상태 변화 없음
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'final_price' => 9000000, 'buyer_name' => 'X',
+        ]);
+        $this->actingAs($this->mkUser('inspection'));
+
+        Volt::test('inspection.index')
+            ->call('openDrawer', $l->id)
+            ->set('selectedVerdict', 'accepted')   // 선택만, save 미호출
+            ->assertHasNoErrors();
+
+        $l->refresh();
+        $this->assertSame('awaiting_buyer', $l->status);   // 그대로
+        $this->assertSame('pending', $l->buyer_verdict);
     }
 
     public function test_region_assignment_role_limit_and_inspector_filter(): void
