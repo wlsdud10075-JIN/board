@@ -503,6 +503,26 @@ class BoardTest extends TestCase
         $this->assertDatabaseHas('users', ['email' => 'new@board.test', 'role' => 'sales', 'is_active' => true]);
     }
 
+    public function test_manage_filters_listings(): void
+    {
+        $sales = $this->mkUser('sales');
+        $this->mkListing($sales, ['source' => 'encar', 'status' => 'draft']);
+        $this->mkListing($sales, ['source' => 'auction', 'status' => 'draft']);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('manage.index')
+            ->assertSee('전체 현황')
+            ->set('fSource', 'encar')
+            ->assertSet('fSource', 'encar');   // 필터 세팅 + 렌더 에러 없음
+
+        // KPI 클릭 토글
+        Volt::test('manage.index')
+            ->call('kpiFilter', 'won')
+            ->assertSet('fStatus', 'won')
+            ->call('kpiFilter', 'won')
+            ->assertSet('fStatus', '');
+    }
+
     public function test_audit_log_page_is_super_only(): void
     {
         $this->actingAs($this->mkUser('manager'))->get('/audit')->assertForbidden();

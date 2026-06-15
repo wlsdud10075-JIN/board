@@ -5,8 +5,18 @@ use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
+use Livewire\WithPagination;
 
 new #[Layout('components.layouts.app')] class extends Component {
+    use WithPagination;
+
+    // ── 필터 (DB 레벨 — 수천 건에서도 인덱스 + 페이지네이션) ──
+    public string $fStatus = '';
+    public string $fSource = '';
+    public string $fVerdict = '';
+    public bool $fToday = false;
+    public string $search = '';
+
     public ?int $editingId = null;
     public string $vehicle_number = '';
     public string $vin = '';
@@ -18,18 +28,61 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $buyer_name = '';
     public string $inspection_memo = '';
 
-    public function fieldLabel(?string $f): string
+    /** 필터 변경 시 1페이지로 (wire:model.live 항목 공통) */
+    public function updated($prop): void
+    {
+        if (in_array($prop, ['fStatus', 'fSource', 'fVerdict', 'fToday', 'search'], true)) {
+            $this->resetPage();
+        }
+    }
+
+    /** KPI 클릭 = 그 차원 필터 토글(다시 누르면 해제). */
+    public function kpiFilter(string $key): void
+    {
+        match ($key) {
+            'today' => $this->fToday = ! $this->fToday,
+            'encar' => $this->fSource = $this->fSource === 'encar' ? '' : 'encar',
+            'auction' => $this->fSource = $this->fSource === 'auction' ? '' : 'auction',
+            'accepted' => $this->fVerdict = $this->fVerdict === 'accepted' ? '' : 'accepted',
+            'won' => $this->fStatus = $this->fStatus === 'won' ? '' : 'won',
+            default => null,
+        };
+        $this->resetPage();
+    }
+
+    public function clearFilters(): void
+    {
+        $this->reset(['fStatus', 'fSource', 'fVerdict', 'fToday', 'search']);
+        $this->resetPage();
+    }
+
+    /** KPI = 전체 개요 카운트(인덱스 COUNT, 목록 로드 안 함). */
+    #[Computed]
+    public function kpi(): array
     {
         return [
-            'source' => '출처', 'expected_price' => '예상가', 'final_price' => '최종금액',
-            'status' => '상태', 'buyer_verdict' => '바이어회신', 'buyer_name' => '바이어', 'inspection_memo' => '메모',
-        ][$f] ?? (string) $f;
+            'today' => PurchaseListing::whereDate('created_at', today())->count(),
+            'encar' => PurchaseListing::where('source', 'encar')->count(),
+            'auction' => PurchaseListing::where('source', 'auction')->count(),
+            'accepted' => PurchaseListing::where('buyer_verdict', 'accepted')->count(),
+            'won' => PurchaseListing::where('status', 'won')->count(),
+        ];
     }
 
     #[Computed]
     public function listings()
     {
-        return PurchaseListing::with('creator')->latest()->get();
+        return PurchaseListing::with('creator')
+            ->when($this->fStatus !== '', fn ($q) => $q->where('status', $this->fStatus))
+            ->when($this->fSource !== '', fn ($q) => $q->where('source', $this->fSource))
+            ->when($this->fVerdict !== '', fn ($q) => $q->where('buyer_verdict', $this->fVerdict))
+            ->when($this->fToday, fn ($q) => $q->whereDate('created_at', today()))
+            ->when($this->search !== '', fn ($q) => $q->where(fn ($w) => $w
+                ->where('vehicle_number', 'like', '%'.$this->search.'%')
+                ->orWhere('c_no', 'like', '%'.$this->search.'%')
+                ->orWhere('owner_name', 'like', '%'.$this->search.'%')))
+            ->latest()
+            ->paginate(20);
     }
 
     #[Computed]
@@ -57,7 +110,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function closeEdit(): void
     {
         $this->reset(['editingId', 'vehicle_number', 'vin', 'source', 'expected_price', 'final_price', 'status', 'buyer_verdict', 'buyer_name', 'inspection_memo']);
-        unset($this->editing, $this->listings);
+        unset($this->editing, $this->listings, $this->kpi);
     }
 
     public function save(): void
@@ -108,29 +161,42 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="card-sm mb-3 border-green-200 bg-green-50 text-[13px] text-green-700">✓ {{ session('ok') }}</div>
     @endif
 
-    {{-- KPI --}}
-    @php
-        $all = $this->listings;
-        $todayCount = $all->filter(fn ($l) => $l->created_at?->isToday())->count();
-    @endphp
+    {{-- KPI (클릭 = 그 차원 필터 토글) --}}
+    @php $k = $this->kpi; @endphp
     <div class="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">
-        <div class="kpi"><div class="k">오늘 매입예정</div><div class="v">{{ $todayCount }}</div></div>
-        <div class="kpi"><div class="k">엔카</div><div class="v" style="color:var(--color-encar)">{{ $all->where('source', 'encar')->count() }}</div></div>
-        <div class="kpi"><div class="k">경매</div><div class="v" style="color:var(--color-auction)">{{ $all->where('source', 'auction')->count() }}</div></div>
-        <div class="kpi"><div class="k">바이어 수락</div><div class="v" style="color:#16a34a">{{ $all->where('buyer_verdict', 'accepted')->count() }}</div></div>
-        <div class="kpi"><div class="k">ERP 전환대기</div><div class="v" style="color:var(--color-primary)">{{ $all->where('status', 'won')->count() }}</div></div>
+        <button type="button" wire:click="kpiFilter('today')" class="kpi text-left {{ $fToday ? 'ring-2 ring-[var(--color-primary)]' : '' }}"><div class="k">오늘 매입예정</div><div class="v">{{ $k['today'] }}</div></button>
+        <button type="button" wire:click="kpiFilter('encar')" class="kpi text-left {{ $fSource === 'encar' ? 'ring-2 ring-[var(--color-encar)]' : '' }}"><div class="k">엔카</div><div class="v" style="color:var(--color-encar)">{{ $k['encar'] }}</div></button>
+        <button type="button" wire:click="kpiFilter('auction')" class="kpi text-left {{ $fSource === 'auction' ? 'ring-2 ring-[var(--color-auction)]' : '' }}"><div class="k">경매</div><div class="v" style="color:var(--color-auction)">{{ $k['auction'] }}</div></button>
+        <button type="button" wire:click="kpiFilter('accepted')" class="kpi text-left {{ $fVerdict === 'accepted' ? 'ring-2 ring-green-500' : '' }}"><div class="k">바이어 수락</div><div class="v" style="color:#16a34a">{{ $k['accepted'] }}</div></button>
+        <button type="button" wire:click="kpiFilter('won')" class="kpi text-left {{ $fStatus === 'won' ? 'ring-2 ring-[var(--color-primary)]' : '' }}"><div class="k">ERP 전환대기</div><div class="v" style="color:var(--color-primary)">{{ $k['won'] }}</div></button>
     </div>
 
     {{-- 전체 현황 --}}
     <div class="card">
-        <h2 class="mb-3 font-bold text-gray-800">전체 현황 <span class="text-gray-400">· 모든 행 수정 가능</span></h2>
+        <div class="mb-3 flex flex-wrap items-center gap-2">
+            <h2 class="font-bold text-gray-800">전체 현황</h2>
+            <span class="pill-count">{{ number_format($this->listings->total()) }}건</span>
+            <div class="ml-auto flex flex-wrap items-center gap-2">
+                <input class="input-base !w-44 !py-1 text-sm" wire:model.live.debounce.400ms="search" placeholder="차량번호·매물번호·소유자">
+                <select class="input-base !w-28 !py-1 text-sm" wire:model.live="fStatus">
+                    <option value="">상태 전체</option>
+                    @foreach (\App\Models\PurchaseListing::STATUSES as $s)<option value="{{ $s }}">{{ $s }}</option>@endforeach
+                </select>
+                <select class="input-base !w-24 !py-1 text-sm" wire:model.live="fSource">
+                    <option value="">출처</option><option value="encar">엔카</option><option value="auction">경매</option>
+                </select>
+                @if ($fStatus || $fSource || $fVerdict || $fToday || $search)
+                    <button class="btn-ghost btn-sm" wire:click="clearFilters">필터해제 ✕</button>
+                @endif
+            </div>
+        </div>
         <div class="overflow-x-auto">
             <table class="tbl">
                 <thead>
                     <tr><th>차량</th><th>출처</th><th>영업</th><th>예상가</th><th>최종금액</th><th>바이어</th><th>상태</th><th></th></tr>
                 </thead>
                 <tbody>
-                    @forelse ($all as $l)
+                    @forelse ($this->listings as $l)
                         <tr>
                             <td class="font-semibold text-gray-800">{{ $l->vehicle_number }}</td>
                             <td><span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }}">{{ $l->isAuction() ? '경매' : '엔카' }}</span></td>
@@ -142,11 +208,12 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <td><button class="btn-outline btn-sm" wire:click="openEdit({{ $l->id }})">✏️ 수정</button></td>
                         </tr>
                     @empty
-                        <tr><td colspan="8" class="py-8 text-center text-gray-400">데이터가 없습니다.</td></tr>
+                        <tr><td colspan="8" class="py-8 text-center text-gray-400">조건에 맞는 데이터가 없습니다.</td></tr>
                     @endforelse
                 </tbody>
             </table>
         </div>
+        <div class="mt-3">{{ $this->listings->links() }}</div>
     </div>
 
     {{-- 수정 드로어 --}}
