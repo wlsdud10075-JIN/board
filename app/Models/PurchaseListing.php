@@ -4,11 +4,13 @@ namespace App\Models;
 
 use App\Jobs\SyncWonListingToCarErp;
 use App\Models\Scopes\SalesmanScope;
+use App\Services\BoardAudit;
 use Illuminate\Database\Eloquent\Attributes\ScopedBy;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Auth;
 
 #[ScopedBy([SalesmanScope::class])]
 class PurchaseListing extends Model
@@ -79,6 +81,17 @@ class PurchaseListing extends Model
         'draft', 'awaiting_buyer', 'accepted', 'rejected', 'won', 'failed', 'synced',
     ];
 
+    /** 드롭다운/필터용 정적 라벨(출처 무관 통합). 출처별 표기는 statusLabel() 사용. */
+    public const STATUS_LABELS = [
+        'draft' => '현지확인 대기',
+        'awaiting_buyer' => '회신대기',
+        'accepted' => '수락 (구매/경매대기)',
+        'rejected' => '거절',
+        'won' => '낙찰/구매확정',
+        'failed' => '유찰/취소',
+        'synced' => 'ERP 전환완료',
+    ];
+
     /** 허용 전이: from => [to, ...] (manager override 는 우회) */
     public const TRANSITIONS = [
         'draft' => ['awaiting_buyer'],
@@ -95,6 +108,15 @@ class PurchaseListing extends Model
 
     /** manager override 허용 플래그 — 관리자 화면에서 저장 직전 set (try/finally) */
     public bool $allowManagerOverride = false;
+
+    /** 감사 대상 필드 — 변경 시 board_audit_logs 자동 기록(옵저버). 출처 무관 단일 경로. */
+    public const AUDITED = [
+        'source', 'status', 'buyer_verdict', 'buyer_name', 'c_no',
+        'expected_price', 'final_price', 'car_cost', 'discount_rate', 'shipping_usd',
+        'owner_name', 'payee_name', 'payee_bank', 'payee_account',
+        'vehicle_number', 'vin', 'car_erp_vehicle_id', 'region', 'inspection_note', 'inspection_memo',
+        'encar_url', 'encar_dealer', 'auction_venue', 'lot_number',
+    ];
 
     protected static function booted(): void
     {
@@ -135,6 +157,20 @@ class PurchaseListing extends Model
             if ($listing->wasChanged('status') && $listing->status === 'won') {
                 SyncWonListingToCarErp::dispatch($listing->id)->afterCommit();
             }
+        });
+
+        // 감사 — 변경된 AUDITED 필드를 board_audit_logs 에 자동 기록(수정 출처 무관 단일 경로:
+        // 관리자/검차/경매/연동 Job). user_id = 로그인 사용자, 없으면 null(시스템).
+        static::updated(function (PurchaseListing $listing) {
+            $changed = array_values(array_intersect(self::AUDITED, array_keys($listing->getChanges())));
+            if ($changed === []) {
+                return;
+            }
+            $original = [];
+            foreach ($changed as $f) {
+                $original[$f] = $listing->getOriginal($f);
+            }
+            BoardAudit::logChanges($listing, $original, $changed, Auth::id());
         });
     }
 

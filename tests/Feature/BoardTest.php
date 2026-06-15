@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Jobs\SyncWonListingToCarErp;
+use App\Models\BoardAuditLog;
 use App\Models\ExchangeRate;
 use App\Models\InspectionAssignment;
 use App\Models\IntegrationEvent;
@@ -387,6 +388,8 @@ class BoardTest extends TestCase
         Volt::test('manage.index')
             ->call('openEdit', $l->id)
             ->set('expected_price', '2000000')
+            ->set('owner_name', '김차주')          // 확장 필드
+            ->set('payee_account', '333-444-5555')  // 암호화 + 마스킹 감사
             ->set('status', 'won') // 전이행렬 무시 override
             ->call('save')
             ->assertHasNoErrors();
@@ -394,9 +397,14 @@ class BoardTest extends TestCase
         $l->refresh();
         $this->assertSame(2000000, $l->expected_price);
         $this->assertSame('won', $l->status);
+        $this->assertSame('김차주', $l->owner_name);
+        $this->assertSame('333-444-5555', $l->payee_account);   // 복호화 읽기
 
         $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'field' => 'expected_price']);
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'field' => 'owner_name', 'new_value' => '김차주']);
         $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'field' => 'status', 'action' => 'status_change']);
+        // 계좌번호는 감사로그에 마스킹(***)으로만
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'field' => 'payee_account', 'new_value' => '***']);
     }
 
     public function test_sales_can_edit_own_listing(): void
@@ -502,6 +510,32 @@ class BoardTest extends TestCase
         $this->assertDatabaseHas('users', ['email' => 'new@board.test', 'role' => 'sales', 'is_active' => true]);
     }
 
+    public function test_manage_filters_listings(): void
+    {
+        $sales = $this->mkUser('sales');
+        $this->mkListing($sales, ['source' => 'encar', 'status' => 'draft']);
+        $this->mkListing($sales, ['source' => 'auction', 'status' => 'draft']);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('manage.index')
+            ->assertSee('전체 현황')
+            ->set('fSource', 'encar')
+            ->assertSet('fSource', 'encar');   // 필터 세팅 + 렌더 에러 없음
+
+        // KPI 클릭 토글
+        Volt::test('manage.index')
+            ->call('kpiFilter', 'won')
+            ->assertSet('fStatus', 'won')
+            ->call('kpiFilter', 'won')
+            ->assertSet('fStatus', '');
+    }
+
+    public function test_audit_log_page_is_super_only(): void
+    {
+        $this->actingAs($this->mkUser('manager'))->get('/audit')->assertForbidden();
+        $this->actingAs($this->mkUser('manager', null, 'super'))->get('/audit')->assertOk();
+    }
+
     public function test_inactive_user_is_blocked_from_views(): void
     {
         $u = $this->mkUser('sales');
@@ -573,6 +607,24 @@ class BoardTest extends TestCase
 
         // 오버라이드 이메일이 salesman_email 로 나가야 함 (로그인 이메일 아님)
         Http::assertSent(fn ($request) => $request['salesman_email'] === 'real@carerp.com');
+    }
+
+    public function test_won_to_synced_is_audited_as_system(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh']);
+        Http::fake(['*/api/internal/purchase-sync' => Http::response(['vehicle_id' => 321], 200)]);
+
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'won', 'source' => 'auction', 'final_price' => 9000000]);
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        // 옵저버가 won→synced 를 시스템(user_id=null) 감사로그로 남김
+        $log = BoardAuditLog::where('purchase_listing_id', $l->id)
+            ->where('field', 'status')->latest('id')->first();
+        $this->assertNotNull($log);
+        $this->assertNull($log->user_id);                 // 시스템(비로그인 Job)
+        $this->assertSame('won', $log->old_value);
+        $this->assertSame('synced', $log->new_value);
+        $this->assertSame('status_change', $log->action);
     }
 
     public function test_sync_job_skips_when_already_synced(): void
