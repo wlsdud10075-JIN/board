@@ -192,7 +192,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <div class="section-title-sm">차량 사진</div>
                     <div class="grid grid-cols-4 gap-2">
                         @foreach ($d->photos as $p)
-                            <img src="{{ $this->photoUrl($p->s3_path) }}" class="aspect-square w-full rounded-md object-cover" alt="">
+                            @if ($p->isVideo())
+                                <video src="{{ $this->photoUrl($p->s3_path) }}" class="aspect-square w-full rounded-md object-cover" controls preload="metadata"></video>
+                            @else
+                                <img src="{{ $this->photoUrl($p->s3_path) }}" class="aspect-square w-full rounded-md object-cover" alt="">
+                            @endif
                         @endforeach
                     </div>
                 @endif

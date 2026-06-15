@@ -54,6 +54,16 @@ php artisan config:cache && php artisan route:cache && php artisan view:cache
 sudo chown -R www-data:www-data storage bootstrap/cache
 ```
 
+### B-3b. php.ini 업로드 한도 (검차 영상 대비)
+```ini
+# /etc/php/8.4/fpm/php.ini  (영상 업로드용 — Livewire 한도 200MB·nginx 100M 와 맞춤)
+upload_max_filesize = 100M
+post_max_size = 100M
+```
+```bash
+sudo systemctl reload php8.4-fpm
+```
+
 ### B-4. nginx vhost (`/etc/nginx/sites-available/board`)
 ```nginx
 server {

@@ -498,23 +498,27 @@ new #[Layout('components.layouts.app')] class extends Component {
             <div class="px-5 py-4">
                 <p class="text-xs text-gray-500">예상가 {{ $e->expected_price ? number_format($e->expected_price).'원' : '—' }} · 차 상태 보고 최종금액 산정</p>
 
-                {{-- 사진 --}}
-                <div class="section-title-sm">차량 사진 (외관만 · 서류/번호판 제외)</div>
+                {{-- 사진/영상 --}}
+                <div class="section-title-sm">차량 사진·영상 (외관만 · 서류/번호판 제외)</div>
                 <label class="flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-gray-300 py-5 text-sm text-gray-500 hover:border-[var(--color-primary)]">
-                    📷 후면카메라 촬영 / 업로드
-                    <input type="file" accept="image/*" capture="environment" multiple wire:model="photos" class="hidden">
+                    📷 후면카메라 촬영 / 사진·영상 업로드
+                    <input type="file" accept="image/*,video/*" capture="environment" multiple wire:model="photos" class="hidden">
                 </label>
                 <div wire:loading wire:target="photos" class="mt-1 text-xs text-gray-400">업로드 중…</div>
                 @error('photos.*') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 @if (count($photos))
-                    <p class="mt-2 text-xs text-gray-500">새 사진 {{ count($photos) }}장 — 저장 시 반영</p>
+                    <p class="mt-2 text-xs text-gray-500">새 파일 {{ count($photos) }}개 — 저장 시 반영</p>
                 @endif
 
                 @if ($e->photos->count())
                     <div class="mt-2 grid grid-cols-4 gap-2">
                         @foreach ($e->photos as $p)
-                            <img src="{{ $this->photoUrl($p->s3_path) }}" class="aspect-square w-full rounded-md object-cover" alt="">
+                            @if ($p->isVideo())
+                                <video src="{{ $this->photoUrl($p->s3_path) }}" class="aspect-square w-full rounded-md object-cover" controls preload="metadata"></video>
+                            @else
+                                <img src="{{ $this->photoUrl($p->s3_path) }}" class="aspect-square w-full rounded-md object-cover" alt="">
+                            @endif
                         @endforeach
                     </div>
                 @endif
