@@ -16,6 +16,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public bool $is_super = false;
     public bool $is_active = true;
     public ?string $car_erp_salesman_id = null;
+    public string $car_erp_salesman_email = '';   // 연동 B 영업 매칭 오버라이드(car-erp 이메일이 로그인과 다를 때)
     public string $password = '';
 
     #[Computed]
@@ -31,7 +32,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function openCreate(): void
     {
-        $this->reset(['editingId', 'name', 'email', 'password', 'is_super', 'car_erp_salesman_id']);
+        $this->reset(['editingId', 'name', 'email', 'password', 'is_super', 'car_erp_salesman_id', 'car_erp_salesman_email']);
         $this->role = 'sales';
         $this->is_active = true;
         $this->showForm = true;
@@ -48,6 +49,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->is_super = $u->isSuper();
         $this->is_active = $u->is_active;
         $this->car_erp_salesman_id = $u->car_erp_salesman_id !== null ? (string) $u->car_erp_salesman_id : null;
+        $this->car_erp_salesman_email = $u->car_erp_salesman_email ?? '';
         $this->password = '';
         $this->showForm = true;
         $this->resetErrorBag();
@@ -55,7 +57,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function close(): void
     {
-        $this->reset(['showForm', 'editingId', 'name', 'email', 'password', 'is_super', 'car_erp_salesman_id']);
+        $this->reset(['showForm', 'editingId', 'name', 'email', 'password', 'is_super', 'car_erp_salesman_id', 'car_erp_salesman_email']);
         $this->role = 'sales';
         $this->is_active = true;
     }
@@ -67,6 +69,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'email' => ['required', 'email', 'max:100', Rule::unique('users', 'email')->ignore($this->editingId)],
             'role' => 'required|in:'.implode(',', User::ROLES),
             'car_erp_salesman_id' => 'nullable|integer|min:1',
+            'car_erp_salesman_email' => 'nullable|email|max:100',
         ];
         if (! $this->editingId || filled($this->password)) {
             $rules['password'] = 'required|string|min:6';
@@ -90,6 +93,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'permission' => $this->is_super ? 'super' : 'user',
             'is_active' => $this->is_active,
             'car_erp_salesman_id' => ($this->car_erp_salesman_id === null || $this->car_erp_salesman_id === '') ? null : (int) $this->car_erp_salesman_id,
+            'car_erp_salesman_email' => $this->car_erp_salesman_email ?: null,
         ];
         if (filled($this->password)) {
             $data['password'] = $this->password; // 'hashed' cast
@@ -141,7 +145,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="overflow-x-auto">
             <table class="tbl">
                 <thead>
-                    <tr><th>이름</th><th>이메일</th><th>권한 / 역할</th><th>car-erp 영업ID</th><th>상태</th><th></th></tr>
+                    <tr><th>이름</th><th>이메일</th><th>권한 / 역할</th><th>car-erp 영업 매칭</th><th>상태</th><th></th></tr>
                 </thead>
                 <tbody>
                     @foreach ($this->users as $u)
@@ -155,7 +159,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 @if ($u->isSuper())<span class="badge badge-red">시스템관리자</span> @endif
                                 <span class="badge {{ $u->isManager() ? 'badge-purple' : 'badge-blue' }}">{{ $this->roleLabel($u->role) }}</span>
                             </td>
-                            <td class="text-gray-500">{{ $u->car_erp_salesman_id ?? '—' }}</td>
+                            <td class="text-gray-500">{{ $u->car_erp_salesman_email ?? ($u->car_erp_salesman_id ? '#'.$u->car_erp_salesman_id : '—') }}</td>
                             <td>
                                 @if ($u->is_active)
                                     <span class="badge badge-green">활성</span>
@@ -206,10 +210,10 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 {{-- 영업만 car-erp 매핑 --}}
                 @if ($role === 'sales')
-                    <label class="label-base mt-3">car-erp 영업담당자 ID <span class="text-xs font-normal text-gray-400">(보조 · 선택)</span></label>
-                    <input class="input-base" wire:model="car_erp_salesman_id" inputmode="numeric" placeholder="이메일이 다를 때만 입력">
-                    <p class="mt-1 text-xs text-gray-400">연동 B는 <b>이메일로 car-erp 영업담당자를 자동 매칭</b>합니다 (이 계정 이메일 = car-erp 영업 이메일). 이 칸은 양쪽 이메일이 다른 예외에만 쓰는 보조 오버라이드입니다.</p>
-                    @error('car_erp_salesman_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    <label class="label-base mt-3">car-erp 영업 이메일 <span class="text-xs font-normal text-gray-400">(선택 · 로그인과 다를 때만)</span></label>
+                    <input class="input-base" wire:model="car_erp_salesman_email" type="email" placeholder="car-erp 영업담당자 이메일">
+                    <p class="mt-1 text-xs text-gray-400">연동 B는 <b>이메일로 car-erp 영업담당자를 자동 매칭</b>합니다. <b>위 로그인 이메일 = car-erp 영업 이메일이면 비워두세요</b>(자동 매칭). 로그인 이메일이 다를 때만 여기에 car-erp 영업 이메일을 적으면 그걸로 매칭합니다.</p>
+                    @error('car_erp_salesman_email') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 @endif
 
                 <label class="label-base mt-3">비밀번호 {{ $editingId ? '(변경 시에만 입력)' : '' }}</label>

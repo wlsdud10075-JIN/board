@@ -28,6 +28,7 @@ class User extends Authenticatable // implements MustVerifyEmail
         'permission',
         'is_active',
         'car_erp_salesman_id',
+        'car_erp_salesman_email',
     ];
 
     /** board 업무 역할 4종 (영업/현지확인/경매/관리) */

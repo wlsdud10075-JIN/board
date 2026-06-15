@@ -174,6 +174,7 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 ```
 - `owner_name`(소유자/차주명) = car-erp NICE 조회 입력값. board 입력 UX = payee 와 동일(매입예정 영업 선택입력 → 경매/구매 드로어 보정). nullable 이지만 없으면 car-erp NICE 불가 → car-erp 는 owner_name 없으면 vehicle_number 로만 생성 후 VIN 수동.
 - **vin 은 payload 에 없음**(board 가 모름). car-erp 가 NICE 로 채워 `nice_reg_vin` 에 저장.
+- `salesman_email` = board 영업의 **`users.car_erp_salesman_email`(오버라이드) ?: 로그인 email**. car-erp 가 이 이메일로 salesmen 매칭. (`/users` 에서 숫자 id 대신 car-erp 이메일만 입력 — id 는 DB 봐야 알아서 폐기. `car_erp_salesman_id` 는 잔존하나 보통 null.)
 - **응답(계약)**: `2xx` + `{"vehicle_id": <int>}`. board 는 이 id 를 `car_erp_vehicle_id` 에 저장 후 `won→synced` 전이. 비-2xx 또는 vehicle_id 없으면 Job 예외 → 큐 재시도(`$tries=5`, backoff 60/300/900/1800s).
 - **버전·전방호환**: `contract_version` 명시. **양쪽 모두 "모르는 필드는 무시"** → 필드 추가해도 안 깨짐.
 - **로그**: 모든 시도(성공/실패) = `integration_events`(outbound/car_erp/purchase_sync) append-only. **`payee_account` 는 로그에 `***` 마스킹**(전송 본문엔 실값). board_audit_logs 와 별개.
