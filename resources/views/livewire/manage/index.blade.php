@@ -2,8 +2,6 @@
 
 use App\Models\BoardAuditLog;
 use App\Models\PurchaseListing;
-use App\Services\BoardAudit;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
@@ -83,8 +81,6 @@ new #[Layout('components.layouts.app')] class extends Component {
         ]);
 
         $l = PurchaseListing::findOrFail($this->editingId);
-        $fields = ['vehicle_number', 'vin', 'source', 'expected_price', 'final_price', 'status', 'buyer_verdict', 'buyer_name', 'inspection_memo'];
-        $original = $l->only($fields);
 
         // 식별값(차량번호·VIN)은 car-erp 미연동 차량만 정정 가능 (오타 수정). 연동 후엔 잠금 유지.
         if ($l->car_erp_vehicle_id === null) {
@@ -100,10 +96,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->inspection_memo = $this->inspection_memo ?: null;
 
         // 시간잠금·상태전이 무관 수정 (식별값은 미연동 차량만 모델이 허용)
+        // 변경 감사기록은 모델 옵저버가 자동 처리(BoardAudit).
         $l->allowManagerOverride = true;
         $l->save();
-
-        BoardAudit::logChanges($l, $original, $fields, Auth::id());
 
         session()->flash('ok', $l->vehicle_number.' 수정 완료 — 변경 내역이 감사로그에 기록됐습니다.');
         $this->closeEdit();

@@ -4,11 +4,13 @@ namespace App\Models;
 
 use App\Jobs\SyncWonListingToCarErp;
 use App\Models\Scopes\SalesmanScope;
+use App\Services\BoardAudit;
 use Illuminate\Database\Eloquent\Attributes\ScopedBy;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Auth;
 
 #[ScopedBy([SalesmanScope::class])]
 class PurchaseListing extends Model
@@ -96,6 +98,14 @@ class PurchaseListing extends Model
     /** manager override 허용 플래그 — 관리자 화면에서 저장 직전 set (try/finally) */
     public bool $allowManagerOverride = false;
 
+    /** 감사 대상 필드 — 변경 시 board_audit_logs 자동 기록(옵저버). 출처 무관 단일 경로. */
+    public const AUDITED = [
+        'source', 'status', 'buyer_verdict', 'buyer_name',
+        'expected_price', 'final_price', 'car_cost', 'discount_rate', 'shipping_usd',
+        'owner_name', 'payee_name', 'payee_bank', 'payee_account',
+        'vehicle_number', 'vin', 'car_erp_vehicle_id', 'region', 'inspection_note', 'inspection_memo',
+    ];
+
     protected static function booted(): void
     {
         static::updating(function (PurchaseListing $listing) {
@@ -135,6 +145,20 @@ class PurchaseListing extends Model
             if ($listing->wasChanged('status') && $listing->status === 'won') {
                 SyncWonListingToCarErp::dispatch($listing->id)->afterCommit();
             }
+        });
+
+        // 감사 — 변경된 AUDITED 필드를 board_audit_logs 에 자동 기록(수정 출처 무관 단일 경로:
+        // 관리자/검차/경매/연동 Job). user_id = 로그인 사용자, 없으면 null(시스템).
+        static::updated(function (PurchaseListing $listing) {
+            $changed = array_values(array_intersect(self::AUDITED, array_keys($listing->getChanges())));
+            if ($changed === []) {
+                return;
+            }
+            $original = [];
+            foreach ($changed as $f) {
+                $original[$f] = $listing->getOriginal($f);
+            }
+            BoardAudit::logChanges($listing, $original, $changed, Auth::id());
         });
     }
 

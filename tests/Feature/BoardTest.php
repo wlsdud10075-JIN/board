@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Jobs\SyncWonListingToCarErp;
+use App\Models\BoardAuditLog;
 use App\Models\ExchangeRate;
 use App\Models\InspectionAssignment;
 use App\Models\IntegrationEvent;
@@ -573,6 +574,24 @@ class BoardTest extends TestCase
 
         // 오버라이드 이메일이 salesman_email 로 나가야 함 (로그인 이메일 아님)
         Http::assertSent(fn ($request) => $request['salesman_email'] === 'real@carerp.com');
+    }
+
+    public function test_won_to_synced_is_audited_as_system(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh']);
+        Http::fake(['*/api/internal/purchase-sync' => Http::response(['vehicle_id' => 321], 200)]);
+
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'won', 'source' => 'auction', 'final_price' => 9000000]);
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        // 옵저버가 won→synced 를 시스템(user_id=null) 감사로그로 남김
+        $log = BoardAuditLog::where('purchase_listing_id', $l->id)
+            ->where('field', 'status')->latest('id')->first();
+        $this->assertNotNull($log);
+        $this->assertNull($log->user_id);                 // 시스템(비로그인 Job)
+        $this->assertSame('won', $log->old_value);
+        $this->assertSame('synced', $log->new_value);
+        $this->assertSame('status_change', $log->action);
     }
 
     public function test_sync_job_skips_when_already_synced(): void
