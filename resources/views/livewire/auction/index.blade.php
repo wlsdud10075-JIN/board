@@ -200,11 +200,20 @@ new #[Layout('components.layouts.app')] class extends Component {
                 {{-- 입금정보 (정산 = 판매자/경매장 계좌) — accepted·won 에서 입력/수정 --}}
                 @if (in_array($d->status, ['accepted', 'won'], true))
                     <div class="section-title-sm">입금정보 <span class="text-[11px] font-normal text-gray-400">(매입 정산 계좌 · car-erp 전달)</span></div>
-                    <div class="grid grid-cols-2 gap-2">
-                        <input class="input-base" wire:model="payee_name" placeholder="예금주">
-                        <input class="input-base" wire:model="payee_bank" placeholder="은행">
+                    <div x-data>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <input x-ref="bankAuc" wire:model.blur="payee_bank" list="korean-banks-auction" autocomplete="off"
+                                       class="input-base" placeholder="은행" maxlength="100"
+                                       x-on:input="$refs.acctAuc.value = $store.koreanBanks.applyMask($el.value, $refs.acctAuc.value)">
+                                <datalist id="korean-banks-auction"><template x-for="b in $store.koreanBanks.names()" :key="b"><option :value="b"></option></template></datalist>
+                            </div>
+                            <div><input wire:model.blur="payee_name" class="input-base" placeholder="예금주" maxlength="60"></div>
+                        </div>
+                        <input x-ref="acctAuc" wire:model.blur="payee_account" autocomplete="off"
+                               class="input-base mt-2 font-mono" placeholder="계좌번호 (암호화 저장)"
+                               x-on:input="$el.value = $store.koreanBanks.applyMask($refs.bankAuc.value, $el.value)">
                     </div>
-                    <input class="input-base mt-2" wire:model="payee_account" placeholder="계좌번호 (암호화 저장)" inputmode="numeric">
                     @error('payee_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     @error('payee_bank') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     @error('payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror

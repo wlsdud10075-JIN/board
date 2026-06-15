@@ -444,15 +444,22 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $this->fmt($total) }}</span>
                 </div>
 
-                {{-- 입금정보 (선택 — 알면 미리, 모르면 구매단계에서) §6e --}}
+                {{-- 입금정보 (선택 — 알면 미리, 모르면 구매단계에서) §6e · car-erp 형식(은행 자동완성 + 계좌 마스킹) --}}
                 <label class="label-base mt-3">입금정보 <span class="text-gray-400">(선택 · 정산계좌)</span></label>
-                <div class="grid gap-2 sm:grid-cols-3">
-                    <input class="input-base" wire:model="payee_name" placeholder="예금주">
-                    <input class="input-base" wire:model="payee_bank" placeholder="은행">
-                    <input class="input-base" wire:model="payee_account" placeholder="계좌번호" inputmode="numeric">
+                <div x-data class="grid gap-2 sm:grid-cols-3">
+                    <div>
+                        <input x-ref="bankAdd" wire:model.blur="payee_bank" list="korean-banks-add" autocomplete="off"
+                               class="input-base" placeholder="은행" maxlength="100"
+                               x-on:input="$refs.acctAdd.value = $store.koreanBanks.applyMask($el.value, $refs.acctAdd.value)">
+                        <datalist id="korean-banks-add"><template x-for="b in $store.koreanBanks.names()" :key="b"><option :value="b"></option></template></datalist>
+                    </div>
+                    <div><input wire:model.blur="payee_name" class="input-base" placeholder="예금주" maxlength="60"></div>
+                    <div><input x-ref="acctAdd" wire:model.blur="payee_account" autocomplete="off"
+                               class="input-base font-mono" placeholder="계좌번호"
+                               x-on:input="$el.value = $store.koreanBanks.applyMask($refs.bankAdd.value, $el.value)"></div>
                 </div>
                 @error('payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                <p class="mt-1 text-[11px] text-gray-400">💡 지금 알면 미리 입력 → 구매단계에 자동 표시. 비워두면 구매담당자가 입력. (계좌번호 암호화 저장)</p>
+                <p class="mt-1 text-[11px] text-gray-400">💡 지금 알면 미리 입력 → 구매단계 자동 표시. 비워두면 구매담당자가 입력. (은행 선택 시 계좌 자동 하이픈 · 계좌번호 암호화)</p>
 
                 <p class="mt-2 text-xs text-gray-500"><b>차량번호</b> 필수. 금액은 선택 입력이며 현지 차상태 확인 후 조정될 수 있습니다.</p>
                 @error('source') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
@@ -557,12 +564,19 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <span class="text-sm font-semibold text-gray-700">최종금액</span><span class="text-base font-bold text-[var(--color-primary-text)]">{{ $this->fmt($eTotal) }}</span>
                 </div>
 
-                {{-- 입금정보 (선택) §6e --}}
+                {{-- 입금정보 (선택) §6e · car-erp 형식 --}}
                 <label class="label-base mt-3">입금정보 <span class="text-gray-400">(선택 · 정산계좌)</span></label>
-                <div class="grid gap-2 sm:grid-cols-3">
-                    <input class="input-base" wire:model="e_payee_name" placeholder="예금주" @unless ($canEdit) disabled @endunless>
-                    <input class="input-base" wire:model="e_payee_bank" placeholder="은행" @unless ($canEdit) disabled @endunless>
-                    <input class="input-base" wire:model="e_payee_account" placeholder="계좌번호" inputmode="numeric" @unless ($canEdit) disabled @endunless>
+                <div x-data class="grid gap-2 sm:grid-cols-3">
+                    <div>
+                        <input x-ref="bankEdit" wire:model.blur="e_payee_bank" list="korean-banks-edit" autocomplete="off"
+                               class="input-base" placeholder="은행" maxlength="100" @unless ($canEdit) disabled @endunless
+                               x-on:input="$refs.acctEdit.value = $store.koreanBanks.applyMask($el.value, $refs.acctEdit.value)">
+                        <datalist id="korean-banks-edit"><template x-for="b in $store.koreanBanks.names()" :key="b"><option :value="b"></option></template></datalist>
+                    </div>
+                    <div><input wire:model.blur="e_payee_name" class="input-base" placeholder="예금주" maxlength="60" @unless ($canEdit) disabled @endunless></div>
+                    <div><input x-ref="acctEdit" wire:model.blur="e_payee_account" autocomplete="off"
+                               class="input-base font-mono" placeholder="계좌번호" @unless ($canEdit) disabled @endunless
+                               x-on:input="$el.value = $store.koreanBanks.applyMask($refs.bankEdit.value, $el.value)"></div>
                 </div>
                 @error('e_payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
