@@ -2,14 +2,17 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\SyncWonListingToCarErp;
 use App\Models\ExchangeRate;
 use App\Models\InspectionAssignment;
+use App\Models\IntegrationEvent;
 use App\Models\PurchaseListing;
 use App\Models\User;
 use App\Services\ExchangeRateService;
 use App\Support\TimeGate;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Livewire\Volt\Volt;
@@ -483,5 +486,79 @@ class BoardTest extends TestCase
         $u->update(['is_active' => false]);
 
         $this->actingAs($u)->get('/listings')->assertForbidden();
+    }
+
+    // ─────────────────────── 연동 B (car-erp purchase-sync) ───────────────────────
+
+    public function test_won_dispatches_car_erp_sync_job(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000,
+        ]);
+
+        $l->update(['status' => 'won']);
+
+        Bus::assertDispatched(
+            SyncWonListingToCarErp::class,
+            fn ($job) => $job->listingId === $l->id,
+        );
+    }
+
+    public function test_sync_job_pushes_payload_and_marks_synced(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh']);
+        Http::fake(['*/api/internal/purchase-sync' => Http::response(['vehicle_id' => 777], 200)]);
+
+        $owner = $this->mkUser('sales', 'kim@board.test');
+        $l = $this->mkListing($owner, [
+            'status' => 'won', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000,
+            'payee_name' => '판매상사', 'payee_account' => '110-222-333444',
+        ]);
+
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/api/internal/purchase-sync')
+            && str_starts_with($request->header('X-Board-Signature')[0], 'sha256=')
+            && $request['vin'] === $l->vin
+            && $request['salesman_email'] === 'kim@board.test'
+            && $request['payee_account'] === '110-222-333444');   // 전송 본문엔 실값
+
+        $fresh = $l->fresh();
+        $this->assertSame(777, $fresh->car_erp_vehicle_id);
+        $this->assertSame('synced', $fresh->status);
+
+        $ev = IntegrationEvent::first();
+        $this->assertSame('outbound', $ev->direction);
+        $this->assertSame('car_erp', $ev->target);
+        $this->assertSame(200, $ev->response_status);
+        $this->assertSame('***', $ev->request_payload['payee_account']);   // 로그엔 마스킹
+    }
+
+    public function test_sync_job_skips_when_already_synced(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh']);
+        Http::fake();
+
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'won', 'source' => 'auction', 'car_erp_vehicle_id' => 555,
+        ]);
+
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        Http::assertNothingSent();
+    }
+
+    public function test_sync_job_noops_without_config(): void
+    {
+        config(['services.car_erp.base_url' => null, 'services.car_erp.hmac_secret' => null]);
+        Http::fake();
+
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'won', 'source' => 'auction']);
+
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        Http::assertNothingSent();
+        $this->assertNull($l->fresh()->car_erp_vehicle_id);
     }
 }

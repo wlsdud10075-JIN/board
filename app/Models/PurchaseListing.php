@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Jobs\SyncWonListingToCarErp;
 use App\Models\Scopes\SalesmanScope;
 use Illuminate\Database\Eloquent\Attributes\ScopedBy;
 use Illuminate\Database\Eloquent\Model;
@@ -125,6 +126,14 @@ class PurchaseListing extends Model
                 if ($to === 'accepted' && $listing->buyer_verdict !== 'accepted') {
                     throw new \RuntimeException('바이어 수락 후에만 경매/구매로 진입할 수 있습니다.');
                 }
+            }
+        });
+
+        // 연동 B — won 진입 시 car-erp push Job 큐잉 (auction conclude + manage override 공통 단일 지점).
+        // afterCommit: save 트랜잭션 커밋 후 dispatch. 멱등/안전밸브는 Job 내부 가드.
+        static::updated(function (PurchaseListing $listing) {
+            if ($listing->wasChanged('status') && $listing->status === 'won') {
+                SyncWonListingToCarErp::dispatch($listing->id)->afterCommit();
             }
         });
     }
