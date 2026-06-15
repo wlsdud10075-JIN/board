@@ -243,22 +243,27 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     {{-- 전체 현황 --}}
     <div class="card">
-        <div class="mb-3 flex flex-wrap items-center gap-2">
+        <div class="mb-3 flex items-center gap-2">
             <h2 class="font-bold text-gray-800">전체 현황</h2>
             <span class="pill-count">{{ number_format($this->listings->total()) }}건</span>
-            <div class="ml-auto flex flex-wrap items-center gap-2">
-                <input class="input-base !w-44 !py-1 text-sm" wire:model.live.debounce.400ms="search" placeholder="차량번호·매물번호·소유자">
-                <select class="input-base !w-28 !py-1 text-sm" wire:model.live="fStatus">
-                    <option value="">상태 전체</option>
-                    @foreach (\App\Models\PurchaseListing::STATUS_LABELS as $val => $label)<option value="{{ $val }}">{{ $label }}</option>@endforeach
-                </select>
-                <select class="input-base !w-24 !py-1 text-sm" wire:model.live="fSource">
-                    <option value="">출처</option><option value="encar">엔카</option><option value="auction">경매</option>
-                </select>
-                @if ($fStatus || $fSource || $fVerdict || $fToday || $search)
-                    <button class="btn-ghost btn-sm" wire:click="clearFilters">필터해제 ✕</button>
-                @endif
-            </div>
+            @if ($fStatus || $fSource || $fVerdict || $fToday || $search)
+                <button class="btn-ghost btn-sm ml-auto" wire:click="clearFilters">필터해제 ✕</button>
+            @endif
+        </div>
+        {{-- 필터 — 가로 grid (매입예정 추가폼과 동일 레이아웃) --}}
+        <div class="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <input class="input-base" wire:model.live.debounce.400ms="search" placeholder="🔍 차량번호·매물번호·소유자">
+            <select class="input-base" wire:model.live="fStatus">
+                <option value="">상태 전체</option>
+                @foreach (\App\Models\PurchaseListing::STATUS_LABELS as $val => $label)<option value="{{ $val }}">{{ $label }}</option>@endforeach
+            </select>
+            <select class="input-base" wire:model.live="fSource">
+                <option value="">출처 전체</option><option value="encar">엔카</option><option value="auction">경매</option>
+            </select>
+            <select class="input-base" wire:model.live="fVerdict">
+                <option value="">바이어회신 전체</option>
+                <option value="pending">회신대기</option><option value="accepted">수락</option><option value="rejected">거절</option>
+            </select>
         </div>
         <div class="overflow-x-auto">
             <table class="tbl">
