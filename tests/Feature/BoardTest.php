@@ -503,6 +503,12 @@ class BoardTest extends TestCase
         $this->assertDatabaseHas('users', ['email' => 'new@board.test', 'role' => 'sales', 'is_active' => true]);
     }
 
+    public function test_audit_log_page_is_super_only(): void
+    {
+        $this->actingAs($this->mkUser('manager'))->get('/audit')->assertForbidden();
+        $this->actingAs($this->mkUser('manager', null, 'super'))->get('/audit')->assertOk();
+    }
+
     public function test_inactive_user_is_blocked_from_views(): void
     {
         $u = $this->mkUser('sales');

@@ -29,6 +29,7 @@
                     @endif
                     @if ($u->isSuper())
                         <flux:navlist.item icon="users" :href="route('users')" :current="request()->routeIs('users')" wire:navigate>사용자 관리</flux:navlist.item>
+                        <flux:navlist.item icon="document-text" :href="route('audit')" :current="request()->routeIs('audit')" wire:navigate>감사 로그</flux:navlist.item>
                     @endif
                 </flux:navlist.group>
             </flux:navlist>

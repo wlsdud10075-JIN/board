@@ -1,6 +1,5 @@
 <?php
 
-use App\Models\BoardAuditLog;
 use App\Models\PurchaseListing;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
@@ -39,12 +38,6 @@ new #[Layout('components.layouts.app')] class extends Component {
         return $this->editingId ? PurchaseListing::find($this->editingId) : null;
     }
 
-    #[Computed]
-    public function recentLogs()
-    {
-        return BoardAuditLog::with('user')->latest('id')->limit(8)->get();
-    }
-
     public function openEdit(int $id): void
     {
         $l = PurchaseListing::findOrFail($id);
@@ -64,7 +57,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function closeEdit(): void
     {
         $this->reset(['editingId', 'vehicle_number', 'vin', 'source', 'expected_price', 'final_price', 'status', 'buyer_verdict', 'buyer_name', 'inspection_memo']);
-        unset($this->editing, $this->listings, $this->recentLogs);
+        unset($this->editing, $this->listings);
     }
 
     public function save(): void
@@ -154,22 +147,6 @@ new #[Layout('components.layouts.app')] class extends Component {
                 </tbody>
             </table>
         </div>
-    </div>
-
-    {{-- 최근 감사로그 --}}
-    <div class="card mt-4">
-        <h2 class="mb-3 font-bold text-gray-800">최근 감사로그 <span class="text-gray-400">· board_audit_logs</span></h2>
-        @forelse ($this->recentLogs as $log)
-            <div class="flex items-center gap-2 border-b border-gray-100 py-1.5 text-[13px] last:border-0">
-                <span class="text-gray-400">{{ $log->created_at?->format('m/d H:i') }}</span>
-                <span class="font-medium text-gray-700">{{ $log->user?->name }}</span>
-                <span class="text-gray-500">#{{ $log->purchase_listing_id }}</span>
-                <span class="badge badge-gray">{{ $this->fieldLabel($log->field) }}</span>
-                <span class="text-gray-500">{{ $log->old_value ?? '∅' }} → <b class="text-gray-800">{{ $log->new_value ?? '∅' }}</b></span>
-            </div>
-        @empty
-            <p class="text-sm text-gray-400">기록된 변경이 없습니다.</p>
-        @endforelse
     </div>
 
     {{-- 수정 드로어 --}}
