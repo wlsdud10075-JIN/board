@@ -107,8 +107,8 @@ $path = $file->store(config('board.inspection_photo_prefix').'/'.$l->id, config(
 $l->photos()->create(['s3_path'=>$path, 'original_name'=>$file->getClientOriginalName(), 'sort'=>...]);
 ```
 - 디스크 = `config('board.photo_disk')` → 로컬 `public`(개발, `php artisan storage:link` 필요), 운영 `s3`(.env `BOARD_PHOTO_DISK=s3`).
-- 표시 URL = `Storage::disk(config('board.photo_disk'))->url($path)`.
-- **외관 사진만**(연동 A 시 서류·번호판 제외 — §28 레드라인).
+- 표시 URL = `photoUrl()` (inspection·auction 양쪽 동일): **디스크 분기** — `public`은 `->url()`(local 드라이버는 temporaryUrl 미지원), `s3`는 `->temporaryUrl()`(비공개 버킷 = presigned 필수). presigned 는 렌더링마다 재서명되면 영상 재생이 리셋되므로 `Cache::remember("photo_url:{path}", 20m, …30m)` 로 문자열 고정(TTL<만료). 사진 렌더는 이 두 컴포넌트뿐(manage 드로어엔 없음).
+- **외관 사진만 필터는 연동 A *outbound*(바이어 전송) 전용** — board 내부 화면은 서류·번호판 포함 전부 표시(직원용). §28 레드라인.
 
 ## 8. 슬라이드 드로어 패턴
 ```php
