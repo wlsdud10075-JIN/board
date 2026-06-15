@@ -81,6 +81,17 @@ class PurchaseListing extends Model
         'draft', 'awaiting_buyer', 'accepted', 'rejected', 'won', 'failed', 'synced',
     ];
 
+    /** 드롭다운/필터용 정적 라벨(출처 무관 통합). 출처별 표기는 statusLabel() 사용. */
+    public const STATUS_LABELS = [
+        'draft' => '현지확인 대기',
+        'awaiting_buyer' => '회신대기',
+        'accepted' => '수락 (구매/경매대기)',
+        'rejected' => '거절',
+        'won' => '낙찰/구매확정',
+        'failed' => '유찰/취소',
+        'synced' => 'ERP 전환완료',
+    ];
+
     /** 허용 전이: from => [to, ...] (manager override 는 우회) */
     public const TRANSITIONS = [
         'draft' => ['awaiting_buyer'],

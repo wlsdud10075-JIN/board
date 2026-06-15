@@ -180,7 +180,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <input class="input-base !w-44 !py-1 text-sm" wire:model.live.debounce.400ms="search" placeholder="차량번호·매물번호·소유자">
                 <select class="input-base !w-28 !py-1 text-sm" wire:model.live="fStatus">
                     <option value="">상태 전체</option>
-                    @foreach (\App\Models\PurchaseListing::STATUSES as $s)<option value="{{ $s }}">{{ $s }}</option>@endforeach
+                    @foreach (\App\Models\PurchaseListing::STATUS_LABELS as $val => $label)<option value="{{ $val }}">{{ $label }}</option>@endforeach
                 </select>
                 <select class="input-base !w-24 !py-1 text-sm" wire:model.live="fSource">
                     <option value="">출처</option><option value="encar">엔카</option><option value="auction">경매</option>
@@ -256,8 +256,8 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 <label class="label-base mt-3">상태</label>
                 <select class="input-base" wire:model="status">
-                    @foreach (\App\Models\PurchaseListing::STATUSES as $s)
-                        <option value="{{ $s }}">{{ $s }}</option>
+                    @foreach (\App\Models\PurchaseListing::STATUS_LABELS as $val => $label)
+                        <option value="{{ $val }}">{{ $label }}</option>
                     @endforeach
                 </select>
 
