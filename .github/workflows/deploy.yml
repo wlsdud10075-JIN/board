@@ -1,0 +1,50 @@
+name: deploy
+
+# master 푸시 시 운영 서버(car-erp 와 같은 Lightsail)에 SSH 배포.
+# dev → master 머지(.md 제외)가 트리거. (CLAUDE.md: master = 프로덕션)
+on:
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: board-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: Production
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          # ⚠️ .env 는 gitignore → git reset 가 안 건드림 → APP_KEY(payee 암호화 키) 보존.
+          script: |
+            set -e
+            cd ${{ secrets.DEPLOY_PATH }}
+            git fetch origin master
+            git reset --hard origin/master
+            composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev
+            npm ci
+            npm run build
+            # 배포 직전 DB 스냅샷(파괴적 마이그 복구점). best-effort.
+            php artisan db:backup || echo "::warning::pre-deploy db:backup failed — proceeding"
+            php artisan down || true
+            # migrate 실패 시 점검모드 유지(서비스 복귀 안 함) — half-migrated 서빙 방지.
+            if ! php artisan migrate --force; then
+              echo "::error::migration failed — site kept in MAINTENANCE. 복구: storage/backups/db 최신 스냅샷 복원 후 재배포"
+              exit 1
+            fi
+            php artisan config:cache || true
+            php artisan route:cache || true
+            php artisan view:cache || true
+            php artisan storage:link || true
+            # PHP-FPM 재시작(opcache 갱신) — 서버 버전에 맞게 조정.
+            sudo systemctl reload php8.4-fpm || true
+            php artisan queue:restart || true
+            php artisan up

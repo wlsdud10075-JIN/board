@@ -16,7 +16,16 @@ class EnsureRole
     {
         $user = $request->user();
 
-        if (! $user || ! in_array($user->role, $roles, true)) {
+        if (! $user || ! $user->is_active) {
+            abort(403);
+        }
+
+        // 시스템관리자(super)는 role 무관 전체 통과 (car-erp super 대응)
+        if ($user->isSuper()) {
+            return $next($request);
+        }
+
+        if (! in_array($user->role, $roles, true)) {
             abort(403);
         }
 

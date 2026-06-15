@@ -15,6 +15,9 @@ return [
 
     'default' => env('FILESYSTEM_DISK', 'local'),
 
+    // db:backup 원격(off-instance) 업로드 디스크. 비우면 로컬만. 운영=s3 권장.
+    'db_backup_disk' => env('DB_BACKUP_DISK', ''),
+
     /*
     |--------------------------------------------------------------------------
     | Filesystem Disks

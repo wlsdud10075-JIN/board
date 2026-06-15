@@ -22,3 +22,6 @@ yarn-error.log
 /.nova
 /.vscode
 /.zed
+
+# 민감 문서(개인정보·법적) — 레포 미추적
+meetings/*.pdf

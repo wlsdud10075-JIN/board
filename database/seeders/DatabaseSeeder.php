@@ -11,22 +11,24 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        // ─── 계정 5종 (역할별) · password ───
+        // ─── 계정 (역할별) · password ───  [이름, 이메일, role, permission]
         $users = [
-            ['관리자', 'admin@board.test', 'manager'],
-            ['김영업', 'kim@board.test', 'sales'],
-            ['이영업', 'lee@board.test', 'sales'],
-            ['박검차', 'park@board.test', 'inspection'],
-            ['최경매', 'choi@board.test', 'auction'],
+            ['시스템관리자', 'admin@board.test', 'manager', 'super'],
+            ['관리자', 'manager@board.test', 'manager', 'user'],
+            ['김영업', 'kim@board.test', 'sales', 'user'],
+            ['이영업', 'lee@board.test', 'sales', 'user'],
+            ['박검차', 'park@board.test', 'inspection', 'user'],
+            ['최경매', 'choi@board.test', 'auction', 'user'],
         ];
 
         $byEmail = [];
-        foreach ($users as [$name, $email, $role]) {
+        foreach ($users as [$name, $email, $role, $permission]) {
             $byEmail[$email] = User::updateOrCreate(
                 ['email' => $email],
                 [
                     'name' => $name,
                     'role' => $role,
+                    'permission' => $permission,
                     'is_active' => true,
                     'password' => Hash::make('password'),
                     'email_verified_at' => now(),
