@@ -97,8 +97,10 @@ input, textarea, select { color: #1f2937; background-color: #ffffff; }
 .btn-outline:hover { background:#f9fafb; }
 .btn-ghost { background:transparent; color:#6b7280; padding:6px 12px; font-size:13px; border-radius:6px; cursor:pointer; }
 .btn-ghost:hover { background:#f3f4f6; }
-.btn-green { background:#16a34a; color:#fff; padding:6px 14px; font-size:13px; border-radius:6px; display:inline-flex; align-items:center; gap:6px; cursor:pointer; }
+.btn-green { background:#16a34a; color:#fff; padding:6px 14px; font-size:13px; border-radius:6px; display:inline-flex; align-items:center; gap:6px; cursor:pointer; transition:background-color .15s; }
 .btn-green:hover { background:#15803d; }
+.btn-red { background:#dc2626; color:#fff; padding:6px 14px; font-size:13px; border-radius:6px; display:inline-flex; align-items:center; gap:6px; cursor:pointer; transition:background-color .15s; }
+.btn-red:hover { background:#b91c1c; }
 .btn-sm { padding:4px 11px; font-size:12px; }
 
 /* ── 탭 / 칩 ── */
