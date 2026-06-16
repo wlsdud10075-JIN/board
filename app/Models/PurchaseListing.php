@@ -23,7 +23,7 @@ class PurchaseListing extends Model
         'vehicle_number', 'owner_name', 'vin',
         'expected_price', 'car_cost', 'discount_rate', 'shipping_usd',
         'final_price', 'encar_url', 'encar_dealer',
-        'auction_venue', 'lot_number', 'status', 'buyer_verdict',
+        'auction_venue', 'lot_number', 'status', 'buyer_verdict', 'verdict_channel',
         'buyer_name', 'payee_name', 'payee_bank', 'payee_account',
         'inspection_memo', 'inspection_note', 'lock_at', 'car_erp_vehicle_id',
     ];
@@ -152,7 +152,7 @@ class PurchaseListing extends Model
 
     /** 감사 대상 필드 — 변경 시 board_audit_logs 자동 기록(옵저버). 출처 무관 단일 경로. */
     public const AUDITED = [
-        'source', 'origin', 'status', 'buyer_verdict', 'buyer_name', 'c_no', 'ssancar_ref', 'encar_id',
+        'source', 'origin', 'status', 'buyer_verdict', 'verdict_channel', 'buyer_name', 'c_no', 'ssancar_ref', 'encar_id',
         'respond_conversation_id',
         'expected_price', 'final_price', 'car_cost', 'discount_rate', 'shipping_usd',
         'owner_name', 'payee_name', 'payee_bank', 'payee_account',
@@ -233,6 +233,12 @@ class PurchaseListing extends Model
     public function isAuction(): bool
     {
         return $this->source === 'auction';
+    }
+
+    /** 자동(C, respond.io 폴링) 회신 채널인지. false=수동(A, /verdicts 화면). */
+    public function isAutoVerdict(): bool
+    {
+        return ($this->verdict_channel ?? 'auto') === 'auto';
     }
 
     /** 경매 차량이고 lock_at 이 지났으면 잠김 (서버시각 단일 판정) */

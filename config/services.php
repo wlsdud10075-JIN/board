@@ -41,10 +41,13 @@ return [
         'hmac_secret' => env('CAR_ERP_HMAC_SECRET'),
     ],
 
-    // 연동 A — respond.io (사진/영상 전송 + inbound webhook). 도메인+HTTPS 후 사용.
+    // 연동 A — respond.io (Developer API 폴링 + inbound webhook + outbound).
     'respond_io' => [
+        'base_url' => env('RESPOND_BASE_URL', 'https://api.respond.io'),
         'api_token' => env('RESPOND_API_TOKEN'),
         'webhook_secret' => env('RESPOND_WEBHOOK_SECRET'),
+        // 커스텀 필드명(바이어 회신) — 워크스페이스에서 만든 이름에 맞춰 .env 로 조정.
+        'verdict_field' => env('RESPOND_VERDICT_FIELD', 'buyer_verdict'),
     ],
 
 ];

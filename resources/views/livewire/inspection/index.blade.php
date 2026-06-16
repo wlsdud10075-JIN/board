@@ -2,6 +2,7 @@
 
 use App\Models\InspectionAssignment;
 use App\Models\PurchaseListing;
+use App\Models\Scopes\SalesmanScope;
 use App\Models\User;
 use App\Services\ExchangeRateService;
 use Illuminate\Support\Facades\Auth;
@@ -24,6 +25,8 @@ new #[Layout('components.layouts.app')] class extends Component {
     // 드로어 내 "선택 → 저장" 스테이징 (클릭=선택만, 저장 눌러야 커밋).
     // 회신(수락/거절)은 "바이어 회신" 화면으로 일원화 → 현지확인은 전달까지만.
     public bool $sendSelected = false;        // draft: 바이어 전달 예정 선택
+    public bool $forceManualSend = false;     // (가) 가드: 수동 채널로 강제 전달
+    public ?string $sendConflictWith = null;  // 같은 바이어 자동 회신대기 차(차량번호) — 알림용
 
     // ── 지역 배정 (§6c) ──
     public string $assignDate = '';
@@ -245,6 +248,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->photos = [];
         // 스테이징 선택 초기화 (전달은 draft 에서만 / 회신은 바이어 회신 화면)
         $this->sendSelected = false;
+        $this->forceManualSend = false;
+        $this->sendConflictWith = null;
         $this->resetErrorBag();
     }
 
@@ -252,7 +257,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $this->reset(['editingId', 'final_price', 'inspection_memo', 'buyer_name', 'photos',
             'region', 'inspection_note', 'car_cost', 'discount_rate', 'shipping_usd',
-            'sendSelected']);
+            'sendSelected', 'forceManualSend', 'sendConflictWith']);
         unset($this->editing, $this->regionGroups);
     }
 
@@ -335,14 +340,57 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $msg = '저장되었습니다.';
         if ($sending) {
+            // 회신 채널 결정: 대화 미연결이면 자동 불가→수동. 강제수동(=수동 전환 선택) 시 수동.
+            $channel = 'auto';
+            if (empty($l->respond_conversation_id) || $this->forceManualSend) {
+                $channel = 'manual';
+            } else {
+                // (가) 가드: 같은 바이어에 이미 '자동' 회신대기 차가 있으면 전달 보류 + 선택지 알림.
+                // (자동은 한 바이어당 1대 직렬화 — respond.io 폴링이 '어느 차'인지 명확하도록)
+                $conflict = PurchaseListing::withoutGlobalScope(SalesmanScope::class)
+                    ->where('respond_conversation_id', $l->respond_conversation_id)
+                    ->where('status', 'awaiting_buyer')
+                    ->where('verdict_channel', 'auto')
+                    ->where('id', '!=', $l->id)
+                    ->first();
+                if ($conflict) {
+                    // 입력값(금액·메모)은 저장하되 '전달'만 보류 → 사용자가 대기/수동 선택
+                    $l->save();
+                    $this->persistPhotos($l);
+                    $this->sendConflictWith = $conflict->vehicle_number;
+
+                    return;
+                }
+            }
             $l->status = 'awaiting_buyer';
             $l->buyer_verdict = 'pending';
-            $msg = '사진+최종금액을 바이어에게 전달했습니다 (회신대기 → 바이어 회신 화면에서 처리).';
+            $l->verdict_channel = $channel;
+            $msg = $channel === 'manual'
+                ? '바이어에게 전달했습니다 (수동 회신 — 바이어 회신 화면에서 처리).'
+                : '바이어에게 전달했습니다 (자동 회신대기 — respond.io 회신 시 자동 처리).';
         }
 
         $l->save();
         $this->persistPhotos($l);
         session()->flash('ok', $msg);
+        $this->closeDrawer();
+    }
+
+    /** (가) 선택지 ① 수동으로 전환해 전달 — 자동 1대 제한을 우회, 이 차는 수동 트랙으로. */
+    public function sendAsManual(): void
+    {
+        $this->forceManualSend = true;
+        $this->sendSelected = true;
+        $this->sendConflictWith = null;
+        $this->save();
+    }
+
+    /** (가) 선택지 ② 앞 차 처리 후 진행 — 지금은 전달 안 함(금액은 저장됨). */
+    public function cancelSend(): void
+    {
+        $this->sendSelected = false;
+        $this->sendConflictWith = null;
+        session()->flash('ok', '전달을 보류했습니다. 앞 차 회신 처리 후 다시 전달하세요. (입력값은 저장됨)');
         $this->closeDrawer();
     }
 
@@ -600,6 +648,19 @@ new #[Layout('components.layouts.app')] class extends Component {
                         📤 사진 + 최종금액 바이어에게 전달 {{ $sendSelected ? '— 선택됨 ✓' : '' }}
                     </button>
                     <p class="mt-1 text-xs text-gray-400">선택 후 아래 <b>저장</b>을 눌러야 전달됩니다. 전달 후 바이어 회신은 <b>"바이어 회신"</b> 화면에서 처리합니다.</p>
+
+                    {{-- (가) 가드: 같은 바이어 자동 회신대기 1대 초과 시 선택지 --}}
+                    @if ($sendConflictWith)
+                        <div class="card-sm mt-2 border-amber-300 bg-amber-50 text-amber-800">
+                            <p class="text-[13px] font-semibold">⚠️ 이 바이어는 이미 <b>자동 회신대기 차({{ $sendConflictWith }})</b>가 있습니다.</p>
+                            <p class="mt-0.5 text-xs">자동 회신은 한 번에 1대만 됩니다. 어떻게 할까요?</p>
+                            <div class="mt-2 flex flex-col gap-2 sm:flex-row">
+                                <button type="button" class="btn-outline btn-sm flex-1 justify-center" wire:click="cancelSend">앞 차 처리 후 진행 (대기)</button>
+                                <button type="button" class="btn-primary btn-sm flex-1 justify-center" wire:click="sendAsManual">수동으로 전환해 전달</button>
+                            </div>
+                            <p class="mt-1 text-[11px] text-amber-600">※ "수동 전환" 시 이 차는 바이어 회신 화면에서 직접 처리합니다.</p>
+                        </div>
+                    @endif
                 @elseif ($e->status === 'awaiting_buyer')
                     <p class="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">⏳ 이미 바이어에게 전달됨(회신대기). 수락/거절은 <b>"바이어 회신"</b> 화면에서 처리하세요.</p>
                 @endif
