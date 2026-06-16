@@ -653,4 +653,153 @@ class BoardTest extends TestCase
         Http::assertNothingSent();
         $this->assertNull($l->fresh()->car_erp_vehicle_id);
     }
+
+    // ─────────────────────── 연동 A (respond.io inbound webhook) ───────────────────────
+
+    private function postRespond(array $body, string $secret = 'whsecret')
+    {
+        return $this->postJson('/api/webhooks/respond', $body, ['X-Webhook-Secret' => $secret]);
+    }
+
+    public function test_respond_webhook_rejects_bad_secret(): void
+    {
+        config(['services.respond_io.webhook_secret' => 'whsecret']);
+
+        $this->postRespond(['event' => 'buyer_verdict'], 'WRONG')->assertStatus(401);
+        $this->assertSame(0, IntegrationEvent::count());
+    }
+
+    public function test_respond_webhook_accept_moves_listing_to_accepted(): void
+    {
+        config(['services.respond_io.webhook_secret' => 'whsecret']);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending',
+            'final_price' => 9000000, 'buyer_name' => 'X', 'respond_conversation_id' => 'conv_1',
+        ]);
+
+        $this->postRespond([
+            'event' => 'buyer_verdict', 'external_event_id' => 'evt_1',
+            'respond_conversation_id' => 'conv_1', 'respond_contact_id' => 'ct_9', 'verdict' => 'accepted',
+        ])->assertOk()->assertJson(['status' => 'applied:accepted']);
+
+        $l->refresh();
+        $this->assertSame('accepted', $l->status);
+        $this->assertSame('accepted', $l->buyer_verdict);
+        $this->assertSame('ct_9', $l->respond_contact_id);
+
+        $ev = IntegrationEvent::where('target', 'respond_io')->first();
+        $this->assertSame('inbound', $ev->direction);
+        $this->assertSame($l->id, $ev->purchase_listing_id);
+    }
+
+    public function test_respond_webhook_reject_moves_listing_to_rejected(): void
+    {
+        config(['services.respond_io.webhook_secret' => 'whsecret']);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_r',
+        ]);
+
+        $this->postRespond([
+            'event' => 'buyer_verdict', 'external_event_id' => 'evt_r',
+            'respond_conversation_id' => 'conv_r', 'verdict' => 'rejected',
+        ])->assertOk()->assertJson(['status' => 'applied:rejected']);
+
+        $l->refresh();
+        $this->assertSame('rejected', $l->status);
+        $this->assertSame('rejected', $l->buyer_verdict);
+    }
+
+    public function test_respond_webhook_is_idempotent_on_external_event_id(): void
+    {
+        config(['services.respond_io.webhook_secret' => 'whsecret']);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_d',
+        ]);
+        $body = [
+            'event' => 'buyer_verdict', 'external_event_id' => 'dup_1',
+            'respond_conversation_id' => 'conv_d', 'verdict' => 'accepted',
+        ];
+
+        $this->postRespond($body)->assertJson(['status' => 'applied:accepted']);
+        $this->postRespond($body)->assertOk()->assertJson(['status' => 'duplicate']);
+
+        // 중복은 한 번만 기록 + 상태는 1회만 적용
+        $this->assertSame(1, IntegrationEvent::where('external_event_id', 'dup_1')->count());
+        $this->assertSame('accepted', $l->fresh()->status);
+    }
+
+    public function test_respond_webhook_no_match_is_noop(): void
+    {
+        config(['services.respond_io.webhook_secret' => 'whsecret']);
+
+        $this->postRespond([
+            'event' => 'buyer_verdict', 'external_event_id' => 'evt_nm',
+            'respond_conversation_id' => 'nonexistent', 'verdict' => 'accepted',
+        ])->assertOk()->assertJson(['status' => 'no_match']);
+    }
+
+    public function test_respond_webhook_multi_match_needs_vehicle_number(): void
+    {
+        config(['services.respond_io.webhook_secret' => 'whsecret']);
+        $sales = $this->mkUser('sales');
+        $l1 = $this->mkListing($sales, [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending',
+            'respond_conversation_id' => 'conv_m', 'vehicle_number' => '11가1111',
+        ]);
+        $l2 = $this->mkListing($sales, [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending',
+            'respond_conversation_id' => 'conv_m', 'vehicle_number' => '22가2222',
+        ]);
+
+        // disambiguator 없으면 모호 → 변경 없음
+        $this->postRespond([
+            'event' => 'buyer_verdict', 'external_event_id' => 'evt_amb',
+            'respond_conversation_id' => 'conv_m', 'verdict' => 'accepted',
+        ])->assertOk()->assertJson(['status' => 'ambiguous']);
+        $this->assertSame('awaiting_buyer', $l1->fresh()->status);
+        $this->assertSame('awaiting_buyer', $l2->fresh()->status);
+
+        // vehicle_number 동반 → 해당 차만 적용
+        $this->postRespond([
+            'event' => 'buyer_verdict', 'external_event_id' => 'evt_res',
+            'respond_conversation_id' => 'conv_m', 'verdict' => 'accepted', 'vehicle_number' => '22가2222',
+        ])->assertOk()->assertJson(['status' => 'applied:accepted']);
+        $this->assertSame('awaiting_buyer', $l1->fresh()->status);
+        $this->assertSame('accepted', $l2->fresh()->status);
+    }
+
+    public function test_respond_webhook_verdict_on_draft_is_noop(): void
+    {
+        // 회신대기 아닌 차(draft)에 verdict 도착 → 전이 가드 throw 없이 no-op
+        config(['services.respond_io.webhook_secret' => 'whsecret']);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'draft', 'buyer_verdict' => 'none', 'respond_conversation_id' => 'conv_draft',
+        ]);
+
+        $this->postRespond([
+            'event' => 'buyer_verdict', 'external_event_id' => 'evt_dr',
+            'respond_conversation_id' => 'conv_draft', 'verdict' => 'accepted',
+        ])->assertOk()->assertJson(['status' => 'no_match']);
+
+        $this->assertSame('draft', $l->fresh()->status);
+    }
+
+    public function test_respond_webhook_verdict_audited_as_system(): void
+    {
+        config(['services.respond_io.webhook_secret' => 'whsecret']);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_a',
+        ]);
+
+        $this->postRespond([
+            'event' => 'buyer_verdict', 'external_event_id' => 'evt_aud',
+            'respond_conversation_id' => 'conv_a', 'verdict' => 'accepted',
+        ])->assertOk();
+
+        $log = BoardAuditLog::where('purchase_listing_id', $l->id)
+            ->where('field', 'status')->latest('id')->first();
+        $this->assertNotNull($log);
+        $this->assertNull($log->user_id);   // 무인증 웹훅 = 시스템
+        $this->assertSame('accepted', $log->new_value);
+    }
 }

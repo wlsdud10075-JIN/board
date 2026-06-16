@@ -18,7 +18,9 @@ class PurchaseListing extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'created_by_user_id', 'source', 'region', 'c_no', 'vehicle_number', 'owner_name', 'vin',
+        'created_by_user_id', 'source', 'region', 'c_no',
+        'respond_conversation_id', 'respond_contact_id', 'encar_id',
+        'vehicle_number', 'owner_name', 'vin',
         'expected_price', 'car_cost', 'discount_rate', 'shipping_usd',
         'final_price', 'encar_url', 'encar_dealer',
         'auction_venue', 'lot_number', 'status', 'buyer_verdict',
@@ -111,7 +113,7 @@ class PurchaseListing extends Model
 
     /** 감사 대상 필드 — 변경 시 board_audit_logs 자동 기록(옵저버). 출처 무관 단일 경로. */
     public const AUDITED = [
-        'source', 'status', 'buyer_verdict', 'buyer_name', 'c_no',
+        'source', 'status', 'buyer_verdict', 'buyer_name', 'c_no', 'encar_id',
         'expected_price', 'final_price', 'car_cost', 'discount_rate', 'shipping_usd',
         'owner_name', 'payee_name', 'payee_bank', 'payee_account',
         'vehicle_number', 'vin', 'car_erp_vehicle_id', 'region', 'inspection_note', 'inspection_memo',
