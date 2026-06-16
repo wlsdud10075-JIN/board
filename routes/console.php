@@ -20,3 +20,7 @@ Schedule::command('board:refresh-rates')->hourly();
 
 // board DB 야간 백업 03:00 (30일 보관). 서버 scheduler cron 필요.
 Schedule::command('db:backup --keep=30')->dailyAt('03:00');
+
+// 연동 A(C) — respond.io 회신 폴링 → 자동 verdict 적용(직렬화). 미설정이면 명령 내부 no-op.
+// withoutOverlapping(락②): 폴링 두 개 동시 실행 방지.
+Schedule::command('board:poll-verdicts')->everyTwoMinutes()->withoutOverlapping();

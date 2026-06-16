@@ -1015,4 +1015,71 @@ class BoardTest extends TestCase
         // 첫 차는 자동 그대로
         $this->assertSame('auto', $a->fresh()->verdict_channel);
     }
+
+    // ─────────────────────── 연동 A — (C) Developer API 폴링 ───────────────────────
+
+    private function respondConfig(): void
+    {
+        config(['services.respond_io.base_url' => 'https://api.respond.io', 'services.respond_io.api_token' => 'tok', 'services.respond_io.verdict_field' => 'buyer_verdict']);
+    }
+
+    public function test_poll_applies_verdict_for_single_awaiting_auto(): void
+    {
+        $this->respondConfig();
+        Http::fake(['*/v2/contact*' => Http::response(['items' => [
+            ['id' => 'ct1', 'conversation_id' => 'conv_p', 'custom_fields' => ['buyer_verdict' => '수락']],
+        ]])]);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_p', 'verdict_channel' => 'auto',
+        ]);
+
+        $this->artisan('board:poll-verdicts')->assertSuccessful();
+
+        $this->assertSame('accepted', $l->fresh()->status);
+        $this->assertDatabaseHas('integration_events', [
+            'target' => 'respond_io', 'event_type' => 'verdict_poll', 'purchase_listing_id' => $l->id,
+        ]);
+    }
+
+    public function test_poll_skips_when_multiple_awaiting_auto(): void
+    {
+        $this->respondConfig();
+        Http::fake(['*/v2/contact*' => Http::response(['items' => [
+            ['id' => 'ct2', 'conversation_id' => 'conv_m2', 'custom_fields' => ['buyer_verdict' => '수락']],
+        ]])]);
+        $sales = $this->mkUser('sales');
+        $a = $this->mkListing($sales, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_m2', 'verdict_channel' => 'auto']);
+        $b = $this->mkListing($sales, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_m2', 'verdict_channel' => 'auto']);
+
+        $this->artisan('board:poll-verdicts')->assertSuccessful();
+
+        // 다중 → 모호 → 적용 안 함(사람이 A로)
+        $this->assertSame('awaiting_buyer', $a->fresh()->status);
+        $this->assertSame('awaiting_buyer', $b->fresh()->status);
+    }
+
+    public function test_poll_ignores_manual_channel(): void
+    {
+        $this->respondConfig();
+        Http::fake(['*/v2/contact*' => Http::response(['items' => [
+            ['id' => 'ct3', 'conversation_id' => 'conv_man', 'custom_fields' => ['buyer_verdict' => '수락']],
+        ]])]);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_man', 'verdict_channel' => 'manual',
+        ]);
+
+        $this->artisan('board:poll-verdicts')->assertSuccessful();
+
+        $this->assertSame('awaiting_buyer', $l->fresh()->status);   // 수동 채널 → 폴러 무시
+    }
+
+    public function test_poll_noops_without_config(): void
+    {
+        config(['services.respond_io.base_url' => null, 'services.respond_io.api_token' => null]);
+        Http::fake();
+
+        $this->artisan('board:poll-verdicts')->assertSuccessful();
+
+        Http::assertNothingSent();   // 안전밸브
+    }
 }
