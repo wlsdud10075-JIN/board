@@ -10,6 +10,7 @@ use App\Models\IntegrationEvent;
 use App\Models\PurchaseListing;
 use App\Models\User;
 use App\Services\ExchangeRateService;
+use App\Support\ListingLink;
 use App\Support\TimeGate;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -801,5 +802,77 @@ class BoardTest extends TestCase
         $this->assertNotNull($log);
         $this->assertNull($log->user_id);   // 무인증 웹훅 = 시스템
         $this->assertSame('accepted', $log->new_value);
+    }
+
+    // ─────────────────────── 연동 A — A2 (승격 / 링크 추출) ───────────────────────
+
+    public function test_listing_link_parser_extracts_ids(): void
+    {
+        $enc = ListingLink::parse('https://fem.encar.com/cars/detail/42176484?adv=x');
+        $this->assertSame('encar', $enc['source']);
+        $this->assertSame('42176484', $enc['encar_id']);
+
+        $this->assertSame('6915603', ListingLink::parse('https://www.ssancar.com/page/stock_car_view.php?c_no=6915603')['c_no']);
+        $this->assertSame('wr_id:786', ListingLink::parse('https://www.ssancar.com/page/inspected_view.php?wr_id=786')['ssancar_ref']);
+        $this->assertSame('car_no:1871585', ListingLink::parse('https://www.ssancar.com/page/car_view.php?car_no=1871585')['ssancar_ref']);
+        $this->assertSame([], ListingLink::parse('https://www.google.com/'));
+    }
+
+    public function test_promote_via_encar_link_extracts_and_saves(): void
+    {
+        $this->actingAs($kim = $this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('linkInput', 'https://fem.encar.com/cars/detail/42176484?x=1')
+            ->call('parseLink')
+            ->assertSet('source', 'encar')
+            ->assertSet('encar_id', '42176484')
+            ->set('vehicle_number', '88가8888')
+            ->set('respond_conversation_id', 'conv_xyz')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $l = PurchaseListing::where('vehicle_number', '88가8888')->first();
+        $this->assertSame('42176484', $l->encar_id);
+        $this->assertSame('encar', $l->source);
+        $this->assertSame('conv_xyz', $l->respond_conversation_id);
+    }
+
+    public function test_promote_via_ssancar_wr_id_link_sets_ssancar_ref(): void
+    {
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('linkInput', 'https://www.ssancar.com/page/inspected_view.php?wr_id=786')
+            ->call('parseLink')
+            ->assertSet('ssancar_ref', 'wr_id:786')
+            ->set('vehicle_number', '77가7777')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertSame('wr_id:786', PurchaseListing::where('vehicle_number', '77가7777')->first()->ssancar_ref);
+    }
+
+    public function test_promote_bad_link_shows_error(): void
+    {
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('linkInput', 'https://www.google.com')
+            ->call('parseLink')
+            ->assertHasErrors('linkInput');
+    }
+
+    public function test_duplicate_vehicle_number_is_blocked(): void
+    {
+        $kim = $this->mkUser('sales');
+        $this->mkListing($kim, ['vehicle_number' => '55가5555']);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')
+            ->set('source', 'encar')
+            ->set('vehicle_number', '55가5555')
+            ->call('save')
+            ->assertHasErrors('vehicle_number');
     }
 }
