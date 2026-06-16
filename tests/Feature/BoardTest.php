@@ -10,6 +10,7 @@ use App\Models\IntegrationEvent;
 use App\Models\PurchaseListing;
 use App\Models\User;
 use App\Services\ExchangeRateService;
+use App\Services\VerdictService;
 use App\Support\ListingLink;
 use App\Support\TimeGate;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -949,5 +950,69 @@ class BoardTest extends TestCase
         }
 
         $this->assertSame('awaiting_buyer', $l->fresh()->status);
+    }
+
+    // ─────────────────────── 연동 A — (C) 채널 분리 / 직렬화 가드 / VerdictService ───────────────────────
+
+    public function test_verdict_service_apply_is_idempotent(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending']);
+        $svc = app(VerdictService::class);
+
+        $this->assertTrue($svc->apply($l->id, 'accepted'));     // 1회 적용
+        $this->assertSame('accepted', $l->fresh()->status);
+        $this->assertFalse($svc->apply($l->id, 'rejected'));    // 이미 처리됨 → 적용 안 됨(락③)
+        $this->assertSame('accepted', $l->fresh()->status);     // 안 덮어씀
+    }
+
+    public function test_inspection_send_defaults_auto_when_conversation_linked(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'draft', 'region' => '서울', 'respond_conversation_id' => 'conv_auto', 'car_cost' => 9000000,
+        ]);
+        $this->actingAs($this->mkUser('inspection'));
+
+        Volt::test('inspection.index')
+            ->call('openDrawer', $l->id)->set('buyer_name', 'D')->set('car_cost', '9000000')
+            ->set('sendSelected', true)->call('save')->assertHasNoErrors();
+
+        $l->refresh();
+        $this->assertSame('awaiting_buyer', $l->status);
+        $this->assertSame('auto', $l->verdict_channel);
+    }
+
+    public function test_inspection_send_without_conversation_is_manual(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft', 'car_cost' => 9000000]);  // 대화 미연결
+        $this->actingAs($this->mkUser('inspection'));
+
+        Volt::test('inspection.index')
+            ->call('openDrawer', $l->id)->set('buyer_name', 'D')->set('car_cost', '9000000')
+            ->set('sendSelected', true)->call('save')->assertHasNoErrors();
+
+        $this->assertSame('manual', $l->fresh()->verdict_channel);   // 자동 불가 → 수동
+    }
+
+    public function test_inspection_second_auto_car_blocked_then_manual(): void
+    {
+        $sales = $this->mkUser('sales');
+        $a = $this->mkListing($sales, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_g', 'verdict_channel' => 'auto']);
+        $b = $this->mkListing($sales, ['status' => 'draft', 'respond_conversation_id' => 'conv_g', 'car_cost' => 9000000]);
+        $this->actingAs($this->mkUser('inspection'));
+
+        // 2번째 자동 차 전달 시도 → (가) 보류 + 알림
+        $c = Volt::test('inspection.index')
+            ->call('openDrawer', $b->id)->set('buyer_name', 'D')->set('car_cost', '9000000')
+            ->set('sendSelected', true)->call('save');
+        $c->assertSet('sendConflictWith', $a->vehicle_number);
+        $this->assertSame('draft', $b->fresh()->status);   // 전달 보류
+
+        // 수동으로 전환해 전달
+        $c->call('sendAsManual')->assertHasNoErrors();
+        $b->refresh();
+        $this->assertSame('awaiting_buyer', $b->status);
+        $this->assertSame('manual', $b->verdict_channel);
+        // 첫 차는 자동 그대로
+        $this->assertSame('auto', $a->fresh()->verdict_channel);
     }
 }

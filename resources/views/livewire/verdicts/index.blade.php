@@ -35,16 +35,17 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->apply($id, 'rejected');
     }
 
-    /** 차 1대에 verdict 적용 (awaiting_buyer 가드 + SalesmanScope = 본인 것만). 옵저버가 감사기록. */
+    /** 차 1대에 verdict 적용. SalesmanScope(본인 것만=IDOR 차단) + VerdictService(race-safe 적용). */
     private function apply(int $id, string $verdict): void
     {
+        // findOrFail 이 SalesmanScope 안에서 동작 → 영업은 본인 글만 처리 가능(IDOR 방지)
         $l = PurchaseListing::where('status', 'awaiting_buyer')->findOrFail($id);
-        $l->buyer_verdict = $verdict;
-        $l->status = $verdict === 'accepted' ? 'accepted' : 'rejected';
-        $l->save();   // awaiting_buyer→accepted 가드(verdict=accepted 충족) / →rejected 허용
+        $ok = app(\App\Services\VerdictService::class)->apply($l->id, $verdict);
 
         unset($this->groups);
-        session()->flash('ok', $l->vehicle_number.' → '.($verdict === 'accepted' ? '수락 (구매/경매 대기로 이동)' : '거절').' 처리됨');
+        session()->flash('ok', $ok
+            ? $l->vehicle_number.' → '.($verdict === 'accepted' ? '수락 (구매/경매 대기로 이동)' : '거절').' 처리됨'
+            : $l->vehicle_number.' 은 이미 처리되었습니다.');
     }
 }; ?>
 
