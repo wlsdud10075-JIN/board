@@ -67,12 +67,15 @@
 - **근거(드리프트 안전)**: c_no 는 **하드 조인키 아님** — 연동 B 실매칭키 = `vehicle_number + owner_name`(메모리 정정본). c_no/wr_id/car_no 는 ssancar **추적 실**일 뿐. 셋이 동일차인지·ssancar 변환 가능한지 **몰라도 됨**. listing 중복은 `vehicle_number`(IDENTITY_LOCKED) 가 막음.
 - **A1 신규 컬럼만**: `respond_conversation_id`(스파인·indexed) + `respond_contact_id` + `encar_id`(indexed). c_no 는 이미 있음.
 
-## ⚠️ respond.io 플랜 제약 (2026-06-16 워크스페이스 실확인) — 층 2 선행조건
-- respond.io **Workflow 액션 `HTTP 요청`(임의 끝점 HTTP 전송) = 유료 업그레이드 필요**. 트리거 `수신 웹후크`도 유료.
-- **이게 respond.io → board 푸시의 유일한 네이티브 경로** — 무료 액션(메시지/태그/필드/분기/할당/대화열기·닫기/댓글/대기/다른워크플로우 트리거 등)으로는 board 로 임의 데이터 전송 불가.
-- **영향**: 층 1(board 수신 코드)은 무관하게 완성·테스트 가능(✅ 2026-06-16 완료). 하지만 **층 2(respond.io 가 실제로 webhook 발사) = 플랜 업그레이드(비용·대표 승인) 선행.**
-- **conversation_id/contact_id 변수 주입 확인도 업그레이드 후 가능**(HTTP 요청 설정창을 못 여니까). 단 respond.io 같은 성숙 CRM 은 contact/conversation 변수 노출이 기본 → 위험 낮음.
-- verdict 메커니즘 후보(트리거): `연락처 태그 업데이트됨`/`연락처 필드 업데이트됨`(상담원이 수락/거절 태그·필드) 또는 `수동 트리거`/`지름길`(차별 전송 → 다중차 귀속 해결). 어느 쪽이든 액션 단계에서 `HTTP 요청` 필요.
+## respond.io 플랜 = Growth 확인 → 업그레이드 불필요 (2026-06-16 확정)
+- **현재 플랜 = Growth($199/월)** (대표 확인). 플랜 사다리: Starter $99 / **Growth $199(=Developer API + Google Sheets 액션)** / Advanced $349(=HTTP요청 액션 + 수신Webhook).
+- respond.io **Workflow `HTTP 요청` 액션 = Advanced($349) 전용** (워크스페이스 유료 뱃지 = 이것). `수신 웹후크` 트리거도 Advanced. → **HTTP요청 액션은 안 씀.**
+- **결론: Advanced 업그레이드 없이, Growth 에 포함된 2경로로 respond.io→board 자동화 구현(추가비용 0).**
+  - **① Google Sheets 브리지**: respond.io `Sheets 행 추가`(Growth) → Google Apps Script(무료) → board `/api/webhooks/respond`(A1 그대로 재사용). 거의 실시간. 단 Google+AppsScript 한 겹.
+  - **② Developer API 폴링** ⭐권장: board cron 이 respond.io Developer API(Growth) 주기조회 → verdict 감지 → listing 갱신. 전부 board 안(테스트 가능), `RESPOND_API_TOKEN` 이미 config. 단 폴링 지연(~분).
+- **transport(①/②) 결정은 A2 이후로 미룸** — verdict 자동화는 A2 에서 `respond_conversation_id` 를 listing 에 연결한 뒤라야 의미. A1 verdict 적용 로직(매칭·전이가드·멱등)은 **공유 서비스로 추출** → 폴링 Job 재사용(A1 무손실, 추후 Advanced 시 webhook 무손실 전환).
+- ⚠️ **respond.io 자동화 = 전부 "이중입력 제거" 편의** — board 엔 이미 verdict 수동입력(검차 화면) + 승격 시 링크 수동붙임 가능. **막힌 기능 없음**, 자동화는 enhancement.
+- verdict 메커니즘 후보(트리거): `연락처 태그/필드 업데이트됨`(상담원 수락/거절 태그·필드) 또는 `수동 트리거`/`지름길`(차별 전송 → 다중차 귀속 해결). ①은 액션=Sheets행추가, ②는 트리거 무관(API 폴링).
 
 ## 착수 때 확정할 열린 항목 (지금 미정)
 - **다중 차 방의 verdict 귀속**: 방에 차 N개면 "yes"가 어느 차인지 자동 불명 → 초기엔 상담원 보조(차별 전송→귀속), 볼륨 크면 버튼형 구조화 메시지.
