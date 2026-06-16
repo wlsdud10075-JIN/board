@@ -11,12 +11,17 @@ use Livewire\Volt\Component;
 new #[Layout('components.layouts.app')] class extends Component {
     public bool $showAdd = false;
 
-    public string $source = 'encar';
+    public string $origin = 'encar';        // 유입 카테고리(화면) — source 는 여기서 도출
+    public string $source = 'encar';        // 매입방법(내부) — 워크플로·연동B
     public string $vehicle_number = '';
     public string $owner_name = '';         // 소유자/차주명 (연동 B: car-erp NICE 조회 입력값)
     public string $vin = '';
     public string $region = '';             // 지역 (검사지역, 자동완성)
     public string $c_no = '';               // 매물번호 (ssancar c_no, 조인키)
+    public string $ssancar_ref = '';        // ssancar wr_id/car_no (비-c_no, "wr_id:786")
+    public string $encar_id = '';           // Encar 차 식별 (URL 자동추출)
+    public string $respond_conversation_id = ''; // respond.io 대화 연결(스파인, 영업이 채팅에서 복사)
+    public string $linkInput = '';          // 승격: 유입 링크 붙여넣기 → 자동추출
     public ?string $car_cost = null;        // 차값 (KRW)
     public ?string $discount_rate = null;   // 할인율 (%)
     public ?int $shipping_usd = null;       // 배송금액 (USD 고정 택1)
@@ -33,6 +38,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public ?int $editingId = null;
     public string $e_region = '';
     public string $e_c_no = '';
+    public string $e_respond_conversation_id = '';   // 연동 A: 대화 연결 (나중에 붙일 수 있게 수정 가능)
     public string $e_owner_name = '';
     public string $e_payee_name = '';
     public string $e_payee_bank = '';
@@ -149,6 +155,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->editingId = $l->id;
         $this->e_region = $l->region ?? '';
         $this->e_c_no = $l->c_no ?? '';
+        $this->e_respond_conversation_id = $l->respond_conversation_id ?? '';
         $this->e_owner_name = $l->owner_name ?? '';
         $this->e_payee_name = $l->payee_name ?? '';
         $this->e_payee_bank = $l->payee_bank ?? '';
@@ -165,7 +172,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number']);
+        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_respond_conversation_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number']);
         unset($this->editing);
     }
 
@@ -182,6 +189,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->validate([
             'e_region' => 'nullable|string|max:60',
             'e_c_no' => 'nullable|string|max:50',
+            'e_respond_conversation_id' => 'nullable|string|max:80',
             'e_owner_name' => 'nullable|string|max:60',
             'e_payee_name' => 'nullable|string|max:60',
             'e_payee_bank' => 'nullable|string|max:40',
@@ -197,6 +205,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $l->region = $this->e_region ?: null;
         $l->c_no = $this->e_c_no ?: null;
+        $l->respond_conversation_id = $this->e_respond_conversation_id ?: null;
         $l->owner_name = $this->e_owner_name ?: null;
         $l->payee_name = $this->e_payee_name ?: null;
         $l->payee_bank = $this->e_payee_bank ?: null;
@@ -227,19 +236,68 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
     }
 
-    public function setSource(string $s): void
+    /** 유입 카테고리 선택 → 매입방법(source) 자동 도출. */
+    public function setOrigin(string $o): void
     {
-        $this->source = $s;
+        $this->origin = $o;
+        $this->source = PurchaseListing::sourceForOrigin($o);
+    }
+
+    /** 승격: 붙인 링크에서 식별자 자동추출(encar_id/c_no/ssancar_ref) + 유입카테고리/출처 세팅. */
+    public function parseLink(): void
+    {
+        $r = \App\Support\ListingLink::parse($this->linkInput);
+
+        if ($r === []) {
+            $this->addError('linkInput', '엔카/ssancar 링크에서 식별값을 찾지 못했습니다. (직접 입력 가능)');
+
+            return;
+        }
+
+        $this->resetErrorBag('linkInput');
+        if (isset($r['origin'])) {
+            $this->origin = $r['origin'];
+        }
+        if (isset($r['source'])) {
+            $this->source = $r['source'];
+        }
+        if (isset($r['encar_id'])) {
+            $this->encar_id = $r['encar_id'];
+        }
+        if (isset($r['encar_url'])) {
+            $this->encar_url = $r['encar_url'];
+        }
+        if (isset($r['c_no'])) {
+            $this->c_no = $r['c_no'];
+        }
+        if (isset($r['ssancar_ref'])) {
+            $this->ssancar_ref = $r['ssancar_ref'];
+        }
+
+        $bits = array_filter([
+            isset($r['encar_id']) ? 'encar #'.$r['encar_id'] : null,
+            isset($r['c_no']) ? 'c_no '.$r['c_no'] : null,
+            $r['ssancar_ref'] ?? null,
+        ]);
+        $cat = PurchaseListing::ORIGIN_LABELS[$this->origin] ?? '';
+        session()->flash('ok', '['.$cat.'] 추출: '.implode(' · ', $bits).' — 차량번호만 입력하면 됩니다.');
     }
 
     public function save(): void
     {
+        // 매입방법(source)은 유입 카테고리(origin)에서 도출 — 단일 소스 오브 트루스.
+        $this->source = PurchaseListing::sourceForOrigin($this->origin);
+
         $this->validate([
+            'origin' => 'required|in:'.implode(',', array_keys(PurchaseListing::ORIGIN_LABELS)),
             'source' => 'required|in:encar,auction',
             'vehicle_number' => 'required|string|max:20',
             'owner_name' => 'nullable|string|max:60',
             'region' => 'nullable|string|max:60',
             'c_no' => 'nullable|string|max:50',
+            'ssancar_ref' => 'nullable|string|max:50',
+            'encar_id' => 'nullable|string|max:50',
+            'respond_conversation_id' => 'nullable|string|max:80',
             'payee_name' => 'nullable|string|max:60',
             'payee_bank' => 'nullable|string|max:40',
             'payee_account' => 'nullable|string|max:40',
@@ -255,6 +313,15 @@ new #[Layout('components.layouts.app')] class extends Component {
             'vin' => '차대번호(VIN)',
         ]);
 
+        // 중복 차량 차단 (차량번호 = 식별값). 본인격리 무시하고 전역 조회(타 영업 중복도 차단).
+        $dup = PurchaseListing::withoutGlobalScope(\App\Models\Scopes\SalesmanScope::class)
+            ->where('vehicle_number', $this->vehicle_number)->first();
+        if ($dup) {
+            $this->addError('vehicle_number', '이미 등록된 차량번호입니다 (#'.$dup->id.').');
+
+            return;
+        }
+
         // 경매 등록 시간잠금 (관리자 우회)
         if ($this->source === 'auction' && TimeGate::auctionRegistrationLocked() && ! Auth::user()->isManager()) {
             $this->addError('source', '경매 차량 등록은 '.config('board.auction_lock_time').' 에 마감되었습니다. 관리자 해제가 필요합니다.');
@@ -269,11 +336,15 @@ new #[Layout('components.layouts.app')] class extends Component {
         $listing = new PurchaseListing([
             'created_by_user_id' => Auth::id(),
             'source' => $this->source,
+            'origin' => $this->origin,
             'vehicle_number' => $this->vehicle_number,
             'owner_name' => $this->owner_name ?: null,
             'vin' => $this->vin ?: null,
             'region' => $this->region ?: null,
             'c_no' => $this->c_no ?: null,
+            'ssancar_ref' => $this->ssancar_ref ?: null,
+            'encar_id' => $this->encar_id ?: null,
+            'respond_conversation_id' => $this->respond_conversation_id ?: null,
             'payee_name' => $this->payee_name ?: null,
             'payee_bank' => $this->payee_bank ?: null,
             'payee_account' => $this->payee_account ?: null,
@@ -299,7 +370,8 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     private function resetForm(): void
     {
-        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
+        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_conversation_id', 'linkInput', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
+        $this->origin = 'encar';
         $this->source = 'encar';
         $this->resetErrorBag();
     }
@@ -355,12 +427,36 @@ new #[Layout('components.layouts.app')] class extends Component {
         {{-- 추가 폼 --}}
         @if ($showAdd)
             <div class="card-sm mb-4" style="background:#f8f9fb">
-                <label class="label-base">출처 선택 <span class="text-red-500">*</span></label>
-                <div class="mb-3 inline-flex overflow-hidden rounded-md border border-gray-300">
-                    <button type="button" wire:click="setSource('encar')"
-                        class="px-3 py-1.5 text-[13px] font-semibold {{ $source === 'encar' ? 'bg-[var(--color-encar)] text-white' : 'bg-white text-gray-600' }}">🛒 엔카 (즉시구매)</button>
-                    <button type="button" wire:click="setSource('auction')"
-                        class="px-3 py-1.5 text-[13px] font-semibold {{ $source === 'auction' ? 'bg-[var(--color-auction)] text-white' : 'bg-white text-gray-600' }}">🔨 경매</button>
+                <label class="label-base">출처 (유입 카테고리) <span class="text-red-500">*</span></label>
+                <div class="mb-1 flex flex-wrap gap-1">
+                    @foreach (\App\Models\PurchaseListing::ORIGIN_LABELS as $key => $lbl)
+                        <button type="button" wire:click="setOrigin('{{ $key }}')"
+                            class="rounded-md border px-3 py-1.5 text-[13px] font-semibold {{ $origin === $key ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">{{ $lbl }}</button>
+                    @endforeach
+                </div>
+                <p class="mb-3 text-[11px] text-gray-400">💡 매입방법: <b>{{ $source === 'auction' ? '경매 (시간잠금·낙찰/유찰)' : '엔카 즉시구매 (구매대기/확정)' }}</b> — 카테고리에서 자동 결정</p>
+                @error('origin') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+
+                {{-- 승격: 유입 링크 붙여넣기 → 식별자 자동추출 (연동 A) --}}
+                <div class="card-sm mb-3" style="background:#f0f7ff;border-color:#dbeafe">
+                    <label class="label-base">🔗 유입 링크 붙여넣기 <span class="text-gray-400">(엔카 / ssancar — 자동추출)</span></label>
+                    <div class="flex gap-2">
+                        <input class="input-base flex-1" wire:model="linkInput" wire:keydown.enter.prevent="parseLink"
+                               placeholder="https://fem.encar.com/cars/detail/...  또는  https://www.ssancar.com/...">
+                        <button type="button" class="btn-primary btn-sm shrink-0" wire:click="parseLink">추출</button>
+                    </div>
+                    @error('linkInput') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    @if ($encar_id || $c_no || $ssancar_ref)
+                        <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+                            <span class="text-gray-400">추출됨:</span>
+                            @if ($encar_id)<span class="badge badge-encar">encar #{{ $encar_id }}</span>@endif
+                            @if ($c_no)<span class="badge badge-blue">c_no {{ $c_no }}</span>@endif
+                            @if ($ssancar_ref)<span class="badge badge-gray">{{ $ssancar_ref }}</span>@endif
+                        </div>
+                    @endif
+                    <label class="label-base mt-2">respond.io 대화 연결 <span class="text-gray-400">(선택 · conversation id)</span></label>
+                    <input class="input-base" wire:model="respond_conversation_id" placeholder="채팅에서 복사 — 이후 회신(수락/거절) 자동매칭 스파인">
+                    @error('respond_conversation_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 </div>
 
                 {{-- 차량번호 · 차값 · 할인율 · 지역 (한 행) --}}
@@ -496,7 +592,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
                                 <div class="text-xs text-gray-400">VIN ·{{ \Illuminate\Support\Str::limit($l->vin, 10, '') }}</div>
                             </td>
-                            <td><span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }}">{{ $l->isAuction() ? '경매' : '엔카' }}</span></td>
+                            <td><span class="badge {{ $l->originBadge() }}">{{ $l->originLabel() }}</span></td>
                             <td class="font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).'원' : '—' }}</td>
                             <td class="max-w-[200px] truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">{{ $l->inspection_note ?: '—' }}</td>
                             <td>@if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</td>
@@ -523,7 +619,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             <div class="px-5 py-4">
                 <div class="card-sm mb-3 bg-gray-50 text-xs text-gray-500">
                     차량번호 <b>{{ $e->vehicle_number }}</b> · VIN <b>{{ $e->vin }}</b>
-                    · <span class="badge {{ $e->isAuction() ? 'badge-auction' : 'badge-encar' }}">{{ $e->isAuction() ? '경매' : '엔카' }}</span><br>
+                    · <span class="badge {{ $e->originBadge() }}">{{ $e->originLabel() }}</span>
+                    <span class="text-gray-400">({{ $e->isAuction() ? '경매' : '엔카 즉시구매' }})</span><br>
                     <span class="text-gray-400">식별값(차량번호·VIN)·출처는 수정 불가</span>
                 </div>
 
@@ -602,6 +699,18 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <label class="label-base mt-3">소유자 <span class="text-gray-400">(차주명)</span></label>
                 <input class="input-base" wire:model="e_owner_name" placeholder="등록 소유자명" maxlength="60" @unless ($canEdit) disabled @endunless>
                 @error('e_owner_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+
+                <label class="label-base mt-3">respond.io 대화 연결 <span class="text-gray-400">(conversation id · verdict 자동매칭)</span></label>
+                <input class="input-base" wire:model="e_respond_conversation_id" placeholder="채팅에서 복사" @unless ($canEdit) disabled @endunless>
+                @error('e_respond_conversation_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                @if ($e->encar_id || $e->c_no || $e->ssancar_ref)
+                    <div class="mt-1 flex flex-wrap gap-1.5 text-[11px]">
+                        <span class="text-gray-400">유입:</span>
+                        @if ($e->encar_id)<span class="badge badge-encar">encar #{{ $e->encar_id }}</span>@endif
+                        @if ($e->c_no)<span class="badge badge-blue">c_no {{ $e->c_no }}</span>@endif
+                        @if ($e->ssancar_ref)<span class="badge badge-gray">{{ $e->ssancar_ref }}</span>@endif
+                    </div>
+                @endif
 
                 @if ($e->source === 'encar')
                     <label class="label-base mt-3">엔카 매물 URL</label>

@@ -10,6 +10,7 @@ use App\Models\IntegrationEvent;
 use App\Models\PurchaseListing;
 use App\Models\User;
 use App\Services\ExchangeRateService;
+use App\Support\ListingLink;
 use App\Support\TimeGate;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -652,5 +653,271 @@ class BoardTest extends TestCase
 
         Http::assertNothingSent();
         $this->assertNull($l->fresh()->car_erp_vehicle_id);
+    }
+
+    // ─────────────────────── 연동 A (respond.io inbound webhook) ───────────────────────
+
+    private function postRespond(array $body, string $secret = 'whsecret')
+    {
+        return $this->postJson('/api/webhooks/respond', $body, ['X-Webhook-Secret' => $secret]);
+    }
+
+    public function test_respond_webhook_rejects_bad_secret(): void
+    {
+        config(['services.respond_io.webhook_secret' => 'whsecret']);
+
+        $this->postRespond(['event' => 'buyer_verdict'], 'WRONG')->assertStatus(401);
+        $this->assertSame(0, IntegrationEvent::count());
+    }
+
+    public function test_respond_webhook_accept_moves_listing_to_accepted(): void
+    {
+        config(['services.respond_io.webhook_secret' => 'whsecret']);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending',
+            'final_price' => 9000000, 'buyer_name' => 'X', 'respond_conversation_id' => 'conv_1',
+        ]);
+
+        $this->postRespond([
+            'event' => 'buyer_verdict', 'external_event_id' => 'evt_1',
+            'respond_conversation_id' => 'conv_1', 'respond_contact_id' => 'ct_9', 'verdict' => 'accepted',
+        ])->assertOk()->assertJson(['status' => 'applied:accepted']);
+
+        $l->refresh();
+        $this->assertSame('accepted', $l->status);
+        $this->assertSame('accepted', $l->buyer_verdict);
+        $this->assertSame('ct_9', $l->respond_contact_id);
+
+        $ev = IntegrationEvent::where('target', 'respond_io')->first();
+        $this->assertSame('inbound', $ev->direction);
+        $this->assertSame($l->id, $ev->purchase_listing_id);
+    }
+
+    public function test_respond_webhook_reject_moves_listing_to_rejected(): void
+    {
+        config(['services.respond_io.webhook_secret' => 'whsecret']);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_r',
+        ]);
+
+        $this->postRespond([
+            'event' => 'buyer_verdict', 'external_event_id' => 'evt_r',
+            'respond_conversation_id' => 'conv_r', 'verdict' => 'rejected',
+        ])->assertOk()->assertJson(['status' => 'applied:rejected']);
+
+        $l->refresh();
+        $this->assertSame('rejected', $l->status);
+        $this->assertSame('rejected', $l->buyer_verdict);
+    }
+
+    public function test_respond_webhook_is_idempotent_on_external_event_id(): void
+    {
+        config(['services.respond_io.webhook_secret' => 'whsecret']);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_d',
+        ]);
+        $body = [
+            'event' => 'buyer_verdict', 'external_event_id' => 'dup_1',
+            'respond_conversation_id' => 'conv_d', 'verdict' => 'accepted',
+        ];
+
+        $this->postRespond($body)->assertJson(['status' => 'applied:accepted']);
+        $this->postRespond($body)->assertOk()->assertJson(['status' => 'duplicate']);
+
+        // 중복은 한 번만 기록 + 상태는 1회만 적용
+        $this->assertSame(1, IntegrationEvent::where('external_event_id', 'dup_1')->count());
+        $this->assertSame('accepted', $l->fresh()->status);
+    }
+
+    public function test_respond_webhook_no_match_is_noop(): void
+    {
+        config(['services.respond_io.webhook_secret' => 'whsecret']);
+
+        $this->postRespond([
+            'event' => 'buyer_verdict', 'external_event_id' => 'evt_nm',
+            'respond_conversation_id' => 'nonexistent', 'verdict' => 'accepted',
+        ])->assertOk()->assertJson(['status' => 'no_match']);
+    }
+
+    public function test_respond_webhook_multi_match_needs_vehicle_number(): void
+    {
+        config(['services.respond_io.webhook_secret' => 'whsecret']);
+        $sales = $this->mkUser('sales');
+        $l1 = $this->mkListing($sales, [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending',
+            'respond_conversation_id' => 'conv_m', 'vehicle_number' => '11가1111',
+        ]);
+        $l2 = $this->mkListing($sales, [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending',
+            'respond_conversation_id' => 'conv_m', 'vehicle_number' => '22가2222',
+        ]);
+
+        // disambiguator 없으면 모호 → 변경 없음
+        $this->postRespond([
+            'event' => 'buyer_verdict', 'external_event_id' => 'evt_amb',
+            'respond_conversation_id' => 'conv_m', 'verdict' => 'accepted',
+        ])->assertOk()->assertJson(['status' => 'ambiguous']);
+        $this->assertSame('awaiting_buyer', $l1->fresh()->status);
+        $this->assertSame('awaiting_buyer', $l2->fresh()->status);
+
+        // vehicle_number 동반 → 해당 차만 적용
+        $this->postRespond([
+            'event' => 'buyer_verdict', 'external_event_id' => 'evt_res',
+            'respond_conversation_id' => 'conv_m', 'verdict' => 'accepted', 'vehicle_number' => '22가2222',
+        ])->assertOk()->assertJson(['status' => 'applied:accepted']);
+        $this->assertSame('awaiting_buyer', $l1->fresh()->status);
+        $this->assertSame('accepted', $l2->fresh()->status);
+    }
+
+    public function test_respond_webhook_verdict_on_draft_is_noop(): void
+    {
+        // 회신대기 아닌 차(draft)에 verdict 도착 → 전이 가드 throw 없이 no-op
+        config(['services.respond_io.webhook_secret' => 'whsecret']);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'draft', 'buyer_verdict' => 'none', 'respond_conversation_id' => 'conv_draft',
+        ]);
+
+        $this->postRespond([
+            'event' => 'buyer_verdict', 'external_event_id' => 'evt_dr',
+            'respond_conversation_id' => 'conv_draft', 'verdict' => 'accepted',
+        ])->assertOk()->assertJson(['status' => 'no_match']);
+
+        $this->assertSame('draft', $l->fresh()->status);
+    }
+
+    public function test_respond_webhook_verdict_audited_as_system(): void
+    {
+        config(['services.respond_io.webhook_secret' => 'whsecret']);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_a',
+        ]);
+
+        $this->postRespond([
+            'event' => 'buyer_verdict', 'external_event_id' => 'evt_aud',
+            'respond_conversation_id' => 'conv_a', 'verdict' => 'accepted',
+        ])->assertOk();
+
+        $log = BoardAuditLog::where('purchase_listing_id', $l->id)
+            ->where('field', 'status')->latest('id')->first();
+        $this->assertNotNull($log);
+        $this->assertNull($log->user_id);   // 무인증 웹훅 = 시스템
+        $this->assertSame('accepted', $log->new_value);
+    }
+
+    // ─────────────────────── 연동 A — A2 (승격 / 링크 추출) ───────────────────────
+
+    public function test_listing_link_parser_extracts_ids_and_origin(): void
+    {
+        $enc = ListingLink::parse('https://fem.encar.com/cars/detail/42176484?adv=x');
+        $this->assertSame('encar', $enc['origin']);
+        $this->assertSame('encar', $enc['source']);
+        $this->assertSame('42176484', $enc['encar_id']);
+
+        // 싼카재고(c_no) → 즉시구매
+        $stock = ListingLink::parse('https://www.ssancar.com/page/stock_car_view.php?c_no=6915603');
+        $this->assertSame('ssancar_stock', $stock['origin']);
+        $this->assertSame('encar', $stock['source']);
+        $this->assertSame('6915603', $stock['c_no']);
+
+        // 싼카체킹(wr_id) → 즉시구매
+        $chk = ListingLink::parse('https://www.ssancar.com/page/inspected_view.php?wr_id=786');
+        $this->assertSame('ssancar_checking', $chk['origin']);
+        $this->assertSame('encar', $chk['source']);
+        $this->assertSame('wr_id:786', $chk['ssancar_ref']);
+
+        // 싼카경매(car_no) → 경매
+        $auc = ListingLink::parse('https://www.ssancar.com/page/car_view.php?car_no=1871585');
+        $this->assertSame('ssancar_auction', $auc['origin']);
+        $this->assertSame('auction', $auc['source']);
+        $this->assertSame('car_no:1871585', $auc['ssancar_ref']);
+
+        $this->assertSame([], ListingLink::parse('https://www.google.com/'));
+    }
+
+    public function test_promote_via_encar_link_extracts_and_saves(): void
+    {
+        $this->actingAs($kim = $this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('linkInput', 'https://fem.encar.com/cars/detail/42176484?x=1')
+            ->call('parseLink')
+            ->assertSet('source', 'encar')
+            ->assertSet('encar_id', '42176484')
+            ->set('vehicle_number', '88가8888')
+            ->set('respond_conversation_id', 'conv_xyz')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $l = PurchaseListing::where('vehicle_number', '88가8888')->first();
+        $this->assertSame('42176484', $l->encar_id);
+        $this->assertSame('encar', $l->origin);
+        $this->assertSame('encar', $l->source);
+        $this->assertSame('conv_xyz', $l->respond_conversation_id);
+    }
+
+    public function test_promote_via_ssancar_wr_id_link_sets_ssancar_ref(): void
+    {
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('linkInput', 'https://www.ssancar.com/page/inspected_view.php?wr_id=786')
+            ->call('parseLink')
+            ->assertSet('origin', 'ssancar_checking')
+            ->assertSet('ssancar_ref', 'wr_id:786')
+            ->set('vehicle_number', '77가7777')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $l = PurchaseListing::where('vehicle_number', '77가7777')->first();
+        $this->assertSame('wr_id:786', $l->ssancar_ref);
+        $this->assertSame('ssancar_checking', $l->origin);
+        $this->assertSame('encar', $l->source);   // 즉시구매로 도출
+    }
+
+    public function test_promote_via_ssancar_car_no_link_is_auction(): void
+    {
+        // 싼카경매(car_no) → origin=ssancar_auction, source=auction(경매 워크플로)
+        Carbon::setTestNow('2026-06-13 09:00:00');   // 토요일 → 등록 시간잠금 미적용
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('linkInput', 'https://www.ssancar.com/page/car_view.php?car_no=1871585')
+            ->call('parseLink')
+            ->assertSet('origin', 'ssancar_auction')
+            ->assertSet('source', 'auction')
+            ->set('vehicle_number', '66가6666')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $l = PurchaseListing::where('vehicle_number', '66가6666')->first();
+        $this->assertSame('ssancar_auction', $l->origin);
+        $this->assertSame('auction', $l->source);
+        $this->assertSame('car_no:1871585', $l->ssancar_ref);
+        $this->assertTrue($l->isAuction());
+
+        Carbon::setTestNow();
+    }
+
+    public function test_promote_bad_link_shows_error(): void
+    {
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('linkInput', 'https://www.google.com')
+            ->call('parseLink')
+            ->assertHasErrors('linkInput');
+    }
+
+    public function test_duplicate_vehicle_number_is_blocked(): void
+    {
+        $kim = $this->mkUser('sales');
+        $this->mkListing($kim, ['vehicle_number' => '55가5555']);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')
+            ->set('source', 'encar')
+            ->set('vehicle_number', '55가5555')
+            ->call('save')
+            ->assertHasErrors('vehicle_number');
     }
 }
