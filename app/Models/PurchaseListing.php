@@ -18,7 +18,7 @@ class PurchaseListing extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'created_by_user_id', 'source', 'region', 'c_no', 'ssancar_ref',
+        'created_by_user_id', 'source', 'origin', 'region', 'c_no', 'ssancar_ref',
         'respond_conversation_id', 'respond_contact_id', 'encar_id',
         'vehicle_number', 'owner_name', 'vin',
         'expected_price', 'car_cost', 'discount_rate', 'shipping_usd',
@@ -94,6 +94,45 @@ class PurchaseListing extends Model
         'synced' => 'ERP 전환완료',
     ];
 
+    // ─────────────────────── 유입 카테고리 (origin) ───────────────────────
+    // 화면 표시·분류용. 내부 매입방법(source 엔카/경매)은 ORIGIN_SOURCE 로 도출.
+    // ssancar 는 경매+즉시구매가 섞여 있어 단일 source 불가 → origin 으로 분리(연동B/car-erp 무영향).
+
+    /** origin 값 → 한글 라벨 (추가폼 토글·리스트 뱃지) */
+    public const ORIGIN_LABELS = [
+        'ssancar_auction' => '싼카-경매',
+        'ssancar_stock' => '싼카-재고',
+        'ssancar_checking' => '싼카-체킹',
+        'encar' => '엔카',
+        'auction' => '경매',
+    ];
+
+    /** origin → 내부 매입방법(source). 워크플로/시간잠금/연동B 는 이 source 로 동작. */
+    public const ORIGIN_SOURCE = [
+        'ssancar_auction' => 'auction',   // 싼카경매 = 경매(잠금·낙찰/유찰)
+        'ssancar_stock' => 'encar',       // 싼카재고 = 즉시구매
+        'ssancar_checking' => 'encar',    // 싼카체킹 = 즉시구매
+        'encar' => 'encar',
+        'auction' => 'auction',
+    ];
+
+    public static function sourceForOrigin(string $origin): string
+    {
+        return self::ORIGIN_SOURCE[$origin] ?? 'encar';
+    }
+
+    public function originLabel(): string
+    {
+        return self::ORIGIN_LABELS[$this->origin] ?? ($this->isAuction() ? '경매' : '엔카');
+    }
+
+    public function originBadge(): string
+    {
+        return str_starts_with((string) $this->origin, 'ssancar')
+            ? 'badge-blue'
+            : ($this->isAuction() ? 'badge-auction' : 'badge-encar');
+    }
+
     /** 허용 전이: from => [to, ...] (manager override 는 우회) */
     public const TRANSITIONS = [
         'draft' => ['awaiting_buyer'],
@@ -113,7 +152,7 @@ class PurchaseListing extends Model
 
     /** 감사 대상 필드 — 변경 시 board_audit_logs 자동 기록(옵저버). 출처 무관 단일 경로. */
     public const AUDITED = [
-        'source', 'status', 'buyer_verdict', 'buyer_name', 'c_no', 'ssancar_ref', 'encar_id',
+        'source', 'origin', 'status', 'buyer_verdict', 'buyer_name', 'c_no', 'ssancar_ref', 'encar_id',
         'respond_conversation_id',
         'expected_price', 'final_price', 'car_cost', 'discount_rate', 'shipping_usd',
         'owner_name', 'payee_name', 'payee_bank', 'payee_account',

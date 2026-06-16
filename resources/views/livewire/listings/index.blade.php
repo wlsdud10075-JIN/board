@@ -11,7 +11,8 @@ use Livewire\Volt\Component;
 new #[Layout('components.layouts.app')] class extends Component {
     public bool $showAdd = false;
 
-    public string $source = 'encar';
+    public string $origin = 'encar';        // 유입 카테고리(화면) — source 는 여기서 도출
+    public string $source = 'encar';        // 매입방법(내부) — 워크플로·연동B
     public string $vehicle_number = '';
     public string $owner_name = '';         // 소유자/차주명 (연동 B: car-erp NICE 조회 입력값)
     public string $vin = '';
@@ -235,12 +236,14 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
     }
 
-    public function setSource(string $s): void
+    /** 유입 카테고리 선택 → 매입방법(source) 자동 도출. */
+    public function setOrigin(string $o): void
     {
-        $this->source = $s;
+        $this->origin = $o;
+        $this->source = PurchaseListing::sourceForOrigin($o);
     }
 
-    /** 승격: 붙인 링크에서 식별자 자동추출(encar_id/c_no/ssancar_ref) + 출처 세팅. */
+    /** 승격: 붙인 링크에서 식별자 자동추출(encar_id/c_no/ssancar_ref) + 유입카테고리/출처 세팅. */
     public function parseLink(): void
     {
         $r = \App\Support\ListingLink::parse($this->linkInput);
@@ -252,6 +255,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
 
         $this->resetErrorBag('linkInput');
+        if (isset($r['origin'])) {
+            $this->origin = $r['origin'];
+        }
         if (isset($r['source'])) {
             $this->source = $r['source'];
         }
@@ -273,12 +279,17 @@ new #[Layout('components.layouts.app')] class extends Component {
             isset($r['c_no']) ? 'c_no '.$r['c_no'] : null,
             $r['ssancar_ref'] ?? null,
         ]);
-        session()->flash('ok', '링크에서 추출: '.implode(' · ', $bits).' — 차량번호만 입력하면 됩니다.');
+        $cat = PurchaseListing::ORIGIN_LABELS[$this->origin] ?? '';
+        session()->flash('ok', '['.$cat.'] 추출: '.implode(' · ', $bits).' — 차량번호만 입력하면 됩니다.');
     }
 
     public function save(): void
     {
+        // 매입방법(source)은 유입 카테고리(origin)에서 도출 — 단일 소스 오브 트루스.
+        $this->source = PurchaseListing::sourceForOrigin($this->origin);
+
         $this->validate([
+            'origin' => 'required|in:'.implode(',', array_keys(PurchaseListing::ORIGIN_LABELS)),
             'source' => 'required|in:encar,auction',
             'vehicle_number' => 'required|string|max:20',
             'owner_name' => 'nullable|string|max:60',
@@ -325,6 +336,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $listing = new PurchaseListing([
             'created_by_user_id' => Auth::id(),
             'source' => $this->source,
+            'origin' => $this->origin,
             'vehicle_number' => $this->vehicle_number,
             'owner_name' => $this->owner_name ?: null,
             'vin' => $this->vin ?: null,
@@ -359,6 +371,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     private function resetForm(): void
     {
         $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_conversation_id', 'linkInput', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
+        $this->origin = 'encar';
         $this->source = 'encar';
         $this->resetErrorBag();
     }
@@ -414,13 +427,15 @@ new #[Layout('components.layouts.app')] class extends Component {
         {{-- 추가 폼 --}}
         @if ($showAdd)
             <div class="card-sm mb-4" style="background:#f8f9fb">
-                <label class="label-base">출처 선택 <span class="text-red-500">*</span></label>
-                <div class="mb-3 inline-flex overflow-hidden rounded-md border border-gray-300">
-                    <button type="button" wire:click="setSource('encar')"
-                        class="px-3 py-1.5 text-[13px] font-semibold {{ $source === 'encar' ? 'bg-[var(--color-encar)] text-white' : 'bg-white text-gray-600' }}">🛒 엔카 (즉시구매)</button>
-                    <button type="button" wire:click="setSource('auction')"
-                        class="px-3 py-1.5 text-[13px] font-semibold {{ $source === 'auction' ? 'bg-[var(--color-auction)] text-white' : 'bg-white text-gray-600' }}">🔨 경매</button>
+                <label class="label-base">출처 (유입 카테고리) <span class="text-red-500">*</span></label>
+                <div class="mb-1 flex flex-wrap gap-1">
+                    @foreach (\App\Models\PurchaseListing::ORIGIN_LABELS as $key => $lbl)
+                        <button type="button" wire:click="setOrigin('{{ $key }}')"
+                            class="rounded-md border px-3 py-1.5 text-[13px] font-semibold {{ $origin === $key ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">{{ $lbl }}</button>
+                    @endforeach
                 </div>
+                <p class="mb-3 text-[11px] text-gray-400">💡 매입방법: <b>{{ $source === 'auction' ? '경매 (시간잠금·낙찰/유찰)' : '엔카 즉시구매 (구매대기/확정)' }}</b> — 카테고리에서 자동 결정</p>
+                @error('origin') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 {{-- 승격: 유입 링크 붙여넣기 → 식별자 자동추출 (연동 A) --}}
                 <div class="card-sm mb-3" style="background:#f0f7ff;border-color:#dbeafe">
@@ -577,7 +592,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
                                 <div class="text-xs text-gray-400">VIN ·{{ \Illuminate\Support\Str::limit($l->vin, 10, '') }}</div>
                             </td>
-                            <td><span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }}">{{ $l->isAuction() ? '경매' : '엔카' }}</span></td>
+                            <td><span class="badge {{ $l->originBadge() }}">{{ $l->originLabel() }}</span></td>
                             <td class="font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).'원' : '—' }}</td>
                             <td class="max-w-[200px] truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">{{ $l->inspection_note ?: '—' }}</td>
                             <td>@if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</td>
@@ -604,7 +619,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             <div class="px-5 py-4">
                 <div class="card-sm mb-3 bg-gray-50 text-xs text-gray-500">
                     차량번호 <b>{{ $e->vehicle_number }}</b> · VIN <b>{{ $e->vin }}</b>
-                    · <span class="badge {{ $e->isAuction() ? 'badge-auction' : 'badge-encar' }}">{{ $e->isAuction() ? '경매' : '엔카' }}</span><br>
+                    · <span class="badge {{ $e->originBadge() }}">{{ $e->originLabel() }}</span>
+                    <span class="text-gray-400">({{ $e->isAuction() ? '경매' : '엔카 즉시구매' }})</span><br>
                     <span class="text-gray-400">식별값(차량번호·VIN)·출처는 수정 불가</span>
                 </div>
 
@@ -687,9 +703,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <label class="label-base mt-3">respond.io 대화 연결 <span class="text-gray-400">(conversation id · verdict 자동매칭)</span></label>
                 <input class="input-base" wire:model="e_respond_conversation_id" placeholder="채팅에서 복사" @unless ($canEdit) disabled @endunless>
                 @error('e_respond_conversation_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                @if ($e->encar_id || $e->ssancar_ref)
+                @if ($e->encar_id || $e->c_no || $e->ssancar_ref)
                     <div class="mt-1 flex flex-wrap gap-1.5 text-[11px]">
+                        <span class="text-gray-400">유입:</span>
                         @if ($e->encar_id)<span class="badge badge-encar">encar #{{ $e->encar_id }}</span>@endif
+                        @if ($e->c_no)<span class="badge badge-blue">c_no {{ $e->c_no }}</span>@endif
                         @if ($e->ssancar_ref)<span class="badge badge-gray">{{ $e->ssancar_ref }}</span>@endif
                     </div>
                 @endif

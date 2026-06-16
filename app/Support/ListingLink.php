@@ -15,7 +15,12 @@ class ListingLink
 {
     /**
      * URL 1건을 파싱해 매핑 가능한 필드만 반환.
-     * 가능 키: source · encar_id · encar_url · c_no · ssancar_ref. (매치 없으면 빈 배열)
+     * 가능 키: origin · source · encar_id · encar_url · c_no · ssancar_ref. (매치 없으면 빈 배열)
+     * origin = 유입 카테고리(화면), source = 도출된 매입방법(워크플로/연동B).
+     *  - encar          → origin=encar,            source=encar
+     *  - ssancar car_no → origin=ssancar_auction,  source=auction (싼카경매)
+     *  - ssancar c_no   → origin=ssancar_stock,    source=encar   (싼카재고·즉시구매)
+     *  - ssancar wr_id  → origin=ssancar_checking, source=encar   (싼카체킹·즉시구매)
      *
      * @return array<string,string>
      */
@@ -30,6 +35,7 @@ class ListingLink
 
         if (str_contains($lower, 'encar.com')) {
             if (preg_match('#/cars/detail/(\d+)#', $url, $m) || preg_match('#[?&]carid=(\d+)#i', $url, $m)) {
+                $out['origin'] = 'encar';
                 $out['source'] = 'encar';
                 $out['encar_id'] = $m[1];
                 $out['encar_url'] = $url;
@@ -40,10 +46,16 @@ class ListingLink
 
         if (str_contains($lower, 'ssancar.com')) {
             if (preg_match('#[?&]c_no=(\d+)#i', $url, $m)) {
+                $out['origin'] = 'ssancar_stock';
+                $out['source'] = 'encar';
                 $out['c_no'] = $m[1];
             } elseif (preg_match('#[?&]wr_id=(\d+)#i', $url, $m)) {
+                $out['origin'] = 'ssancar_checking';
+                $out['source'] = 'encar';
                 $out['ssancar_ref'] = 'wr_id:'.$m[1];
             } elseif (preg_match('#[?&]car_no=(\d+)#i', $url, $m)) {
+                $out['origin'] = 'ssancar_auction';
+                $out['source'] = 'auction';
                 $out['ssancar_ref'] = 'car_no:'.$m[1];
             }
 

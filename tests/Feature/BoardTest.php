@@ -806,15 +806,31 @@ class BoardTest extends TestCase
 
     // ─────────────────────── 연동 A — A2 (승격 / 링크 추출) ───────────────────────
 
-    public function test_listing_link_parser_extracts_ids(): void
+    public function test_listing_link_parser_extracts_ids_and_origin(): void
     {
         $enc = ListingLink::parse('https://fem.encar.com/cars/detail/42176484?adv=x');
+        $this->assertSame('encar', $enc['origin']);
         $this->assertSame('encar', $enc['source']);
         $this->assertSame('42176484', $enc['encar_id']);
 
-        $this->assertSame('6915603', ListingLink::parse('https://www.ssancar.com/page/stock_car_view.php?c_no=6915603')['c_no']);
-        $this->assertSame('wr_id:786', ListingLink::parse('https://www.ssancar.com/page/inspected_view.php?wr_id=786')['ssancar_ref']);
-        $this->assertSame('car_no:1871585', ListingLink::parse('https://www.ssancar.com/page/car_view.php?car_no=1871585')['ssancar_ref']);
+        // 싼카재고(c_no) → 즉시구매
+        $stock = ListingLink::parse('https://www.ssancar.com/page/stock_car_view.php?c_no=6915603');
+        $this->assertSame('ssancar_stock', $stock['origin']);
+        $this->assertSame('encar', $stock['source']);
+        $this->assertSame('6915603', $stock['c_no']);
+
+        // 싼카체킹(wr_id) → 즉시구매
+        $chk = ListingLink::parse('https://www.ssancar.com/page/inspected_view.php?wr_id=786');
+        $this->assertSame('ssancar_checking', $chk['origin']);
+        $this->assertSame('encar', $chk['source']);
+        $this->assertSame('wr_id:786', $chk['ssancar_ref']);
+
+        // 싼카경매(car_no) → 경매
+        $auc = ListingLink::parse('https://www.ssancar.com/page/car_view.php?car_no=1871585');
+        $this->assertSame('ssancar_auction', $auc['origin']);
+        $this->assertSame('auction', $auc['source']);
+        $this->assertSame('car_no:1871585', $auc['ssancar_ref']);
+
         $this->assertSame([], ListingLink::parse('https://www.google.com/'));
     }
 
@@ -834,6 +850,7 @@ class BoardTest extends TestCase
 
         $l = PurchaseListing::where('vehicle_number', '88가8888')->first();
         $this->assertSame('42176484', $l->encar_id);
+        $this->assertSame('encar', $l->origin);
         $this->assertSame('encar', $l->source);
         $this->assertSame('conv_xyz', $l->respond_conversation_id);
     }
@@ -845,12 +862,40 @@ class BoardTest extends TestCase
         Volt::test('listings.index')
             ->set('linkInput', 'https://www.ssancar.com/page/inspected_view.php?wr_id=786')
             ->call('parseLink')
+            ->assertSet('origin', 'ssancar_checking')
             ->assertSet('ssancar_ref', 'wr_id:786')
             ->set('vehicle_number', '77가7777')
             ->call('save')
             ->assertHasNoErrors();
 
-        $this->assertSame('wr_id:786', PurchaseListing::where('vehicle_number', '77가7777')->first()->ssancar_ref);
+        $l = PurchaseListing::where('vehicle_number', '77가7777')->first();
+        $this->assertSame('wr_id:786', $l->ssancar_ref);
+        $this->assertSame('ssancar_checking', $l->origin);
+        $this->assertSame('encar', $l->source);   // 즉시구매로 도출
+    }
+
+    public function test_promote_via_ssancar_car_no_link_is_auction(): void
+    {
+        // 싼카경매(car_no) → origin=ssancar_auction, source=auction(경매 워크플로)
+        Carbon::setTestNow('2026-06-13 09:00:00');   // 토요일 → 등록 시간잠금 미적용
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('linkInput', 'https://www.ssancar.com/page/car_view.php?car_no=1871585')
+            ->call('parseLink')
+            ->assertSet('origin', 'ssancar_auction')
+            ->assertSet('source', 'auction')
+            ->set('vehicle_number', '66가6666')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $l = PurchaseListing::where('vehicle_number', '66가6666')->first();
+        $this->assertSame('ssancar_auction', $l->origin);
+        $this->assertSame('auction', $l->source);
+        $this->assertSame('car_no:1871585', $l->ssancar_ref);
+        $this->assertTrue($l->isAuction());
+
+        Carbon::setTestNow();
     }
 
     public function test_promote_bad_link_shows_error(): void
