@@ -21,9 +21,9 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $buyer_name = '';
     public array $photos = [];
 
-    // 드로어 내 "선택 → 저장" 스테이징 (클릭=선택만, 저장 눌러야 커밋)
+    // 드로어 내 "선택 → 저장" 스테이징 (클릭=선택만, 저장 눌러야 커밋).
+    // 회신(수락/거절)은 "바이어 회신" 화면으로 일원화 → 현지확인은 전달까지만.
     public bool $sendSelected = false;        // draft: 바이어 전달 예정 선택
-    public ?string $selectedVerdict = null;   // awaiting_buyer: 회신 결과 선택
 
     // ── 지역 배정 (§6c) ──
     public string $assignDate = '';
@@ -243,9 +243,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->discount_rate = $l->discount_rate !== null ? (string) $l->discount_rate : null;
         $this->shipping_usd = $l->shipping_usd;
         $this->photos = [];
-        // 스테이징 선택 초기화 — 회신단계면 현재 verdict 를 선택값으로 보여줌
+        // 스테이징 선택 초기화 (전달은 draft 에서만 / 회신은 바이어 회신 화면)
         $this->sendSelected = false;
-        $this->selectedVerdict = $l->status === 'awaiting_buyer' ? ($l->buyer_verdict ?: null) : null;
         $this->resetErrorBag();
     }
 
@@ -253,7 +252,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $this->reset(['editingId', 'final_price', 'inspection_memo', 'buyer_name', 'photos',
             'region', 'inspection_note', 'car_cost', 'discount_rate', 'shipping_usd',
-            'sendSelected', 'selectedVerdict']);
+            'sendSelected']);
         unset($this->editing, $this->regionGroups);
     }
 
@@ -338,20 +337,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         if ($sending) {
             $l->status = 'awaiting_buyer';
             $l->buyer_verdict = 'pending';
-            $msg = '사진+최종금액을 바이어에게 전달했습니다 (회신대기).';
-        } elseif ($l->status === 'awaiting_buyer' && $this->selectedVerdict !== null && $this->selectedVerdict !== $l->buyer_verdict) {
-            if ($this->selectedVerdict === 'accepted') {
-                $l->buyer_verdict = 'accepted';
-                $l->status = 'accepted';
-                $msg = '바이어 수락 — 경매/구매로 넘어갑니다.';
-            } elseif ($this->selectedVerdict === 'rejected') {
-                $l->buyer_verdict = 'rejected';
-                $l->status = 'rejected';
-                $msg = '바이어 거절로 반영했습니다.';
-            } else {
-                $l->buyer_verdict = 'pending';
-                $msg = '회신대기로 두었습니다.';
-            }
+            $msg = '사진+최종금액을 바이어에게 전달했습니다 (회신대기 → 바이어 회신 화면에서 처리).';
         }
 
         $l->save();
@@ -602,8 +588,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                 </div>
                 <p class="mt-1 text-[11px] text-gray-400">배송 ${{ number_format((int) $shipping_usd) }} × {{ number_format($rate) }}원 적용</p>
 
-                {{-- 바이어 --}}
-                <div class="section-title-sm">바이어에게 전달 / 회신</div>
+                {{-- 바이어 전달 --}}
+                <div class="section-title-sm">바이어에게 전달</div>
                 <input class="input-base" wire:model="buyer_name" placeholder="바이어명 (respond.io 연락처)">
                 @error('buyer_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
@@ -613,21 +599,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                             @style(['background-color:var(--color-primary);border-color:var(--color-primary);color:#fff;font-weight:700' => $sendSelected])>
                         📤 사진 + 최종금액 바이어에게 전달 {{ $sendSelected ? '— 선택됨 ✓' : '' }}
                     </button>
-                    <p class="mt-1 text-xs text-gray-400">선택 후 아래 <b>저장</b>을 눌러야 전달됩니다. (전달 후 "회신대기")</p>
-                @endif
-
-                {{-- 회신 결과 (awaiting_buyer 단계) — 클릭=선택만, 저장 눌러야 반영 --}}
-                @if ($e->status === 'awaiting_buyer')
-                    <div class="section-title-sm">바이어 회신 결과</div>
-                    <div class="flex gap-2">
-                        <button type="button" wire:click="$set('selectedVerdict', 'pending')" class="btn-outline btn-sm flex-1 justify-center"
-                                @style(['background-color:#f59e0b;border-color:#f59e0b;color:#fff;font-weight:700' => $selectedVerdict === 'pending'])>⏳ 회신대기 {{ $selectedVerdict === 'pending' ? '✓' : '' }}</button>
-                        <button type="button" wire:click="$set('selectedVerdict', 'accepted')" class="btn-outline btn-sm flex-1 justify-center"
-                                @style(['background-color:#16a34a;border-color:#16a34a;color:#fff;font-weight:700' => $selectedVerdict === 'accepted'])>👍 수락 {{ $selectedVerdict === 'accepted' ? '✓' : '' }}</button>
-                        <button type="button" wire:click="$set('selectedVerdict', 'rejected')" class="btn-outline btn-sm flex-1 justify-center"
-                                @style(['background-color:#dc2626;border-color:#dc2626;color:#fff;font-weight:700' => $selectedVerdict === 'rejected'])>👎 거절 {{ $selectedVerdict === 'rejected' ? '✓' : '' }}</button>
-                    </div>
-                    <p class="mt-1 text-xs text-gray-400">선택 후 아래 <b>저장</b>을 눌러야 반영됩니다. 수락한 차량만 경매/구매로 진입.</p>
+                    <p class="mt-1 text-xs text-gray-400">선택 후 아래 <b>저장</b>을 눌러야 전달됩니다. 전달 후 바이어 회신은 <b>"바이어 회신"</b> 화면에서 처리합니다.</p>
+                @elseif ($e->status === 'awaiting_buyer')
+                    <p class="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">⏳ 이미 바이어에게 전달됨(회신대기). 수락/거절은 <b>"바이어 회신"</b> 화면에서 처리하세요.</p>
                 @endif
 
                 <div class="mt-5 flex gap-2">

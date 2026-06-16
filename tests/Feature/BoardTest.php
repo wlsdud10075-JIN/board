@@ -199,44 +199,6 @@ class BoardTest extends TestCase
         $this->assertSame(13200000, $l->final_price);
     }
 
-    public function test_inspection_accept_verdict_moves_to_accepted(): void
-    {
-        $l = $this->mkListing($this->mkUser('sales'), [
-            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending',
-            'final_price' => 9000000, 'buyer_name' => 'X',
-        ]);
-        $this->actingAs($this->mkUser('inspection'));
-
-        // 수동씬: 회신 결과 선택 → 저장 눌러야 반영
-        Volt::test('inspection.index')
-            ->call('openDrawer', $l->id)
-            ->set('selectedVerdict', 'accepted')
-            ->call('save')
-            ->assertHasNoErrors();
-
-        $l->refresh();
-        $this->assertSame('accepted', $l->status);
-        $this->assertSame('accepted', $l->buyer_verdict);
-    }
-
-    public function test_inspection_verdict_selection_without_save_does_not_commit(): void
-    {
-        // 수동씬 핵심: 선택만 하고 저장 안 하면 상태 변화 없음
-        $l = $this->mkListing($this->mkUser('sales'), [
-            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'final_price' => 9000000, 'buyer_name' => 'X',
-        ]);
-        $this->actingAs($this->mkUser('inspection'));
-
-        Volt::test('inspection.index')
-            ->call('openDrawer', $l->id)
-            ->set('selectedVerdict', 'accepted')   // 선택만, save 미호출
-            ->assertHasNoErrors();
-
-        $l->refresh();
-        $this->assertSame('awaiting_buyer', $l->status);   // 그대로
-        $this->assertSame('pending', $l->buyer_verdict);
-    }
-
     public function test_region_assignment_role_limit_and_inspector_filter(): void
     {
         $mgr = $this->mkUser('manager');
@@ -919,5 +881,73 @@ class BoardTest extends TestCase
             ->set('vehicle_number', '55가5555')
             ->call('save')
             ->assertHasErrors('vehicle_number');
+    }
+
+    // ─────────────────────── 연동 A — (A) 바이어 회신 화면 (per-car verdict) ───────────────────────
+
+    public function test_verdicts_screen_access_by_role(): void
+    {
+        $this->actingAs($this->mkUser('sales'))->get('/verdicts')->assertOk();
+        $this->actingAs($this->mkUser('manager'))->get('/verdicts')->assertOk();
+        $this->actingAs($this->mkUser('inspection'))->get('/verdicts')->assertForbidden();
+        $this->actingAs($this->mkUser('sales', null, 'super'))->get('/verdicts')->assertOk();
+    }
+
+    public function test_verdicts_accept_moves_listing_to_accepted(): void
+    {
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending',
+            'final_price' => 9000000, 'buyer_name' => 'Dragan', 'respond_conversation_id' => 'conv_1',
+        ]);
+        $this->actingAs($kim);
+
+        Volt::test('verdicts.index')->call('accept', $l->id)->assertHasNoErrors();
+
+        $l->refresh();
+        $this->assertSame('accepted', $l->status);
+        $this->assertSame('accepted', $l->buyer_verdict);
+    }
+
+    public function test_verdicts_reject_moves_listing_to_rejected(): void
+    {
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending']);
+        $this->actingAs($kim);
+
+        Volt::test('verdicts.index')->call('reject', $l->id)->assertHasNoErrors();
+
+        $this->assertSame('rejected', $l->fresh()->status);
+        $this->assertSame('rejected', $l->fresh()->buyer_verdict);
+    }
+
+    public function test_verdicts_multi_car_per_buyer_are_independent(): void
+    {
+        // 한 바이어(같은 대화)의 여러 차 → 차별로 독립 처리
+        $kim = $this->mkUser('sales');
+        $a = $this->mkListing($kim, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_x']);
+        $b = $this->mkListing($kim, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_x']);
+        $this->actingAs($kim);
+
+        Volt::test('verdicts.index')->call('accept', $a->id)->call('reject', $b->id);
+
+        $this->assertSame('accepted', $a->fresh()->status);
+        $this->assertSame('rejected', $b->fresh()->status);
+    }
+
+    public function test_verdicts_sales_cannot_act_on_others_listing(): void
+    {
+        $kim = $this->mkUser('sales');
+        $lee = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending']);
+        $this->actingAs($lee);
+
+        try {
+            Volt::test('verdicts.index')->call('accept', $l->id);
+        } catch (\Throwable $e) {
+            // SalesmanScope → findOrFail 실패(타 영업 글 접근 불가)
+        }
+
+        $this->assertSame('awaiting_buyer', $l->fresh()->status);
     }
 }

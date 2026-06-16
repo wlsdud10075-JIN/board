@@ -17,6 +17,7 @@
                 <flux:navlist.group heading="업무" class="grid">
                     @if ($u->isSuper() || $u->isSales() || $u->isManager())
                         <flux:navlist.item icon="clipboard-document-list" :href="route('listings')" :current="request()->routeIs('listings')" wire:navigate>매입예정 (영업)</flux:navlist.item>
+                        <flux:navlist.item icon="chat-bubble-left-right" :href="route('verdicts')" :current="request()->routeIs('verdicts')" wire:navigate>바이어 회신</flux:navlist.item>
                     @endif
                     @if ($u->isSuper() || $u->isInspection() || $u->isManager())
                         <flux:navlist.item icon="camera" :href="route('inspection')" :current="request()->routeIs('inspection')" wire:navigate>현지확인</flux:navlist.item>
