@@ -77,6 +77,24 @@
 - ⚠️ **respond.io 자동화 = 전부 "이중입력 제거" 편의** — board 엔 이미 verdict 수동입력(검차 화면) + 승격 시 링크 수동붙임 가능. **막힌 기능 없음**, 자동화는 enhancement.
 - verdict 메커니즘 후보(트리거): `연락처 태그/필드 업데이트됨`(상담원 수락/거절 태그·필드) 또는 `수동 트리거`/`지름길`(차별 전송 → 다중차 귀속 해결). ①은 액션=Sheets행추가, ②는 트리거 무관(API 폴링).
 
+## 바이어 회신(verdict) 자동화 전략 — A(수동)+C(자동)+B(미래) (2026-06-16, Jin 확정)
+유입(다중차 흔함)에서 verdict 를 어떻게 받나. 3채널 공존:
+- **(A) 수동** = `/verdicts` 화면(✅ 구현됨, dev b90bc4f). 사람이 바이어별 차마다 수락/거절. 동시 여러 대 OK.
+- **(C) 자동 = Developer API 폴링 + 직렬화** ⭐기본. Growth($0). respond.io 커스텀필드(수락/거절/대기) → board 폴링 → 적용. **한 바이어당 auto 회신대기 ≤ 1대** 직렬화로 "수락"이 항상 그 1대 = 모호함 차단.
+- **(B) Advanced webhook + 차별 버튼** = 미래(유료 $349). 동시 다대 자동. A1 webhook 수신코드 재사용.
+
+### 자동/수동 분리 + 락 (Jin 직관)
+- **차마다 채널 `verdict_channel = auto | manual`** — poller 는 auto 만, 사람(A)은 manual 만 → 작업집합 분리, 간섭 0.
+- **락 4겹**: ① 도메인 불변식(한 바이어 auto 대기 ≤1, "전달" 시 강제) ② 스케줄러 `withoutOverlapping()` ③ 행 조건부갱신(트랜잭션+`where status=awaiting_buyer`=이중적용 차단) ④ 채널 분리(①플래그).
+- **2번째 차 전달 시(이미 auto 1대 대기) = (가)안 확정**: **조용히 실패 금지** — 명시적 알림 + 2선택지 제공:
+  - "**앞 차 자동 처리 후 진행**"(대기) / "**수동으로 전환해 전달**"(이 차 channel=manual 로 보냄).
+  - 근거: 사용자는 워크플로 몰라도 그냥 누름 → 조용히 안 되면 "왜 안 돼? 못 쓰겠네" → 반드시 사용자가 알게.
+- 폴링 처리 후 respond.io 필드 "대기"로 리셋(다음 차 받을 준비). 0대/2대+ 면 poller no-op(2대+는 사람이 A로).
+
+### C board-side 빌드 범위 (respond.io 무관, Http fake 테스트)
+- 마이그 `verdict_channel`(기본 auto). 공유 `VerdictService`(A1 webhook+A 화면+C 폴러 재사용). `RespondIoService`(Developer API: 필드조회·리셋). `PollRespondVerdicts` 커맨드+스케줄. "전달" 가드((가) 알림). config respond_io.api_token(있음).
+- respond.io-side(후속): 커스텀필드 생성·값(수락/거절/대기)·API 토큰 발급 = 워크스페이스 작업.
+
 ## 착수 때 확정할 열린 항목 (지금 미정)
 - **다중 차 방의 verdict 귀속**: 방에 차 N개면 "yes"가 어느 차인지 자동 불명 → 초기엔 상담원 보조(차별 전송→귀속), 볼륨 크면 버튼형 구조화 메시지.
 - **재협상 경로**: 검차 중 금액 변동(차상태 따라 ↑↓) → 바이어 재통보 시, 현 상태머신은 accepted/rejected 가 종착이라 재오퍼 경로 없음. 필요하면 "재통보 시 awaiting_buyer 복귀" 추가 검토.
