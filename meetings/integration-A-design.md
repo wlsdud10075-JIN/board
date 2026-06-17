@@ -99,3 +99,9 @@
 - **다중 차 방의 verdict 귀속**: 방에 차 N개면 "yes"가 어느 차인지 자동 불명 → 초기엔 상담원 보조(차별 전송→귀속), 볼륨 크면 버튼형 구조화 메시지.
 - **재협상 경로**: 검차 중 금액 변동(차상태 따라 ↑↓) → 바이어 재통보 시, 현 상태머신은 accepted/rejected 가 종착이라 재오퍼 경로 없음. 필요하면 "재통보 시 awaiting_buyer 복귀" 추가 검토.
 - ~~`encar_id` 추출 정규식~~ → ✅ 위에서 확정.
+
+## 2026-06-17 라이브 검증 + 다음 (세션 재개점)
+- **API 사실**(실호출): base api.respond.io/v2·Bearer. 목록 `POST contact/list`(filter category=**contactField**, $or isEqualTo). 컨택트 id(정수)·custom_fields[{name,value}]·**conversation_id 없음→매칭키=respond_contact_id**. 보내기 `POST contact/id:{id}/message`. 필드수정 `PUT contact/id:{id}`. **메시지읽기·컨택트생성 API 없음**(inbound 링크 자동읽기=Advanced).
+- **C verdict**: 값 Accept/Refuse/Hold, 필드ID buyer_verdict. e2e ✅. **outbound**(SendOfferToBuyer: USD금액+share_to_buyer 사진) 라이브 ✅. dev=cea91d4(master 미배포).
+- **다음 빌드 = 승격 자동연결**(이름검색 폐기): respond.io 필드 `board_promote`(Yes) → board 폴링 → "승격 대기" 목록에 그 바이어 자동연결(1:N 정확) → 영업은 링크+차번호만. (verdict 와 동일 필드폴링 패턴)
+- 그 뒤 운영배포(master)+서버 .env RESPOND_API_TOKEN. 지름길 ⚡버튼 미노출=respond.io 지원 보류.
