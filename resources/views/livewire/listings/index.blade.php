@@ -20,7 +20,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $c_no = '';               // 매물번호 (ssancar c_no, 조인키)
     public string $ssancar_ref = '';        // ssancar wr_id/car_no (비-c_no, "wr_id:786")
     public string $encar_id = '';           // Encar 차 식별 (URL 자동추출)
-    public string $respond_conversation_id = ''; // respond.io 대화 연결(스파인, 영업이 채팅에서 복사)
+    public string $respond_contact_id = ''; // respond.io 대화 연결(스파인, 영업이 채팅에서 복사)
     public string $linkInput = '';          // 승격: 유입 링크 붙여넣기 → 자동추출
     public ?string $car_cost = null;        // 차값 (KRW)
     public ?string $discount_rate = null;   // 할인율 (%)
@@ -38,7 +38,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public ?int $editingId = null;
     public string $e_region = '';
     public string $e_c_no = '';
-    public string $e_respond_conversation_id = '';   // 연동 A: 대화 연결 (나중에 붙일 수 있게 수정 가능)
+    public string $e_respond_contact_id = '';   // 연동 A: 대화 연결 (나중에 붙일 수 있게 수정 가능)
     public string $e_owner_name = '';
     public string $e_payee_name = '';
     public string $e_payee_bank = '';
@@ -155,7 +155,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->editingId = $l->id;
         $this->e_region = $l->region ?? '';
         $this->e_c_no = $l->c_no ?? '';
-        $this->e_respond_conversation_id = $l->respond_conversation_id ?? '';
+        $this->e_respond_contact_id = $l->respond_contact_id ?? '';
         $this->e_owner_name = $l->owner_name ?? '';
         $this->e_payee_name = $l->payee_name ?? '';
         $this->e_payee_bank = $l->payee_bank ?? '';
@@ -172,7 +172,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_respond_conversation_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number']);
+        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number']);
         unset($this->editing);
     }
 
@@ -189,7 +189,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->validate([
             'e_region' => 'nullable|string|max:60',
             'e_c_no' => 'nullable|string|max:50',
-            'e_respond_conversation_id' => 'nullable|string|max:80',
+            'e_respond_contact_id' => 'nullable|string|max:80',
             'e_owner_name' => 'nullable|string|max:60',
             'e_payee_name' => 'nullable|string|max:60',
             'e_payee_bank' => 'nullable|string|max:40',
@@ -205,7 +205,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $l->region = $this->e_region ?: null;
         $l->c_no = $this->e_c_no ?: null;
-        $l->respond_conversation_id = $this->e_respond_conversation_id ?: null;
+        $l->respond_contact_id = $this->e_respond_contact_id ?: null;
         $l->owner_name = $this->e_owner_name ?: null;
         $l->payee_name = $this->e_payee_name ?: null;
         $l->payee_bank = $this->e_payee_bank ?: null;
@@ -297,7 +297,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'c_no' => 'nullable|string|max:50',
             'ssancar_ref' => 'nullable|string|max:50',
             'encar_id' => 'nullable|string|max:50',
-            'respond_conversation_id' => 'nullable|string|max:80',
+            'respond_contact_id' => 'nullable|string|max:80',
             'payee_name' => 'nullable|string|max:60',
             'payee_bank' => 'nullable|string|max:40',
             'payee_account' => 'nullable|string|max:40',
@@ -344,7 +344,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'c_no' => $this->c_no ?: null,
             'ssancar_ref' => $this->ssancar_ref ?: null,
             'encar_id' => $this->encar_id ?: null,
-            'respond_conversation_id' => $this->respond_conversation_id ?: null,
+            'respond_contact_id' => $this->respond_contact_id ?: null,
             'payee_name' => $this->payee_name ?: null,
             'payee_bank' => $this->payee_bank ?: null,
             'payee_account' => $this->payee_account ?: null,
@@ -370,7 +370,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     private function resetForm(): void
     {
-        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_conversation_id', 'linkInput', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
+        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'linkInput', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
         $this->origin = 'encar';
         $this->source = 'encar';
         $this->resetErrorBag();
@@ -454,9 +454,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                             @if ($ssancar_ref)<span class="badge badge-gray">{{ $ssancar_ref }}</span>@endif
                         </div>
                     @endif
-                    <label class="label-base mt-2">respond.io 대화 연결 <span class="text-gray-400">(선택 · conversation id)</span></label>
-                    <input class="input-base" wire:model="respond_conversation_id" placeholder="채팅에서 복사 — 이후 회신(수락/거절) 자동매칭 스파인">
-                    @error('respond_conversation_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    <label class="label-base mt-2">respond.io 컨택트 ID <span class="text-gray-400">(선택 · 바이어 식별 · 자동회신 매칭키)</span></label>
+                    <input class="input-base" wire:model="respond_contact_id" placeholder="respond.io 바이어 컨택트 ID (예: 469733036)">
+                    @error('respond_contact_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 </div>
 
                 {{-- 차량번호 · 차값 · 할인율 · 지역 (한 행) --}}
@@ -700,9 +700,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <input class="input-base" wire:model="e_owner_name" placeholder="등록 소유자명" maxlength="60" @unless ($canEdit) disabled @endunless>
                 @error('e_owner_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                <label class="label-base mt-3">respond.io 대화 연결 <span class="text-gray-400">(conversation id · verdict 자동매칭)</span></label>
-                <input class="input-base" wire:model="e_respond_conversation_id" placeholder="채팅에서 복사" @unless ($canEdit) disabled @endunless>
-                @error('e_respond_conversation_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                <label class="label-base mt-3">respond.io 컨택트 ID <span class="text-gray-400">(바이어 식별 · 자동회신 매칭키)</span></label>
+                <input class="input-base" wire:model="e_respond_contact_id" placeholder="respond.io 바이어 컨택트 ID" @unless ($canEdit) disabled @endunless>
+                @error('e_respond_contact_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 @if ($e->encar_id || $e->c_no || $e->ssancar_ref)
                     <div class="mt-1 flex flex-wrap gap-1.5 text-[11px]">
                         <span class="text-gray-400">유입:</span>

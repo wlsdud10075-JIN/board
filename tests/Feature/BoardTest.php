@@ -807,7 +807,7 @@ class BoardTest extends TestCase
             ->assertSet('source', 'encar')
             ->assertSet('encar_id', '42176484')
             ->set('vehicle_number', '88가8888')
-            ->set('respond_conversation_id', 'conv_xyz')
+            ->set('respond_contact_id', 'ct_xyz')
             ->call('save')
             ->assertHasNoErrors();
 
@@ -815,7 +815,7 @@ class BoardTest extends TestCase
         $this->assertSame('42176484', $l->encar_id);
         $this->assertSame('encar', $l->origin);
         $this->assertSame('encar', $l->source);
-        $this->assertSame('conv_xyz', $l->respond_conversation_id);
+        $this->assertSame('ct_xyz', $l->respond_contact_id);
     }
 
     public function test_promote_via_ssancar_wr_id_link_sets_ssancar_ref(): void
@@ -968,7 +968,7 @@ class BoardTest extends TestCase
     public function test_inspection_send_defaults_auto_when_conversation_linked(): void
     {
         $l = $this->mkListing($this->mkUser('sales'), [
-            'status' => 'draft', 'region' => '서울', 'respond_conversation_id' => 'conv_auto', 'car_cost' => 9000000,
+            'status' => 'draft', 'region' => '서울', 'respond_contact_id' => 'ct_auto', 'car_cost' => 9000000,
         ]);
         $this->actingAs($this->mkUser('inspection'));
 
@@ -996,8 +996,8 @@ class BoardTest extends TestCase
     public function test_inspection_second_auto_car_blocked_then_manual(): void
     {
         $sales = $this->mkUser('sales');
-        $a = $this->mkListing($sales, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_g', 'verdict_channel' => 'auto']);
-        $b = $this->mkListing($sales, ['status' => 'draft', 'respond_conversation_id' => 'conv_g', 'car_cost' => 9000000]);
+        $a = $this->mkListing($sales, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_contact_id' => 'ct_g', 'verdict_channel' => 'auto']);
+        $b = $this->mkListing($sales, ['status' => 'draft', 'respond_contact_id' => 'ct_g', 'car_cost' => 9000000]);
         $this->actingAs($this->mkUser('inspection'));
 
         // 2번째 자동 차 전달 시도 → (가) 보류 + 알림
@@ -1030,7 +1030,7 @@ class BoardTest extends TestCase
             ['id' => 'ct1', 'conversation_id' => 'conv_p', 'custom_fields' => ['buyer_verdict' => 'Accept']],
         ]])]);
         $l = $this->mkListing($this->mkUser('sales'), [
-            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_p', 'verdict_channel' => 'auto',
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_contact_id' => 'ct1', 'verdict_channel' => 'auto',
         ]);
 
         $this->artisan('board:poll-verdicts')->assertSuccessful();
@@ -1048,8 +1048,8 @@ class BoardTest extends TestCase
             ['id' => 'ct2', 'conversation_id' => 'conv_m2', 'custom_fields' => ['buyer_verdict' => 'Accept']],
         ]])]);
         $sales = $this->mkUser('sales');
-        $a = $this->mkListing($sales, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_m2', 'verdict_channel' => 'auto']);
-        $b = $this->mkListing($sales, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_m2', 'verdict_channel' => 'auto']);
+        $a = $this->mkListing($sales, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_contact_id' => 'ct2', 'verdict_channel' => 'auto']);
+        $b = $this->mkListing($sales, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_contact_id' => 'ct2', 'verdict_channel' => 'auto']);
 
         $this->artisan('board:poll-verdicts')->assertSuccessful();
 
@@ -1065,7 +1065,7 @@ class BoardTest extends TestCase
             ['id' => 'ct3', 'conversation_id' => 'conv_man', 'custom_fields' => ['buyer_verdict' => 'Accept']],
         ]])]);
         $l = $this->mkListing($this->mkUser('sales'), [
-            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_man', 'verdict_channel' => 'manual',
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_contact_id' => 'ct3', 'verdict_channel' => 'manual',
         ]);
 
         $this->artisan('board:poll-verdicts')->assertSuccessful();

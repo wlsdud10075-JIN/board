@@ -32,20 +32,20 @@ class PollRespondVerdicts extends Command
         $applied = 0;
 
         foreach ($entries as $e) {
-            $convId = $e['conversation_id'];
-            if (empty($convId)) {
+            $contactId = $e['contact_id'];
+            if (empty($contactId)) {
                 continue;
             }
 
-            // 자동 채널 + 회신대기 1대만 적용(다중=ambiguous=사람이 A로)
-            $res = $verdicts->applyByConversation($convId, $e['verdict'], null, 'auto');
+            // 자동 채널 + 회신대기 1대만 적용(다중=ambiguous=사람이 A로). 매칭키=respond_contact_id.
+            $res = $verdicts->applyByContact($contactId, $e['verdict'], 'auto');
 
             IntegrationEvent::create([
                 'direction' => 'inbound',
                 'target' => 'respond_io',
                 'event_type' => 'verdict_poll',
                 'purchase_listing_id' => $res['listing_id'],
-                'request_payload' => ['conversation_id' => $convId, 'verdict' => $e['verdict'], 'result' => $res['status']],
+                'request_payload' => ['contact_id' => $contactId, 'verdict' => $e['verdict'], 'result' => $res['status']],
                 'response_status' => 200,
                 'response_body' => $res['status'],
                 'error' => str_starts_with($res['status'], 'applied') ? null : $res['status'],
@@ -53,7 +53,7 @@ class PollRespondVerdicts extends Command
 
             // 적용/무매칭 → 필드 리셋. ambiguous(다중) → 사람이 처리하도록 남겨둠.
             if ($res['status'] !== 'ambiguous') {
-                $respond->resetVerdict($e['contact_id']);
+                $respond->resetVerdict($contactId);
             }
             if (str_starts_with($res['status'], 'applied')) {
                 $applied++;

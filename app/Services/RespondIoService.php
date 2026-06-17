@@ -11,13 +11,13 @@ use Illuminate\Support\Facades\Http;
  * 안전밸브: base_url/token 미설정이면 모든 호출 no-op → 운영 배포해도 안 터짐(연동 B 패턴).
  *
  * 계약 출처: respond.io API v2 (공식 client 소스로 확인).
- *  ✅ 확인됨: base=https://api.respond.io/v2/ · 'Authorization: Bearer <token>'
- *            목록 = POST contact/list?limit=N (body=filter) · 식별자 = {key}:{value}
- *            수정 = PUT contact/id:{id}
- *  ⚠️ 라이브 확인 잔여(워크스페이스 토큰으로): ① 커스텀필드 필터 category 명('customField' 가정)
- *     ② 응답 컨택트 객체의 커스텀필드 표현(custom_fields[name] 가정) ③ 컨택트에 conversation_id
- *     포함 여부(없으면 매칭키=respond_contact_id 로 전환 + A2 에서 contact_id 캡처 보강).
- *     이 셋만 실제 응답 1건 보고 이 파일에서 조정.
+ *  ✅ 라이브 확인 완료(2026-06-17 실호출):
+ *     - base=https://api.respond.io/v2/ · 'Authorization: Bearer <token>'
+ *     - 목록 = POST contact/list?limit=N (body=filter) · 응답 = {items[], pagination}
+ *     - 필터 category = **'contactField'** (커스텀필드도 동일. 'customField' 는 400)
+ *     - custom_fields = [{name,value}, ...] 리스트, 필드명 = 'buyer_verdict'
+ *     - 컨택트에 **conversation_id 없음** → 매칭키 = contact **id**(정수). 식별자 {key}:{value} (id:469…)
+ *     - 수정 = PUT contact/id:{id}
  */
 class RespondIoService
 {
@@ -54,9 +54,9 @@ class RespondIoService
     }
 
     /**
-     * 회신 필드가 '대기'가 아닌(=수락/거절) 컨택트 → 정규화 목록.
+     * 회신 필드 = Accept/Refuse 인 컨택트 → [contact_id, verdict] 목록 (Hold/빈값 제외).
      *
-     * @return array<int,array{conversation_id:?string, contact_id:?string, verdict:string}>
+     * @return array<int,array{contact_id:string, verdict:string}>
      */
     public function pendingVerdicts(): array
     {
@@ -64,16 +64,16 @@ class RespondIoService
             return [];
         }
 
-        // POST contact/list — 회신 필드 = Accept 또는 Refuse 인 컨택트만 (Hold/빈값 제외).
+        // POST contact/list — buyer_verdict = Accept 또는 Refuse 인 컨택트만.
         $res = Http::withToken($this->token)->acceptJson()
             ->post($this->url('contact/list?limit=100'), [
                 'search' => '',
                 'timezone' => 'UK/London',
                 'filter' => [
                     '$or' => [
-                        ['category' => 'customField', 'field' => $this->field, 'operator' => 'isEqualTo', 'value' => $this->vAccept],
-                        ['category' => 'customField', 'field' => $this->field, 'operator' => 'isEqualTo', 'value' => $this->vRefuse],
-                    ],   // ⚠️ category('customField')·operator 명은 라이브 확인
+                        ['category' => 'contactField', 'field' => $this->field, 'operator' => 'isEqualTo', 'value' => $this->vAccept],
+                        ['category' => 'contactField', 'field' => $this->field, 'operator' => 'isEqualTo', 'value' => $this->vRefuse],
+                    ],
                 ],
             ]);
 
@@ -81,20 +81,14 @@ class RespondIoService
             return [];
         }
 
-        // 응답 컨테이너 키는 구현차 대비 다중 시도(items/data/list).
-        $items = $res->json('items') ?? $res->json('data') ?? $res->json('list') ?? [];
-
         $out = [];
-        foreach ((array) $items as $c) {
+        foreach ((array) $res->json('items', []) as $c) {
             $verdict = $this->mapVerdict($this->extractField($c));
-            if ($verdict === null) {
+            $id = $c['id'] ?? null;
+            if ($verdict === null || $id === null) {
                 continue;
             }
-            $out[] = [
-                'conversation_id' => isset($c['conversation_id']) ? (string) $c['conversation_id'] : null,
-                'contact_id' => isset($c['id']) ? (string) $c['id'] : null,
-                'verdict' => $verdict,
-            ];
+            $out[] = ['contact_id' => (string) $id, 'verdict' => $verdict];
         }
 
         return $out;

@@ -12,7 +12,7 @@ use Livewire\Volt\Component;
  * SalesmanScope: 영업은 본인 글만(크로스영업 노출 없음).
  */
 new #[Layout('components.layouts.app')] class extends Component {
-    /** 회신대기 차를 바이어(respond_conversation_id ?: buyer_name)별로 그룹 */
+    /** 회신대기 차를 바이어(respond_contact_id ?: buyer_name)별로 그룹 */
     #[Computed]
     public function groups()
     {
@@ -20,8 +20,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             ->where('status', 'awaiting_buyer')
             ->orderBy('updated_at')
             ->get()
-            ->groupBy(fn ($l) => $l->respond_conversation_id
-                ? 'conv:'.$l->respond_conversation_id
+            ->groupBy(fn ($l) => $l->respond_contact_id
+                ? 'ct:'.$l->respond_contact_id
                 : ($l->buyer_name ? 'name:'.$l->buyer_name : 'unassigned'));
     }
 
@@ -66,8 +66,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <div>
                     <span class="font-bold text-gray-800">🧑 {{ $head->buyer_name ?: '바이어 미지정' }}</span>
                     <span class="ml-1 text-gray-400">· {{ $items->count() }}대 회신대기</span>
-                    @if ($head->respond_conversation_id)
-                        <span class="ml-2 text-[11px] text-gray-400">대화 {{ $head->respond_conversation_id }}</span>
+                    @if ($head->respond_contact_id)
+                        <span class="ml-2 text-[11px] text-gray-400">컨택트 {{ $head->respond_contact_id }}</span>
                     @endif
                 </div>
             </div>

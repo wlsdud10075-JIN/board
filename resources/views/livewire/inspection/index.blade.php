@@ -340,15 +340,15 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $msg = '저장되었습니다.';
         if ($sending) {
-            // 회신 채널 결정: 대화 미연결이면 자동 불가→수동. 강제수동(=수동 전환 선택) 시 수동.
+            // 회신 채널 결정: 컨택트 미연결이면 자동 불가→수동. 강제수동(=수동 전환 선택) 시 수동.
             $channel = 'auto';
-            if (empty($l->respond_conversation_id) || $this->forceManualSend) {
+            if (empty($l->respond_contact_id) || $this->forceManualSend) {
                 $channel = 'manual';
             } else {
-                // (가) 가드: 같은 바이어에 이미 '자동' 회신대기 차가 있으면 전달 보류 + 선택지 알림.
+                // (가) 가드: 같은 바이어(컨택트)에 이미 '자동' 회신대기 차가 있으면 전달 보류 + 선택지 알림.
                 // (자동은 한 바이어당 1대 직렬화 — respond.io 폴링이 '어느 차'인지 명확하도록)
                 $conflict = PurchaseListing::withoutGlobalScope(SalesmanScope::class)
-                    ->where('respond_conversation_id', $l->respond_conversation_id)
+                    ->where('respond_contact_id', $l->respond_contact_id)
                     ->where('status', 'awaiting_buyer')
                     ->where('verdict_channel', 'auto')
                     ->where('id', '!=', $l->id)
