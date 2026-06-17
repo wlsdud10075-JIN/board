@@ -94,6 +94,32 @@ class RespondIoService
         return $out;
     }
 
+    /** outbound — 바이어에게 텍스트 전송. POST contact/id:{id}/message {message:{type:text}}. */
+    public function sendText(?string $contactId, string $text): bool
+    {
+        if (! $this->configured() || empty($contactId) || $text === '') {
+            return false;
+        }
+
+        return Http::withToken($this->token)->acceptJson()
+            ->post($this->url('contact/id:'.$contactId.'/message'), [
+                'message' => ['type' => 'text', 'text' => $text],
+            ])->successful();
+    }
+
+    /** outbound — 바이어에게 미디어(image/video/file) 전송 (presigned URL). */
+    public function sendAttachment(?string $contactId, string $type, string $url): bool
+    {
+        if (! $this->configured() || empty($contactId) || $url === '') {
+            return false;
+        }
+
+        return Http::withToken($this->token)->acceptJson()
+            ->post($this->url('contact/id:'.$contactId.'/message'), [
+                'message' => ['type' => 'attachment', 'attachment' => ['type' => $type, 'url' => $url]],
+            ])->successful();
+    }
+
     /** 처리 후 회신 필드를 '대기'로 리셋 → 같은 바이어의 다음 차를 받을 준비(직렬화). */
     public function resetVerdict(?string $contactId): void
     {

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\SendOfferToBuyer;
 use App\Jobs\SyncWonListingToCarErp;
 use App\Models\BoardAuditLog;
 use App\Models\ExchangeRate;
@@ -10,6 +11,7 @@ use App\Models\IntegrationEvent;
 use App\Models\PurchaseListing;
 use App\Models\User;
 use App\Services\ExchangeRateService;
+use App\Services\RespondIoService;
 use App\Services\VerdictService;
 use App\Support\ListingLink;
 use App\Support\TimeGate;
@@ -1081,5 +1083,51 @@ class BoardTest extends TestCase
         $this->artisan('board:poll-verdicts')->assertSuccessful();
 
         Http::assertNothingSent();   // 안전밸브
+    }
+
+    // ─────────────────────── 연동 A — outbound (바이어에게 사진+금액 전송) ───────────────────────
+
+    public function test_send_offer_sends_price_and_only_shared_photos(): void
+    {
+        $this->respondConfig();
+        config(['board.photo_disk' => 'public']);
+        Http::fake(['*/message' => Http::response(['messageId' => 1], 200)]);
+
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_contact_id' => 'ct_o', 'final_price' => 13800000,
+        ]);
+        $l->photos()->create(['s3_path' => 'p/ext.jpg', 'original_name' => 'ext.jpg', 'sort' => 1, 'share_to_buyer' => true]);
+        $l->photos()->create(['s3_path' => 'p/doc.jpg', 'original_name' => 'doc.jpg', 'sort' => 2, 'share_to_buyer' => false]);
+
+        (new SendOfferToBuyer($l->id))->handle(app(RespondIoService::class), app(ExchangeRateService::class));
+
+        Http::assertSentCount(2);   // 텍스트(USD 금액) 1 + 공개사진 1 (서류는 미전송)
+        $this->assertDatabaseHas('integration_events', [
+            'target' => 'respond_io', 'event_type' => 'send_offer', 'purchase_listing_id' => $l->id,
+        ]);
+    }
+
+    public function test_send_offer_noop_without_contact(): void
+    {
+        $this->respondConfig();
+        Http::fake();
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'awaiting_buyer', 'final_price' => 9000000]); // 컨택트 없음
+
+        (new SendOfferToBuyer($l->id))->handle(app(RespondIoService::class), app(ExchangeRateService::class));
+
+        Http::assertNothingSent();
+    }
+
+    public function test_inspection_send_dispatches_offer_to_buyer(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft', 'respond_contact_id' => 'ct_s', 'car_cost' => 9000000]);
+        $this->actingAs($this->mkUser('inspection'));
+
+        Volt::test('inspection.index')
+            ->call('openDrawer', $l->id)->set('buyer_name', 'D')->set('car_cost', '9000000')
+            ->set('sendSelected', true)->call('save')->assertHasNoErrors();
+
+        Bus::assertDispatched(SendOfferToBuyer::class, fn ($j) => $j->listingId === $l->id);
     }
 }
