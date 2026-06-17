@@ -30,6 +30,9 @@ return [
     // 화면 진입 시 lazy 자동갱신 on/off (테스트에선 false 로 네트워크 차단)
     'rate_auto_refresh' => (bool) env('BOARD_RATE_AUTO_REFRESH', true),
 
+    // 연동 A 승격 대기 — 캡처 후 이 일수 방치되면 폴러가 자동 expired (목록서 사라짐)
+    'promotion_ttl_days' => (int) env('BOARD_PROMOTION_TTL_DAYS', 7),
+
     // 검사지역 자동완성 — 한국 도+주요 시 (정적 번들, 외부 API 미사용)
     'regions' => [
         '서울특별시', '부산광역시', '대구광역시', '인천광역시', '광주광역시', '대전광역시', '울산광역시', '세종특별자치시',

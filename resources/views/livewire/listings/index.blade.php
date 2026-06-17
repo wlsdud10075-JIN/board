@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\PromotionRequest;
 use App\Models\PurchaseListing;
 use App\Services\ExchangeRateService;
 use App\Support\TimeGate;
@@ -22,6 +23,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $encar_id = '';           // Encar 차 식별 (URL 자동추출)
     public string $respond_contact_id = ''; // respond.io 대화 연결(스파인, 영업이 채팅에서 복사)
     public string $linkInput = '';          // 승격: 유입 링크 붙여넣기 → 자동추출
+    public ?int $promotingId = null;        // 승격 대기에서 시작한 경우 — 저장 시 consume
     public ?string $car_cost = null;        // 차값 (KRW)
     public ?string $discount_rate = null;   // 할인율 (%)
     public ?int $shipping_usd = null;       // 배송금액 (USD 고정 택1)
@@ -141,6 +143,50 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function editing(): ?PurchaseListing
     {
         return $this->editingId ? PurchaseListing::find($this->editingId) : null;
+    }
+
+    /** 승격 대기 — 담당 영업(respond.io assignee)에게만. 관리/super 는 전체(미배정 포함=관리자 풀). */
+    #[Computed]
+    public function promotions()
+    {
+        $me = Auth::user();
+        $q = PromotionRequest::where('status', PromotionRequest::PENDING);
+        if (! $me->canSeeAll()) {
+            $q->where('assigned_email', $me->respondAgentEmail());
+        }
+
+        return $q->latest()->get();
+    }
+
+    /** 승격 대기 조회 — 본인 담당만(관리/super 전체). 가시성=조작권한 일치(IDOR 방지). */
+    private function visiblePromotion(int $id): PromotionRequest
+    {
+        $me = Auth::user();
+        $q = PromotionRequest::where('status', PromotionRequest::PENDING)->where('id', $id);
+        if (! $me->canSeeAll()) {
+            $q->where('assigned_email', $me->respondAgentEmail());
+        }
+
+        return $q->firstOrFail();
+    }
+
+    /** 승격 대기건에서 시작 — 컨택트 자동주입 + 추가 폼 열기. 영업은 링크+차번호만 입력. */
+    public function promoteFrom(int $id): void
+    {
+        $req = $this->visiblePromotion($id);
+        $this->resetForm();
+        $this->respond_contact_id = $req->respond_contact_id;
+        $this->promotingId = $req->id;
+        $this->showAdd = true;
+        session()->flash('ok', '['.$req->label.'] 바이어 연결됨 — 링크와 차량번호만 입력하면 됩니다.');
+    }
+
+    /** 승격 대기 무시 — 전환 안 되는 바이어(구경만) 정리. 본인 담당만(관리/super 전체). */
+    public function dismissPromotion(int $id): void
+    {
+        $req = $this->visiblePromotion($id);
+        $req->update(['status' => PromotionRequest::DISMISSED, 'handled_by_user_id' => Auth::id()]);
+        unset($this->promotions);
     }
 
     /** 경매가 시간잠금됐으면 영업은 수정 불가 (관리자는 우회). 엔카·잠금 전은 가능. */
@@ -362,6 +408,14 @@ new #[Layout('components.layouts.app')] class extends Component {
         $listing->final_price = $listing->totalKrw($this->usdRate());   // 금액 입력 시 최종금액(KRW) 스냅샷
         $listing->save();
 
+        // 승격 대기에서 시작했으면 consume(대기 목록서 제거 + listing 연결).
+        if ($this->promotingId) {
+            PromotionRequest::where('status', PromotionRequest::PENDING)
+                ->where('id', $this->promotingId)
+                ->update(['status' => PromotionRequest::CONSUMED, 'purchase_listing_id' => $listing->id, 'handled_by_user_id' => Auth::id()]);
+            unset($this->promotions);
+        }
+
         $this->resetForm();
         $this->showAdd = false;
         unset($this->listings);
@@ -370,7 +424,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     private function resetForm(): void
     {
-        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'linkInput', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
+        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'linkInput', 'promotingId', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
         $this->origin = 'encar';
         $this->source = 'encar';
         $this->resetErrorBag();
@@ -416,6 +470,32 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     @if (session('ok'))
         <div class="card-sm mb-3 border-green-200 bg-green-50 text-[13px] text-green-700">✓ {{ session('ok') }}</div>
+    @endif
+
+    {{-- 승격 대기 (연동 A · respond.io 에서 바이어가 board 처리 의사 표시 → 담당 영업에게 라우팅) --}}
+    @if ($this->promotions->isNotEmpty())
+        <div class="card mb-4" style="border-color:#fde68a;background:#fffbeb">
+            <h2 class="mb-2 font-bold text-amber-800">📥 승격 대기 <span class="text-amber-500">· {{ $this->promotions->count() }}명</span></h2>
+            <p class="mb-3 text-[11px] text-amber-700/80">바이어가 채팅에서 board 처리를 요청했습니다. “승격”을 누르면 컨택트가 자동 연결됩니다 — 링크와 차량번호만 입력하세요.</p>
+            <div class="space-y-2">
+                @foreach ($this->promotions as $p)
+                    <div class="flex items-center justify-between gap-2 rounded-md border border-amber-200 bg-white px-3 py-2">
+                        <div class="min-w-0">
+                            <div class="truncate font-semibold text-gray-800">{{ $p->label ?: '컨택트 '.$p->respond_contact_id }}</div>
+                            <div class="text-[11px] text-gray-400">컨택트 {{ $p->respond_contact_id }} · {{ $p->created_at->diffForHumans() }}</div>
+                            @if (auth()->user()->canSeeAll())
+                                <div class="text-[11px] {{ $p->assigned_email ? 'text-gray-400' : 'text-amber-600' }}">담당: {{ $p->assigned_email ?: '미배정' }}</div>
+                            @endif
+                        </div>
+                        <div class="flex shrink-0 gap-1.5">
+                            <button class="btn-primary btn-sm" wire:click="promoteFrom({{ $p->id }})">승격</button>
+                            <button class="btn-ghost btn-sm" wire:click="dismissPromotion({{ $p->id }})"
+                                    wire:confirm="이 승격 대기를 무시하시겠습니까?">무시</button>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+        </div>
     @endif
 
     <div class="card">

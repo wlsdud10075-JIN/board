@@ -17,6 +17,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public bool $is_active = true;
     public ?string $car_erp_salesman_id = null;
     public string $car_erp_salesman_email = '';   // 연동 B 영업 매칭 오버라이드(car-erp 이메일이 로그인과 다를 때)
+    public string $respond_agent_email = '';      // 연동 A 승격 라우팅(respond.io 상담원 이메일이 로그인과 다를 때)
     public string $password = '';
 
     #[Computed]
@@ -32,7 +33,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function openCreate(): void
     {
-        $this->reset(['editingId', 'name', 'email', 'password', 'is_super', 'car_erp_salesman_id', 'car_erp_salesman_email']);
+        $this->reset(['editingId', 'name', 'email', 'password', 'is_super', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email']);
         $this->role = 'sales';
         $this->is_active = true;
         $this->showForm = true;
@@ -50,6 +51,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->is_active = $u->is_active;
         $this->car_erp_salesman_id = $u->car_erp_salesman_id !== null ? (string) $u->car_erp_salesman_id : null;
         $this->car_erp_salesman_email = $u->car_erp_salesman_email ?? '';
+        $this->respond_agent_email = $u->respond_agent_email ?? '';
         $this->password = '';
         $this->showForm = true;
         $this->resetErrorBag();
@@ -57,7 +59,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function close(): void
     {
-        $this->reset(['showForm', 'editingId', 'name', 'email', 'password', 'is_super', 'car_erp_salesman_id', 'car_erp_salesman_email']);
+        $this->reset(['showForm', 'editingId', 'name', 'email', 'password', 'is_super', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email']);
         $this->role = 'sales';
         $this->is_active = true;
     }
@@ -70,6 +72,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'role' => 'required|in:'.implode(',', User::ROLES),
             'car_erp_salesman_id' => 'nullable|integer|min:1',
             'car_erp_salesman_email' => 'nullable|email|max:100',
+            'respond_agent_email' => 'nullable|email|max:100',
         ];
         if (! $this->editingId || filled($this->password)) {
             $rules['password'] = 'required|string|min:6';
@@ -94,6 +97,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'is_active' => $this->is_active,
             'car_erp_salesman_id' => ($this->car_erp_salesman_id === null || $this->car_erp_salesman_id === '') ? null : (int) $this->car_erp_salesman_id,
             'car_erp_salesman_email' => $this->car_erp_salesman_email ?: null,
+            'respond_agent_email' => $this->respond_agent_email ?: null,
         ];
         if (filled($this->password)) {
             $data['password'] = $this->password; // 'hashed' cast
@@ -214,6 +218,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <input class="input-base" wire:model="car_erp_salesman_email" type="email" placeholder="car-erp 영업담당자 이메일">
                     <p class="mt-1 text-xs text-gray-400">연동 B는 <b>이메일로 car-erp 영업담당자를 자동 매칭</b>합니다. <b>위 로그인 이메일 = car-erp 영업 이메일이면 비워두세요</b>(자동 매칭). 로그인 이메일이 다를 때만 여기에 car-erp 영업 이메일을 적으면 그걸로 매칭합니다.</p>
                     @error('car_erp_salesman_email') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+
+                    <label class="label-base mt-3">respond.io 상담원 이메일 <span class="text-xs font-normal text-gray-400">(선택 · 로그인과 다를 때만)</span></label>
+                    <input class="input-base" wire:model="respond_agent_email" type="email" placeholder="respond.io 상담원 이메일">
+                    <p class="mt-1 text-xs text-gray-400">연동 A <b>승격 대기</b>는 respond.io 대화 담당 상담원에게만 보입니다. <b>로그인 이메일 = respond.io 상담원 이메일이면 비워두세요</b>(자동 매칭). 다를 때만 여기에 적으면 그걸로 라우팅합니다.</p>
+                    @error('respond_agent_email') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 @endif
 
                 <label class="label-base mt-3">비밀번호 {{ $editingId ? '(변경 시에만 입력)' : '' }}</label>

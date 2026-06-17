@@ -8,6 +8,7 @@ use App\Models\BoardAuditLog;
 use App\Models\ExchangeRate;
 use App\Models\InspectionAssignment;
 use App\Models\IntegrationEvent;
+use App\Models\PromotionRequest;
 use App\Models\PurchaseListing;
 use App\Models\User;
 use App\Services\ExchangeRateService;
@@ -1129,5 +1130,117 @@ class BoardTest extends TestCase
             ->set('sendSelected', true)->call('save')->assertHasNoErrors();
 
         Bus::assertDispatched(SendOfferToBuyer::class, fn ($j) => $j->listingId === $l->id);
+    }
+
+    // ─────────────────────── 연동 A — 승격 자동연결 (board_promote 폴링) ───────────────────────
+
+    public function test_poll_captures_pending_promotion_and_resets(): void
+    {
+        $this->respondConfig();
+        Http::fake(['*/v2/contact*' => Http::response(['items' => [
+            ['id' => 469, 'firstName' => '홍', 'lastName' => '길동', 'assignee' => ['email' => 'agent@x.test'], 'custom_fields' => [['name' => 'board_promote', 'value' => 'Yes']]],
+        ]])]);
+
+        $this->artisan('board:poll-promotions')->assertSuccessful();
+
+        $this->assertDatabaseHas('promotion_requests', [
+            'respond_contact_id' => '469', 'label' => '홍 길동', 'assigned_email' => 'agent@x.test', 'status' => 'pending',
+        ]);
+        $this->assertDatabaseHas('integration_events', [
+            'target' => 'respond_io', 'event_type' => 'promote_poll',
+        ]);
+        // 필드 reset(PUT) 발송됨.
+        Http::assertSent(fn ($r) => $r->method() === 'PUT' && str_contains($r->url(), 'contact/id:469'));
+    }
+
+    public function test_poll_promotion_idempotent_per_buyer(): void
+    {
+        $this->respondConfig();
+        Http::fake(['*/v2/contact*' => Http::response(['items' => [
+            ['id' => 470, 'firstName' => 'A', 'custom_fields' => [['name' => 'board_promote', 'value' => 'Yes']]],
+        ]])]);
+        PromotionRequest::create(['respond_contact_id' => '470', 'label' => 'A', 'status' => 'pending']);
+
+        $this->artisan('board:poll-promotions')->assertSuccessful();
+
+        // 이미 미소비 대기 1건 → 중복 생성 안 함.
+        $this->assertSame(1, PromotionRequest::where('respond_contact_id', '470')->where('status', 'pending')->count());
+    }
+
+    public function test_poll_promotion_expires_stale(): void
+    {
+        config(['services.respond_io.base_url' => null, 'services.respond_io.api_token' => null]);
+        $r = PromotionRequest::create(['respond_contact_id' => '471', 'label' => 'old', 'status' => 'pending']);
+        $r->forceFill(['created_at' => now()->subDays(8)])->save();
+        Http::fake();
+
+        $this->artisan('board:poll-promotions')->assertSuccessful();   // 미설정이어도 만료는 돈다
+
+        $this->assertSame('expired', $r->fresh()->status);
+        Http::assertNothingSent();   // 미설정 = 안전밸브
+    }
+
+    public function test_promote_from_consumes_request_on_save(): void
+    {
+        $sales = $this->mkUser('sales');
+        // 담당 영업 = 로그인 이메일과 매칭(respond_agent_email 폴백) → 본인에게 보임.
+        $req = PromotionRequest::create(['respond_contact_id' => 'ct_promo', 'label' => '바이어', 'assigned_email' => $sales->email, 'status' => 'pending']);
+        $this->actingAs($sales);
+
+        Volt::test('listings.index')
+            ->call('promoteFrom', $req->id)
+            ->set('vehicle_number', '99가1234')
+            ->call('save')->assertHasNoErrors();
+
+        $listing = PurchaseListing::where('vehicle_number', '99가1234')->first();
+        $this->assertNotNull($listing);
+        $this->assertSame('ct_promo', $listing->respond_contact_id);   // 컨택트 자동 연결
+        $this->assertDatabaseHas('promotion_requests', [
+            'id' => $req->id, 'status' => 'consumed', 'purchase_listing_id' => $listing->id,
+        ]);
+    }
+
+    public function test_dismiss_promotion_marks_dismissed(): void
+    {
+        $sales = $this->mkUser('sales');
+        $req = PromotionRequest::create(['respond_contact_id' => 'ct_x', 'assigned_email' => $sales->email, 'status' => 'pending']);
+        $this->actingAs($sales);
+
+        Volt::test('listings.index')->call('dismissPromotion', $req->id);
+
+        $this->assertSame('dismissed', $req->fresh()->status);
+    }
+
+    public function test_promotion_visible_only_to_assigned_sales(): void
+    {
+        $mine = $this->mkUser('sales');
+        $other = $this->mkUser('sales');
+        PromotionRequest::create(['respond_contact_id' => 'c_a', 'label' => '내것', 'assigned_email' => $mine->email, 'status' => 'pending']);
+        PromotionRequest::create(['respond_contact_id' => 'c_b', 'label' => '남것', 'assigned_email' => $other->email, 'status' => 'pending']);
+
+        $this->actingAs($mine);
+        Volt::test('listings.index')->assertSee('내것')->assertDontSee('남것');
+    }
+
+    public function test_manager_sees_all_promotions_including_unassigned(): void
+    {
+        $sales = $this->mkUser('sales');
+        PromotionRequest::create(['respond_contact_id' => 'c_c', 'label' => '영업것', 'assigned_email' => $sales->email, 'status' => 'pending']);
+        PromotionRequest::create(['respond_contact_id' => 'c_d', 'label' => '미배정것', 'assigned_email' => null, 'status' => 'pending']);
+
+        $this->actingAs($this->mkUser('manager'));
+        Volt::test('listings.index')->assertSee('영업것')->assertSee('미배정것');   // 관리자 풀
+    }
+
+    public function test_sales_cannot_promote_others_request(): void
+    {
+        $mine = $this->mkUser('sales');
+        $other = $this->mkUser('sales');
+        $req = PromotionRequest::create(['respond_contact_id' => 'c_e', 'assigned_email' => $other->email, 'status' => 'pending']);
+
+        $this->actingAs($mine);
+        // 본인 담당 아님 → firstOrFail(404) → consume 시도 차단(IDOR).
+        $this->assertItThrows(fn () => Volt::test('listings.index')->call('promoteFrom', $req->id));
+        $this->assertSame('pending', $req->fresh()->status);
     }
 }

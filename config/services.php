@@ -54,6 +54,10 @@ return [
             'refuse' => env('RESPOND_VERDICT_REFUSE', 'Refuse'),
             'hold' => env('RESPOND_VERDICT_HOLD', 'Hold'),
         ],
+        // 승격 자동연결 — 바이어가 켜면 board "승격 대기" 로 캡처. 처리 후 reset 값으로 리셋.
+        'promote_field' => env('RESPOND_PROMOTE_FIELD', 'board_promote'),
+        'promote_value' => env('RESPOND_PROMOTE_VALUE', 'Yes'),
+        'promote_reset' => env('RESPOND_PROMOTE_RESET', 'No'),
     ],
 
 ];

@@ -33,6 +33,12 @@ class RespondIoService
 
     private string $vHold;
 
+    private string $promoteField;
+
+    private string $promoteValue;
+
+    private string $promoteReset;
+
     public function __construct()
     {
         $this->base = config('services.respond_io.base_url');
@@ -41,6 +47,9 @@ class RespondIoService
         $this->vAccept = (string) config('services.respond_io.verdict_values.accept');
         $this->vRefuse = (string) config('services.respond_io.verdict_values.refuse');
         $this->vHold = (string) config('services.respond_io.verdict_values.hold');
+        $this->promoteField = (string) config('services.respond_io.promote_field');
+        $this->promoteValue = (string) config('services.respond_io.promote_value');
+        $this->promoteReset = (string) config('services.respond_io.promote_reset');
     }
 
     public function configured(): bool
@@ -92,6 +101,63 @@ class RespondIoService
         }
 
         return $out;
+    }
+
+    /**
+     * 승격 필드 = Yes 인 컨택트 → [contact_id, label, assigned_email] 목록. (verdict 와 동일 contact/list 패턴)
+     * label = 사람이 알아볼 이름/전화. assigned_email = 대화 담당 상담원(assignee.email) → 담당 영업 라우팅.
+     *
+     * @return array<int,array{contact_id:string, label:string, assigned_email:?string}>
+     */
+    public function pendingPromotions(): array
+    {
+        if (! $this->configured()) {
+            return [];
+        }
+
+        $res = Http::withToken($this->token)->acceptJson()
+            ->post($this->url('contact/list?limit=100'), [
+                'search' => '',
+                'timezone' => 'UK/London',
+                'filter' => [
+                    '$or' => [
+                        ['category' => 'contactField', 'field' => $this->promoteField, 'operator' => 'isEqualTo', 'value' => $this->promoteValue],
+                    ],
+                ],
+            ]);
+
+        if ($res->failed()) {
+            return [];
+        }
+
+        $out = [];
+        foreach ((array) $res->json('items', []) as $c) {
+            $id = $c['id'] ?? null;
+            if ($id === null) {
+                continue;
+            }
+            $email = $c['assignee']['email'] ?? null;
+            $out[] = [
+                'contact_id' => (string) $id,
+                'label' => $this->extractLabel($c),
+                'assigned_email' => is_string($email) ? $email : null,
+            ];
+        }
+
+        return $out;
+    }
+
+    /** 처리 후 승격 필드를 reset 값(No)으로 → 다음 폴에서 같은 신호 재매칭 방지. */
+    public function resetPromote(?string $contactId): void
+    {
+        if (! $this->configured() || empty($contactId)) {
+            return;
+        }
+
+        Http::withToken($this->token)->acceptJson()
+            ->put($this->url('contact/id:'.$contactId), [
+                'custom_fields' => [['name' => $this->promoteField, 'value' => $this->promoteReset]],
+            ]);
     }
 
     /** outbound — 바이어에게 텍스트 전송. POST contact/id:{id}/message {message:{type:text}}. */
@@ -150,6 +216,22 @@ class RespondIoService
 
         // (c) 최상위 평면
         return isset($c[$this->field]) && is_string($c[$this->field]) ? $c[$this->field] : null;
+    }
+
+    /** 컨택트에서 사람이 알아볼 라벨 추출 — 이름(firstName/lastName) 우선, 없으면 전화. */
+    private function extractLabel(array $c): string
+    {
+        $name = trim(((string) ($c['firstName'] ?? '')).' '.((string) ($c['lastName'] ?? '')));
+        if ($name !== '') {
+            return $name;
+        }
+        foreach (['phone', 'name', 'email'] as $k) {
+            if (! empty($c[$k]) && is_string($c[$k])) {
+                return $c[$k];
+            }
+        }
+
+        return '컨택트 '.((string) ($c['id'] ?? '?'));
     }
 
     /** respond.io 드롭다운값 → board verdict. Hold/기타 = null(폴러 무시). */

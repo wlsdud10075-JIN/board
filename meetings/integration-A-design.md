@@ -105,3 +105,20 @@
 - **C verdict**: 값 Accept/Refuse/Hold, 필드ID buyer_verdict. e2e ✅. **outbound**(SendOfferToBuyer: USD금액+share_to_buyer 사진) 라이브 ✅. dev=cea91d4(master 미배포).
 - **다음 빌드 = 승격 자동연결**(이름검색 폐기): respond.io 필드 `board_promote`(Yes) → board 폴링 → "승격 대기" 목록에 그 바이어 자동연결(1:N 정확) → 영업은 링크+차번호만. (verdict 와 동일 필드폴링 패턴)
 - 그 뒤 운영배포(master)+서버 .env RESPOND_API_TOKEN. 지름길 ⚡버튼 미노출=respond.io 지원 보류.
+
+## 2026-06-17 승격 자동연결 구현 완료 (board-side)
+- **신설**: `promotion_requests` 테이블/모델(`pending|consumed|dismissed|expired`) — 승격 *전*이라 붙일 listing 이 없어 integration_events(append-only)로 못 담음 → durable 보관 필요. 1바이어 : N listing(consumed 다건 정상).
+- **폴러** `board:poll-promotions`(2분, withoutOverlapping) = `RespondIoService::pendingPromotions()`(board_promote=Yes 컨택트 조회, 라벨=firstName/lastName/phone) → 승격 대기 캡처 + `resetPromote()`(필드 No 리셋). verdict 폴러 미러.
+- **결정(Jin, 2026-06-17)**: ① 멱등 = **바이어당 pending 1건**(코드 가드, 리셋 PUT 실패에도 안전 — DB unique 아님: consumed/dismissed 는 동일 contact 다건 허용) ② 수명 = **consume(listing 생성) + 수동 무시 + 7일(`board.promotion_ttl_days`) 자동만료**(만료는 폴러가 매 실행 정리, respond.io 설정과 무관) ③ ~~가시성 = 전 영업 공유~~ → **assignee 격리로 정정**(아래).
+- **UI**: `/listings` 상단 "📥 승격 대기" 카드 → [승격] = contact_id 자동주입+추가폼, [무시] = dismissed. 저장 시 consume(listing 연결).
+- ⚠️ **respond.io-side 잔여**: 워크스페이스에 커스텀필드 `board_promote`(Yes/No) 생성 + 상담원이 켜는 운영 절차. board 폴러는 미설정이면 만료정리만 하고 no-op(안전밸브).
+- dev 커밋(master 미배포). Http-fake 테스트 5종(캡처·리셋·멱등·만료·consume·dismiss) green.
+- **라이브 e2e ✅ (2026-06-17, BOARD-E2E 컨택트 469770644)**: respond.io 에 `board_promote`(List, Yes/No) 필드 생성 → 식별자 = 정확히 `board_promote`(코드 기본값과 일치, env 오버라이드 불요). Yes 세팅 → `board:poll-promotions` → promotion_requests 캡처(label="BOARD-E2E 테스트", firstName 추출 확인) + 필드 No 리셋 확인. 멱등(pending 1 유지)·정리 완료.
+- ⚠️ **respond.io read-after-write 전파 지연(~수초) 실측**: PUT 직후 즉시 GET/list 하면 이전 값이 보임(버그 아님). 실운영은 폴 간격 2분이라 무관. 멱등 안전은 **board 테이블 pending 가드**가 보장(reset 은 최적화) — reset 미전파로 다음 폴이 같은 Yes 를 또 봐도 가드가 중복 차단. (verdict 폴러 동일 특성.)
+
+### 가시성 정정 — assignee 격리 라우팅 (Jin 지적, 2026-06-17)
+- **문제**: 앱 전체가 SalesmanScope 로 영업 본인격리인데 "전 영업 공유" 승격 대기는 모순. verdict 는 *listing 의 created_by* 로 자동격리되지만 승격은 아직 listing 이 없어 담당주체 부재 → 그래서 공유로 갔으나 격리모델과 어긋남.
+- **해결 = respond.io `assignee`**: 컨택트 응답에 `assignee:{id,firstName,lastName,email}` 존재(라이브 확인). 대화 담당 상담원 = 담당 영업.
+- **결정(Jin)**: ① 라우팅 = **assignee 격리** — 영업은 `assigned_email = 본인 respond 이메일`인 대기만, 관리/super 는 전체 ② 매핑 = **`users.respond_agent_email` 신규**(car_erp_salesman_email 미러, 비우면 로그인 이메일 폴백) ③ 미배정/무매칭 = **관리자 풀**(canSeeAll 만).
+- **구현**: 마이그 `promotion_requests.assigned_email`(폴 시 assignee.email 캡처) + `users.respond_agent_email`. `User::respondAgentEmail()`(폴백). `User::canSeeAll()`(영업만 격리)로 `promotions()` 분기. promoteFrom/dismiss 도 `visiblePromotion()` 스코프(IDOR 차단). `/users` 영업폼에 매핑필드.
+- **라이브 e2e ✅**: 컨택트 469805397 assignee=man997770@gmail.com 캡처 → 담당 영업만 보임, 타 영업 미노출 Jin 확인. 테스트 72통과(격리·IDOR 포함).
