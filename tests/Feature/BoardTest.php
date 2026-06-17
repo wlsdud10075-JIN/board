@@ -1027,7 +1027,7 @@ class BoardTest extends TestCase
     {
         $this->respondConfig();
         Http::fake(['*/v2/contact*' => Http::response(['items' => [
-            ['id' => 'ct1', 'conversation_id' => 'conv_p', 'custom_fields' => ['buyer_verdict' => '수락']],
+            ['id' => 'ct1', 'conversation_id' => 'conv_p', 'custom_fields' => ['buyer_verdict' => 'Accept']],
         ]])]);
         $l = $this->mkListing($this->mkUser('sales'), [
             'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_p', 'verdict_channel' => 'auto',
@@ -1045,7 +1045,7 @@ class BoardTest extends TestCase
     {
         $this->respondConfig();
         Http::fake(['*/v2/contact*' => Http::response(['items' => [
-            ['id' => 'ct2', 'conversation_id' => 'conv_m2', 'custom_fields' => ['buyer_verdict' => '수락']],
+            ['id' => 'ct2', 'conversation_id' => 'conv_m2', 'custom_fields' => ['buyer_verdict' => 'Accept']],
         ]])]);
         $sales = $this->mkUser('sales');
         $a = $this->mkListing($sales, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_m2', 'verdict_channel' => 'auto']);
@@ -1062,7 +1062,7 @@ class BoardTest extends TestCase
     {
         $this->respondConfig();
         Http::fake(['*/v2/contact*' => Http::response(['items' => [
-            ['id' => 'ct3', 'conversation_id' => 'conv_man', 'custom_fields' => ['buyer_verdict' => '수락']],
+            ['id' => 'ct3', 'conversation_id' => 'conv_man', 'custom_fields' => ['buyer_verdict' => 'Accept']],
         ]])]);
         $l = $this->mkListing($this->mkUser('sales'), [
             'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_man', 'verdict_channel' => 'manual',

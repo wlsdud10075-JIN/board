@@ -46,8 +46,14 @@ return [
         'base_url' => env('RESPOND_BASE_URL', 'https://api.respond.io'),
         'api_token' => env('RESPOND_API_TOKEN'),
         'webhook_secret' => env('RESPOND_WEBHOOK_SECRET'),
-        // 커스텀 필드명(바이어 회신) — 워크스페이스에서 만든 이름에 맞춰 .env 로 조정.
+        // 커스텀 필드 ID(바이어 회신, 드롭다운) — 워크스페이스 필드 ID 에 맞춤.
         'verdict_field' => env('RESPOND_VERDICT_FIELD', 'buyer_verdict'),
+        // 드롭다운 목록값 (Jin 워크스페이스: Accept/Refuse/Hold). Hold=중립(폴러 무시).
+        'verdict_values' => [
+            'accept' => env('RESPOND_VERDICT_ACCEPT', 'Accept'),
+            'refuse' => env('RESPOND_VERDICT_REFUSE', 'Refuse'),
+            'hold' => env('RESPOND_VERDICT_HOLD', 'Hold'),
+        ],
     ],
 
 ];

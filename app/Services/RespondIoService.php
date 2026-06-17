@@ -27,11 +27,20 @@ class RespondIoService
 
     private string $field;
 
+    private string $vAccept;
+
+    private string $vRefuse;
+
+    private string $vHold;
+
     public function __construct()
     {
         $this->base = config('services.respond_io.base_url');
         $this->token = config('services.respond_io.api_token');
         $this->field = (string) config('services.respond_io.verdict_field');
+        $this->vAccept = (string) config('services.respond_io.verdict_values.accept');
+        $this->vRefuse = (string) config('services.respond_io.verdict_values.refuse');
+        $this->vHold = (string) config('services.respond_io.verdict_values.hold');
     }
 
     public function configured(): bool
@@ -55,18 +64,16 @@ class RespondIoService
             return [];
         }
 
-        // POST contact/list — 커스텀필드(회신) != '대기' 인 컨택트만.
+        // POST contact/list — 회신 필드 = Accept 또는 Refuse 인 컨택트만 (Hold/빈값 제외).
         $res = Http::withToken($this->token)->acceptJson()
             ->post($this->url('contact/list?limit=100'), [
                 'search' => '',
                 'timezone' => 'UK/London',
                 'filter' => [
-                    '$and' => [[
-                        'category' => 'customField',     // ⚠️ 라이브 확인
-                        'field' => $this->field,
-                        'operator' => 'isNotEqualTo',
-                        'value' => '대기',
-                    ]],
+                    '$or' => [
+                        ['category' => 'customField', 'field' => $this->field, 'operator' => 'isEqualTo', 'value' => $this->vAccept],
+                        ['category' => 'customField', 'field' => $this->field, 'operator' => 'isEqualTo', 'value' => $this->vRefuse],
+                    ],   // ⚠️ category('customField')·operator 명은 라이브 확인
                 ],
             ]);
 
@@ -100,10 +107,10 @@ class RespondIoService
             return;
         }
 
-        // PUT contact/id:{id} — 커스텀필드 '대기'로. ⚠️ 커스텀필드 body 모양 라이브 확인.
+        // PUT contact/id:{id} — 커스텀필드 Hold(중립)로. ⚠️ 커스텀필드 body 모양 라이브 확인.
         Http::withToken($this->token)->acceptJson()
             ->put($this->url('contact/id:'.$contactId), [
-                'custom_fields' => [['name' => $this->field, 'value' => '대기']],
+                'custom_fields' => [['name' => $this->field, 'value' => $this->vHold]],
             ]);
     }
 
@@ -125,13 +132,19 @@ class RespondIoService
         return isset($c[$this->field]) && is_string($c[$this->field]) ? $c[$this->field] : null;
     }
 
-    /** respond.io 필드값(한글/영문) → board verdict. */
+    /** respond.io 드롭다운값 → board verdict. Hold/기타 = null(폴러 무시). */
     private function mapVerdict(?string $v): ?string
     {
-        return match ($v) {
-            '수락', 'accepted' => 'accepted',
-            '거절', 'rejected' => 'rejected',
-            default => null,
-        };
+        if ($v === null) {
+            return null;
+        }
+        if ($v === $this->vAccept || $v === '수락' || $v === 'accepted') {
+            return 'accepted';
+        }
+        if ($v === $this->vRefuse || $v === '거절' || $v === 'rejected') {
+            return 'rejected';
+        }
+
+        return null;
     }
 }
