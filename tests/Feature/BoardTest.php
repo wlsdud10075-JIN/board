@@ -1328,12 +1328,13 @@ class BoardTest extends TestCase
     public function test_portal_uses_auth_email_override_and_renders(): void
     {
         $this->carErpReadConfig();
-        Http::fake(['*/api/internal/board/finance*' => Http::response(['receivables_total_krw' => 5000], 200)]);
+        // 실제 finance 응답 키(InternalPortalController) — unpaid_total_krw.
+        Http::fake(['*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 5000, 'settlement_pending_count' => 2], 200)]);
         $sales = $this->mkUser('sales');
         $sales->update(['car_erp_salesman_email' => 'override@ce.test']);
         $this->actingAs($sales);
 
-        Volt::test('portal.index')->assertSee('미수금 합계');
+        Volt::test('portal.index')->assertSee('미수금 합계')->assertSee('5,000원');
 
         // 스코프 = Auth 본인 오버라이드 이메일(요청 파라미터 아님).
         Http::assertSent(fn ($req) => str_contains($req->url(), 'salesman_email=override%40ce.test'));
@@ -1346,5 +1347,47 @@ class BoardTest extends TestCase
         $this->actingAs($this->mkUser('sales'));
 
         Volt::test('portal.index')->assertSee('조회 불가')->assertDontSee('완납');
+    }
+
+    public function test_carerp_shipping_request_posts_signed_with_email(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake(['*/api/internal/board/shipping-request*' => Http::response(['created' => [1], 'skipped' => []], 201)]);
+
+        $r = (new CarErpReadService)->shippingRequest('kim@board.test', [
+            'vehicle_ids' => [1], 'buyer_id' => 2, 'consignee_id' => 3, 'shipping_method' => 'RORO',
+        ]);
+
+        $this->assertTrue($r['ok']);
+        $this->assertSame([1], $r['data']['created']);
+        Http::assertSent(fn ($req) => $req->method() === 'POST'
+            && str_contains($req->url(), 'salesman_email=kim%40board.test')               // 쿼리(스코프 미들웨어)
+            && str_contains($req->body(), '"salesman_email":"kim@board.test"')             // 바디(§5)
+            && str_contains($req->body(), '"shipping_method":"RORO"')
+            && $req->hasHeader('X-Board-Signature'));
+    }
+
+    public function test_portal_shipping_lists_and_submits(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 0], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 1, 'data' => [
+                ['vehicle_id' => 10, 'vehicle_number' => '11가1111', 'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignees' => [['id' => 3, 'name' => 'ConsX']]],
+            ]], 200),
+            '*/api/internal/board/shipping-request*' => Http::response(['created' => [10], 'skipped' => []], 201),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')
+            ->call('setTab', 'shipping')
+            ->assertSee('BuyerX')->assertSee('11가1111')
+            ->set('selectedIds', [10])
+            ->set('consigneeByBuyer.2', 3)
+            ->call('submitShipping', 2, [10])
+            ->assertSee('선적요청 완료');
+
+        Http::assertSent(fn ($req) => str_contains($req->url(), 'shipping-request')
+            && str_contains($req->body(), '"vehicle_ids":[10]') && str_contains($req->body(), '"consignee_id":3'));
     }
 }

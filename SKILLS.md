@@ -211,4 +211,6 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 - **`CarErpReadService`**(HMAC **GET**): canonical = `METHOD\nPATH?SORTED_QUERY\nX-Timestamp\nBODY`(계약 §1, 바이트 일치 — `canonical()` 격리 + 핀 테스트). 시크릿 = **`CAR_ERP_READ_HMAC_SECRET`**(쓰기 `CAR_ERP_HMAC_SECRET`와 분리). 헤더 X-Board-Signature/X-Timestamp/X-Nonce. **미설정 시 no-op 안전밸브**.
 - **degrade 3상태**: 미설정/401/5xx/403 → "조회 불가"(**절대 0원/완납 coerce 금지**) · 값 null(미수금 KRW=환율 미입력) **보존** · 값 표시. salesman_email = **Auth 본인(`car_erp_salesman_email ?: email`)만**(요청 파라미터 금지).
 - **서류 = 선적 4종만**(`roro_*`·`container_*` invoice_packing/contract) board 측 화이트리스트 강제. 마진 raw·RRN·계좌 미수신/미표시. POST 선적요청 시 salesman_email **쿼리+바디**(스코프 미들웨어=쿼리).
-- 화면 `/portal`(role sales,manager): ④재무 미러 **구현**. ③선적요청·①②서류 = car-erp 라이브 후 후속. **통합 테스트 = car-erp 엔드포인트 라이브 후**(현재 Http-fake 단위검증만).
+- 화면 `/portal`(role sales,manager) 탭: ④재무(요약/미수/매입/판매/정산) + **③선적요청**(shippable 바이어별 묶음→컨사이니+RORO/CONTAINER→POST, 응답 created/skipped) + **①②서류**(선택차 method별 2종 xlsx 스트림 다운로드). 전부 구현.
+- **응답 키 정합(car-erp 컨트롤러 확인 2026-06-18)**: 리스트 = `{count, data:[...]}`(items=`data` 키). finance=`unpaid_total_krw·purchase_unpaid_total·fx_missing_count·settlement_pending_count`. receivables/sales 바이어=`buyer`. shippable=`{count,data:[{vehicle_id,vehicle_number,buyer:{id,name},consignees:[{id,name}]}]}`. shipping-request 응답=`{created,skipped}`. 알람=car-erp `TaskAlarm shipping_requested`(target `수출통관`).
+- ⚠️ **통합 테스트 = 양쪽 로컬서버+`CAR_ERP_READ_HMAC_SECRET` 동일값+매칭 salesman 후**. 현재 Http-fake 단위검증(canonical 핀·degrade·스코프·화이트리스트·선적요청·서류) 10종.
