@@ -199,3 +199,9 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 - **`config/services.php`**: `car_erp` => `{base_url, hmac_secret}`, `respond_io` => `{api_token, webhook_secret}`. (`.env` 키: `CAR_ERP_BASE_URL`/`CAR_ERP_HMAC_SECRET`/`RESPOND_API_TOKEN`/`RESPOND_WEBHOOK_SECRET`)
 - **멱등 컬럼 비대화 금지**: B 의 outbound 멱등은 `car_erp_vehicle_id` null 가드 + car-erp VIN 사전조회로 끝. `idempotency_key`/`sync_attempts`/`last_sync_error` 를 purchase_listings 에 추가하지 말 것 — 시도/에러 이력은 `integration_events` 로.
 - **api 라우팅**: `bootstrap/app.php` 에 `api: __DIR__.'/../routes/api.php'` 추가 + `WebhookController`(HMAC 검증) — 현재 web only.
+
+## 13. 지급 게이트웨이 — 계약금 자동이체 (board → car-erp → 하나은행 펌뱅킹)
+> **권위 스펙 = car-erp `docs/integration/payment-disbursement-gateway.md`** (경로로 읽을 것, **복사 금지 — drift 방지**. 연동 B 상호링크 규칙 동일). **상태 = 설계/미구현, 인지 기록만** (2026-06-18). 구현 착수 전 Jin 확정 필요.
+- **구조**: board(영업팀장 **건당 승인**) → HMAC 서명 요청 → car-erp **단일 지급 게이트웨이**(`DisbursementService`: 멱등·한도·계좌 화이트리스트·예금주조회·감사) → 하나은행 펌뱅킹 계약금 **원화 국내이체**. **자금 자격증명(VAN·은행키)은 car-erp 한 곳에만** — board 는 요청만 보냄(뚫려도 돈 안 샘).
+- **board 절반(추후 작업)**: 입력란 신설 `계약금(deposit_amount)`·`이체완료일`·`거래관리번호`(멱등키) + **영업팀장 승인 시 car-erp 게이트웨이로 HMAC 서명 요청**. 수신 스펙(권위)에 맞춰 보냄(필드 contract = 권위 파일 §4).
+- **미확정(권위 파일 §5)**: 배송금액 매핑(#2)·매입가 통화(#3)·VAN사(#6)·한도(#8). → 확정 전 구현 금지. 연동 B(`§12`)와 **별개 신설/확장**.
