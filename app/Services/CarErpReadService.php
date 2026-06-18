@@ -1,0 +1,183 @@
+<?php
+
+namespace App\Services;
+
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
+
+/**
+ * 영업 포털 — car-erp 읽기 API(HMAC GET) + 선적요청 client.
+ *
+ * 권위 계약 = car-erp `docs/integration/board-portal-api.md`. board 는 표시만(재무로직 재현 금지=drift).
+ * 안전밸브: base_url/read_hmac_secret 미설정이면 모든 호출 no-op → 화면은 "조회 불가" 표시(0/완납 금지).
+ *
+ * 반환 = degrade 봉투: ['ok'=>bool, 'status'=>int, 'data'=>?array, 'reason'=>?string].
+ *   ok=false(not_configured/http_error/exception) → 화면 "조회 불가". ok=true 라도 개별 필드 null 은
+ *   그대로 보존(예: 미수금 KRW null = "환율 미입력", 절대 0/완납으로 coerce 금지).
+ */
+class CarErpReadService
+{
+    /** 계약 prefix(canonical PATH 에 그대로 들어감). */
+    private const PREFIX = '/api/internal/board';
+
+    /** 서류 화이트리스트(선적 4종만) — board 측에서도 강제(car-erp 403 에만 의존 X). 말소서류 등 = PII. */
+    public const ALLOWED_DOC_TYPES = [
+        'roro_invoice_packing', 'roro_contract', 'container_invoice_packing', 'container_contract',
+    ];
+
+    private ?string $base;
+
+    private ?string $secret;
+
+    public function __construct()
+    {
+        $this->base = config('services.car_erp.base_url');
+        $this->secret = config('services.car_erp.read_hmac_secret');
+    }
+
+    public function configured(): bool
+    {
+        return ! empty($this->base) && ! empty($this->secret);
+    }
+
+    // ── 공개 읽기 메서드 (전부 salesman_email 스코프, 쿼리=서명 포함) ──
+
+    public function finance(string $email): array
+    {
+        return $this->get('/finance', ['salesman_email' => $email]);
+    }
+
+    public function receivables(string $email): array
+    {
+        return $this->get('/receivables', ['salesman_email' => $email]);
+    }
+
+    public function purchases(string $email): array
+    {
+        return $this->get('/purchases', ['salesman_email' => $email]);
+    }
+
+    public function sales(string $email): array
+    {
+        return $this->get('/sales', ['salesman_email' => $email]);
+    }
+
+    public function settlements(string $email): array
+    {
+        return $this->get('/settlements', ['salesman_email' => $email]);
+    }
+
+    public function shippable(string $email): array
+    {
+        return $this->get('/shippable', ['salesman_email' => $email]);
+    }
+
+    /** ③ 선적요청 — salesman_email 은 쿼리(=스코프 미들웨어)+바디(§5) 양쪽. */
+    public function shippingRequest(string $email, array $payload): array
+    {
+        $payload['salesman_email'] = $email;
+
+        return $this->post('/shipping-request', ['salesman_email' => $email], $payload);
+    }
+
+    /**
+     * ①② 서류 프록시 — xlsx 바이트 스트림. 4종 화이트리스트 board 측 강제.
+     *
+     * @return array{ok:bool, status:int, body:?string, content_type:?string, reason:?string}
+     */
+    public function document(string $type, array $ids, string $email): array
+    {
+        if (! in_array($type, self::ALLOWED_DOC_TYPES, true)) {
+            return ['ok' => false, 'status' => 0, 'body' => null, 'content_type' => null, 'reason' => 'type_not_allowed'];
+        }
+
+        $query = ['ids' => implode(',', $ids), 'salesman_email' => $email];
+        $path = self::PREFIX.'/documents/'.$type;
+
+        if (! $this->configured()) {
+            return ['ok' => false, 'status' => 0, 'body' => null, 'content_type' => null, 'reason' => 'not_configured'];
+        }
+
+        [$headers] = $this->sign('GET', $path, $query, '');
+
+        try {
+            $res = Http::timeout(60)->withHeaders($headers)->get($this->base.$path, $query);
+        } catch (\Throwable) {
+            return ['ok' => false, 'status' => 0, 'body' => null, 'content_type' => null, 'reason' => 'exception'];
+        }
+
+        if ($res->failed()) {
+            return ['ok' => false, 'status' => $res->status(), 'body' => null, 'content_type' => null, 'reason' => 'http_error'];
+        }
+
+        return ['ok' => true, 'status' => $res->status(), 'body' => $res->body(), 'content_type' => $res->header('Content-Type'), 'reason' => null];
+    }
+
+    // ── 내부 ──
+
+    private function get(string $endpoint, array $query): array
+    {
+        return $this->send('GET', self::PREFIX.$endpoint, $query, null);
+    }
+
+    private function post(string $endpoint, array $query, array $payload): array
+    {
+        return $this->send('POST', self::PREFIX.$endpoint, $query, $payload);
+    }
+
+    private function send(string $method, string $path, array $query, ?array $payload): array
+    {
+        if (! $this->configured()) {
+            return ['ok' => false, 'status' => 0, 'data' => null, 'reason' => 'not_configured'];
+        }
+
+        $body = $payload === null ? '' : json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        [$headers] = $this->sign($method, $path, $query, $body);
+
+        try {
+            $req = Http::timeout(20)->withHeaders($headers);
+            $res = $method === 'GET'
+                ? $req->get($this->base.$path, $query)
+                : $req->withBody($body, 'application/json')->post($this->base.$path.'?'.http_build_query($query));
+        } catch (\Throwable) {
+            return ['ok' => false, 'status' => 0, 'data' => null, 'reason' => 'exception'];
+        }
+
+        if ($res->failed()) {
+            return ['ok' => false, 'status' => $res->status(), 'data' => null, 'reason' => 'http_error'];
+        }
+
+        return ['ok' => true, 'status' => $res->status(), 'data' => $res->json(), 'reason' => null];
+    }
+
+    /**
+     * 서명 헤더 생성. canonical = METHOD\nPATH?SORTED_QUERY\nX-Timestamp\nBODY (계약 §1, 바이트 일치).
+     *
+     * @return array{0:array<string,string>, 1:string} [헤더, canonical] — canonical 은 테스트 핀고정용.
+     */
+    public function sign(string $method, string $path, array $query, string $body): array
+    {
+        $ts = (string) time();
+        $nonce = (string) Str::uuid();
+        $canonical = $this->canonical($method, $path, $query, $ts, $body);
+        $sig = hash_hmac('sha256', $canonical, (string) $this->secret);
+
+        return [[
+            'X-Board-Signature' => 'sha256='.$sig,
+            'X-Timestamp' => $ts,
+            'X-Nonce' => $nonce,
+        ], $canonical];
+    }
+
+    /** canonical 문자열(계약 §1 그대로 — 인코딩 추가 금지, ksort 후 raw k=v&..., ?는 항상). */
+    public function canonical(string $method, string $path, array $query, string $timestamp, string $body): string
+    {
+        ksort($query);
+        $pairs = [];
+        foreach ($query as $k => $v) {
+            $pairs[] = $k.'='.$v;
+        }
+
+        return $method."\n".$path.'?'.implode('&', $pairs)."\n".$timestamp."\n".$body;
+    }
+}

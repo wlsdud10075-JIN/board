@@ -205,3 +205,10 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 - **구조**: board(영업팀장 **건당 승인**) → HMAC 서명 요청 → car-erp **단일 지급 게이트웨이**(`DisbursementService`: 멱등·한도·계좌 화이트리스트·예금주조회·감사) → 하나은행 펌뱅킹 계약금 **원화 국내이체**. **자금 자격증명(VAN·은행키)은 car-erp 한 곳에만** — board 는 요청만 보냄(뚫려도 돈 안 샘).
 - **board 절반(추후 작업)**: 입력란 신설 `계약금(deposit_amount)`·`이체완료일`·`거래관리번호`(멱등키) + **영업팀장 승인 시 car-erp 게이트웨이로 HMAC 서명 요청**. 수신 스펙(권위)에 맞춰 보냄(필드 contract = 권위 파일 §4).
 - **미확정(권위 파일 §5)**: 배송금액 매핑(#2)·매입가 통화(#3)·VAN사(#6)·한도(#8). → 확정 전 구현 금지. 연동 B(`§12`)와 **별개 신설/확장**.
+
+## 14. 영업 포털 — car-erp 읽기 미러(재무·선적요청·서류)
+> **권위 계약 = car-erp `docs/integration/board-portal-api.md`** (경로로 읽을 것, **복사 금지 — drift**. 인계 출처 = `meetings/handoff-car-erp-board-portal.md`). 영업은 board만 씀 → car-erp 원장을 board 에서 읽기.
+- **`CarErpReadService`**(HMAC **GET**): canonical = `METHOD\nPATH?SORTED_QUERY\nX-Timestamp\nBODY`(계약 §1, 바이트 일치 — `canonical()` 격리 + 핀 테스트). 시크릿 = **`CAR_ERP_READ_HMAC_SECRET`**(쓰기 `CAR_ERP_HMAC_SECRET`와 분리). 헤더 X-Board-Signature/X-Timestamp/X-Nonce. **미설정 시 no-op 안전밸브**.
+- **degrade 3상태**: 미설정/401/5xx/403 → "조회 불가"(**절대 0원/완납 coerce 금지**) · 값 null(미수금 KRW=환율 미입력) **보존** · 값 표시. salesman_email = **Auth 본인(`car_erp_salesman_email ?: email`)만**(요청 파라미터 금지).
+- **서류 = 선적 4종만**(`roro_*`·`container_*` invoice_packing/contract) board 측 화이트리스트 강제. 마진 raw·RRN·계좌 미수신/미표시. POST 선적요청 시 salesman_email **쿼리+바디**(스코프 미들웨어=쿼리).
+- 화면 `/portal`(role sales,manager): ④재무 미러 **구현**. ③선적요청·①②서류 = car-erp 라이브 후 후속. **통합 테스트 = car-erp 엔드포인트 라이브 후**(현재 Http-fake 단위검증만).

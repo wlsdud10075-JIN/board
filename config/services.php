@@ -39,6 +39,8 @@ return [
     'car_erp' => [
         'base_url' => env('CAR_ERP_BASE_URL'),
         'hmac_secret' => env('CAR_ERP_HMAC_SECRET'),
+        // 영업 포털 읽기 API(GET) 전용 시크릿 — 쓰기(purchase-sync) 시크릿과 분리. 미설정 시 no-op.
+        'read_hmac_secret' => env('CAR_ERP_READ_HMAC_SECRET'),
     ],
 
     // 연동 A — respond.io (Developer API 폴링 + inbound webhook + outbound).

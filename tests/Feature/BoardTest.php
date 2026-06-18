@@ -11,6 +11,7 @@ use App\Models\IntegrationEvent;
 use App\Models\PromotionRequest;
 use App\Models\PurchaseListing;
 use App\Models\User;
+use App\Services\CarErpReadService;
 use App\Services\ExchangeRateService;
 use App\Services\RespondIoService;
 use App\Services\VerdictService;
@@ -1242,5 +1243,108 @@ class BoardTest extends TestCase
         // 본인 담당 아님 → firstOrFail(404) → consume 시도 차단(IDOR).
         $this->assertItThrows(fn () => Volt::test('listings.index')->call('promoteFrom', $req->id));
         $this->assertSame('pending', $req->fresh()->status);
+    }
+
+    // ─────────────────────── 영업 포털 — car-erp 읽기(HMAC GET) ───────────────────────
+
+    private function carErpReadConfig(): void
+    {
+        config(['services.car_erp.base_url' => 'https://x.test', 'services.car_erp.read_hmac_secret' => 'sek']);
+    }
+
+    /** canonical 핀(계약 §1 정합 검증물) — car-erp 라이브 시 서명 불일치면 여기 vs car-erp diff. */
+    public function test_carerp_canonical_string_is_pinned(): void
+    {
+        $svc = new CarErpReadService;
+        $this->assertSame(
+            "GET\n/api/internal/board/finance?salesman_email=kim@board.test\n1700000000\n",
+            $svc->canonical('GET', '/api/internal/board/finance', ['salesman_email' => 'kim@board.test'], '1700000000', '')
+        );
+        // 다중 쿼리 ksort: ids < salesman_email. raw 값(인코딩 추가 금지).
+        $this->assertSame(
+            "GET\n/api/internal/board/documents/roro_contract?ids=3,1,2&salesman_email=a@b.test\n1700000000\n",
+            $svc->canonical('GET', '/api/internal/board/documents/roro_contract', ['salesman_email' => 'a@b.test', 'ids' => '3,1,2'], '1700000000', '')
+        );
+    }
+
+    public function test_carerp_signature_uses_read_secret(): void
+    {
+        $this->carErpReadConfig();
+        [$headers, $canonical] = (new CarErpReadService)->sign('GET', '/api/internal/board/finance', ['salesman_email' => 'k@b.test'], '');
+        $this->assertSame('sha256='.hash_hmac('sha256', $canonical, 'sek'), $headers['X-Board-Signature']);
+        $this->assertArrayHasKey('X-Timestamp', $headers);
+        $this->assertArrayHasKey('X-Nonce', $headers);
+    }
+
+    public function test_carerp_not_configured_is_noop_degrade(): void
+    {
+        config(['services.car_erp.base_url' => null, 'services.car_erp.read_hmac_secret' => null]);
+        Http::fake();
+
+        $r = (new CarErpReadService)->finance('k@b.test');
+
+        $this->assertFalse($r['ok']);
+        $this->assertSame('not_configured', $r['reason']);
+        Http::assertNothingSent();   // 안전밸브
+    }
+
+    public function test_carerp_finance_success_sends_signed_scoped_request(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake(['*/api/internal/board/finance*' => Http::response(['receivables_total_krw' => 100], 200)]);
+
+        $r = (new CarErpReadService)->finance('kim@board.test');
+
+        $this->assertTrue($r['ok']);
+        $this->assertSame(100, $r['data']['receivables_total_krw']);
+        Http::assertSent(fn ($req) => str_contains($req->url(), '/api/internal/board/finance')
+            && str_contains($req->url(), 'salesman_email=kim%40board.test')
+            && $req->hasHeader('X-Board-Signature') && $req->hasHeader('X-Timestamp') && $req->hasHeader('X-Nonce'));
+    }
+
+    public function test_carerp_http_error_degrades_not_zero(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake(['*' => Http::response('', 403)]);
+
+        $r = (new CarErpReadService)->receivables('k@b.test');
+
+        $this->assertFalse($r['ok']);   // degrade — 화면 "조회 불가"(0/완납 금지)
+        $this->assertSame(403, $r['status']);
+    }
+
+    public function test_carerp_document_rejects_non_allowed_type(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake();
+
+        $r = (new CarErpReadService)->document('deregistration', [1], 'k@b.test');   // 말소서류=PII
+
+        $this->assertFalse($r['ok']);
+        $this->assertSame('type_not_allowed', $r['reason']);
+        Http::assertNothingSent();   // 화이트리스트 board 측 강제
+    }
+
+    public function test_portal_uses_auth_email_override_and_renders(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake(['*/api/internal/board/finance*' => Http::response(['receivables_total_krw' => 5000], 200)]);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'override@ce.test']);
+        $this->actingAs($sales);
+
+        Volt::test('portal.index')->assertSee('미수금 합계');
+
+        // 스코프 = Auth 본인 오버라이드 이메일(요청 파라미터 아님).
+        Http::assertSent(fn ($req) => str_contains($req->url(), 'salesman_email=override%40ce.test'));
+    }
+
+    public function test_portal_degrades_when_not_configured(): void
+    {
+        config(['services.car_erp.base_url' => null, 'services.car_erp.read_hmac_secret' => null]);
+        Http::fake();
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->assertSee('조회 불가')->assertDontSee('완납');
     }
 }
