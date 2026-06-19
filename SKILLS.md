@@ -131,6 +131,8 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 - `findOrFail` 은 SalesmanScope 적용 → 영업은 본인 것만 열림(타인 id 변조 시 404).
 
 ## 9. 디자인 시스템 (car-erp SKILLS §10 이식, `resources/css/app.css`)
+> ⚠️ **board CSS·UI 는 항상 car-erp 와 맞춘다(권위 = car-erp `resources/css/app.css` + `components/layouts/app/sidebar.blade.php`).** 2026-06-19 대표 지시 — 일관된 룩앤필. 새 컴포넌트/색/사이드바는 **car-erp 것을 미러**(토큰·클래스·구조). 갈라지면 car-erp 기준으로 재정렬. (board 전용 추가 클래스 badge-encar/auction·tbl 등은 유지하되 car-erp 미적에 맞춤.)
+- **사이드바**(2026-06-19 car-erp 정렬): 다크(`--color-sidebar-*`·`.app-sidebar`/`.sidebar-item`/`.sidebar-section-label`/`.sidebar-item-collapsed`/`.sidebar-backdrop`/`.sidebar-mobile`) + Alpine 그룹접기(localStorage `navgrp-*`·`sidebar-open`) + 모바일 슬라이드 + 하단 업무가이드(`config('board.work_guide_url')`)/내설정/로그아웃. 레이아웃 = `components/layouts/app/sidebar.blade.php`.
 - `@theme` 에 `--color-primary:#7c6fcd`(보라) 등. **라이트 모드**(스타터킷 `class="dark"` 제거함).
 - 유틸: `.card`/`.card-sm` · `.btn-primary`/`.btn-outline`/`.btn-ghost`/`.btn-green`/`.btn-sm` · `.tab-pill` · `.pill-count` · `.input-base`/`.label-base` · `.tbl`(th/td) · `.kpi`.
 - 뱃지: `.badge` + `.badge-{blue,teal,purple,amber,red,green,gray,encar,auction}`.
