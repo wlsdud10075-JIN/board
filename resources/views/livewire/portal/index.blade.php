@@ -120,8 +120,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->result = match ($this->tab) {
             'receivables' => $svc->receivables($email),
             'purchases' => $svc->purchases($email),
-            'sales' => $svc->sales($email),
-            'settlements' => $svc->settlements($email),
+            // 판매·정산 = 바이어별 집계(통화별 판매합 / 정산 payout). 같은 by-buyer 엔드포인트.
+            'sales', 'settlements' => $svc->byBuyer($email),
             'shipping' => $svc->shippable($email),
             default => $svc->finance($email),
         };
@@ -187,6 +187,27 @@ new #[Layout('components.layouts.app')] class extends Component {
         ]);
     }
 
+    /** 한글 축약 금액 (요약 탭 전용): 704369898 → "7억 436만원". */
+    public function abbrevKrw(int|float|null $won): string
+    {
+        if ($won === null) {
+            return '—';
+        }
+        $won = (int) $won;
+        $abs = abs($won);
+        if ($abs >= 100000000) {
+            $eok = intdiv($won, 100000000);
+            $man = intdiv(abs($won) % 100000000, 10000);
+
+            return $man ? $eok.'억 '.number_format($man).'만원' : $eok.'억원';
+        }
+        if ($abs >= 10000) {
+            return number_format(intdiv($won, 10000)).'만원';
+        }
+
+        return number_format($won).'원';
+    }
+
     public function degradeMessage(): string
     {
         return match ($this->result['status'] ?? 0) {
@@ -227,8 +248,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         @elseif ($tab === 'finance')
             @php $sum = is_array($result['data']) ? $result['data'] : []; @endphp
             <div class="grid gap-3 sm:grid-cols-4">
-                <div class="card-sm"><div class="text-xs text-gray-500">미수금 합계</div><div class="mt-1 text-lg font-bold text-gray-800">{{ isset($sum['unpaid_total_krw']) ? number_format((int) $sum['unpaid_total_krw']).'원' : '—' }}</div></div>
-                <div class="card-sm"><div class="text-xs text-gray-500">매입 미지급 합계</div><div class="mt-1 text-lg font-bold text-gray-800">{{ isset($sum['purchase_unpaid_total']) ? number_format((int) $sum['purchase_unpaid_total']).'원' : '—' }}</div></div>
+                <div class="card-sm"><div class="text-xs text-gray-500">미수금 합계</div><div class="mt-1 text-lg font-bold text-gray-800" title="{{ isset($sum['unpaid_total_krw']) ? number_format((int) $sum['unpaid_total_krw']).'원' : '' }}">{{ isset($sum['unpaid_total_krw']) ? $this->abbrevKrw($sum['unpaid_total_krw']) : '—' }}</div></div>
+                <div class="card-sm"><div class="text-xs text-gray-500">매입 미지급 합계</div><div class="mt-1 text-lg font-bold text-gray-800" title="{{ isset($sum['purchase_unpaid_total']) ? number_format((int) $sum['purchase_unpaid_total']).'원' : '' }}">{{ isset($sum['purchase_unpaid_total']) ? $this->abbrevKrw($sum['purchase_unpaid_total']) : '—' }}</div></div>
                 <div class="card-sm"><div class="text-xs text-gray-500">정산 대기</div><div class="mt-1 text-lg font-bold text-gray-800">{{ $sum['settlement_pending_count'] ?? '—' }}건</div></div>
                 <div class="card-sm"><div class="text-xs text-gray-500">환율 미입력</div><div class="mt-1 text-lg font-bold {{ ($sum['fx_missing_count'] ?? 0) ? 'text-amber-600' : 'text-gray-800' }}">{{ $sum['fx_missing_count'] ?? '—' }}건</div></div>
             </div>
@@ -389,46 +410,58 @@ new #[Layout('components.layouts.app')] class extends Component {
             @endforelse
 
         @elseif ($tab === 'sales')
-            {{-- 판매내역 — 바이어별 접기 --}}
-            @php
-                $byBuyer = collect(data_get($result['data'], 'data', []))->groupBy(fn ($r) => data_get($r, 'buyer') ?: '(바이어 미지정)');
-                $cols = ['vehicle_number' => '차량', 'currency' => '통화', 'sale_price' => '판매가', 'sale_date' => '판매일'];
-            @endphp
-            @forelse ($byBuyer as $buyer => $rows)
-                <div class="card-sm mb-2" x-data="{ open: false }">
-                    <button type="button" class="flex w-full items-center gap-2 text-left font-bold text-gray-800" @click="open = !open">
-                        <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span>
-                        🧑 {{ $buyer }} <span class="text-xs font-normal text-gray-400">· {{ $rows->count() }}대</span>
-                    </button>
-                    <div x-show="open" x-cloak class="mt-2 overflow-x-auto">
-                        <table class="tbl">
-                            <thead><tr>@foreach ($cols as $label)<th>{{ $label }}</th>@endforeach</tr></thead>
-                            <tbody>
-                                @foreach ($rows as $row)
-                                    <tr>
-                                        @foreach ($cols as $k => $label)
-                                            @php $val = data_get($row, $k); @endphp
-                                            <td class="whitespace-nowrap text-gray-700">
-                                                @if ($val === null)—@elseif ($k === 'sale_price' && is_numeric($val)){{ number_format((float) $val) }}@else{{ $val }}@endif
-                                            </td>
-                                        @endforeach
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            @empty
-                <p class="py-8 text-center text-gray-400">판매내역이 없습니다.</p>
-            @endforelse
+            {{-- 판매내역 — 바이어별 통화별 판매합 (by-buyer, 통화 혼재라 같은 통화끼리만 합산) --}}
+            @php $buyers = data_get($result['data'], 'data', []); @endphp
+            <div class="overflow-x-auto">
+                <table class="tbl">
+                    <thead><tr><th>바이어</th><th>차량수</th><th>판매 합계 (통화별)</th></tr></thead>
+                    <tbody>
+                        @forelse ($buyers as $b)
+                            <tr>
+                                <td class="font-semibold text-gray-700">{{ data_get($b, 'buyer') ?: '(바이어 미지정)' }}</td>
+                                <td class="whitespace-nowrap text-gray-500">{{ data_get($b, 'vehicle_count', 0) }}대</td>
+                                <td>
+                                    @php $byCur = (array) data_get($b, 'sales_by_currency', []); @endphp
+                                    @forelse ($byCur as $cur => $amt)
+                                        <span class="mr-3 inline-block whitespace-nowrap"><b class="text-gray-500">{{ $cur }}</b> {{ number_format((float) $amt) }}</span>
+                                    @empty
+                                        <span class="text-gray-300">—</span>
+                                    @endforelse
+                                </td>
+                            </tr>
+                        @empty
+                            <tr><td colspan="3" class="py-8 text-center text-gray-400">판매내역이 없습니다.</td></tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+
+        @elseif ($tab === 'settlements')
+            {{-- 정산내역 — 바이어별 정산 실지급 (by-buyer, payout 내림차순) --}}
+            @php $buyers = data_get($result['data'], 'data', []); @endphp
+            <div class="overflow-x-auto">
+                <table class="tbl">
+                    <thead><tr><th>바이어</th><th>차량수</th><th>정산 실지급(원)</th><th>지급 완료(원)</th></tr></thead>
+                    <tbody>
+                        @forelse ($buyers as $b)
+                            <tr>
+                                <td class="font-semibold text-gray-700">{{ data_get($b, 'buyer') ?: '(바이어 미지정)' }}</td>
+                                <td class="whitespace-nowrap text-gray-500">{{ data_get($b, 'vehicle_count', 0) }}대</td>
+                                <td class="whitespace-nowrap font-semibold text-gray-800">{{ number_format((float) data_get($b, 'payout_total_krw', 0)) }}</td>
+                                <td class="whitespace-nowrap text-gray-500">{{ number_format((float) data_get($b, 'payout_paid_krw', 0)) }}</td>
+                            </tr>
+                        @empty
+                            <tr><td colspan="4" class="py-8 text-center text-gray-400">정산내역이 없습니다.</td></tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
 
         @else
-            {{-- 매입내역·정산내역 — car-erp 응답에 buyer 없음 → 평면 목록 --}}
+            {{-- 매입내역 — buyer 무관(경매/판매처) → 평면 목록 --}}
             @php
                 $items = data_get($result['data'], 'data', []);
-                $cols = $tab === 'purchases'
-                    ? ['vehicle_number' => '차량', 'purchase_price' => '매입가', 'cost_total' => '비용합', 'purchase_unpaid' => '미지급', 'purchase_date' => '매입일']
-                    : ['vehicle_number' => '차량', 'status' => '상태', 'actual_payout' => '실지급액', 'confirmed_at' => '확정일'];
+                $cols = ['vehicle_number' => '차량', 'purchase_price' => '매입가', 'cost_total' => '비용합', 'purchase_unpaid' => '미지급', 'purchase_date' => '매입일'];
             @endphp
             <div class="overflow-x-auto">
                 <table class="tbl">
@@ -441,7 +474,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     <td class="whitespace-nowrap text-gray-700">
                                         @if ($val === null)
                                             —
-                                        @elseif (in_array($key, ['purchase_price', 'cost_total', 'purchase_unpaid', 'actual_payout'], true) && is_numeric($val))
+                                        @elseif (in_array($key, ['purchase_price', 'cost_total', 'purchase_unpaid'], true) && is_numeric($val))
                                             {{ number_format((float) $val) }}
                                         @else
                                             {{ $val }}
@@ -450,7 +483,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 @endforeach
                             </tr>
                         @empty
-                            <tr><td colspan="{{ count($cols) }}" class="py-8 text-center text-gray-400">해당 내역이 없습니다.</td></tr>
+                            <tr><td colspan="{{ count($cols) }}" class="py-8 text-center text-gray-400">매입내역이 없습니다.</td></tr>
                         @endforelse
                     </tbody>
                 </table>

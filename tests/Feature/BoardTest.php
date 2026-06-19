@@ -1388,6 +1388,50 @@ class BoardTest extends TestCase
             ->assertSee('BuyerA')->assertSee('11가1')->assertSee('3,000원');   // 바이어 그룹 + 합계
     }
 
+    public function test_carerp_by_buyer_signed_scoped(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake(['*/api/internal/board/by-buyer*' => Http::response(['data' => [
+            ['buyer' => 'X', 'vehicle_count' => 2, 'sales_by_currency' => ['USD' => 100], 'payout_total_krw' => 5, 'payout_paid_krw' => 3],
+        ]], 200)]);
+
+        $r = (new CarErpReadService)->byBuyer('kim@board.test');
+
+        $this->assertTrue($r['ok']);
+        $this->assertSame('X', $r['data']['data'][0]['buyer']);
+        Http::assertSent(fn ($req) => str_contains($req->url(), '/api/internal/board/by-buyer')
+            && str_contains($req->url(), 'salesman_email=kim%40board.test') && $req->hasHeader('X-Board-Signature'));
+    }
+
+    public function test_portal_sales_and_settlements_use_by_buyer(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 0], 200),
+            '*/api/internal/board/by-buyer*' => Http::response(['data' => [
+                ['buyer' => 'BuyerY', 'vehicle_count' => 3, 'sales_by_currency' => ['USD' => 12000, 'EUR' => 3000], 'payout_total_krw' => 7000000, 'payout_paid_krw' => 5000000],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')
+            ->call('setTab', 'sales')->assertSee('BuyerY')->assertSee('USD')->assertSee('12,000')->assertSee('EUR')
+            ->call('setTab', 'settlements')->assertSee('7,000,000')->assertSee('지급 완료');
+    }
+
+    public function test_portal_finance_abbreviates_amounts(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 704369898, 'purchase_unpaid_total' => 0], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->assertSee('7억 436만원');   // 요약 한글 축약
+    }
+
     public function test_portal_finance_shows_monthly(): void
     {
         $this->carErpReadConfig();

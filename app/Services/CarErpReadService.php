@@ -72,6 +72,12 @@ class CarErpReadService
         return $this->get('/shippable', ['salesman_email' => $email]);
     }
 
+    /** 바이어별 집계 — {buyer_id, buyer, vehicle_count, sales_by_currency{통화:합}, payout_total_krw, payout_paid_krw}. payout 내림차순. */
+    public function byBuyer(string $email): array
+    {
+        return $this->get('/by-buyer', ['salesman_email' => $email]);
+    }
+
     /** ③ 선적요청 — salesman_email 은 쿼리(=스코프 미들웨어)+바디(§5) 양쪽. */
     public function shippingRequest(string $email, array $payload): array
     {
