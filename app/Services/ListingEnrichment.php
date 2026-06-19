@@ -74,6 +74,14 @@ class ListingEnrichment
             $out['prices'] = $prices;
         }
 
+        // 차종명(title) — board 저장필드 없음, 추출 힌트용(경매는 차량번호·VIN 미노출이라 이거라도).
+        if (preg_match('/<title>\s*([^<|]+?)\s*[|<]/u', $html, $m)) {
+            $name = trim($m[1]);
+            if ($name !== '') {
+                $out['name'] = $name;
+            }
+        }
+
         return $out;
     }
 

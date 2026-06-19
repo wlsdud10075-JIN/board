@@ -346,8 +346,9 @@ new #[Layout('components.layouts.app')] class extends Component {
             $r['ssancar_ref'] ?? null,
         ]);
         $cat = PurchaseListing::ORIGIN_LABELS[$this->origin] ?? '';
+        $name = ! empty($e['name']) ? ' · 차종: '.$e['name'] : '';
         $auto = $filled ? ' · 자동채움: '.implode('/', $filled) : '';
-        session()->flash('ok', '['.$cat.'] 추출: '.implode(' · ', $bits).$auto.' — 확인 후 저장하세요.');
+        session()->flash('ok', '['.$cat.'] 추출: '.implode(' · ', $bits).$name.$auto.' — 확인 후 저장하세요.');
     }
 
     /** 통화 토글 — enrichment 통화별 금액이 있으면 그 금액으로 바꿈(없으면 라벨만). */
