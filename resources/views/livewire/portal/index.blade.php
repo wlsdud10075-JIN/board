@@ -32,7 +32,42 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public bool $hidePaid = true;             // 0원(완납) 숨김
 
+    public array $monthly = [];               // 요약 탭 월별 집계(판매 건수·정산 실지급·매입)
+
     private const TABS = ['finance', 'receivables', 'purchases', 'sales', 'settlements', 'shipping'];
+
+    /**
+     * 월별 집계 — 날짜 있는 리스트(판매/정산/매입)에서 YYYY-MM 별 집계.
+     * 판매는 통화 혼재라 건수만(합산 무의미). 정산 실지급·매입가는 원화 합산.
+     * 미수금은 날짜 없어 제외. (car-erp 정산 바이어 추가 시 buyer 차원 확장 가능.)
+     */
+    private function buildMonthly(string $email): array
+    {
+        $svc = $this->svc();
+        $m = [];
+        $bump = function (array $env, string $dateKey, ?string $amtKey, string $cnt, ?string $sum) use (&$m) {
+            if (! ($env['ok'] ?? false)) {
+                return;
+            }
+            foreach ((array) data_get($env['data'], 'data', []) as $r) {
+                $d = data_get($r, $dateKey);
+                if (! $d) {
+                    continue;
+                }
+                $key = substr((string) $d, 0, 7);   // YYYY-MM
+                $m[$key][$cnt] = ($m[$key][$cnt] ?? 0) + 1;
+                if ($amtKey && $sum) {
+                    $m[$key][$sum] = ($m[$key][$sum] ?? 0) + (float) (data_get($r, $amtKey) ?? 0);
+                }
+            }
+        };
+        $bump($svc->sales($email), 'sale_date', null, 'sales_cnt', null);
+        $bump($svc->settlements($email), 'confirmed_at', 'actual_payout', 'settle_cnt', 'settle_sum');
+        $bump($svc->purchases($email), 'purchase_date', 'purchase_price', 'purch_cnt', 'purch_sum');
+        krsort($m);   // 최근 월 먼저
+
+        return $m;
+    }
 
     /** 미수금 컬럼 정렬 토글. */
     public function sortRecv(string $key): void
@@ -90,6 +125,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             'shipping' => $svc->shippable($email),
             default => $svc->finance($email),
         };
+        // 요약 탭 = 합계 + 월별(판매/정산/매입). 다른 탭은 월별 불필요.
+        $this->monthly = $this->tab === 'finance' ? $this->buildMonthly($email) : [];
     }
 
     /** 선적요청 — 한 바이어 묶음(선택 차 + 컨사이니 + RORO/CONTAINER). */
@@ -194,6 +231,32 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <div class="card-sm"><div class="text-xs text-gray-500">매입 미지급 합계</div><div class="mt-1 text-lg font-bold text-gray-800">{{ isset($sum['purchase_unpaid_total']) ? number_format((int) $sum['purchase_unpaid_total']).'원' : '—' }}</div></div>
                 <div class="card-sm"><div class="text-xs text-gray-500">정산 대기</div><div class="mt-1 text-lg font-bold text-gray-800">{{ $sum['settlement_pending_count'] ?? '—' }}건</div></div>
                 <div class="card-sm"><div class="text-xs text-gray-500">환율 미입력</div><div class="mt-1 text-lg font-bold {{ ($sum['fx_missing_count'] ?? 0) ? 'text-amber-600' : 'text-gray-800' }}">{{ $sum['fx_missing_count'] ?? '—' }}건</div></div>
+            </div>
+
+            {{-- 월별 (판매 건수·정산 실지급·매입) — 날짜 있는 리스트서 집계. 판매액은 통화혼재라 건수만. --}}
+            <div class="mt-4" x-data="{ open: true }">
+                <button type="button" class="mb-2 flex items-center gap-2 font-bold text-gray-700" @click="open = !open">
+                    <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span> 📅 월별 실적
+                </button>
+                <div x-show="open" x-cloak class="overflow-x-auto">
+                    <table class="tbl">
+                        <thead><tr><th>월</th><th>판매(건)</th><th>정산 실지급(원)</th><th>매입(건)</th><th>매입가(원)</th></tr></thead>
+                        <tbody>
+                            @forelse ($monthly as $month => $row)
+                                <tr>
+                                    <td class="font-semibold text-gray-700">{{ $month }}</td>
+                                    <td>{{ $row['sales_cnt'] ?? 0 }}</td>
+                                    <td>{{ number_format((float) ($row['settle_sum'] ?? 0)) }}</td>
+                                    <td>{{ $row['purch_cnt'] ?? 0 }}</td>
+                                    <td>{{ number_format((float) ($row['purch_sum'] ?? 0)) }}</td>
+                                </tr>
+                            @empty
+                                <tr><td colspan="5" class="py-6 text-center text-gray-400">월별 실적이 없습니다.</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                    <p class="mt-1 text-[11px] text-gray-400">💡 판매액은 통화가 섞여 합산 대신 건수로 표시. 정산·매입은 원화 합산.</p>
+                </div>
             </div>
 
         @elseif ($tab === 'shipping')

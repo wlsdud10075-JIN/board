@@ -1330,7 +1330,10 @@ class BoardTest extends TestCase
     {
         $this->carErpReadConfig();
         // 실제 finance 응답 키(InternalPortalController) — unpaid_total_krw.
-        Http::fake(['*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 5000, 'settlement_pending_count' => 2], 200)]);
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 5000, 'settlement_pending_count' => 2], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),   // 월별용 sales/settlements/purchases
+        ]);
         $sales = $this->mkUser('sales');
         $sales->update(['car_erp_salesman_email' => 'override@ce.test']);
         $this->actingAs($sales);
@@ -1377,11 +1380,33 @@ class BoardTest extends TestCase
                 ['vehicle_number' => '11가1', 'buyer' => 'BuyerA', 'currency' => 'USD', 'exchange_rate' => 1300, 'unpaid_krw' => 1000],
                 ['vehicle_number' => '22나2', 'buyer' => 'BuyerA', 'currency' => 'USD', 'exchange_rate' => 1300, 'unpaid_krw' => 2000],
             ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
         ]);
         $this->actingAs($this->mkUser('sales'));
 
         Volt::test('portal.index')->call('setTab', 'receivables')
             ->assertSee('BuyerA')->assertSee('11가1')->assertSee('3,000원');   // 바이어 그룹 + 합계
+    }
+
+    public function test_portal_finance_shows_monthly(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 0], 200),
+            '*/api/internal/board/sales*' => Http::response(['count' => 2, 'data' => [
+                ['vehicle_number' => 'A', 'sale_date' => '2026-05-10', 'sale_price' => 1, 'currency' => 'USD'],
+                ['vehicle_number' => 'B', 'sale_date' => '2026-05-20', 'sale_price' => 1, 'currency' => 'USD'],
+            ]], 200),
+            '*/api/internal/board/settlements*' => Http::response(['count' => 1, 'data' => [
+                ['vehicle_number' => 'A', 'confirmed_at' => '2026-05-15', 'actual_payout' => 700000, 'status' => 'paid'],
+            ]], 200),
+            '*/api/internal/board/purchases*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')
+            ->assertSee('월별 실적')->assertSee('2026-05')->assertSee('700,000');   // 5월 판매2·정산70만
     }
 
     public function test_portal_receivables_hides_paid_and_sorts(): void
@@ -1394,6 +1419,7 @@ class BoardTest extends TestCase
                 ['vehicle_number' => 'OWE1', 'buyer' => 'B', 'currency' => 'USD', 'exchange_rate' => 1300, 'unpaid_krw' => 500],
                 ['vehicle_number' => 'OWE2', 'buyer' => 'B', 'currency' => 'USD', 'exchange_rate' => 1300, 'unpaid_krw' => 900],
             ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
         ]);
         $this->actingAs($this->mkUser('sales'));
 
@@ -1414,6 +1440,7 @@ class BoardTest extends TestCase
                 ['vehicle_id' => 10, 'vehicle_number' => '11가1111', 'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignees' => [['id' => 3, 'name' => 'ConsX']]],
             ]], 200),
             '*/api/internal/board/shipping-request*' => Http::response(['created' => [10], 'skipped' => []], 201),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
         ]);
         $this->actingAs($this->mkUser('sales'));
 
