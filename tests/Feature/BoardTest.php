@@ -1263,6 +1263,7 @@ class BoardTest extends TestCase
 
         $this->assertSame('12가3456', $r['vehicle_number']);
         $this->assertSame(6500000, $r['expected_price']);   // 650만 ×10000
+        $this->assertSame('KRW', $r['currency']);           // encar = 원화
         $this->assertSame('대구', $r['region']);
         $this->assertSame('VINX', $r['vin']);
     }
@@ -1295,6 +1296,7 @@ class BoardTest extends TestCase
             ->call('parseLink', 'encar')
             ->assertSet('vehicle_number', '244로9100')
             ->assertSet('expected_price', '66660000')   // 6666만 ×10000
+            ->assertSet('expected_price_currency', 'KRW')
             ->assertSet('region', '안산')
             ->assertSet('vin', 'WMW21GA04S7R38829');
     }
@@ -1315,15 +1317,16 @@ class BoardTest extends TestCase
         $this->assertSame('서울', $r['region']);
     }
 
-    public function test_enrichment_ssancar_stock_parses_vin_plate_no_usd_price(): void
+    public function test_enrichment_ssancar_stock_parses_vin_plate_usd_price(): void
     {
-        Http::fake(['*ssancar.com*' => Http::response('<div>차량번호 12가3456</div><em id="copy_txt">KMHXX1234567</em><span>1,838 USD</span>', 200)]);
+        Http::fake(['*ssancar.com*' => Http::response('<div>차량번호 12가3456</div><em id="copy_txt">KMHXX1234567</em><span>52,473 USD</span>', 200)]);
 
         $r = (new ListingEnrichment)->fromSsancar('https://www.ssancar.com/x?c_no=6915603');
 
         $this->assertSame('KMHXX1234567', $r['vin']);
         $this->assertSame('12가3456', $r['vehicle_number']);
-        $this->assertArrayNotHasKey('expected_price', $r);   // USD 차값은 미결정 → 안 채움
+        $this->assertSame(52473, $r['expected_price']);   // ssancar 재고 = 미화 표기
+        $this->assertSame('USD', $r['currency']);          // 통화=USD, 영업이 토글 가능
     }
 
     // ─────────────────────── 영업 포털 — car-erp 읽기(HMAC GET) ───────────────────────

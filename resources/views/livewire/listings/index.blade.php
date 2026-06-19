@@ -25,7 +25,8 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $encarLink = '';          // 엔카 링크 → JSON API enrich
     public string $ssancarLink = '';        // ssancar 링크 → 페이지 파싱 enrich
     public ?int $promotingId = null;        // 승격 대기에서 시작한 경우 — 저장 시 consume
-    public ?string $expected_price = null;  // 매물 표시가 (enrichment 자동채움 · 참고가, car_cost 와 별개)
+    public ?string $expected_price = null;  // 매물 표시가 = 차값 (enrichment 자동채움 · 참고가, car_cost 와 별개)
+    public string $expected_price_currency = 'KRW';   // 매물 표시가 통화 (원/미/유로 토글)
     public ?string $car_cost = null;        // 차값 (KRW)
     public ?string $discount_rate = null;   // 할인율 (%)
     public ?int $shipping_usd = null;       // 배송금액 (USD 고정 택1)
@@ -323,7 +324,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
         if (! empty($e['expected_price']) && ($this->expected_price === null || $this->expected_price === '')) {
             $this->expected_price = (string) $e['expected_price'];
-            $filled[] = '표시가';
+            $this->expected_price_currency = $e['currency'] ?? 'KRW';   // encar=KRW, ssancar 재고=USD
+            $filled[] = '표시가('.$this->expected_price_currency.')';
         }
         if (! empty($e['region']) && $this->region === '') {
             $this->region = $e['region'];
@@ -411,6 +413,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'payee_bank' => $this->payee_bank ?: null,
             'payee_account' => $this->payee_account ?: null,
             'expected_price' => ($this->expected_price === null || $this->expected_price === '') ? null : (int) $this->expected_price,
+            'expected_price_currency' => $this->expected_price_currency,
             'car_cost' => $carCost,
             'discount_rate' => $discount,
             'shipping_usd' => $shipping,
@@ -441,7 +444,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     private function resetForm(): void
     {
-        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'encarLink', 'ssancarLink', 'promotingId', 'expected_price', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
+        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'encarLink', 'ssancarLink', 'promotingId', 'expected_price', 'expected_price_currency', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
         $this->origin = 'encar';
         $this->source = 'encar';
         $this->resetErrorBag();
@@ -559,8 +562,17 @@ new #[Layout('components.layouts.app')] class extends Component {
                             @if ($ssancar_ref)<span class="badge badge-gray">{{ $ssancar_ref }}</span>@endif
                         </div>
                     @endif
-                    <label class="label-base mt-2">매물 표시가 <span class="text-gray-400">(자동채움 · 참고가, 협상 차값과 별개)</span></label>
-                    <input class="input-base" wire:model="expected_price" inputmode="numeric" placeholder="매물 표시가(원) — 링크 추출 시 자동">
+                    <label class="label-base mt-2">매물 표시가 (= 차값) <span class="text-gray-400">(링크 추출 시 자동 · 통화 선택)</span></label>
+                    <div class="flex gap-2">
+                        <input class="input-base flex-1" wire:model="expected_price" inputmode="numeric" placeholder="링크 추출 시 자동 · 직접 입력 가능">
+                        <div class="inline-flex shrink-0 overflow-hidden rounded-md border border-gray-300">
+                            @foreach (['KRW' => '원', 'USD' => '$', 'EUR' => '€'] as $cur => $sym)
+                                <button type="button" wire:click="$set('expected_price_currency', '{{ $cur }}')"
+                                    class="px-2.5 py-1.5 text-[13px] font-semibold {{ $expected_price_currency === $cur ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }}">{{ $sym }}</button>
+                            @endforeach
+                        </div>
+                    </div>
+                    <p class="mt-1 text-[11px] text-gray-400">💡 엔카=원화 / ssancar 재고=미화 자동. 통화 버튼으로 변경 가능. (가격계산용 ‘차값’과 별개 참고가)</p>
                     @error('expected_price') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     <label class="label-base mt-2">respond.io 컨택트 ID <span class="text-gray-400">(선택 · 바이어 식별 · 자동회신 매칭키)</span></label>
                     <input class="input-base" wire:model="respond_contact_id" placeholder="respond.io 바이어 컨택트 ID (예: 469733036)">
@@ -594,27 +606,15 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <input class="input-base" wire:model="region" list="regionList" placeholder="수원 입력 → 자동완성">
                         @error('region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
+                    <div>
+                        <label class="label-base">매물번호 <span class="text-gray-400">(c_no)</span></label>
+                        <input class="input-base" wire:model="c_no" placeholder="링크 추출 시 자동">
+                        @error('c_no') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
                 </div>
                 <datalist id="regionList">
                     @foreach (config('board.regions') as $r)<option value="{{ $r }}">@endforeach
                 </datalist>
-
-                {{-- 엔카 매물 URL + 매물번호(c_no) --}}
-                @if ($source === 'encar')
-                    <div class="mt-3 grid gap-3 sm:grid-cols-2">
-                        <div>
-                            <label class="label-base">엔카 매물 URL</label>
-                            <input class="input-base" wire:model="encar_url" placeholder="https://encar.com/...">
-                            @error('encar_url') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                        </div>
-                        <div>
-                            <label class="label-base">매물번호 <span class="text-gray-400">(c_no)</span></label>
-                            <input class="input-base" wire:model="c_no" placeholder="예: 6797296">
-                            @error('c_no') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                        </div>
-                    </div>
-                    <p class="mt-1 text-[11px] text-gray-400">💡 매물번호(c_no)는 ssancar 매물 식별값 — 추후 respond.io 연동 시 자동 입력.</p>
-                @endif
 
                 {{-- 경매 전용 식별 정보 --}}
                 @if ($source === 'auction')

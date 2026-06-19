@@ -58,13 +58,20 @@ class ListingEnrichment
             }
         }
 
-        // ② VIN = <em id="copy_txt">…</em>, 차량번호 = 한국 번호판 패턴. (USD 차값은 미결정 → 안 채움)
+        // ② VIN = <em id="copy_txt">…</em>, 차량번호 = 한국 번호판 패턴, 차값 = USD(페이지엔 USD만).
         $out = [];
         if (preg_match('/id=["\']copy_txt["\'][^>]*>\s*([^<\s][^<]*?)\s*</u', $html, $m)) {
             $out['vin'] = trim($m[1]);
         }
         if (preg_match('/(\d{2,3}\s?[가-힣]\s?\d{4})/u', $html, $m)) {
             $out['vehicle_number'] = preg_replace('/\s+/u', '', $m[1]);
+        }
+        if (preg_match('/([\d,]+)\s*USD/', $html, $m)) {   // ssancar 재고는 미화 표기. 통화=USD 로 저장, 영업이 토글 가능.
+            $usd = (int) str_replace(',', '', $m[1]);
+            if ($usd > 0) {
+                $out['expected_price'] = $usd;
+                $out['currency'] = 'USD';
+            }
         }
 
         return $out;
@@ -86,12 +93,17 @@ class ListingEnrichment
         $j = (array) $res->json();
         $price = data_get($j, 'advertisement.price');   // 만원 단위 → ×10000
 
-        return array_filter([
+        $out = array_filter([
             'vehicle_number' => data_get($j, 'vehicleNo'),
             'expected_price' => is_numeric($price) ? (int) round(((float) $price) * 10000) : null,
             'region' => $this->city(data_get($j, 'contact.address')),
             'vin' => data_get($j, 'vin'),
         ], fn ($v) => $v !== null && $v !== '');
+        if (isset($out['expected_price'])) {
+            $out['currency'] = 'KRW';   // encar = 원화
+        }
+
+        return $out;
     }
 
     /** 주소 → 시 단위. "대구 서구 …" → 대구 / "경기 안산시 …" → 안산. */

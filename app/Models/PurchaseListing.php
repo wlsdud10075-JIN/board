@@ -21,7 +21,7 @@ class PurchaseListing extends Model
         'created_by_user_id', 'source', 'origin', 'region', 'c_no', 'ssancar_ref',
         'respond_conversation_id', 'respond_contact_id', 'encar_id',
         'vehicle_number', 'owner_name', 'vin',
-        'expected_price', 'car_cost', 'discount_rate', 'shipping_usd',
+        'expected_price', 'expected_price_currency', 'car_cost', 'discount_rate', 'shipping_usd',
         'final_price', 'encar_url', 'encar_dealer',
         'auction_venue', 'lot_number', 'status', 'buyer_verdict', 'verdict_channel',
         'buyer_name', 'payee_name', 'payee_bank', 'payee_account',
