@@ -156,6 +156,7 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 6. **식별값 가드 순서** — IDENTITY_LOCKED 체크가 override 체크보다 먼저라 관리자도 연동된(car_erp_vehicle_id≠null) 차량 VIN 은 못 바꿈. 미연동만 정정.
 7. **시더 재실행** — listings `updateOrCreate(by vin)` 가 status 를 시드값으로 되돌리는데, DB 현재 status 가 다르면 전이 가드에 걸릴 수 있음. UI 로 상태 진행시킨 뒤 `db:seed` 재실행 주의(필요시 `migrate:fresh --seed` 또는 query update 로 복구).
 8. **enum unique + NULL** — `unique('vin')` / `unique(['auction_venue','lot_number'])` 는 MySQL/MariaDB 에서 NULL 다중 허용 → 엔카(venue/lot NULL)·VIN 없는 행 충돌 안 함.
+9. **Livewire morph + Alpine 접기 카드 = `wire:key` 필수 (2026-06-19)** — `@forelse` 안에서 `x-data="{ open }"` 접기 카드를 `wire:key` 없이 쓰면, 탭 전환 등 Livewire 재렌더(morph)가 이전 DOM 노드를 재사용해 **첫 항목의 Alpine 상태가 깨짐**(토글 불능·계속 펼침, 나머지는 정상). 증상: 기본 탭은 멀쩡한데 `setTab` 으로 들어가는 탭의 첫 카드만 안 접힘. 해결 = 반복 루트 요소마다 `wire:key="...-{{ $loop->index }}"`. (portal 판매/미수금/선적/월별에서 발생·수정.)
 9. **Tailwind v4 `!important` 위치 (★2회 발생)** — v4 는 **후행** `bg-red-500!`, 선행 `!bg-red-500`(v3 문법)은 **무시됨**. `input-base{width:100%}`·`btn-outline{background:#fff}` 같은 커스텀 클래스를 못 덮어 "세로로 쌓임/배경 안 변함" 증상. 해결 = 인라인 `style`/`@style` 디렉티브(확실, 빌드 불필요) 또는 grid 레이아웃. blade 새 클래스는 `npm run build` 필요도 주의.
 10. **목록 전체로드 금지** — `->latest()->get()` 는 수천 건에서 느림. `/manage` 처럼 `paginate()` + DB 필터 + 별도 `count()` KPI. (옛 코드 답습 말 것)
 
