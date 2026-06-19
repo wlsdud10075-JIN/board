@@ -1,7 +1,9 @@
 <?php
 
+use App\Models\User;
 use App\Services\CarErpReadService;
 use Illuminate\Support\Facades\Auth;
+use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
 
@@ -13,6 +15,8 @@ use Livewire\Volt\Component;
  */
 new #[Layout('components.layouts.app')] class extends Component {
     public string $tab = 'finance';
+
+    public ?int $viewUserId = null;   // super 전용 — 다른 사용자 포털 열람 대상(본인=null). 비-super 는 무시(본인 격리 유지).
 
     public array $result = ['ok' => false, 'reason' => 'init', 'data' => null, 'status' => 0];
 
@@ -110,12 +114,63 @@ new #[Layout('components.layouts.app')] class extends Component {
         return app(CarErpReadService::class);
     }
 
-    /** car-erp 영업 매칭 이메일 — 오버라이드 우선, 없으면 로그인. (요청값 절대 사용 안 함) */
+    /**
+     * car-erp 영업 매칭 이메일 — 오버라이드 우선, 없으면 로그인.
+     * super 가 다른 사용자를 열람 중이면 그 사용자 기준(서버 isSuper 게이트). 비-super 는 항상 본인.
+     */
     private function salesmanEmail(): string
     {
-        $u = Auth::user();
+        $u = $this->viewingUser() ?? Auth::user();
 
         return $u->car_erp_salesman_email ?: $u->email;
+    }
+
+    /** super 전용 — 포털 열람 가능한 사용자(영업·관리, 활성). 비-super 는 빈 목록. */
+    #[Computed]
+    public function portalUsers()
+    {
+        if (! Auth::user()->isSuper()) {
+            return collect();
+        }
+
+        return User::whereIn('role', ['sales', 'manager'])
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name', 'role', 'email', 'car_erp_salesman_email']);
+    }
+
+    /** 현재 열람 중인 사용자 — super 가 지정했고 목록에 있는 유효 대상일 때만. 그 외(비-super 포함) null=본인. */
+    private function viewingUser(): ?User
+    {
+        if ($this->viewUserId === null || ! Auth::user()->isSuper()) {
+            return null;
+        }
+
+        return $this->portalUsers->firstWhere('id', $this->viewUserId);
+    }
+
+    /** 화면에 표시할 열람 대상 이름(본인 또는 super 가 선택한 사용자). */
+    public function viewingName(): string
+    {
+        return ($this->viewingUser() ?? Auth::user())->name;
+    }
+
+    /** super 가 다른 사용자를 열람 중인가 — 그렇다면 쓰기(선적요청·서류)는 조회 전용 차단. */
+    public function isViewingOther(): bool
+    {
+        return $this->viewingUser() !== null;
+    }
+
+    /** super — 열람 대상 변경(이름 클릭). null=본인. 비-super 는 무시(본인 격리). 목록 밖 id 도 무시. */
+    public function viewUser(?int $id): void
+    {
+        if (! Auth::user()->isSuper()) {
+            return;
+        }
+        $this->viewUserId = ($id !== null && $this->portalUsers->contains('id', $id)) ? $id : null;
+        // 대상이 바뀌면 선적 빌더 상태(이전 사용자 차량 id)를 초기화.
+        $this->reset(['selectedIds', 'consigneeByBuyer', 'methodByBuyer', 'shipDone', 'shipNote']);
+        $this->load();
     }
 
     private function load(): void
@@ -143,6 +198,12 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** 선적요청 — 한 바이어 묶음(선택 차 + 컨사이니 + RORO/CONTAINER). */
     public function submitShipping(int $buyerId, array $vehicleIds): void
     {
+        // 조회 전용 — super 가 타인 포털 열람 중엔 쓰기 차단(본인 계정에서만 요청). 서버 게이트.
+        if ($this->isViewingOther()) {
+            $this->shipNote = '조회 전용입니다. 선적요청은 본인 계정에서 진행하세요.';
+
+            return;
+        }
         $this->shipDone = null;
         $ids = array_values(array_intersect(array_map('intval', $this->selectedIds), $vehicleIds));
         if ($ids === []) {
@@ -177,6 +238,12 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** ①② 서류 — 선택 차량의 선적서류(method별 4종 중 2종). xlsx 스트림 다운로드. */
     public function downloadDocs(int $buyerId, array $vehicleIds, string $kind)
     {
+        // 조회 전용 — 타인 포털 열람 중엔 서류(타인 PII) 다운로드 차단. 서버 게이트.
+        if ($this->isViewingOther()) {
+            $this->shipNote = '조회 전용입니다. 서류는 본인 계정에서 받으세요.';
+
+            return null;
+        }
         $ids = array_values(array_intersect(array_map('intval', $this->selectedIds), $vehicleIds));
         if ($ids === []) {
             $this->shipNote = '서류 받을 차량을 선택하세요.';
@@ -237,8 +304,32 @@ new #[Layout('components.layouts.app')] class extends Component {
 <div class="p-3 md:p-6">
     <div class="mb-4">
         <h1 class="text-xl font-bold text-gray-800">내 정산·미수·선적 (포털)</h1>
-        <p class="mt-0.5 text-xs text-gray-500">🔒 본인({{ auth()->user()->name }}) 정보만 — car-erp 원장 읽기. 수정·선적실무는 car-erp.</p>
+        @if (auth()->user()->isSuper() && $viewUserId !== null)
+            <p class="mt-0.5 text-xs text-gray-500">👁️ <b class="text-[var(--color-primary-text)]">{{ $this->viewingName() }}</b> 님의 정보 조회 중 — car-erp 원장 읽기. 수정·선적실무는 car-erp.</p>
+        @else
+            <p class="mt-0.5 text-xs text-gray-500">🔒 본인({{ auth()->user()->name }}) 정보만 — car-erp 원장 읽기. 수정·선적실무는 car-erp.</p>
+        @endif
     </div>
+
+    {{-- 사용자별 조회 (시스템관리자 전용) — 이름 클릭 시 그 사용자의 정산·미수·선적 표시 --}}
+    @if (auth()->user()->isSuper())
+        <div class="card-sm mb-3" style="background:#f8f9fb">
+            <div class="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span class="text-[12px] font-semibold text-gray-600">👁️ 사용자별 조회</span>
+                <span class="text-[11px] text-gray-400">이름을 누르면 그 사용자의 정산·미수·선적이 표시됩니다 (시스템관리자 전용)</span>
+            </div>
+            <div class="flex flex-wrap gap-1">
+                <button wire:click="viewUser(null)"
+                    class="rounded-md border px-2.5 py-1 text-[12px] font-semibold {{ $viewUserId === null ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">나(본인)</button>
+                @foreach ($this->portalUsers as $pu)
+                    <button wire:click="viewUser({{ $pu->id }})"
+                        class="rounded-md border px-2.5 py-1 text-[12px] font-semibold {{ $viewUserId === $pu->id ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">
+                        {{ $pu->name }} <span class="text-[10px] font-normal opacity-70">{{ $pu->roleLabel() }}</span>
+                    </button>
+                @endforeach
+            </div>
+        </div>
+    @endif
 
     {{-- 탭 --}}
     <div class="mb-3 flex flex-wrap gap-1">
@@ -290,23 +381,40 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <button type="button" class="mb-2 flex items-center gap-2 font-bold text-gray-700" @click="open = !open">
                     <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span> 📅 월별 실적
                 </button>
-                <div x-show="open" x-cloak class="overflow-x-auto">
-                    <table class="tbl">
-                        <thead><tr><th>월</th><th>판매(건)</th><th>정산 실지급(원)</th><th>매입(건)</th><th>매입가(원)</th></tr></thead>
-                        <tbody>
-                            @forelse ($monthly as $month => $row)
-                                <tr>
-                                    <td class="font-semibold text-gray-700">{{ $month }}</td>
-                                    <td>{{ $row['sales_cnt'] ?? 0 }}</td>
-                                    <td>{{ number_format((float) ($row['settle_sum'] ?? 0)) }}</td>
-                                    <td>{{ $row['purch_cnt'] ?? 0 }}</td>
-                                    <td>{{ number_format((float) ($row['purch_sum'] ?? 0)) }}</td>
-                                </tr>
-                            @empty
-                                <tr><td colspan="5" class="py-6 text-center text-gray-400">월별 실적이 없습니다.</td></tr>
-                            @endforelse
-                        </tbody>
-                    </table>
+                <div x-show="open" x-cloak>
+                    <div class="hidden overflow-x-auto sm:block">
+                        <table class="tbl">
+                            <thead><tr><th>월</th><th>판매(건)</th><th>정산 실지급(원)</th><th>매입(건)</th><th>매입가(원)</th></tr></thead>
+                            <tbody>
+                                @forelse ($monthly as $month => $row)
+                                    <tr>
+                                        <td class="font-semibold text-gray-700">{{ $month }}</td>
+                                        <td>{{ $row['sales_cnt'] ?? 0 }}</td>
+                                        <td>{{ number_format((float) ($row['settle_sum'] ?? 0)) }}</td>
+                                        <td>{{ $row['purch_cnt'] ?? 0 }}</td>
+                                        <td>{{ number_format((float) ($row['purch_sum'] ?? 0)) }}</td>
+                                    </tr>
+                                @empty
+                                    <tr><td colspan="5" class="py-6 text-center text-gray-400">월별 실적이 없습니다.</td></tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="space-y-2 sm:hidden">
+                        @forelse ($monthly as $month => $row)
+                            <div class="card-tight">
+                                <div class="font-semibold text-gray-700">{{ $month }}</div>
+                                <div class="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-gray-600">
+                                    <div>판매 <b class="text-gray-800">{{ $row['sales_cnt'] ?? 0 }}</b>건</div>
+                                    <div>매입 <b class="text-gray-800">{{ $row['purch_cnt'] ?? 0 }}</b>건</div>
+                                    <div>정산 <b class="text-gray-800">{{ number_format((float) ($row['settle_sum'] ?? 0)) }}</b></div>
+                                    <div>매입가 <b class="text-gray-800">{{ number_format((float) ($row['purch_sum'] ?? 0)) }}</b></div>
+                                </div>
+                            </div>
+                        @empty
+                            <div class="py-6 text-center text-gray-400">월별 실적이 없습니다.</div>
+                        @endforelse
+                    </div>
                     <p class="mt-1 text-[11px] text-gray-400">💡 판매액은 통화가 섞여 합산 대신 건수로 표시. 정산·매입은 원화 합산.</p>
                 </div>
             </div>
@@ -373,6 +481,15 @@ new #[Layout('components.layouts.app')] class extends Component {
                         🧑 {{ $buyerName }} <span class="text-xs font-normal text-gray-400">· {{ count($vIds) }}대 선적가능</span>
                     </button>
                     <div x-show="open" x-cloak class="mt-2">
+                    @if ($this->isViewingOther())
+                        {{-- super 조회 전용 — 선적가능 차량 목록만 표시, 쓰기 액션(선적요청·서류) 숨김 --}}
+                        <div class="mb-1 flex flex-wrap gap-1.5">
+                            @foreach ($group as $v)
+                                <span class="rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[12px] font-semibold text-gray-700">{{ data_get($v, 'vehicle_number') }}</span>
+                            @endforeach
+                        </div>
+                        <p class="text-[11px] text-gray-400">👁️ 조회 전용 — 선적요청·서류는 본인({{ $this->viewingName() }}) 계정에서 진행합니다.</p>
+                    @else
                     <div class="mb-2 space-y-1">
                         @foreach ($group as $v)
                             <label class="flex items-center gap-2 text-[13px]">
@@ -404,6 +521,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <button wire:click="downloadDocs({{ $buyerId }}, {{ json_encode($vIds) }}, 'contract')" class="btn-ghost btn-sm">📄 계약서</button>
                         <button wire:click="downloadDocs({{ $buyerId }}, {{ json_encode($vIds) }}, 'invoice_packing')" class="btn-ghost btn-sm">📄 인보이스·패킹</button>
                     </div>
+                    @endif
                     </div>
                 </div>
             @empty
@@ -452,32 +570,48 @@ new #[Layout('components.layouts.app')] class extends Component {
                         @php $sum = $rows->sum(fn ($r) => (float) (data_get($r, 'unpaid_krw') ?? 0)); @endphp
                         <span class="ml-auto text-[13px] font-bold text-[var(--color-primary-text)]">{{ number_format($sum) }}원</span>
                     </button>
-                    <div x-show="open" x-cloak class="mt-2 overflow-x-auto">
-                        <table class="tbl">
-                            <thead><tr>
-                                @foreach ($cols as $k => $label)
-                                    <th><button type="button" wire:click="sortRecv('{{ $k }}')" class="flex items-center gap-1 font-semibold {{ $recvSort === $k ? 'text-[var(--color-primary-text)]' : '' }}">{{ $label }}<span class="text-[10px]">{{ $recvSort === $k ? ($recvDir === 'asc' ? '▲' : '▼') : '↕' }}</span></button></th>
-                                @endforeach
-                            </tr></thead>
-                            <tbody>
-                                @foreach ($sortRows($rows) as $row)
-                                    <tr>
-                                        @foreach ($cols as $k => $label)
-                                            @php $val = data_get($row, $k); @endphp
-                                            <td class="whitespace-nowrap {{ $val === null ? 'text-amber-600' : 'text-gray-700' }}">
-                                                @if ($val === null)
-                                                    {{ $k === 'unpaid_krw' ? '환율 미입력' : '—' }}
-                                                @elseif ($k === 'unpaid_krw' && is_numeric($val))
-                                                    {{ number_format((float) $val) }}
-                                                @else
-                                                    {{ $val }}
-                                                @endif
-                                            </td>
-                                        @endforeach
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
+                    <div x-show="open" x-cloak class="mt-2">
+                        <div class="hidden overflow-x-auto sm:block">
+                            <table class="tbl">
+                                <thead><tr>
+                                    @foreach ($cols as $k => $label)
+                                        <th><button type="button" wire:click="sortRecv('{{ $k }}')" class="flex items-center gap-1 font-semibold {{ $recvSort === $k ? 'text-[var(--color-primary-text)]' : '' }}">{{ $label }}<span class="text-[10px]">{{ $recvSort === $k ? ($recvDir === 'asc' ? '▲' : '▼') : '↕' }}</span></button></th>
+                                    @endforeach
+                                </tr></thead>
+                                <tbody>
+                                    @foreach ($sortRows($rows) as $row)
+                                        <tr>
+                                            @foreach ($cols as $k => $label)
+                                                @php $val = data_get($row, $k); @endphp
+                                                <td class="whitespace-nowrap {{ $val === null ? 'text-amber-600' : 'text-gray-700' }}">
+                                                    @if ($val === null)
+                                                        {{ $k === 'unpaid_krw' ? '환율 미입력' : '—' }}
+                                                    @elseif ($k === 'unpaid_krw' && is_numeric($val))
+                                                        {{ number_format((float) $val) }}
+                                                    @else
+                                                        {{ $val }}
+                                                    @endif
+                                                </td>
+                                            @endforeach
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="space-y-1.5 sm:hidden">
+                            @foreach ($sortRows($rows) as $row)
+                                @php $unpaid = data_get($row, 'unpaid_krw'); @endphp
+                                <div class="flex items-center justify-between gap-2 rounded-md border border-gray-100 bg-gray-50 px-2.5 py-2">
+                                    <div class="min-w-0">
+                                        <div class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') ?: '—' }}</div>
+                                        <div class="text-[11px] text-gray-400">{{ data_get($row, 'currency') ?: '—' }} · 환율 {{ data_get($row, 'exchange_rate') ?? '—' }}</div>
+                                    </div>
+                                    <div class="shrink-0 text-right text-sm font-bold {{ $unpaid === null ? 'text-amber-600' : 'text-gray-800' }}">
+                                        {{ $unpaid === null ? '환율 미입력' : number_format((float) $unpaid).'원' }}
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
                     </div>
                 </div>
             @empty
@@ -502,22 +636,40 @@ new #[Layout('components.layouts.app')] class extends Component {
                         🧑 {{ $bName }} <span class="text-xs font-normal text-gray-400">· {{ data_get($b, 'vehicle_count', 0) }}대</span>
                         <span class="ml-auto text-[13px]">@forelse ($byCur as $cur => $amt)<span class="ml-2 whitespace-nowrap"><b class="text-gray-500">{{ $cur }}</b> {{ number_format((float) $amt) }}</span>@empty<span class="text-gray-300">—</span>@endforelse</span>
                     </button>
-                    <div x-show="open" x-cloak class="mt-2 overflow-x-auto">
-                        <table class="tbl">
-                            <thead><tr><th>차량</th><th>통화</th><th>판매가</th><th>판매일</th></tr></thead>
-                            <tbody>
-                                @forelse ($rows as $row)
-                                    <tr>
-                                        <td class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') }}</td>
-                                        <td>{{ data_get($row, 'currency') ?: '—' }}</td>
-                                        <td>{{ ($p = data_get($row, 'sale_price')) !== null && is_numeric($p) ? number_format((float) $p) : '—' }}</td>
-                                        <td>{{ data_get($row, 'sale_date') ?: '—' }}</td>
-                                    </tr>
-                                @empty
-                                    <tr><td colspan="4" class="py-3 text-center text-gray-400">차량 상세 없음</td></tr>
-                                @endforelse
-                            </tbody>
-                        </table>
+                    <div x-show="open" x-cloak class="mt-2">
+                        <div class="hidden overflow-x-auto sm:block">
+                            <table class="tbl">
+                                <thead><tr><th>차량</th><th>통화</th><th>판매가</th><th>판매일</th></tr></thead>
+                                <tbody>
+                                    @forelse ($rows as $row)
+                                        <tr>
+                                            <td class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') }}</td>
+                                            <td>{{ data_get($row, 'currency') ?: '—' }}</td>
+                                            <td>{{ ($p = data_get($row, 'sale_price')) !== null && is_numeric($p) ? number_format((float) $p) : '—' }}</td>
+                                            <td>{{ data_get($row, 'sale_date') ?: '—' }}</td>
+                                        </tr>
+                                    @empty
+                                        <tr><td colspan="4" class="py-3 text-center text-gray-400">차량 상세 없음</td></tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="space-y-1.5 sm:hidden">
+                            @forelse ($rows as $row)
+                                <div class="flex items-center justify-between gap-2 rounded-md border border-gray-100 bg-gray-50 px-2.5 py-2">
+                                    <div class="min-w-0">
+                                        <div class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') }}</div>
+                                        <div class="text-[11px] text-gray-400">{{ data_get($row, 'sale_date') ?: '—' }}</div>
+                                    </div>
+                                    <div class="shrink-0 text-right text-sm font-semibold text-gray-800">
+                                        {{ ($p = data_get($row, 'sale_price')) !== null && is_numeric($p) ? number_format((float) $p) : '—' }}
+                                        <span class="text-[11px] font-normal text-gray-400">{{ data_get($row, 'currency') ?: '' }}</span>
+                                    </div>
+                                </div>
+                            @empty
+                                <div class="py-3 text-center text-gray-400">차량 상세 없음</div>
+                            @endforelse
+                        </div>
                     </div>
                 </div>
             @empty
@@ -527,7 +679,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         @elseif ($tab === 'settlements')
             {{-- 정산내역 — 바이어별 정산 실지급 (by-buyer, payout 내림차순) --}}
             @php $buyers = data_get($result['data'], 'data', []); @endphp
-            <div class="overflow-x-auto">
+            <div class="hidden overflow-x-auto sm:block">
                 <table class="tbl">
                     <thead><tr><th>바이어</th><th>차량수</th><th>정산 실지급(원)</th><th>지급 완료(원)</th></tr></thead>
                     <tbody>
@@ -544,6 +696,22 @@ new #[Layout('components.layouts.app')] class extends Component {
                     </tbody>
                 </table>
             </div>
+            <div class="space-y-2 sm:hidden">
+                @forelse ($buyers as $b)
+                    <div class="card-tight">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="font-semibold text-gray-700">{{ data_get($b, 'buyer') ?: '(바이어 미지정)' }}</span>
+                            <span class="shrink-0 text-xs text-gray-400">{{ data_get($b, 'vehicle_count', 0) }}대</span>
+                        </div>
+                        <div class="mt-1 grid grid-cols-2 gap-x-3 text-xs text-gray-600">
+                            <div>정산 실지급 <b class="text-gray-800">{{ number_format((float) data_get($b, 'payout_total_krw', 0)) }}</b></div>
+                            <div>지급 완료 <b class="text-gray-800">{{ number_format((float) data_get($b, 'payout_paid_krw', 0)) }}</b></div>
+                        </div>
+                    </div>
+                @empty
+                    <div class="py-8 text-center text-gray-400">정산내역이 없습니다.</div>
+                @endforelse
+            </div>
 
         @else
             {{-- 매입내역 — buyer 무관(경매/판매처) → 평면 목록 --}}
@@ -551,7 +719,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 $items = data_get($result['data'], 'data', []);
                 $cols = ['vehicle_number' => '차량', 'purchase_price' => '매입가', 'cost_total' => '비용합', 'purchase_unpaid' => '미지급', 'purchase_date' => '매입일'];
             @endphp
-            <div class="overflow-x-auto">
+            <div class="hidden overflow-x-auto sm:block">
                 <table class="tbl">
                     <thead><tr>@foreach ($cols as $label)<th>{{ $label }}</th>@endforeach</tr></thead>
                     <tbody>
@@ -575,6 +743,24 @@ new #[Layout('components.layouts.app')] class extends Component {
                         @endforelse
                     </tbody>
                 </table>
+            </div>
+            <div class="space-y-2 sm:hidden">
+                @forelse ($items as $row)
+                    <div class="card-tight">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') ?: '—' }}</span>
+                            <span class="shrink-0 text-[11px] text-gray-400">{{ data_get($row, 'purchase_date') ?: '' }}</span>
+                        </div>
+                        <div class="mt-1 grid grid-cols-3 gap-x-2 text-xs text-gray-600">
+                            @foreach (['purchase_price' => '매입가', 'cost_total' => '비용합', 'purchase_unpaid' => '미지급'] as $key => $label)
+                                @php $val = data_get($row, $key); @endphp
+                                <div>{{ $label }}<br><b class="text-gray-800">{{ ($val === null || ! is_numeric($val)) ? '—' : number_format((float) $val) }}</b></div>
+                            @endforeach
+                        </div>
+                    </div>
+                @empty
+                    <div class="py-8 text-center text-gray-400">매입내역이 없습니다.</div>
+                @endforelse
             </div>
         @endif
     </div>

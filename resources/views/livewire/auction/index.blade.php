@@ -139,7 +139,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             <span class="pill-count">수락 {{ $this->listings->where('status', 'accepted')->count() }}건</span>
         </div>
 
-        <div class="overflow-x-auto">
+        {{-- 데스크톱: 표 --}}
+        <div class="hidden overflow-x-auto sm:block">
             <table class="tbl">
                 <thead>
                     <tr><th>차량</th><th>출처</th><th>영업</th><th>현지 최종금액</th><th>처리</th></tr>
@@ -164,6 +165,31 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @endforelse
                 </tbody>
             </table>
+        </div>
+
+        {{-- 모바일: 카드 --}}
+        <div class="space-y-2 sm:hidden">
+            @forelse ($this->listings as $l)
+                <div class="card-tight cursor-pointer" wire:click="openDetail({{ $l->id }})">
+                    <div class="flex items-start justify-between gap-2">
+                        <div class="min-w-0">
+                            <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
+                            <div class="text-xs text-gray-400">영업 {{ $l->creator->name }}</div>
+                        </div>
+                        <span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }} shrink-0">{{ $l->isAuction() ? '경매' : '엔카' }}</span>
+                    </div>
+                    <div class="mt-2 flex items-center justify-between gap-2">
+                        @if ($l->status === 'accepted')
+                            <span class="badge badge-amber">집행 대기 · 탭</span>
+                        @else
+                            <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }} ✓</span>
+                        @endif
+                        <span class="shrink-0 text-sm font-semibold text-[var(--color-primary-text)]">{{ $l->final_price ? number_format($l->final_price).'원' : '—' }}</span>
+                    </div>
+                </div>
+            @empty
+                <div class="py-8 text-center text-gray-400">수락된 차량이 없습니다.</div>
+            @endforelse
         </div>
         <p class="mt-2 text-xs text-gray-400">💡 행을 클릭하면 차량 상세를 볼 수 있습니다.</p>
     </div>

@@ -265,7 +265,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <option value="pending">회신대기</option><option value="accepted">수락</option><option value="rejected">거절</option>
             </select>
         </div>
-        <div class="overflow-x-auto">
+        {{-- 데스크톱: 표 --}}
+        <div class="hidden overflow-x-auto sm:block">
             <table class="tbl">
                 <thead>
                     <tr><th>차량</th><th>출처</th><th>영업</th><th>예상가</th><th>최종금액</th><th>바이어</th><th>상태</th><th></th></tr>
@@ -287,6 +288,34 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @endforelse
                 </tbody>
             </table>
+        </div>
+
+        {{-- 모바일: 카드 --}}
+        <div class="space-y-2 sm:hidden">
+            @forelse ($this->listings as $l)
+                <div class="card-tight">
+                    <div class="flex items-start justify-between gap-2">
+                        <div class="min-w-0">
+                            <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
+                            <div class="text-xs text-gray-400">영업 {{ $l->creator->name }}</div>
+                        </div>
+                        <span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }} shrink-0">{{ $l->isAuction() ? '경매' : '엔카' }}</span>
+                    </div>
+                    <div class="mt-2 flex flex-wrap items-center gap-1">
+                        <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span>
+                        @if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@endif
+                    </div>
+                    <div class="mt-2 flex items-end justify-between gap-2">
+                        <div class="min-w-0 text-xs text-gray-500">
+                            예상 {{ $l->expected_price ? number_format($l->expected_price) : '—' }}<br>
+                            최종 <b class="text-[var(--color-primary-text)]">{{ $l->final_price ? number_format($l->final_price).'원' : '—' }}</b>
+                        </div>
+                        <button class="btn-outline btn-sm shrink-0" wire:click="openEdit({{ $l->id }})">✏️ 수정</button>
+                    </div>
+                </div>
+            @empty
+                <div class="py-8 text-center text-gray-400">조건에 맞는 데이터가 없습니다.</div>
+            @endforelse
         </div>
         <div class="mt-3">{{ $this->listings->links() }}</div>
     </div>
