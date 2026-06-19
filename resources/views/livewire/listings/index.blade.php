@@ -24,6 +24,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $respond_contact_id = ''; // respond.io 대화 연결(스파인, 영업이 채팅에서 복사)
     public string $linkInput = '';          // 승격: 유입 링크 붙여넣기 → 자동추출
     public ?int $promotingId = null;        // 승격 대기에서 시작한 경우 — 저장 시 consume
+    public ?string $expected_price = null;  // 매물 표시가 (enrichment 자동채움 · 참고가, car_cost 와 별개)
     public ?string $car_cost = null;        // 차값 (KRW)
     public ?string $discount_rate = null;   // 할인율 (%)
     public ?int $shipping_usd = null;       // 배송금액 (USD 고정 택1)
@@ -320,13 +321,34 @@ new #[Layout('components.layouts.app')] class extends Component {
             $this->ssancar_ref = $r['ssancar_ref'];
         }
 
+        // 매물 자동채움(enrichment) — 빈 칸만 prefill, 영업이 확인 후 저장(IDENTITY_LOCKED 자동확정 금지).
+        $e = app(\App\Services\ListingEnrichment::class)->enrich($r);
+        $filled = [];
+        if (! empty($e['vehicle_number']) && $this->vehicle_number === '') {
+            $this->vehicle_number = $e['vehicle_number'];
+            $filled[] = '차량번호';
+        }
+        if (! empty($e['expected_price']) && ($this->expected_price === null || $this->expected_price === '')) {
+            $this->expected_price = (string) $e['expected_price'];
+            $filled[] = '표시가';
+        }
+        if (! empty($e['region']) && $this->region === '') {
+            $this->region = $e['region'];
+            $filled[] = '지역';
+        }
+        if (! empty($e['vin']) && $this->vin === '') {
+            $this->vin = $e['vin'];
+            $filled[] = 'VIN';
+        }
+
         $bits = array_filter([
             isset($r['encar_id']) ? 'encar #'.$r['encar_id'] : null,
             isset($r['c_no']) ? 'c_no '.$r['c_no'] : null,
             $r['ssancar_ref'] ?? null,
         ]);
         $cat = PurchaseListing::ORIGIN_LABELS[$this->origin] ?? '';
-        session()->flash('ok', '['.$cat.'] 추출: '.implode(' · ', $bits).' — 차량번호만 입력하면 됩니다.');
+        $auto = $filled ? ' · 자동채움: '.implode('/', $filled) : '';
+        session()->flash('ok', '['.$cat.'] 추출: '.implode(' · ', $bits).$auto.' — 확인 후 저장하세요.');
     }
 
     public function save(): void
@@ -344,6 +366,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'ssancar_ref' => 'nullable|string|max:50',
             'encar_id' => 'nullable|string|max:50',
             'respond_contact_id' => 'nullable|string|max:80',
+            'expected_price' => 'nullable|numeric|min:0',
             'payee_name' => 'nullable|string|max:60',
             'payee_bank' => 'nullable|string|max:40',
             'payee_account' => 'nullable|string|max:40',
@@ -394,6 +417,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'payee_name' => $this->payee_name ?: null,
             'payee_bank' => $this->payee_bank ?: null,
             'payee_account' => $this->payee_account ?: null,
+            'expected_price' => ($this->expected_price === null || $this->expected_price === '') ? null : (int) $this->expected_price,
             'car_cost' => $carCost,
             'discount_rate' => $discount,
             'shipping_usd' => $shipping,
@@ -424,7 +448,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     private function resetForm(): void
     {
-        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'linkInput', 'promotingId', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
+        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'linkInput', 'promotingId', 'expected_price', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
         $this->origin = 'encar';
         $this->source = 'encar';
         $this->resetErrorBag();
@@ -534,6 +558,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                             @if ($ssancar_ref)<span class="badge badge-gray">{{ $ssancar_ref }}</span>@endif
                         </div>
                     @endif
+                    <label class="label-base mt-2">매물 표시가 <span class="text-gray-400">(자동채움 · 참고가, 협상 차값과 별개)</span></label>
+                    <input class="input-base" wire:model="expected_price" inputmode="numeric" placeholder="매물 표시가(원) — 링크 추출 시 자동">
+                    @error('expected_price') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     <label class="label-base mt-2">respond.io 컨택트 ID <span class="text-gray-400">(선택 · 바이어 식별 · 자동회신 매칭키)</span></label>
                     <input class="input-base" wire:model="respond_contact_id" placeholder="respond.io 바이어 컨택트 ID (예: 469733036)">
                     @error('respond_contact_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror

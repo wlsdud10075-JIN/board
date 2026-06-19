@@ -13,6 +13,7 @@ use App\Models\PurchaseListing;
 use App\Models\User;
 use App\Services\CarErpReadService;
 use App\Services\ExchangeRateService;
+use App\Services\ListingEnrichment;
 use App\Services\RespondIoService;
 use App\Services\VerdictService;
 use App\Support\ListingLink;
@@ -1243,6 +1244,56 @@ class BoardTest extends TestCase
         // 본인 담당 아님 → firstOrFail(404) → consume 시도 차단(IDOR).
         $this->assertItThrows(fn () => Volt::test('listings.index')->call('promoteFrom', $req->id));
         $this->assertSame('pending', $req->fresh()->status);
+    }
+
+    // ─────────────────────── 매물 자동채움 (encar enrichment) ───────────────────────
+
+    public function test_enrichment_maps_encar_and_scales_price(): void
+    {
+        Http::fake(['*api.encar.com*' => Http::response([
+            'vehicleNo' => '12가3456', 'vin' => 'VINX',
+            'advertisement' => ['price' => 650],
+            'contact' => ['address' => '대구 서구 문화로 37'],
+        ], 200)]);
+
+        $r = (new ListingEnrichment)->byEncarId('42116243');
+
+        $this->assertSame('12가3456', $r['vehicle_number']);
+        $this->assertSame(6500000, $r['expected_price']);   // 650만 ×10000
+        $this->assertSame('대구', $r['region']);
+        $this->assertSame('VINX', $r['vin']);
+    }
+
+    public function test_enrichment_city_parser(): void
+    {
+        $s = new ListingEnrichment;
+        $this->assertSame('대구', $s->city('대구 서구 문화로 37'));     // 광역시
+        $this->assertSame('안산', $s->city('경기 안산시 단원구 원포공원1로 16'));   // 도+시
+        $this->assertNull($s->city(''));
+    }
+
+    public function test_enrichment_failure_is_safe(): void
+    {
+        Http::fake(['*api.encar.com*' => Http::response('', 500)]);
+        $this->assertSame([], (new ListingEnrichment)->byEncarId('1'));   // throw 안 함, prefill 없음
+    }
+
+    public function test_listings_link_prefills_from_encar(): void
+    {
+        Http::fake(['*api.encar.com/v1/readside/vehicle/*' => Http::response([
+            'vehicleNo' => '244로9100', 'vin' => 'WMW21GA04S7R38829',
+            'advertisement' => ['price' => 6666],
+            'contact' => ['address' => '경기 안산시 단원구 원포공원1로 16'],
+        ], 200)]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('linkInput', 'https://fem.encar.com/cars/detail/42176484')
+            ->call('parseLink')
+            ->assertSet('vehicle_number', '244로9100')
+            ->assertSet('expected_price', '66660000')   // 6666만 ×10000
+            ->assertSet('region', '안산')
+            ->assertSet('vin', 'WMW21GA04S7R38829');
     }
 
     // ─────────────────────── 영업 포털 — car-erp 읽기(HMAC GET) ───────────────────────

@@ -36,6 +36,11 @@ return [
     ],
 
     // 연동 B — car-erp purchase-sync (board → car-erp, HMAC). 대표 승인 후 사용.
+    // 매물 자동채움 — encar 공개 JSON API (헤더 불필요). 막히면 base_url/UA 조정.
+    'encar' => [
+        'base_url' => env('ENCAR_BASE_URL', 'https://api.encar.com'),
+    ],
+
     'car_erp' => [
         'base_url' => env('CAR_ERP_BASE_URL'),
         'hmac_secret' => env('CAR_ERP_HMAC_SECRET'),
