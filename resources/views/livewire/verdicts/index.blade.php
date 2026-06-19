@@ -72,7 +72,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                 </div>
             </div>
 
-            <div class="overflow-x-auto">
+            {{-- 데스크톱: 표 --}}
+            <div class="hidden overflow-x-auto sm:block">
                 <table class="tbl">
                     <thead>
                         <tr><th>차량</th><th>출처</th><th>최종금액</th><th>추가검사사항</th><th style="text-align:right">회신 처리</th></tr>
@@ -99,6 +100,33 @@ new #[Layout('components.layouts.app')] class extends Component {
                         @endforeach
                     </tbody>
                 </table>
+            </div>
+
+            {{-- 모바일: 카드 --}}
+            <div class="space-y-2 sm:hidden">
+                @foreach ($items as $l)
+                    <div class="card-tight">
+                        <div class="flex items-start justify-between gap-2">
+                            <div class="min-w-0">
+                                <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
+                                <div class="text-xs text-gray-400">{{ $l->owner_name ?: '소유자 —' }}</div>
+                            </div>
+                            <div class="shrink-0 text-right">
+                                <span class="badge {{ $l->originBadge() }}">{{ $l->originLabel() }}</span>
+                                <div class="mt-1 text-sm font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).'원' : '—' }}</div>
+                            </div>
+                        </div>
+                        @if ($l->inspection_note)
+                            <div class="mt-1 truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">📝 {{ $l->inspection_note }}</div>
+                        @endif
+                        <div class="mt-2 flex gap-2">
+                            <button class="btn-green flex-1 justify-center" wire:click="accept({{ $l->id }})"
+                                    wire:confirm="{{ $l->vehicle_number }} — 바이어 수락으로 처리할까요? (구매/경매 대기로 이동)">수락</button>
+                            <button class="btn-red flex-1 justify-center" wire:click="reject({{ $l->id }})"
+                                    wire:confirm="{{ $l->vehicle_number }} — 바이어 거절로 처리할까요?">거절</button>
+                        </div>
+                    </div>
+                @endforeach
             </div>
         </div>
     @empty

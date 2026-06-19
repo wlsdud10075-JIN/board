@@ -708,8 +708,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             </div>
         @endif
 
-        {{-- 리스트 --}}
-        <div class="overflow-x-auto">
+        {{-- 리스트 (데스크톱: 표) --}}
+        <div class="hidden overflow-x-auto sm:block">
             <table class="tbl">
                 <thead>
                     <tr><th class="w-px whitespace-nowrap">차량</th><th>출처</th><th>최종금액</th><th>추가검사사항</th><th>바이어</th><th>상태</th></tr>
@@ -732,6 +732,33 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @endforelse
                 </tbody>
             </table>
+        </div>
+
+        {{-- 리스트 (모바일: 카드) --}}
+        <div class="space-y-2 sm:hidden">
+            @forelse ($this->listings as $l)
+                <div class="card-tight cursor-pointer" wire:click="openEdit({{ $l->id }})">
+                    <div class="flex items-start justify-between gap-2">
+                        <div class="min-w-0">
+                            <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
+                            <div class="text-xs text-gray-400">VIN ·{{ \Illuminate\Support\Str::limit($l->vin, 12, '') }}</div>
+                        </div>
+                        <span class="badge {{ $l->originBadge() }} shrink-0">{{ $l->originLabel() }}</span>
+                    </div>
+                    <div class="mt-2 flex items-center justify-between gap-2">
+                        <div class="flex flex-wrap items-center gap-1">
+                            <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span>
+                            @if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@endif
+                        </div>
+                        <span class="shrink-0 text-sm font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).'원' : '—' }}</span>
+                    </div>
+                    @if ($l->inspection_note)
+                        <div class="mt-1 truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">📝 {{ $l->inspection_note }}</div>
+                    @endif
+                </div>
+            @empty
+                <div class="py-8 text-center text-gray-400">매입예정이 없습니다. “+ 매입예정 추가”로 등록하세요.</div>
+            @endforelse
         </div>
         <p class="mt-2 text-xs text-gray-400">💡 행을 클릭하면 내용을 보고 수정할 수 있습니다 (시간잠금된 경매 차량 제외).</p>
     </div>
