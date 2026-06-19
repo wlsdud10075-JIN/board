@@ -33,6 +33,9 @@ return [
     // 연동 A 승격 대기 — 캡처 후 이 일수 방치되면 폴러가 자동 expired (목록서 사라짐)
     'promotion_ttl_days' => (int) env('BOARD_PROMOTION_TTL_DAYS', 7),
 
+    // 업무 가이드(Notion 등 외부) — 사이드바 하단 링크. 비우면 미노출.
+    'work_guide_url' => env('BOARD_WORK_GUIDE_URL', 'https://app.notion.com/p/37345d82bd838108a418c76a210f1854'),
+
     // 검사지역 자동완성 — 한국 도+주요 시 (정적 번들, 외부 API 미사용)
     'regions' => [
         '서울특별시', '부산광역시', '대구광역시', '인천광역시', '광주광역시', '대전광역시', '울산광역시', '세종특별자치시',
