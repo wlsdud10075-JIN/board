@@ -1532,6 +1532,24 @@ class BoardTest extends TestCase
             ->call('setTab', 'settlements')->assertSee('7,000,000')->assertSee('지급 완료');
     }
 
+    public function test_portal_shipping_shows_in_progress_cards(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 0], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 2, 'data' => [
+                ['vehicle_id' => 1, 'vehicle_number' => 'REQ001', 'buyer' => ['id' => 5, 'name' => 'BuyerZ'], 'consignees' => [], 'shipping_status' => 'requested', 'shipping_method' => 'RORO'],
+                ['vehicle_id' => 2, 'vehicle_number' => 'AVAIL2', 'buyer' => ['id' => 6, 'name' => 'BuyerW'], 'consignees' => []],   // 요청전(none)
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'shipping')
+            ->assertSee('진행 중인 선적요청')->assertSee('REQ001')->assertSee('요청됨')   // 맨 위 카드
+            ->assertSee('BuyerW');   // 요청전 = 아래 선택그룹
+    }
+
     public function test_portal_finance_abbreviates_amounts(): void
     {
         $this->carErpReadConfig();

@@ -19,10 +19,12 @@
    - 멱등 취지(이중 생성 방지)는 유지 — **새 row 안 만들고 기존 갱신**. 응답에 created/updated/skipped 구분 주면 board 가 안내.
    - (대안 최소안: skip 유지하되 응답에 'already_requested' 명시 → board 가 "이미 요청됨" 안내. 단 내용 정정 불가 → 갱신안 권장.)
 
-## board 측 (car-erp 확정 후 구현)
-- shippable item `shipping_status` 로 뱃지(요청전/요청됨/진행중). **요청됨·진행중도 목록 유지**(체크·재요청 가능).
-- 요청됨 차량에 "재요청/갱신" 동작(현 submitShipping 재사용, car-erp 가 갱신 처리).
-- 사라짐은 car-erp 가 progress 로 제어 → board 무변경(목록 새로고침 시 빠짐).
+## board 측 (구현됨 — car-erp 응답만 기다림, dev 2026-06-19)
+- `/portal 선적요청` 탭: **shippable item 의 `shipping_status`(none/requested/in_progress) + `shipping_method`** 로 분기 렌더 **이미 구현**.
+  - `requested`/`in_progress` → **맨 위 "🚚 진행 중인 선적요청" 카드**(요청됨=amber / 진행중=blue 뱃지, 차량번호·바이어·method).
+  - `none`(또는 필드 없음) → 아래 바이어별 선택 UI(요청전).
+- **car-erp 가 ① whereNotIn 제거(요청 차 목록 유지) ② item 에 `shipping_status`·`shipping_method` 동봉** 하면 board 가 **자동으로 진행카드 표시**. (현재는 요청 차가 응답에서 빠져 카드 0 — car-erp 반영 시 즉시 동작.)
+- 재요청/갱신(요청됨 카드에서) 은 car-erp 갱신 정책 확정 후 추가.
 
 ## 열린 항목 (car-erp 결정)
 - 재요청 = **갱신** vs **skip+안내** (권장: 갱신).

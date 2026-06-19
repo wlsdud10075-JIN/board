@@ -313,9 +313,35 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         @elseif ($tab === 'shipping')
             {{-- ③ 선적요청 + ①② 서류 --}}
-            @php $vehicles = data_get($result['data'], 'data', []); @endphp
+            @php
+                $vehicles = collect(data_get($result['data'], 'data', []));
+                $statusOf = fn ($v) => data_get($v, 'shipping_status', 'none');
+                $inProgress = $vehicles->filter(fn ($v) => in_array($statusOf($v), ['requested', 'in_progress'], true))->values();
+                $available = $vehicles->reject(fn ($v) => in_array($statusOf($v), ['requested', 'in_progress'], true));
+            @endphp
+
+            {{-- 진행 중인 선적요청 — 맨 위 카드(요청됨/진행중). car-erp shipping_status 응답 시 표시(handoff). --}}
+            @if ($inProgress->isNotEmpty())
+                <div class="mb-4">
+                    <h3 class="mb-2 text-[13px] font-bold text-gray-700">🚚 진행 중인 선적요청 <span class="text-gray-400">· {{ $inProgress->count() }}대</span></h3>
+                    <div class="grid gap-2 sm:grid-cols-2">
+                        @foreach ($inProgress as $v)
+                            @php $st = $statusOf($v); @endphp
+                            <div class="flex items-center justify-between rounded-lg border px-3 py-2 {{ $st === 'in_progress' ? 'border-blue-200 bg-blue-50' : 'border-amber-200 bg-amber-50' }}">
+                                <div class="min-w-0">
+                                    <div class="truncate font-semibold text-gray-800">{{ data_get($v, 'vehicle_number') }}</div>
+                                    <div class="text-[11px] text-gray-500">{{ data_get($v, 'buyer.name') ?: '바이어 미지정' }}@if (data_get($v, 'shipping_method')) · {{ data_get($v, 'shipping_method') }}@endif</div>
+                                </div>
+                                <span class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold {{ $st === 'in_progress' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700' }}">{{ $st === 'in_progress' ? '진행중' : '요청됨' }}</span>
+                            </div>
+                        @endforeach
+                    </div>
+                    <p class="mt-1 text-[11px] text-gray-400">💡 car-erp 관리(수출통관)가 처리 중입니다. 선적·통관이 진행되면 목록에서 사라집니다.</p>
+                </div>
+            @endif
+
             <p class="mb-3 text-[13px] text-gray-500">판매완료된 본인 수출 차량을 <b>바이어별로 묶어</b> RORO/컨테이너 선적을 요청합니다. 요청하면 car-erp 관리(수출통관)에게 즉시 알람이 갑니다.</p>
-            @php $byBuyer = collect($vehicles)->groupBy(fn ($v) => data_get($v, 'buyer.id') ?? 0); @endphp
+            @php $byBuyer = $available->groupBy(fn ($v) => data_get($v, 'buyer.id') ?? 0); @endphp
             @forelse ($byBuyer as $buyerId => $group)
                 @php
                     $buyerName = data_get($group->first(), 'buyer.name') ?? '(바이어 미지정)';
