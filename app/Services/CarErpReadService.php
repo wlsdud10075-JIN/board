@@ -169,15 +169,14 @@ class CarErpReadService
         ], $canonical];
     }
 
-    /** canonical 문자열(계약 §1 그대로 — 인코딩 추가 금지, ksort 후 raw k=v&..., ?는 항상). */
+    /**
+     * canonical 문자열 — car-erp `VerifyBoardReadHmac` 구현과 바이트 일치.
+     * ksort 후 **http_build_query**(urlencode) — 스펙 §1 텍스트의 "k=v&"는 모호, 실검증은 http_build_query.
+     */
     public function canonical(string $method, string $path, array $query, string $timestamp, string $body): string
     {
         ksort($query);
-        $pairs = [];
-        foreach ($query as $k => $v) {
-            $pairs[] = $k.'='.$v;
-        }
 
-        return $method."\n".$path.'?'.implode('&', $pairs)."\n".$timestamp."\n".$body;
+        return $method."\n".$path.'?'.http_build_query($query)."\n".$timestamp."\n".$body;
     }
 }

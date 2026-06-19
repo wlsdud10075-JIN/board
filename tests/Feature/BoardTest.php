@@ -1256,13 +1256,14 @@ class BoardTest extends TestCase
     public function test_carerp_canonical_string_is_pinned(): void
     {
         $svc = new CarErpReadService;
+        // car-erp VerifyBoardReadHmac = ksort + http_build_query(urlencode). @=%40, ,=%2C.
         $this->assertSame(
-            "GET\n/api/internal/board/finance?salesman_email=kim@board.test\n1700000000\n",
+            "GET\n/api/internal/board/finance?salesman_email=kim%40board.test\n1700000000\n",
             $svc->canonical('GET', '/api/internal/board/finance', ['salesman_email' => 'kim@board.test'], '1700000000', '')
         );
-        // 다중 쿼리 ksort: ids < salesman_email. raw 값(인코딩 추가 금지).
+        // 다중 쿼리 ksort: ids < salesman_email.
         $this->assertSame(
-            "GET\n/api/internal/board/documents/roro_contract?ids=3,1,2&salesman_email=a@b.test\n1700000000\n",
+            "GET\n/api/internal/board/documents/roro_contract?ids=3%2C1%2C2&salesman_email=a%40b.test\n1700000000\n",
             $svc->canonical('GET', '/api/internal/board/documents/roro_contract', ['salesman_email' => 'a@b.test', 'ids' => '3,1,2'], '1700000000', '')
         );
     }
