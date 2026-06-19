@@ -1384,6 +1384,27 @@ class BoardTest extends TestCase
             ->assertSee('BuyerA')->assertSee('11가1')->assertSee('3,000원');   // 바이어 그룹 + 합계
     }
 
+    public function test_portal_receivables_hides_paid_and_sorts(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 0], 200),
+            '*/api/internal/board/receivables*' => Http::response(['count' => 3, 'data' => [
+                ['vehicle_number' => 'PAIDX', 'buyer' => 'B', 'currency' => 'USD', 'exchange_rate' => 1300, 'unpaid_krw' => 0],
+                ['vehicle_number' => 'OWE1', 'buyer' => 'B', 'currency' => 'USD', 'exchange_rate' => 1300, 'unpaid_krw' => 500],
+                ['vehicle_number' => 'OWE2', 'buyer' => 'B', 'currency' => 'USD', 'exchange_rate' => 1300, 'unpaid_krw' => 900],
+            ]], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('portal.index')->call('setTab', 'receivables');
+        $c->assertDontSee('PAIDX')->assertSee('OWE1')->assertSee('OWE2');   // 완납(0원) 기본 숨김
+        $c->set('hidePaid', false)->assertSee('PAIDX');                     // 토글 끄면 보임
+        $c->call('sortRecv', 'vehicle_number');                            // 정렬 토글
+        $this->assertSame('vehicle_number', $c->get('recvSort'));
+        $this->assertSame('asc', $c->get('recvDir'));
+    }
+
     public function test_portal_shipping_lists_and_submits(): void
     {
         $this->carErpReadConfig();

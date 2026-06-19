@@ -25,7 +25,25 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public ?string $shipMsg = null;
 
+    // 미수금 정렬/필터
+    public string $recvSort = 'unpaid_krw';   // 기본 = 미수금 많은 순
+
+    public string $recvDir = 'desc';
+
+    public bool $hidePaid = true;             // 0원(완납) 숨김
+
     private const TABS = ['finance', 'receivables', 'purchases', 'sales', 'settlements', 'shipping'];
+
+    /** 미수금 컬럼 정렬 토글. */
+    public function sortRecv(string $key): void
+    {
+        if ($this->recvSort === $key) {
+            $this->recvDir = $this->recvDir === 'asc' ? 'desc' : 'asc';
+        } else {
+            $this->recvSort = $key;
+            $this->recvDir = in_array($key, ['unpaid_krw', 'exchange_rate'], true) ? 'desc' : 'asc';
+        }
+    }
 
     public function mount(): void
     {
@@ -233,37 +251,64 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <p class="py-8 text-center text-gray-400">선적 가능한 차량이 없습니다. (판매완료·수출·미요청 차량만 표시)</p>
             @endforelse
 
-        @elseif (in_array($tab, ['receivables', 'sales'], true))
-            {{-- 바이어별 접기/펼치기 (미수금·판매 — car-erp 응답에 buyer 있음) --}}
+        @elseif ($tab === 'receivables')
+            {{-- 미수금 — 바이어별 접기 + 완납(0원) 숨김 + 컬럼 정렬 --}}
             @php
-                $items = data_get($result['data'], 'data', []);
-                $byBuyer = collect($items)->groupBy(fn ($r) => data_get($r, 'buyer') ?: '(바이어 미지정)');
-                $cols = $tab === 'receivables'
-                    ? ['vehicle_number' => '차량', 'currency' => '통화', 'exchange_rate' => '환율', 'unpaid_krw' => '미수금(원)']
-                    : ['vehicle_number' => '차량', 'currency' => '통화', 'sale_price' => '판매가', 'sale_date' => '판매일'];
+                $items = collect(data_get($result['data'], 'data', []));
+                if ($hidePaid) {
+                    $items = $items->reject(fn ($r) => ($v = data_get($r, 'unpaid_krw')) !== null && is_numeric($v) && (float) $v == 0.0);
+                }
+                $sortRows = function ($rows) {
+                    $key = $this->recvSort;
+                    $desc = $this->recvDir === 'desc';
+
+                    return $rows->sort(function ($a, $b) use ($key, $desc) {
+                        $x = data_get($a, $key);
+                        $y = data_get($b, $key);
+                        if ($x === null && $y === null) {
+                            return 0;
+                        }
+                        if ($x === null) {
+                            return 1;
+                        }   // null 은 항상 뒤로
+                        if ($y === null) {
+                            return -1;
+                        }
+                        $cmp = is_numeric($x) && is_numeric($y) ? ((float) $x <=> (float) $y) : strcmp((string) $x, (string) $y);
+
+                        return $desc ? -$cmp : $cmp;
+                    })->values();
+                };
+                $byBuyer = $items->groupBy(fn ($r) => data_get($r, 'buyer') ?: '(바이어 미지정)');
+                $cols = ['vehicle_number' => '차량', 'currency' => '통화', 'exchange_rate' => '환율', 'unpaid_krw' => '미수금(원)'];
             @endphp
+            <label class="mb-2 flex items-center gap-2 text-[12px] text-gray-500">
+                <input type="checkbox" wire:model.live="hidePaid"> 완납(0원) 숨기기
+            </label>
             @forelse ($byBuyer as $buyer => $rows)
                 <div class="card-sm mb-2" x-data="{ open: false }">
                     <button type="button" class="flex w-full items-center gap-2 text-left font-bold text-gray-800" @click="open = !open">
                         <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span>
                         🧑 {{ $buyer }} <span class="text-xs font-normal text-gray-400">· {{ $rows->count() }}대</span>
-                        @if ($tab === 'receivables')
-                            @php $sum = $rows->sum(fn ($r) => (float) (data_get($r, 'unpaid_krw') ?? 0)); @endphp
-                            <span class="ml-auto text-[13px] font-bold text-[var(--color-primary-text)]">{{ number_format($sum) }}원</span>
-                        @endif
+                        @php $sum = $rows->sum(fn ($r) => (float) (data_get($r, 'unpaid_krw') ?? 0)); @endphp
+                        <span class="ml-auto text-[13px] font-bold text-[var(--color-primary-text)]">{{ number_format($sum) }}원</span>
                     </button>
                     <div x-show="open" x-cloak class="mt-2 overflow-x-auto">
                         <table class="tbl">
-                            <thead><tr>@foreach ($cols as $label)<th>{{ $label }}</th>@endforeach</tr></thead>
+                            <thead><tr>
+                                @foreach ($cols as $k => $label)
+                                    <th><button type="button" wire:click="sortRecv('{{ $k }}')" class="flex items-center gap-1 font-semibold {{ $recvSort === $k ? 'text-[var(--color-primary-text)]' : '' }}">{{ $label }}<span class="text-[10px]">{{ $recvSort === $k ? ($recvDir === 'asc' ? '▲' : '▼') : '↕' }}</span></button></th>
+                                @endforeach
+                            </tr></thead>
                             <tbody>
-                                @foreach ($rows as $row)
+                                @foreach ($sortRows($rows) as $row)
                                     <tr>
-                                        @foreach ($cols as $key => $label)
-                                            @php $val = data_get($row, $key); @endphp
+                                        @foreach ($cols as $k => $label)
+                                            @php $val = data_get($row, $k); @endphp
                                             <td class="whitespace-nowrap {{ $val === null ? 'text-amber-600' : 'text-gray-700' }}">
                                                 @if ($val === null)
-                                                    {{ $tab === 'receivables' && $key === 'unpaid_krw' ? '환율 미입력' : '—' }}
-                                                @elseif (in_array($key, ['unpaid_krw', 'sale_price'], true) && is_numeric($val))
+                                                    {{ $k === 'unpaid_krw' ? '환율 미입력' : '—' }}
+                                                @elseif ($k === 'unpaid_krw' && is_numeric($val))
                                                     {{ number_format((float) $val) }}
                                                 @else
                                                     {{ $val }}
@@ -277,7 +322,41 @@ new #[Layout('components.layouts.app')] class extends Component {
                     </div>
                 </div>
             @empty
-                <p class="py-8 text-center text-gray-400">해당 내역이 없습니다.</p>
+                <p class="py-8 text-center text-gray-400">미수금 내역이 없습니다.{{ $hidePaid ? ' (완납 숨김 적용 중)' : '' }}</p>
+            @endforelse
+
+        @elseif ($tab === 'sales')
+            {{-- 판매내역 — 바이어별 접기 --}}
+            @php
+                $byBuyer = collect(data_get($result['data'], 'data', []))->groupBy(fn ($r) => data_get($r, 'buyer') ?: '(바이어 미지정)');
+                $cols = ['vehicle_number' => '차량', 'currency' => '통화', 'sale_price' => '판매가', 'sale_date' => '판매일'];
+            @endphp
+            @forelse ($byBuyer as $buyer => $rows)
+                <div class="card-sm mb-2" x-data="{ open: false }">
+                    <button type="button" class="flex w-full items-center gap-2 text-left font-bold text-gray-800" @click="open = !open">
+                        <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span>
+                        🧑 {{ $buyer }} <span class="text-xs font-normal text-gray-400">· {{ $rows->count() }}대</span>
+                    </button>
+                    <div x-show="open" x-cloak class="mt-2 overflow-x-auto">
+                        <table class="tbl">
+                            <thead><tr>@foreach ($cols as $label)<th>{{ $label }}</th>@endforeach</tr></thead>
+                            <tbody>
+                                @foreach ($rows as $row)
+                                    <tr>
+                                        @foreach ($cols as $k => $label)
+                                            @php $val = data_get($row, $k); @endphp
+                                            <td class="whitespace-nowrap text-gray-700">
+                                                @if ($val === null)—@elseif ($k === 'sale_price' && is_numeric($val)){{ number_format((float) $val) }}@else{{ $val }}@endif
+                                            </td>
+                                        @endforeach
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            @empty
+                <p class="py-8 text-center text-gray-400">판매내역이 없습니다.</p>
             @endforelse
 
         @else
