@@ -1368,6 +1368,22 @@ class BoardTest extends TestCase
             && $req->hasHeader('X-Board-Signature'));
     }
 
+    public function test_portal_receivables_groups_by_buyer_with_sum(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 0], 200),
+            '*/api/internal/board/receivables*' => Http::response(['count' => 2, 'data' => [
+                ['vehicle_number' => '11가1', 'buyer' => 'BuyerA', 'currency' => 'USD', 'exchange_rate' => 1300, 'unpaid_krw' => 1000],
+                ['vehicle_number' => '22나2', 'buyer' => 'BuyerA', 'currency' => 'USD', 'exchange_rate' => 1300, 'unpaid_krw' => 2000],
+            ]], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'receivables')
+            ->assertSee('BuyerA')->assertSee('11가1')->assertSee('3,000원');   // 바이어 그룹 + 합계
+    }
+
     public function test_portal_shipping_lists_and_submits(): void
     {
         $this->carErpReadConfig();

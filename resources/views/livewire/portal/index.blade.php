@@ -190,8 +190,12 @@ new #[Layout('components.layouts.app')] class extends Component {
                     $vIds = $group->pluck('vehicle_id')->map(fn ($i) => (int) $i)->all();
                     $method = $methodByBuyer[$buyerId] ?? 'RORO';
                 @endphp
-                <div class="card-sm mb-3" style="background:#f8f9fb">
-                    <div class="mb-2 font-bold text-gray-800">🧑 {{ $buyerName }} <span class="text-xs font-normal text-gray-400">· {{ count($vIds) }}대 선적가능</span></div>
+                <div class="card-sm mb-3" style="background:#f8f9fb" x-data="{ open: false }">
+                    <button type="button" class="flex w-full items-center gap-2 text-left font-bold text-gray-800" @click="open = !open">
+                        <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span>
+                        🧑 {{ $buyerName }} <span class="text-xs font-normal text-gray-400">· {{ count($vIds) }}대 선적가능</span>
+                    </button>
+                    <div x-show="open" x-cloak class="mt-2">
                     <div class="mb-2 space-y-1">
                         @foreach ($group as $v)
                             <label class="flex items-center gap-2 text-[13px]">
@@ -223,22 +227,66 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <button wire:click="downloadDocs({{ $buyerId }}, {{ json_encode($vIds) }}, 'contract')" class="btn-ghost btn-sm">📄 계약서</button>
                         <button wire:click="downloadDocs({{ $buyerId }}, {{ json_encode($vIds) }}, 'invoice_packing')" class="btn-ghost btn-sm">📄 인보이스·패킹</button>
                     </div>
+                    </div>
                 </div>
             @empty
                 <p class="py-8 text-center text-gray-400">선적 가능한 차량이 없습니다. (판매완료·수출·미요청 차량만 표시)</p>
             @endforelse
 
-        @else
-            {{-- ④ 리스트(미수/매입/판매/정산) — car-erp 응답 {count, data:[...]} --}}
+        @elseif (in_array($tab, ['receivables', 'sales'], true))
+            {{-- 바이어별 접기/펼치기 (미수금·판매 — car-erp 응답에 buyer 있음) --}}
             @php
                 $items = data_get($result['data'], 'data', []);
-                $cols = match ($tab) {
-                    'receivables' => ['vehicle_number' => '차량', 'buyer' => '바이어', 'currency' => '통화', 'exchange_rate' => '환율', 'unpaid_krw' => '미수금(원)'],
-                    'purchases' => ['vehicle_number' => '차량', 'purchase_price' => '매입가', 'cost_total' => '비용합', 'purchase_unpaid' => '미지급', 'purchase_date' => '매입일'],
-                    'sales' => ['vehicle_number' => '차량', 'buyer' => '바이어', 'currency' => '통화', 'sale_price' => '판매가', 'sale_date' => '판매일'],
-                    'settlements' => ['vehicle_number' => '차량', 'status' => '상태', 'actual_payout' => '실지급액', 'confirmed_at' => '확정일'],
-                    default => [],
-                };
+                $byBuyer = collect($items)->groupBy(fn ($r) => data_get($r, 'buyer') ?: '(바이어 미지정)');
+                $cols = $tab === 'receivables'
+                    ? ['vehicle_number' => '차량', 'currency' => '통화', 'exchange_rate' => '환율', 'unpaid_krw' => '미수금(원)']
+                    : ['vehicle_number' => '차량', 'currency' => '통화', 'sale_price' => '판매가', 'sale_date' => '판매일'];
+            @endphp
+            @forelse ($byBuyer as $buyer => $rows)
+                <div class="card-sm mb-2" x-data="{ open: false }">
+                    <button type="button" class="flex w-full items-center gap-2 text-left font-bold text-gray-800" @click="open = !open">
+                        <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span>
+                        🧑 {{ $buyer }} <span class="text-xs font-normal text-gray-400">· {{ $rows->count() }}대</span>
+                        @if ($tab === 'receivables')
+                            @php $sum = $rows->sum(fn ($r) => (float) (data_get($r, 'unpaid_krw') ?? 0)); @endphp
+                            <span class="ml-auto text-[13px] font-bold text-[var(--color-primary-text)]">{{ number_format($sum) }}원</span>
+                        @endif
+                    </button>
+                    <div x-show="open" x-cloak class="mt-2 overflow-x-auto">
+                        <table class="tbl">
+                            <thead><tr>@foreach ($cols as $label)<th>{{ $label }}</th>@endforeach</tr></thead>
+                            <tbody>
+                                @foreach ($rows as $row)
+                                    <tr>
+                                        @foreach ($cols as $key => $label)
+                                            @php $val = data_get($row, $key); @endphp
+                                            <td class="whitespace-nowrap {{ $val === null ? 'text-amber-600' : 'text-gray-700' }}">
+                                                @if ($val === null)
+                                                    {{ $tab === 'receivables' && $key === 'unpaid_krw' ? '환율 미입력' : '—' }}
+                                                @elseif (in_array($key, ['unpaid_krw', 'sale_price'], true) && is_numeric($val))
+                                                    {{ number_format((float) $val) }}
+                                                @else
+                                                    {{ $val }}
+                                                @endif
+                                            </td>
+                                        @endforeach
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            @empty
+                <p class="py-8 text-center text-gray-400">해당 내역이 없습니다.</p>
+            @endforelse
+
+        @else
+            {{-- 매입내역·정산내역 — car-erp 응답에 buyer 없음 → 평면 목록 --}}
+            @php
+                $items = data_get($result['data'], 'data', []);
+                $cols = $tab === 'purchases'
+                    ? ['vehicle_number' => '차량', 'purchase_price' => '매입가', 'cost_total' => '비용합', 'purchase_unpaid' => '미지급', 'purchase_date' => '매입일']
+                    : ['vehicle_number' => '차량', 'status' => '상태', 'actual_payout' => '실지급액', 'confirmed_at' => '확정일'];
             @endphp
             <div class="overflow-x-auto">
                 <table class="tbl">
@@ -248,10 +296,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <tr>
                                 @foreach ($cols as $key => $label)
                                     @php $val = data_get($row, $key); @endphp
-                                    <td class="whitespace-nowrap {{ $val === null ? 'text-amber-600' : 'text-gray-700' }}">
+                                    <td class="whitespace-nowrap text-gray-700">
                                         @if ($val === null)
-                                            {{ $tab === 'receivables' && $key === 'unpaid_krw' ? '환율 미입력' : '—' }}
-                                        @elseif (in_array($key, ['unpaid_krw', 'purchase_price', 'cost_total', 'purchase_unpaid', 'sale_price', 'actual_payout'], true) && is_numeric($val))
+                                            —
+                                        @elseif (in_array($key, ['purchase_price', 'cost_total', 'purchase_unpaid', 'actual_payout'], true) && is_numeric($val))
                                             {{ number_format((float) $val) }}
                                         @else
                                             {{ $val }}
