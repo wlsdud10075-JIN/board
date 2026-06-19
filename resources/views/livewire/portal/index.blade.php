@@ -377,7 +377,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             </div>
 
             {{-- 월별 (판매 건수·정산 실지급·매입) — 날짜 있는 리스트서 집계. 판매액은 통화혼재라 건수만. --}}
-            <div class="mt-4" x-data="{ open: true }">
+            <div class="mt-4" wire:key="monthly" x-data="{ open: true }">
                 <button type="button" class="mb-2 flex items-center gap-2 font-bold text-gray-700" @click="open = !open">
                     <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span> 📅 월별 실적
                 </button>
@@ -475,7 +475,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     $vIds = $group->pluck('vehicle_id')->map(fn ($i) => (int) $i)->all();
                     $method = $methodByBuyer[$buyerId] ?? 'RORO';
                 @endphp
-                <div class="card-sm mb-3" style="background:#f8f9fb" x-data="{ open: false }">
+                <div class="card-sm mb-3" style="background:#f8f9fb" wire:key="ship-{{ $buyerId }}" x-data="{ open: false }">
                     <button type="button" class="flex w-full items-center gap-2 text-left font-bold text-gray-800" @click="open = !open">
                         <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span>
                         🧑 {{ $buyerName }} <span class="text-xs font-normal text-gray-400">· {{ count($vIds) }}대 선적가능</span>
@@ -563,7 +563,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <input type="checkbox" wire:model.live="hidePaid"> 완납(0원) 숨기기
             </label>
             @forelse ($byBuyer as $buyer => $rows)
-                <div class="card-sm mb-2" x-data="{ open: false }">
+                <div class="card-sm mb-2" wire:key="recv-{{ $loop->index }}" x-data="{ open: false }">
                     <button type="button" class="flex w-full items-center gap-2 text-left font-bold text-gray-800" @click="open = !open">
                         <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span>
                         🧑 {{ $buyer }} <span class="text-xs font-normal text-gray-400">· {{ $rows->count() }}대</span>
@@ -630,7 +630,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     $rows = $detailByBuyer[$bName] ?? collect();
                     $byCur = (array) data_get($b, 'sales_by_currency', []);
                 @endphp
-                <div class="card-sm mb-2" x-data="{ open: false }">
+                <div class="card-sm mb-2" wire:key="sales-{{ $loop->index }}" x-data="{ open: false }">
                     <button type="button" class="flex w-full items-center gap-2 text-left font-bold text-gray-800" @click="open = !open">
                         <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span>
                         🧑 {{ $bName }} <span class="text-xs font-normal text-gray-400">· {{ data_get($b, 'vehicle_count', 0) }}대</span>
