@@ -22,7 +22,8 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $ssancar_ref = '';        // ssancar wr_id/car_no (비-c_no, "wr_id:786")
     public string $encar_id = '';           // Encar 차 식별 (URL 자동추출)
     public string $respond_contact_id = ''; // respond.io 대화 연결(스파인, 영업이 채팅에서 복사)
-    public string $linkInput = '';          // 승격: 유입 링크 붙여넣기 → 자동추출
+    public string $encarLink = '';          // 엔카 링크 → JSON API enrich
+    public string $ssancarLink = '';        // ssancar 링크 → 페이지 파싱 enrich
     public ?int $promotingId = null;        // 승격 대기에서 시작한 경우 — 저장 시 consume
     public ?string $expected_price = null;  // 매물 표시가 (enrichment 자동채움 · 참고가, car_cost 와 별개)
     public ?string $car_cost = null;        // 차값 (KRW)
@@ -291,38 +292,30 @@ new #[Layout('components.layouts.app')] class extends Component {
     }
 
     /** 승격: 붙인 링크에서 식별자 자동추출(encar_id/c_no/ssancar_ref) + 유입카테고리/출처 세팅. */
-    public function parseLink(): void
+    public function parseLink(string $which = 'encar'): void
     {
-        $r = \App\Support\ListingLink::parse($this->linkInput);
+        $field = $which.'Link';
+        $url = trim($which === 'ssancar' ? $this->ssancarLink : $this->encarLink);
+        if ($url === '') {
+            return;
+        }
+        $r = \App\Support\ListingLink::parse($url);
 
         if ($r === []) {
-            $this->addError('linkInput', '엔카/ssancar 링크에서 식별값을 찾지 못했습니다. (직접 입력 가능)');
+            $this->addError($field, '링크에서 식별값을 찾지 못했습니다. (직접 입력 가능)');
 
             return;
         }
 
-        $this->resetErrorBag('linkInput');
-        if (isset($r['origin'])) {
-            $this->origin = $r['origin'];
-        }
-        if (isset($r['source'])) {
-            $this->source = $r['source'];
-        }
-        if (isset($r['encar_id'])) {
-            $this->encar_id = $r['encar_id'];
-        }
-        if (isset($r['encar_url'])) {
-            $this->encar_url = $r['encar_url'];
-        }
-        if (isset($r['c_no'])) {
-            $this->c_no = $r['c_no'];
-        }
-        if (isset($r['ssancar_ref'])) {
-            $this->ssancar_ref = $r['ssancar_ref'];
+        $this->resetErrorBag($field);
+        foreach (['origin', 'source', 'encar_id', 'encar_url', 'c_no', 'ssancar_ref'] as $k) {
+            if (isset($r[$k])) {
+                $this->{$k} = $r[$k];
+            }
         }
 
         // 매물 자동채움(enrichment) — 빈 칸만 prefill, 영업이 확인 후 저장(IDENTITY_LOCKED 자동확정 금지).
-        $e = app(\App\Services\ListingEnrichment::class)->enrich($r);
+        $e = app(\App\Services\ListingEnrichment::class)->enrich($r, $url);
         $filled = [];
         if (! empty($e['vehicle_number']) && $this->vehicle_number === '') {
             $this->vehicle_number = $e['vehicle_number'];
@@ -448,7 +441,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     private function resetForm(): void
     {
-        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'linkInput', 'promotingId', 'expected_price', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
+        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'encarLink', 'ssancarLink', 'promotingId', 'expected_price', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
         $this->origin = 'encar';
         $this->source = 'encar';
         $this->resetErrorBag();
@@ -541,15 +534,23 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <p class="mb-3 text-[11px] text-gray-400">💡 매입방법: <b>{{ $source === 'auction' ? '경매 (시간잠금·낙찰/유찰)' : '엔카 즉시구매 (구매대기/확정)' }}</b> — 카테고리에서 자동 결정</p>
                 @error('origin') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                {{-- 승격: 유입 링크 붙여넣기 → 식별자 자동추출 (연동 A) --}}
+                {{-- 승격: 링크 붙여넣기 → 식별자 자동추출 + 자동채움. 엔카/ssancar 분리(둘 다 넣으면 합쳐서 채움). --}}
                 <div class="card-sm mb-3" style="background:#f0f7ff;border-color:#dbeafe">
-                    <label class="label-base">🔗 유입 링크 붙여넣기 <span class="text-gray-400">(엔카 / ssancar — 자동추출)</span></label>
+                    <label class="label-base">🔗 엔카 링크 <span class="text-gray-400">(차량번호·차값·지역·VIN 자동)</span></label>
                     <div class="flex gap-2">
-                        <input class="input-base flex-1" wire:model="linkInput" wire:keydown.enter.prevent="parseLink"
-                               placeholder="https://fem.encar.com/cars/detail/...  또는  https://www.ssancar.com/...">
-                        <button type="button" class="btn-primary btn-sm shrink-0" wire:click="parseLink">추출</button>
+                        <input class="input-base flex-1" wire:model="encarLink" wire:keydown.enter.prevent="parseLink('encar')"
+                               placeholder="https://fem.encar.com/cars/detail/42176484">
+                        <button type="button" class="btn-primary btn-sm shrink-0" wire:click="parseLink('encar')">추출</button>
                     </div>
-                    @error('linkInput') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    @error('encarLink') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+
+                    <label class="label-base mt-2">🔗 ssancar 링크 <span class="text-gray-400">(차량번호·VIN · 검차매물은 엔카가격까지)</span></label>
+                    <div class="flex gap-2">
+                        <input class="input-base flex-1" wire:model="ssancarLink" wire:keydown.enter.prevent="parseLink('ssancar')"
+                               placeholder="https://www.ssancar.com/...?c_no= / ?wr_id=">
+                        <button type="button" class="btn-primary btn-sm shrink-0" wire:click="parseLink('ssancar')">추출</button>
+                    </div>
+                    @error('ssancarLink') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     @if ($encar_id || $c_no || $ssancar_ref)
                         <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
                             <span class="text-gray-400">추출됨:</span>

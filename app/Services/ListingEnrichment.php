@@ -12,14 +12,62 @@ use Illuminate\Support\Facades\Http;
  */
 class ListingEnrichment
 {
-    /** ListingLink::parse 결과로 enrich. encar_id 있으면 encar API. */
-    public function enrich(array $parsed): array
+    /**
+     * ListingLink::parse 결과(+ 원본 URL)로 enrich.
+     *  - encar_id 있으면 encar JSON API.
+     *  - ssancar 링크면 페이지 HTML 파싱(그누보드 서버렌더, Http::get). inspected=encar 우회.
+     */
+    public function enrich(array $parsed, string $url = ''): array
     {
         if (! empty($parsed['encar_id'])) {
             return $this->byEncarId((string) $parsed['encar_id']);
         }
+        if ($url !== '' && str_contains(mb_strtolower($url), 'ssancar.com')
+            && (! empty($parsed['c_no']) || ! empty($parsed['ssancar_ref']))) {
+            return $this->fromSsancar($url);
+        }
 
-        return [];   // ssancar(c_no/wr_id)는 별도(링크 방식 확정 후)
+        return [];
+    }
+
+    /**
+     * ssancar 페이지 파싱.
+     *  - inspected_view(검차매물): 원본 encar 링크(wr_link1) 있음 → encar API 우회(KRW·지역 확보). ⭐
+     *  - stock_car_view(재고): VIN(<em id="copy_txt">) + 차량번호(번호판 패턴). 차값=USD 라 미결정 → 제외.
+     *  - car_view(경매): 미실측 → 위 패턴 best-effort.
+     * ⚠️ 셀렉터는 실링크 검증 필요(차량번호 번호판 정규식은 휴리스틱 — 영업 확인 후 저장).
+     */
+    public function fromSsancar(string $url): array
+    {
+        try {
+            $res = Http::timeout(8)->get($url);
+        } catch (\Throwable) {
+            return [];
+        }
+        if ($res->failed()) {
+            return [];
+        }
+
+        $html = $res->body();
+
+        // ① 원본 encar 링크가 있으면 그걸로 encar API 재활용(KRW·지역까지).
+        if (preg_match('#encar\.com/cars/detail/(\d+)#i', $html, $m)) {
+            $e = $this->byEncarId($m[1]);
+            if ($e !== []) {
+                return $e;
+            }
+        }
+
+        // ② VIN = <em id="copy_txt">…</em>, 차량번호 = 한국 번호판 패턴. (USD 차값은 미결정 → 안 채움)
+        $out = [];
+        if (preg_match('/id=["\']copy_txt["\'][^>]*>\s*([^<\s][^<]*?)\s*</u', $html, $m)) {
+            $out['vin'] = trim($m[1]);
+        }
+        if (preg_match('/(\d{2,3}\s?[가-힣]\s?\d{4})/u', $html, $m)) {
+            $out['vehicle_number'] = preg_replace('/\s+/u', '', $m[1]);
+        }
+
+        return $out;
     }
 
     /** encar 공개 API → {vehicle_number, expected_price(원), region(시), vin}. 실패=[]. */

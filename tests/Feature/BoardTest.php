@@ -804,11 +804,12 @@ class BoardTest extends TestCase
 
     public function test_promote_via_encar_link_extracts_and_saves(): void
     {
+        Http::fake(['*api.encar.com*' => Http::response(['vehicleNo' => '244로9100', 'advertisement' => ['price' => 100]], 200)]);
         $this->actingAs($kim = $this->mkUser('sales'));
 
         Volt::test('listings.index')
-            ->set('linkInput', 'https://fem.encar.com/cars/detail/42176484?x=1')
-            ->call('parseLink')
+            ->set('encarLink', 'https://fem.encar.com/cars/detail/42176484?x=1')
+            ->call('parseLink', 'encar')
             ->assertSet('source', 'encar')
             ->assertSet('encar_id', '42176484')
             ->set('vehicle_number', '88가8888')
@@ -825,11 +826,12 @@ class BoardTest extends TestCase
 
     public function test_promote_via_ssancar_wr_id_link_sets_ssancar_ref(): void
     {
+        Http::fake(['*ssancar.com*' => Http::response('<html>상세</html>', 200)]);   // 식별값 없음 → prefill 없음
         $this->actingAs($this->mkUser('sales'));
 
         Volt::test('listings.index')
-            ->set('linkInput', 'https://www.ssancar.com/page/inspected_view.php?wr_id=786')
-            ->call('parseLink')
+            ->set('ssancarLink', 'https://www.ssancar.com/page/inspected_view.php?wr_id=786')
+            ->call('parseLink', 'ssancar')
             ->assertSet('origin', 'ssancar_checking')
             ->assertSet('ssancar_ref', 'wr_id:786')
             ->set('vehicle_number', '77가7777')
@@ -846,11 +848,12 @@ class BoardTest extends TestCase
     {
         // 싼카경매(car_no) → origin=ssancar_auction, source=auction(경매 워크플로)
         Carbon::setTestNow('2026-06-13 09:00:00');   // 토요일 → 등록 시간잠금 미적용
+        Http::fake(['*ssancar.com*' => Http::response('<html>경매</html>', 200)]);
         $this->actingAs($this->mkUser('sales'));
 
         Volt::test('listings.index')
-            ->set('linkInput', 'https://www.ssancar.com/page/car_view.php?car_no=1871585')
-            ->call('parseLink')
+            ->set('ssancarLink', 'https://www.ssancar.com/page/car_view.php?car_no=1871585')
+            ->call('parseLink', 'ssancar')
             ->assertSet('origin', 'ssancar_auction')
             ->assertSet('source', 'auction')
             ->set('vehicle_number', '66가6666')
@@ -871,9 +874,9 @@ class BoardTest extends TestCase
         $this->actingAs($this->mkUser('sales'));
 
         Volt::test('listings.index')
-            ->set('linkInput', 'https://www.google.com')
-            ->call('parseLink')
-            ->assertHasErrors('linkInput');
+            ->set('encarLink', 'https://www.google.com')
+            ->call('parseLink', 'encar')
+            ->assertHasErrors('encarLink');
     }
 
     public function test_duplicate_vehicle_number_is_blocked(): void
@@ -1288,12 +1291,39 @@ class BoardTest extends TestCase
         $this->actingAs($this->mkUser('sales'));
 
         Volt::test('listings.index')
-            ->set('linkInput', 'https://fem.encar.com/cars/detail/42176484')
-            ->call('parseLink')
+            ->set('encarLink', 'https://fem.encar.com/cars/detail/42176484')
+            ->call('parseLink', 'encar')
             ->assertSet('vehicle_number', '244로9100')
             ->assertSet('expected_price', '66660000')   // 6666만 ×10000
             ->assertSet('region', '안산')
             ->assertSet('vin', 'WMW21GA04S7R38829');
+    }
+
+    public function test_enrichment_ssancar_inspected_routes_via_encar(): void
+    {
+        Http::fake([
+            '*api.encar.com*' => Http::response([
+                'vehicleNo' => '55오5555', 'vin' => 'VV', 'advertisement' => ['price' => 700], 'contact' => ['address' => '서울 강남구 테헤란로 1'],
+            ], 200),
+            '*ssancar.com*' => Http::response('<html><a href="https://fem.encar.com/cars/detail/999?x=1">원본</a></html>', 200),
+        ]);
+
+        $r = (new ListingEnrichment)->fromSsancar('https://www.ssancar.com/x?wr_id=786');
+
+        $this->assertSame('55오5555', $r['vehicle_number']);   // 검차매물 = encar 우회로 KRW·지역 확보
+        $this->assertSame(7000000, $r['expected_price']);
+        $this->assertSame('서울', $r['region']);
+    }
+
+    public function test_enrichment_ssancar_stock_parses_vin_plate_no_usd_price(): void
+    {
+        Http::fake(['*ssancar.com*' => Http::response('<div>차량번호 12가3456</div><em id="copy_txt">KMHXX1234567</em><span>1,838 USD</span>', 200)]);
+
+        $r = (new ListingEnrichment)->fromSsancar('https://www.ssancar.com/x?c_no=6915603');
+
+        $this->assertSame('KMHXX1234567', $r['vin']);
+        $this->assertSame('12가3456', $r['vehicle_number']);
+        $this->assertArrayNotHasKey('expected_price', $r);   // USD 차값은 미결정 → 안 채움
     }
 
     // ─────────────────────── 영업 포털 — car-erp 읽기(HMAC GET) ───────────────────────
