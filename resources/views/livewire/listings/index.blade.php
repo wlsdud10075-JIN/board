@@ -27,6 +27,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public ?int $promotingId = null;        // 승격 대기에서 시작한 경우 — 저장 시 consume
     public ?string $expected_price = null;  // 매물 표시가 = 차값 (enrichment 자동채움 · 참고가, car_cost 와 별개)
     public string $expected_price_currency = 'KRW';   // 매물 표시가 통화 (원/미/유로 토글)
+    public array $priceOptions = [];        // enrichment 통화별 금액 {KRW,USD,EUR} — 토글 시 금액 변경
     public ?string $car_cost = null;        // 차값 (KRW)
     public ?string $discount_rate = null;   // 할인율 (%)
     public ?int $shipping_usd = null;       // 배송금액 (USD 고정 택1)
@@ -322,10 +323,13 @@ new #[Layout('components.layouts.app')] class extends Component {
             $this->vehicle_number = $e['vehicle_number'];
             $filled[] = '차량번호';
         }
-        if (! empty($e['expected_price']) && ($this->expected_price === null || $this->expected_price === '')) {
-            $this->expected_price = (string) $e['expected_price'];
-            $this->expected_price_currency = $e['currency'] ?? 'KRW';   // encar=KRW, ssancar 재고=USD
-            $filled[] = '표시가('.$this->expected_price_currency.')';
+        $prices = $e['prices'] ?? [];
+        if ($prices && ($this->expected_price === null || $this->expected_price === '')) {
+            $this->priceOptions = $prices;   // {KRW,USD,EUR} — 토글 시 금액 변경
+            $cur = isset($prices['KRW']) ? 'KRW' : array_key_first($prices);
+            $this->expected_price_currency = $cur;
+            $this->expected_price = (string) $prices[$cur];
+            $filled[] = '차값('.implode('/', array_keys($prices)).')';
         }
         if (! empty($e['region']) && $this->region === '') {
             $this->region = $e['region'];
@@ -344,6 +348,18 @@ new #[Layout('components.layouts.app')] class extends Component {
         $cat = PurchaseListing::ORIGIN_LABELS[$this->origin] ?? '';
         $auto = $filled ? ' · 자동채움: '.implode('/', $filled) : '';
         session()->flash('ok', '['.$cat.'] 추출: '.implode(' · ', $bits).$auto.' — 확인 후 저장하세요.');
+    }
+
+    /** 통화 토글 — enrichment 통화별 금액이 있으면 그 금액으로 바꿈(없으면 라벨만). */
+    public function pickCurrency(string $cur): void
+    {
+        if (! in_array($cur, ['KRW', 'USD', 'EUR'], true)) {
+            return;
+        }
+        $this->expected_price_currency = $cur;
+        if (isset($this->priceOptions[$cur])) {
+            $this->expected_price = (string) $this->priceOptions[$cur];
+        }
     }
 
     public function save(): void
@@ -444,7 +460,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     private function resetForm(): void
     {
-        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'encarLink', 'ssancarLink', 'promotingId', 'expected_price', 'expected_price_currency', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
+        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'encarLink', 'ssancarLink', 'promotingId', 'expected_price', 'expected_price_currency', 'priceOptions', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
         $this->origin = 'encar';
         $this->source = 'encar';
         $this->resetErrorBag();
@@ -567,12 +583,16 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <input class="input-base flex-1" wire:model="expected_price" inputmode="numeric" placeholder="링크 추출 시 자동 · 직접 입력 가능">
                         <div class="inline-flex shrink-0 overflow-hidden rounded-md border border-gray-300">
                             @foreach (['KRW' => '원', 'USD' => '$', 'EUR' => '€'] as $cur => $sym)
-                                <button type="button" wire:click="$set('expected_price_currency', '{{ $cur }}')"
-                                    class="px-2.5 py-1.5 text-[13px] font-semibold {{ $expected_price_currency === $cur ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }}">{{ $sym }}</button>
+                                <button type="button" wire:click="pickCurrency('{{ $cur }}')"
+                                    class="px-2.5 py-1.5 text-[13px] font-semibold {{ $expected_price_currency === $cur ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }} {{ isset($priceOptions[$cur]) ? '' : 'opacity-60' }}">{{ $sym }}</button>
                             @endforeach
                         </div>
                     </div>
-                    <p class="mt-1 text-[11px] text-gray-400">💡 엔카=원화 / ssancar 재고=미화 자동. 통화 버튼으로 변경 가능. (가격계산용 ‘차값’과 별개 참고가)</p>
+                    @if ($priceOptions)
+                        <p class="mt-1 text-[11px] text-gray-500">💱 링크 표시가: @foreach ($priceOptions as $cur => $amt)<span class="mr-2 whitespace-nowrap">{{ ['KRW' => '원', 'USD' => '$', 'EUR' => '€'][$cur] ?? $cur }} {{ number_format($amt) }}</span>@endforeach— 버튼으로 통화 선택(금액 자동 변경)</p>
+                    @else
+                        <p class="mt-1 text-[11px] text-gray-400">💡 엔카=원화 / ssancar=3통화 자동. 통화 버튼으로 변경. (가격계산용 ‘차값’과 별개 참고가)</p>
+                    @endif
                     @error('expected_price') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     <label class="label-base mt-2">respond.io 컨택트 ID <span class="text-gray-400">(선택 · 바이어 식별 · 자동회신 매칭키)</span></label>
                     <input class="input-base" wire:model="respond_contact_id" placeholder="respond.io 바이어 컨택트 ID (예: 469733036)">

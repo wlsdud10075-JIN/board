@@ -5,18 +5,18 @@ namespace App\Services;
 use Illuminate\Support\Facades\Http;
 
 /**
- * 매물 자동채움(enrichment) — encar 공개 JSON API → 차량번호·표시가·지역·VIN prefill.
+ * 매물 자동채움(enrichment) — encar JSON API + ssancar 페이지 파싱 → 차량번호·차값·지역·VIN.
  *
  * 권위 = meetings/encar-ssancar-enrichment-design.md. 전부 board PHP(외부 스크래퍼 불필요).
- * 실패/미해당이면 [] 반환(prefill 없음, 절대 throw 안 함). ssancar 는 링크 방식 확정 후.
+ * 실패/미해당이면 [] (prefill 없음, 절대 throw 안 함).
+ *
+ * 반환: {vehicle_number?, region?, vin?, prices?:{KRW?,USD?,EUR?}}.
+ *  - 차값은 **통화별 금액 맵 `prices`** — 영업이 통화 토글하면 해당 금액으로 바뀜.
+ *  - encar = KRW 1종. ssancar 페이지 = `<p class="money">₩/$/€` 3종.
  */
 class ListingEnrichment
 {
-    /**
-     * ListingLink::parse 결과(+ 원본 URL)로 enrich.
-     *  - encar_id 있으면 encar JSON API.
-     *  - ssancar 링크면 페이지 HTML 파싱(그누보드 서버렌더, Http::get). inspected=encar 우회.
-     */
+    /** ListingLink::parse 결과(+ 원본 URL)로 enrich. encar_id=API / ssancar=페이지 파싱. */
     public function enrich(array $parsed, string $url = ''): array
     {
         if (! empty($parsed['encar_id'])) {
@@ -32,10 +32,9 @@ class ListingEnrichment
 
     /**
      * ssancar 페이지 파싱.
-     *  - inspected_view(검차매물): 원본 encar 링크(wr_link1) 있음 → encar API 우회(KRW·지역 확보). ⭐
-     *  - stock_car_view(재고): VIN(<em id="copy_txt">) + 차량번호(번호판 패턴). 차값=USD 라 미결정 → 제외.
-     *  - car_view(경매): 미실측 → 위 패턴 best-effort.
-     * ⚠️ 셀렉터는 실링크 검증 필요(차량번호 번호판 정규식은 휴리스틱 — 영업 확인 후 저장).
+     *  - inspected(검차): 원본 encar 링크 → encar API 로 차량번호·지역·VIN. ⭐
+     *  - stock(재고): VIN(<em id="copy_txt">) + 차량번호(번호판 패턴).
+     *  - 차값 = 페이지 `<p class="money">` 의 ₩/$/€ 3종(stock·inspected 공통). 없으면 USD 텍스트 폴백.
      */
     public function fromSsancar(string $url): array
     {
@@ -49,35 +48,59 @@ class ListingEnrichment
         }
 
         $html = $res->body();
+        $out = [];
 
-        // ① 원본 encar 링크가 있으면 그걸로 encar API 재활용(KRW·지역까지).
+        // 차량번호·지역·VIN
         if (preg_match('#encar\.com/cars/detail/(\d+)#i', $html, $m)) {
-            $e = $this->byEncarId($m[1]);
-            if ($e !== []) {
-                return $e;
+            $out = $this->byEncarId($m[1]);   // 검차매물 = encar 우회(차량번호·지역·VIN·KRW 가격)
+        } else {
+            if (preg_match('/id=["\']copy_txt["\'][^>]*>\s*([^<\s][^<]*?)\s*</u', $html, $m)) {
+                $out['vin'] = trim($m[1]);
+            }
+            if (preg_match('/(\d{2,3}\s?[가-힣]\s?\d{4})/u', $html, $m)) {
+                $out['vehicle_number'] = preg_replace('/\s+/u', '', $m[1]);
             }
         }
 
-        // ② VIN = <em id="copy_txt">…</em>, 차량번호 = 한국 번호판 패턴, 차값 = USD(페이지엔 USD만).
-        $out = [];
-        if (preg_match('/id=["\']copy_txt["\'][^>]*>\s*([^<\s][^<]*?)\s*</u', $html, $m)) {
-            $out['vin'] = trim($m[1]);
-        }
-        if (preg_match('/(\d{2,3}\s?[가-힣]\s?\d{4})/u', $html, $m)) {
-            $out['vehicle_number'] = preg_replace('/\s+/u', '', $m[1]);
-        }
-        if (preg_match('/([\d,]+)\s*USD/', $html, $m)) {   // ssancar 재고는 미화 표기. 통화=USD 로 저장, 영업이 토글 가능.
+        // 차값 = money 블록 3통화
+        $prices = $this->parseMoneyBlock($html);
+        if (! $prices && preg_match('/([\d,]+)\s*USD/', $html, $m)) {   // 폴백(USD 텍스트)
             $usd = (int) str_replace(',', '', $m[1]);
             if ($usd > 0) {
-                $out['expected_price'] = $usd;
-                $out['currency'] = 'USD';
+                $prices = ['USD' => $usd];
+            }
+        }
+        if ($prices) {
+            $out['prices'] = $prices;
+        }
+
+        return $out;
+    }
+
+    /**
+     * `<p class="money">… ₩ <b>79,900,000</b> $ <b>52,473</b> € <b>45,746</b>` → {KRW,USD,EUR}.
+     * 금액 태그는 페이지별로 <b>(재고)/<span>(검차) 제각각 → 기호 뒤 임의 태그 1개로 일반화.
+     */
+    private function parseMoneyBlock(string $html): array
+    {
+        if (! preg_match('/class=["\']money["\'][^>]*>(.*?)<\/p>/su', $html, $b)) {
+            return [];
+        }
+        $block = $b[1];
+        $out = [];
+        foreach (['KRW' => '₩', 'USD' => '\$', 'EUR' => '€'] as $code => $sym) {
+            if (preg_match('/'.$sym.'\s*<[^>]+>\s*([\d,]+)/u', $block, $m)) {
+                $v = (int) str_replace(',', '', $m[1]);
+                if ($v > 0) {
+                    $out[$code] = $v;
+                }
             }
         }
 
         return $out;
     }
 
-    /** encar 공개 API → {vehicle_number, expected_price(원), region(시), vin}. 실패=[]. */
+    /** encar 공개 API → {vehicle_number, region(시), vin, prices:{KRW}}. 실패=[]. */
     public function byEncarId(string $id): array
     {
         $base = rtrim((string) config('services.encar.base_url', 'https://api.encar.com'), '/');
@@ -95,12 +118,11 @@ class ListingEnrichment
 
         $out = array_filter([
             'vehicle_number' => data_get($j, 'vehicleNo'),
-            'expected_price' => is_numeric($price) ? (int) round(((float) $price) * 10000) : null,
             'region' => $this->city(data_get($j, 'contact.address')),
             'vin' => data_get($j, 'vin'),
         ], fn ($v) => $v !== null && $v !== '');
-        if (isset($out['expected_price'])) {
-            $out['currency'] = 'KRW';   // encar = 원화
+        if (is_numeric($price)) {
+            $out['prices'] = ['KRW' => (int) round(((float) $price) * 10000)];
         }
 
         return $out;

@@ -1262,8 +1262,7 @@ class BoardTest extends TestCase
         $r = (new ListingEnrichment)->byEncarId('42116243');
 
         $this->assertSame('12가3456', $r['vehicle_number']);
-        $this->assertSame(6500000, $r['expected_price']);   // 650만 ×10000
-        $this->assertSame('KRW', $r['currency']);           // encar = 원화
+        $this->assertSame(6500000, $r['prices']['KRW']);   // 650만 ×10000, encar=원화
         $this->assertSame('대구', $r['region']);
         $this->assertSame('VINX', $r['vin']);
     }
@@ -1313,8 +1312,34 @@ class BoardTest extends TestCase
         $r = (new ListingEnrichment)->fromSsancar('https://www.ssancar.com/x?wr_id=786');
 
         $this->assertSame('55오5555', $r['vehicle_number']);   // 검차매물 = encar 우회로 KRW·지역 확보
-        $this->assertSame(7000000, $r['expected_price']);
+        $this->assertSame(7000000, $r['prices']['KRW']);
         $this->assertSame('서울', $r['region']);
+    }
+
+    public function test_enrichment_ssancar_money_block_three_currencies(): void
+    {
+        $money = '<p class="money">Price ₩ <span>10,500,000</span> $ <span>6,791</span> € <span>5,920</span></p>';
+        Http::fake(['*ssancar.com*' => Http::response('<em id="copy_txt">VIN1</em><div>12가3456</div>'.$money, 200)]);
+
+        $r = (new ListingEnrichment)->fromSsancar('https://www.ssancar.com/x?c_no=1');
+
+        $this->assertSame(10500000, $r['prices']['KRW']);
+        $this->assertSame(6791, $r['prices']['USD']);
+        $this->assertSame(5920, $r['prices']['EUR']);
+    }
+
+    public function test_listings_currency_toggle_changes_amount(): void
+    {
+        $money = '<p class="money">₩ <span>10,500,000</span> $ <span>6,791</span> € <span>5,920</span></p>';
+        Http::fake(['*ssancar.com*' => Http::response('<em id="copy_txt">VIN1</em><div>12가3456</div>'.$money, 200)]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('listings.index')
+            ->set('ssancarLink', 'https://www.ssancar.com/x?c_no=1')
+            ->call('parseLink', 'ssancar')
+            ->assertSet('expected_price_currency', 'KRW')->assertSet('expected_price', '10500000');
+        $c->call('pickCurrency', 'USD')->assertSet('expected_price', '6791')->assertSet('expected_price_currency', 'USD');
+        $c->call('pickCurrency', 'EUR')->assertSet('expected_price', '5920');
     }
 
     public function test_enrichment_ssancar_stock_parses_vin_plate_usd_price(): void
@@ -1325,8 +1350,7 @@ class BoardTest extends TestCase
 
         $this->assertSame('KMHXX1234567', $r['vin']);
         $this->assertSame('12가3456', $r['vehicle_number']);
-        $this->assertSame(52473, $r['expected_price']);   // ssancar 재고 = 미화 표기
-        $this->assertSame('USD', $r['currency']);          // 통화=USD, 영업이 토글 가능
+        $this->assertSame(52473, $r['prices']['USD']);   // money 블록 없으면 USD 텍스트 폴백
     }
 
     // ─────────────────────── 영업 포털 — car-erp 읽기(HMAC GET) ───────────────────────
