@@ -320,23 +320,41 @@ new #[Layout('components.layouts.app')] class extends Component {
                 $available = $vehicles->reject(fn ($v) => in_array($statusOf($v), ['requested', 'in_progress'], true));
             @endphp
 
-            {{-- 진행 중인 선적요청 — 맨 위 카드(요청됨/진행중). car-erp shipping_status 응답 시 표시(handoff). --}}
+            {{-- 진행 중인 선적요청 — 맨 위 묶음 카드(바이어+방식+상태). car-erp shipping_status 응답으로 표시. --}}
             @if ($inProgress->isNotEmpty())
+                @php
+                    $batches = $inProgress->groupBy(fn ($v) => (data_get($v, 'buyer.id') ?? 0).'|'.(data_get($v, 'requested_method') ?? '').'|'.$statusOf($v));
+                @endphp
                 <div class="mb-4">
-                    <h3 class="mb-2 text-[13px] font-bold text-gray-700">🚚 진행 중인 선적요청 <span class="text-gray-400">· {{ $inProgress->count() }}대</span></h3>
-                    <div class="grid gap-2 sm:grid-cols-2">
-                        @foreach ($inProgress as $v)
-                            @php $st = $statusOf($v); @endphp
-                            <div class="flex items-center justify-between rounded-lg border px-3 py-2 {{ $st === 'in_progress' ? 'border-blue-200 bg-blue-50' : 'border-amber-200 bg-amber-50' }}">
-                                <div class="min-w-0">
-                                    <div class="truncate font-semibold text-gray-800">{{ data_get($v, 'vehicle_number') }}</div>
-                                    <div class="text-[11px] text-gray-500">{{ data_get($v, 'buyer.name') ?: '바이어 미지정' }}@if (data_get($v, 'shipping_method')) · {{ data_get($v, 'shipping_method') }}@endif</div>
+                    <h3 class="mb-2 flex items-center gap-2 text-[14px] font-bold text-gray-800">🚚 진행 중인 선적요청 <span class="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-500">{{ $inProgress->count() }}대</span></h3>
+                    <div class="grid gap-2.5 lg:grid-cols-2">
+                        @foreach ($batches as $batch)
+                            @php
+                                $b0 = $batch->first();
+                                $st = $statusOf($b0);
+                                $busy = $st === 'in_progress';
+                                $method = data_get($b0, 'requested_method');
+                            @endphp
+                            <div class="overflow-hidden rounded-xl border bg-white shadow-sm {{ $busy ? 'border-blue-200' : 'border-amber-200' }}">
+                                <div class="flex items-center justify-between gap-2 px-3.5 py-2.5 {{ $busy ? 'bg-blue-50' : 'bg-amber-50' }}">
+                                    <div class="flex min-w-0 items-center gap-2">
+                                        <span class="text-base">{{ $method === 'CONTAINER' ? '📦' : '🚢' }}</span>
+                                        <div class="min-w-0">
+                                            <div class="truncate text-[13px] font-bold text-gray-800">{{ data_get($b0, 'buyer.name') ?: '바이어 미지정' }}</div>
+                                            <div class="text-[11px] text-gray-500">{{ $method ?: '방식 미정' }} · {{ $batch->count() }}대</div>
+                                        </div>
+                                    </div>
+                                    <span class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold {{ $busy ? 'bg-blue-600 text-white' : 'bg-amber-500 text-white' }}">{{ $busy ? '진행중' : '요청됨' }}</span>
                                 </div>
-                                <span class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold {{ $st === 'in_progress' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700' }}">{{ $st === 'in_progress' ? '진행중' : '요청됨' }}</span>
+                                <div class="flex flex-wrap gap-1.5 px-3.5 py-2.5">
+                                    @foreach ($batch as $v)
+                                        <span class="rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-[12px] font-semibold text-gray-700">{{ data_get($v, 'vehicle_number') }}</span>
+                                    @endforeach
+                                </div>
                             </div>
                         @endforeach
                     </div>
-                    <p class="mt-1 text-[11px] text-gray-400">💡 car-erp 관리(수출통관)가 처리 중입니다. 선적·통관이 진행되면 목록에서 사라집니다.</p>
+                    <p class="mt-1.5 text-[11px] text-gray-400">💡 <b>요청됨</b> = car-erp 관리(수출통관) 접수 / <b>진행중</b> = 처리 중. 선적·통관이 끝나면 목록에서 빠집니다.</p>
                 </div>
             @endif
 
