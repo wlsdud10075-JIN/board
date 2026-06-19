@@ -1452,6 +1452,70 @@ class BoardTest extends TestCase
         Http::assertSent(fn ($req) => str_contains($req->url(), 'salesman_email=override%40ce.test'));
     }
 
+    public function test_portal_super_can_view_another_users_data(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 5000], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $target = $this->mkUser('sales');
+        $target->update(['name' => '김영업', 'car_erp_salesman_email' => 'target@ce.test']);
+        $super = $this->mkUser('manager', null, 'super');
+        $this->actingAs($super);
+
+        Volt::test('portal.index')
+            ->assertSee('사용자별 조회')              // 셀렉터 노출(super 전용)
+            ->call('viewUser', $target->id)
+            ->assertSet('viewUserId', $target->id)
+            ->assertSee('김영업');                    // 조회 대상 이름 표시
+
+        // 스코프 = super 가 선택한 사용자 이메일(서버 isSuper 게이트).
+        Http::assertSent(fn ($req) => str_contains($req->url(), 'salesman_email=target%40ce.test'));
+    }
+
+    public function test_portal_non_super_cannot_impersonate(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 0], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $other = $this->mkUser('sales');
+        $other->update(['car_erp_salesman_email' => 'other@ce.test']);
+        $this->actingAs($this->mkUser('sales', 'me@board.test'));
+
+        Volt::test('portal.index')
+            ->call('viewUser', $other->id)            // 비-super → 무시(본인 격리 유지)
+            ->assertSet('viewUserId', null)
+            ->assertDontSee('사용자별 조회');           // 셀렉터도 비노출
+
+        // 타인 이메일로 전송된 적 없음(임퍼소네이션 차단).
+        Http::assertNotSent(fn ($req) => str_contains($req->url(), 'salesman_email=other%40ce.test'));
+    }
+
+    public function test_portal_super_impersonation_is_view_only(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/shipping-request*' => Http::response(['created' => [1], 'skipped' => []], 201),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $target = $this->mkUser('sales');
+        $target->update(['car_erp_salesman_email' => 'target@ce.test']);
+        $this->actingAs($this->mkUser('manager', null, 'super'));
+
+        Volt::test('portal.index')
+            ->call('viewUser', $target->id)              // super 가 타인 열람
+            ->set('selectedIds', [1])
+            ->call('submitShipping', 1, [1])             // 쓰기 시도 → 차단
+            ->assertSet('shipDone', null)
+            ->assertSee('조회 전용');
+
+        // 선적요청이 car-erp 로 전송되지 않음(타인 대행 쓰기 차단).
+        Http::assertNotSent(fn ($req) => str_contains($req->url(), 'shipping-request'));
+    }
+
     public function test_portal_degrades_when_not_configured(): void
     {
         config(['services.car_erp.base_url' => null, 'services.car_erp.read_hmac_secret' => null]);
