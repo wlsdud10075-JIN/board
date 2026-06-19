@@ -23,7 +23,9 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public array $methodByBuyer = [];          // [buyer_id => 'RORO'|'CONTAINER']
 
-    public ?string $shipMsg = null;
+    public ?array $shipDone = null;    // 선적요청 성공(접수/건너뜀 건수) — 큰 배너
+
+    public ?string $shipNote = null;   // 선적/서류 경고·오류 — 작은 안내
 
     // 미수금 정렬/필터
     public string $recvSort = 'unpaid_krw';   // 기본 = 미수금 많은 순
@@ -93,7 +95,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
         $this->tab = $tab;
-        $this->shipMsg = null;
+        $this->shipDone = null;
+        $this->shipNote = null;
         $this->load();
     }
 
@@ -140,9 +143,10 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** 선적요청 — 한 바이어 묶음(선택 차 + 컨사이니 + RORO/CONTAINER). */
     public function submitShipping(int $buyerId, array $vehicleIds): void
     {
+        $this->shipDone = null;
         $ids = array_values(array_intersect(array_map('intval', $this->selectedIds), $vehicleIds));
         if ($ids === []) {
-            $this->shipMsg = '차량을 선택하세요.';
+            $this->shipNote = '차량을 선택하세요.';
 
             return;
         }
@@ -156,14 +160,16 @@ new #[Layout('components.layouts.app')] class extends Component {
         ]);
 
         if (! ($res['ok'] ?? false)) {
-            $this->shipMsg = '선적요청 전송 실패 — 잠시 후 다시 시도하세요.';
+            $this->shipNote = '선적요청 전송 실패 — 잠시 후 다시 시도하세요.';
 
             return;
         }
 
-        $created = count($res['data']['created'] ?? []);
-        $skipped = count($res['data']['skipped'] ?? []);
-        $this->shipMsg = "선적요청 완료: {$created}대 접수".($skipped ? " · {$skipped}대 건너뜀(이미 요청/대상 아님)" : '');
+        $this->shipNote = null;
+        $this->shipDone = [
+            'created' => count($res['data']['created'] ?? []),
+            'skipped' => count($res['data']['skipped'] ?? []),
+        ];
         $this->selectedIds = [];
         $this->load();   // shippable 갱신(요청된 차는 목록서 빠짐)
     }
@@ -173,7 +179,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $ids = array_values(array_intersect(array_map('intval', $this->selectedIds), $vehicleIds));
         if ($ids === []) {
-            $this->shipMsg = '서류 받을 차량을 선택하세요.';
+            $this->shipNote = '서류 받을 차량을 선택하세요.';
 
             return null;
         }
@@ -182,7 +188,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $res = $this->svc()->document($type, $ids, $this->salesmanEmail());
         if (! ($res['ok'] ?? false)) {
-            $this->shipMsg = '서류를 불러올 수 없습니다. (car-erp 연동 확인)';
+            $this->shipNote = '서류를 불러올 수 없습니다. (car-erp 연동 확인)';
 
             return null;
         }
@@ -243,8 +249,25 @@ new #[Layout('components.layouts.app')] class extends Component {
         <button wire:click="reload" class="ml-auto rounded-md border border-gray-300 bg-white px-3 py-1.5 text-[13px] text-blue-600" title="새로고침">↻ 갱신</button>
     </div>
 
-    @if ($shipMsg)
-        <div class="card-sm mb-3 border-green-200 bg-green-50 text-[13px] text-green-700">✓ {{ $shipMsg }}</div>
+    {{-- 선적요청 성공 — 크게, 확실하게 --}}
+    @if ($shipDone)
+        <div wire:key="shipdone-{{ $shipDone['created'] }}-{{ $shipDone['skipped'] }}"
+             x-data="{ show: true }" x-show="show" x-transition.scale.origin.top
+             class="mb-4 flex items-center gap-4 rounded-xl border-2 border-green-400 bg-green-50 px-5 py-4 shadow-md">
+            <div class="text-4xl">✅</div>
+            <div class="flex-1">
+                <div class="text-lg font-bold text-green-800">선적요청 접수 완료!</div>
+                <div class="mt-0.5 text-[15px] text-green-700">
+                    <b class="text-xl text-green-800">{{ $shipDone['created'] }}대</b> 선적요청이 car-erp로 전송됐습니다.
+                    @if ($shipDone['skipped']) <span class="text-amber-600">({{ $shipDone['skipped'] }}대는 이미 요청됨/대상 아님 — 건너뜀)</span> @endif
+                </div>
+                <div class="mt-1 text-[12px] text-green-600">📨 car-erp 관리(수출통관)에게 알람이 전달되어 선적 진행이 시작됩니다.</div>
+            </div>
+            <button @click="show = false" class="self-start text-green-400 hover:text-green-700" title="닫기">✕</button>
+        </div>
+    @endif
+    @if ($shipNote)
+        <div class="card-sm mb-3 border-amber-200 bg-amber-50 text-[13px] text-amber-700">⚠️ {{ $shipNote }}</div>
     @endif
 
     <div class="card">

@@ -1498,7 +1498,7 @@ class BoardTest extends TestCase
             ->set('selectedIds', [10])
             ->set('consigneeByBuyer.2', 3)
             ->call('submitShipping', 2, [10])
-            ->assertSee('선적요청 완료');
+            ->assertSee('선적요청 접수 완료')->assertSee('1대');   // 큰 성공 배너
 
         Http::assertSent(fn ($req) => str_contains($req->url(), 'shipping-request')
             && str_contains($req->body(), '"vehicle_ids":[10]') && str_contains($req->body(), '"consignee_id":3'));
