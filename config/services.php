@@ -36,9 +36,16 @@ return [
     ],
 
     // 연동 B — car-erp purchase-sync (board → car-erp, HMAC). 대표 승인 후 사용.
+    // 매물 자동채움 — encar 공개 JSON API (헤더 불필요). 막히면 base_url/UA 조정.
+    'encar' => [
+        'base_url' => env('ENCAR_BASE_URL', 'https://api.encar.com'),
+    ],
+
     'car_erp' => [
         'base_url' => env('CAR_ERP_BASE_URL'),
         'hmac_secret' => env('CAR_ERP_HMAC_SECRET'),
+        // 영업 포털 읽기 API(GET) 전용 시크릿 — 쓰기(purchase-sync) 시크릿과 분리. 미설정 시 no-op.
+        'read_hmac_secret' => env('CAR_ERP_READ_HMAC_SECRET'),
     ],
 
     // 연동 A — respond.io (Developer API 폴링 + inbound webhook + outbound).
@@ -46,8 +53,18 @@ return [
         'base_url' => env('RESPOND_BASE_URL', 'https://api.respond.io'),
         'api_token' => env('RESPOND_API_TOKEN'),
         'webhook_secret' => env('RESPOND_WEBHOOK_SECRET'),
-        // 커스텀 필드명(바이어 회신) — 워크스페이스에서 만든 이름에 맞춰 .env 로 조정.
+        // 커스텀 필드 ID(바이어 회신, 드롭다운) — 워크스페이스 필드 ID 에 맞춤.
         'verdict_field' => env('RESPOND_VERDICT_FIELD', 'buyer_verdict'),
+        // 드롭다운 목록값 (Jin 워크스페이스: Accept/Refuse/Hold). Hold=중립(폴러 무시).
+        'verdict_values' => [
+            'accept' => env('RESPOND_VERDICT_ACCEPT', 'Accept'),
+            'refuse' => env('RESPOND_VERDICT_REFUSE', 'Refuse'),
+            'hold' => env('RESPOND_VERDICT_HOLD', 'Hold'),
+        ],
+        // 승격 자동연결 — 바이어가 켜면 board "승격 대기" 로 캡처. 처리 후 reset 값으로 리셋.
+        'promote_field' => env('RESPOND_PROMOTE_FIELD', 'board_promote'),
+        'promote_value' => env('RESPOND_PROMOTE_VALUE', 'Yes'),
+        'promote_reset' => env('RESPOND_PROMOTE_RESET', 'No'),
     ],
 
 ];

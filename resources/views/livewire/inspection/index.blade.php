@@ -340,15 +340,15 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $msg = '저장되었습니다.';
         if ($sending) {
-            // 회신 채널 결정: 대화 미연결이면 자동 불가→수동. 강제수동(=수동 전환 선택) 시 수동.
+            // 회신 채널 결정: 컨택트 미연결이면 자동 불가→수동. 강제수동(=수동 전환 선택) 시 수동.
             $channel = 'auto';
-            if (empty($l->respond_conversation_id) || $this->forceManualSend) {
+            if (empty($l->respond_contact_id) || $this->forceManualSend) {
                 $channel = 'manual';
             } else {
-                // (가) 가드: 같은 바이어에 이미 '자동' 회신대기 차가 있으면 전달 보류 + 선택지 알림.
+                // (가) 가드: 같은 바이어(컨택트)에 이미 '자동' 회신대기 차가 있으면 전달 보류 + 선택지 알림.
                 // (자동은 한 바이어당 1대 직렬화 — respond.io 폴링이 '어느 차'인지 명확하도록)
                 $conflict = PurchaseListing::withoutGlobalScope(SalesmanScope::class)
-                    ->where('respond_conversation_id', $l->respond_conversation_id)
+                    ->where('respond_contact_id', $l->respond_contact_id)
                     ->where('status', 'awaiting_buyer')
                     ->where('verdict_channel', 'auto')
                     ->where('id', '!=', $l->id)
@@ -372,8 +372,23 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $l->save();
         $this->persistPhotos($l);
+
+        // outbound — 전달 시 바이어에게 최종금액(USD)+공개사진 자동 전송 (Job 가드: 컨택트/설정)
+        if ($sending) {
+            \App\Jobs\SendOfferToBuyer::dispatch($l->id)->afterCommit();
+        }
+
         session()->flash('ok', $msg);
         $this->closeDrawer();
+    }
+
+    /** 사진별 "바이어 공개" 토글 (§28 외관만 전송 — 담당자가 선별). */
+    public function toggleShare(int $photoId): void
+    {
+        $p = \App\Models\InspectionPhoto::where('purchase_listing_id', $this->editingId)->findOrFail($photoId);
+        $p->share_to_buyer = ! $p->share_to_buyer;
+        $p->save();
+        unset($this->editing);
     }
 
     /** (가) 선택지 ① 수동으로 전환해 전달 — 자동 1대 제한을 우회, 이 차는 수동 트랙으로. */
@@ -557,13 +572,20 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @if ($e->photos->count())
                     <div class="mt-2 grid grid-cols-4 gap-2">
                         @foreach ($e->photos as $p)
-                            @if ($p->isVideo())
-                                <video src="{{ $this->photoUrl($p->s3_path) }}" class="aspect-square w-full rounded-md object-cover" controls preload="metadata"></video>
-                            @else
-                                <img src="{{ $this->photoUrl($p->s3_path) }}" class="aspect-square w-full rounded-md object-cover" alt="">
-                            @endif
+                            <div class="relative overflow-hidden rounded-md">
+                                @if ($p->isVideo())
+                                    <video src="{{ $this->photoUrl($p->s3_path) }}" class="aspect-square w-full object-cover" controls preload="metadata"></video>
+                                @else
+                                    <img src="{{ $this->photoUrl($p->s3_path) }}" class="aspect-square w-full object-cover" alt="">
+                                @endif
+                                <button type="button" wire:click="toggleShare({{ $p->id }})"
+                                    class="absolute inset-x-0 bottom-0 py-0.5 text-[10px] font-semibold {{ $p->share_to_buyer ? 'bg-green-600 text-white' : 'bg-black/55 text-white' }}">
+                                    {{ $p->share_to_buyer ? '✓ 바이어공개' : '바이어공개' }}
+                                </button>
+                            </div>
                         @endforeach
                     </div>
+                    <p class="mt-1 text-[11px] text-gray-400">💡 바이어에게 보낼 <b>외관 사진/영상만</b> "바이어공개" 켜기 (서류·번호판 제외). 전달 시 USD 금액과 함께 자동 전송.</p>
                 @endif
 
                 {{-- 검사지역 --}}

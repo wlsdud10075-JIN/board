@@ -45,20 +45,31 @@ class VerdictService
         });
     }
 
-    /**
-     * 대화(스파인) + 옵션(차량번호·채널)로 회신대기 차를 찾아 단일이면 적용.
-     * 다중차 모호함은 적용 안 함(상담원 보조/직렬화로 해소).
-     *
-     * @return array{status:string, listing_id:?int} status = applied:<verdict> | no_match | ambiguous
-     */
+    /** respond.io 컨택트(스파인=contact id) 로 회신대기 차 단일이면 적용. (C 폴링) */
+    public function applyByContact(string $contactId, string $verdict, ?string $channel = null): array
+    {
+        return $this->applyByRef('respond_contact_id', $contactId, $verdict, null, $channel);
+    }
+
+    /** 대화 id 로 회신대기 차 단일이면 적용. (B webhook 용 — respond.io 가 conversation 동반 시) */
     public function applyByConversation(string $convId, string $verdict, ?string $vehicleNumber = null, ?string $channel = null): array
     {
-        if ($convId === '' || ! in_array($verdict, ['accepted', 'rejected'], true)) {
+        return $this->applyByRef('respond_conversation_id', $convId, $verdict, $vehicleNumber, $channel);
+    }
+
+    /**
+     * 공통: 스파인 컬럼으로 회신대기 차 조회 → 단일=적용, 다중=ambiguous(직렬화/상담원), 없음=no_match.
+     *
+     * @return array{status:string, listing_id:?int}
+     */
+    private function applyByRef(string $column, string $value, string $verdict, ?string $vehicleNumber, ?string $channel): array
+    {
+        if ($value === '' || ! in_array($verdict, ['accepted', 'rejected'], true)) {
             return ['status' => 'no_match', 'listing_id' => null];
         }
 
         $q = PurchaseListing::withoutGlobalScope(SalesmanScope::class)
-            ->where('respond_conversation_id', $convId)
+            ->where($column, $value)
             ->where('status', 'awaiting_buyer');
 
         if ($vehicleNumber !== null && $vehicleNumber !== '') {

@@ -2,14 +2,19 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\SendOfferToBuyer;
 use App\Jobs\SyncWonListingToCarErp;
 use App\Models\BoardAuditLog;
 use App\Models\ExchangeRate;
 use App\Models\InspectionAssignment;
 use App\Models\IntegrationEvent;
+use App\Models\PromotionRequest;
 use App\Models\PurchaseListing;
 use App\Models\User;
+use App\Services\CarErpReadService;
 use App\Services\ExchangeRateService;
+use App\Services\ListingEnrichment;
+use App\Services\RespondIoService;
 use App\Services\VerdictService;
 use App\Support\ListingLink;
 use App\Support\TimeGate;
@@ -799,15 +804,16 @@ class BoardTest extends TestCase
 
     public function test_promote_via_encar_link_extracts_and_saves(): void
     {
+        Http::fake(['*api.encar.com*' => Http::response(['vehicleNo' => '244로9100', 'advertisement' => ['price' => 100]], 200)]);
         $this->actingAs($kim = $this->mkUser('sales'));
 
         Volt::test('listings.index')
-            ->set('linkInput', 'https://fem.encar.com/cars/detail/42176484?x=1')
-            ->call('parseLink')
+            ->set('encarLink', 'https://fem.encar.com/cars/detail/42176484?x=1')
+            ->call('parseLink', 'encar')
             ->assertSet('source', 'encar')
             ->assertSet('encar_id', '42176484')
             ->set('vehicle_number', '88가8888')
-            ->set('respond_conversation_id', 'conv_xyz')
+            ->set('respond_contact_id', 'ct_xyz')
             ->call('save')
             ->assertHasNoErrors();
 
@@ -815,16 +821,17 @@ class BoardTest extends TestCase
         $this->assertSame('42176484', $l->encar_id);
         $this->assertSame('encar', $l->origin);
         $this->assertSame('encar', $l->source);
-        $this->assertSame('conv_xyz', $l->respond_conversation_id);
+        $this->assertSame('ct_xyz', $l->respond_contact_id);
     }
 
     public function test_promote_via_ssancar_wr_id_link_sets_ssancar_ref(): void
     {
+        Http::fake(['*ssancar.com*' => Http::response('<html>상세</html>', 200)]);   // 식별값 없음 → prefill 없음
         $this->actingAs($this->mkUser('sales'));
 
         Volt::test('listings.index')
-            ->set('linkInput', 'https://www.ssancar.com/page/inspected_view.php?wr_id=786')
-            ->call('parseLink')
+            ->set('ssancarLink', 'https://www.ssancar.com/page/inspected_view.php?wr_id=786')
+            ->call('parseLink', 'ssancar')
             ->assertSet('origin', 'ssancar_checking')
             ->assertSet('ssancar_ref', 'wr_id:786')
             ->set('vehicle_number', '77가7777')
@@ -841,11 +848,12 @@ class BoardTest extends TestCase
     {
         // 싼카경매(car_no) → origin=ssancar_auction, source=auction(경매 워크플로)
         Carbon::setTestNow('2026-06-13 09:00:00');   // 토요일 → 등록 시간잠금 미적용
+        Http::fake(['*ssancar.com*' => Http::response('<html>경매</html>', 200)]);
         $this->actingAs($this->mkUser('sales'));
 
         Volt::test('listings.index')
-            ->set('linkInput', 'https://www.ssancar.com/page/car_view.php?car_no=1871585')
-            ->call('parseLink')
+            ->set('ssancarLink', 'https://www.ssancar.com/page/car_view.php?car_no=1871585')
+            ->call('parseLink', 'ssancar')
             ->assertSet('origin', 'ssancar_auction')
             ->assertSet('source', 'auction')
             ->set('vehicle_number', '66가6666')
@@ -866,9 +874,9 @@ class BoardTest extends TestCase
         $this->actingAs($this->mkUser('sales'));
 
         Volt::test('listings.index')
-            ->set('linkInput', 'https://www.google.com')
-            ->call('parseLink')
-            ->assertHasErrors('linkInput');
+            ->set('encarLink', 'https://www.google.com')
+            ->call('parseLink', 'encar')
+            ->assertHasErrors('encarLink');
     }
 
     public function test_duplicate_vehicle_number_is_blocked(): void
@@ -968,7 +976,7 @@ class BoardTest extends TestCase
     public function test_inspection_send_defaults_auto_when_conversation_linked(): void
     {
         $l = $this->mkListing($this->mkUser('sales'), [
-            'status' => 'draft', 'region' => '서울', 'respond_conversation_id' => 'conv_auto', 'car_cost' => 9000000,
+            'status' => 'draft', 'region' => '서울', 'respond_contact_id' => 'ct_auto', 'car_cost' => 9000000,
         ]);
         $this->actingAs($this->mkUser('inspection'));
 
@@ -996,8 +1004,8 @@ class BoardTest extends TestCase
     public function test_inspection_second_auto_car_blocked_then_manual(): void
     {
         $sales = $this->mkUser('sales');
-        $a = $this->mkListing($sales, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_g', 'verdict_channel' => 'auto']);
-        $b = $this->mkListing($sales, ['status' => 'draft', 'respond_conversation_id' => 'conv_g', 'car_cost' => 9000000]);
+        $a = $this->mkListing($sales, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_contact_id' => 'ct_g', 'verdict_channel' => 'auto']);
+        $b = $this->mkListing($sales, ['status' => 'draft', 'respond_contact_id' => 'ct_g', 'car_cost' => 9000000]);
         $this->actingAs($this->mkUser('inspection'));
 
         // 2번째 자동 차 전달 시도 → (가) 보류 + 알림
@@ -1027,10 +1035,10 @@ class BoardTest extends TestCase
     {
         $this->respondConfig();
         Http::fake(['*/v2/contact*' => Http::response(['items' => [
-            ['id' => 'ct1', 'conversation_id' => 'conv_p', 'custom_fields' => ['buyer_verdict' => '수락']],
+            ['id' => 'ct1', 'conversation_id' => 'conv_p', 'custom_fields' => ['buyer_verdict' => 'Accept']],
         ]])]);
         $l = $this->mkListing($this->mkUser('sales'), [
-            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_p', 'verdict_channel' => 'auto',
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_contact_id' => 'ct1', 'verdict_channel' => 'auto',
         ]);
 
         $this->artisan('board:poll-verdicts')->assertSuccessful();
@@ -1045,11 +1053,11 @@ class BoardTest extends TestCase
     {
         $this->respondConfig();
         Http::fake(['*/v2/contact*' => Http::response(['items' => [
-            ['id' => 'ct2', 'conversation_id' => 'conv_m2', 'custom_fields' => ['buyer_verdict' => '수락']],
+            ['id' => 'ct2', 'conversation_id' => 'conv_m2', 'custom_fields' => ['buyer_verdict' => 'Accept']],
         ]])]);
         $sales = $this->mkUser('sales');
-        $a = $this->mkListing($sales, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_m2', 'verdict_channel' => 'auto']);
-        $b = $this->mkListing($sales, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_m2', 'verdict_channel' => 'auto']);
+        $a = $this->mkListing($sales, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_contact_id' => 'ct2', 'verdict_channel' => 'auto']);
+        $b = $this->mkListing($sales, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_contact_id' => 'ct2', 'verdict_channel' => 'auto']);
 
         $this->artisan('board:poll-verdicts')->assertSuccessful();
 
@@ -1062,10 +1070,10 @@ class BoardTest extends TestCase
     {
         $this->respondConfig();
         Http::fake(['*/v2/contact*' => Http::response(['items' => [
-            ['id' => 'ct3', 'conversation_id' => 'conv_man', 'custom_fields' => ['buyer_verdict' => '수락']],
+            ['id' => 'ct3', 'conversation_id' => 'conv_man', 'custom_fields' => ['buyer_verdict' => 'Accept']],
         ]])]);
         $l = $this->mkListing($this->mkUser('sales'), [
-            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_conversation_id' => 'conv_man', 'verdict_channel' => 'manual',
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_contact_id' => 'ct3', 'verdict_channel' => 'manual',
         ]);
 
         $this->artisan('board:poll-verdicts')->assertSuccessful();
@@ -1081,5 +1089,544 @@ class BoardTest extends TestCase
         $this->artisan('board:poll-verdicts')->assertSuccessful();
 
         Http::assertNothingSent();   // 안전밸브
+    }
+
+    // ─────────────────────── 연동 A — outbound (바이어에게 사진+금액 전송) ───────────────────────
+
+    public function test_send_offer_sends_price_and_only_shared_photos(): void
+    {
+        $this->respondConfig();
+        config(['board.photo_disk' => 'public']);
+        Http::fake(['*/message' => Http::response(['messageId' => 1], 200)]);
+
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_contact_id' => 'ct_o', 'final_price' => 13800000,
+        ]);
+        $l->photos()->create(['s3_path' => 'p/ext.jpg', 'original_name' => 'ext.jpg', 'sort' => 1, 'share_to_buyer' => true]);
+        $l->photos()->create(['s3_path' => 'p/doc.jpg', 'original_name' => 'doc.jpg', 'sort' => 2, 'share_to_buyer' => false]);
+
+        (new SendOfferToBuyer($l->id))->handle(app(RespondIoService::class), app(ExchangeRateService::class));
+
+        Http::assertSentCount(2);   // 텍스트(USD 금액) 1 + 공개사진 1 (서류는 미전송)
+        $this->assertDatabaseHas('integration_events', [
+            'target' => 'respond_io', 'event_type' => 'send_offer', 'purchase_listing_id' => $l->id,
+        ]);
+    }
+
+    public function test_send_offer_noop_without_contact(): void
+    {
+        $this->respondConfig();
+        Http::fake();
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'awaiting_buyer', 'final_price' => 9000000]); // 컨택트 없음
+
+        (new SendOfferToBuyer($l->id))->handle(app(RespondIoService::class), app(ExchangeRateService::class));
+
+        Http::assertNothingSent();
+    }
+
+    public function test_inspection_send_dispatches_offer_to_buyer(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft', 'respond_contact_id' => 'ct_s', 'car_cost' => 9000000]);
+        $this->actingAs($this->mkUser('inspection'));
+
+        Volt::test('inspection.index')
+            ->call('openDrawer', $l->id)->set('buyer_name', 'D')->set('car_cost', '9000000')
+            ->set('sendSelected', true)->call('save')->assertHasNoErrors();
+
+        Bus::assertDispatched(SendOfferToBuyer::class, fn ($j) => $j->listingId === $l->id);
+    }
+
+    // ─────────────────────── 연동 A — 승격 자동연결 (board_promote 폴링) ───────────────────────
+
+    public function test_poll_captures_pending_promotion_and_resets(): void
+    {
+        $this->respondConfig();
+        Http::fake(['*/v2/contact*' => Http::response(['items' => [
+            ['id' => 469, 'firstName' => '홍', 'lastName' => '길동', 'assignee' => ['email' => 'agent@x.test'], 'custom_fields' => [['name' => 'board_promote', 'value' => 'Yes']]],
+        ]])]);
+
+        $this->artisan('board:poll-promotions')->assertSuccessful();
+
+        $this->assertDatabaseHas('promotion_requests', [
+            'respond_contact_id' => '469', 'label' => '홍 길동', 'assigned_email' => 'agent@x.test', 'status' => 'pending',
+        ]);
+        $this->assertDatabaseHas('integration_events', [
+            'target' => 'respond_io', 'event_type' => 'promote_poll',
+        ]);
+        // 필드 reset(PUT) 발송됨.
+        Http::assertSent(fn ($r) => $r->method() === 'PUT' && str_contains($r->url(), 'contact/id:469'));
+    }
+
+    public function test_poll_promotion_idempotent_per_buyer(): void
+    {
+        $this->respondConfig();
+        Http::fake(['*/v2/contact*' => Http::response(['items' => [
+            ['id' => 470, 'firstName' => 'A', 'custom_fields' => [['name' => 'board_promote', 'value' => 'Yes']]],
+        ]])]);
+        PromotionRequest::create(['respond_contact_id' => '470', 'label' => 'A', 'status' => 'pending']);
+
+        $this->artisan('board:poll-promotions')->assertSuccessful();
+
+        // 이미 미소비 대기 1건 → 중복 생성 안 함.
+        $this->assertSame(1, PromotionRequest::where('respond_contact_id', '470')->where('status', 'pending')->count());
+    }
+
+    public function test_poll_promotion_expires_stale(): void
+    {
+        config(['services.respond_io.base_url' => null, 'services.respond_io.api_token' => null]);
+        $r = PromotionRequest::create(['respond_contact_id' => '471', 'label' => 'old', 'status' => 'pending']);
+        $r->forceFill(['created_at' => now()->subDays(8)])->save();
+        Http::fake();
+
+        $this->artisan('board:poll-promotions')->assertSuccessful();   // 미설정이어도 만료는 돈다
+
+        $this->assertSame('expired', $r->fresh()->status);
+        Http::assertNothingSent();   // 미설정 = 안전밸브
+    }
+
+    public function test_promote_from_consumes_request_on_save(): void
+    {
+        $sales = $this->mkUser('sales');
+        // 담당 영업 = 로그인 이메일과 매칭(respond_agent_email 폴백) → 본인에게 보임.
+        $req = PromotionRequest::create(['respond_contact_id' => 'ct_promo', 'label' => '바이어', 'assigned_email' => $sales->email, 'status' => 'pending']);
+        $this->actingAs($sales);
+
+        Volt::test('listings.index')
+            ->call('promoteFrom', $req->id)
+            ->set('vehicle_number', '99가1234')
+            ->call('save')->assertHasNoErrors();
+
+        $listing = PurchaseListing::where('vehicle_number', '99가1234')->first();
+        $this->assertNotNull($listing);
+        $this->assertSame('ct_promo', $listing->respond_contact_id);   // 컨택트 자동 연결
+        $this->assertDatabaseHas('promotion_requests', [
+            'id' => $req->id, 'status' => 'consumed', 'purchase_listing_id' => $listing->id,
+        ]);
+    }
+
+    public function test_dismiss_promotion_marks_dismissed(): void
+    {
+        $sales = $this->mkUser('sales');
+        $req = PromotionRequest::create(['respond_contact_id' => 'ct_x', 'assigned_email' => $sales->email, 'status' => 'pending']);
+        $this->actingAs($sales);
+
+        Volt::test('listings.index')->call('dismissPromotion', $req->id);
+
+        $this->assertSame('dismissed', $req->fresh()->status);
+    }
+
+    public function test_promotion_visible_only_to_assigned_sales(): void
+    {
+        $mine = $this->mkUser('sales');
+        $other = $this->mkUser('sales');
+        PromotionRequest::create(['respond_contact_id' => 'c_a', 'label' => '내것', 'assigned_email' => $mine->email, 'status' => 'pending']);
+        PromotionRequest::create(['respond_contact_id' => 'c_b', 'label' => '남것', 'assigned_email' => $other->email, 'status' => 'pending']);
+
+        $this->actingAs($mine);
+        Volt::test('listings.index')->assertSee('내것')->assertDontSee('남것');
+    }
+
+    public function test_manager_sees_all_promotions_including_unassigned(): void
+    {
+        $sales = $this->mkUser('sales');
+        PromotionRequest::create(['respond_contact_id' => 'c_c', 'label' => '영업것', 'assigned_email' => $sales->email, 'status' => 'pending']);
+        PromotionRequest::create(['respond_contact_id' => 'c_d', 'label' => '미배정것', 'assigned_email' => null, 'status' => 'pending']);
+
+        $this->actingAs($this->mkUser('manager'));
+        Volt::test('listings.index')->assertSee('영업것')->assertSee('미배정것');   // 관리자 풀
+    }
+
+    public function test_sales_cannot_promote_others_request(): void
+    {
+        $mine = $this->mkUser('sales');
+        $other = $this->mkUser('sales');
+        $req = PromotionRequest::create(['respond_contact_id' => 'c_e', 'assigned_email' => $other->email, 'status' => 'pending']);
+
+        $this->actingAs($mine);
+        // 본인 담당 아님 → firstOrFail(404) → consume 시도 차단(IDOR).
+        $this->assertItThrows(fn () => Volt::test('listings.index')->call('promoteFrom', $req->id));
+        $this->assertSame('pending', $req->fresh()->status);
+    }
+
+    // ─────────────────────── 매물 자동채움 (encar enrichment) ───────────────────────
+
+    public function test_enrichment_maps_encar_and_scales_price(): void
+    {
+        Http::fake(['*api.encar.com*' => Http::response([
+            'vehicleNo' => '12가3456', 'vin' => 'VINX',
+            'advertisement' => ['price' => 650],
+            'contact' => ['address' => '대구 서구 문화로 37'],
+        ], 200)]);
+
+        $r = (new ListingEnrichment)->byEncarId('42116243');
+
+        $this->assertSame('12가3456', $r['vehicle_number']);
+        $this->assertSame(6500000, $r['prices']['KRW']);   // 650만 ×10000, encar=원화
+        $this->assertSame('대구', $r['region']);
+        $this->assertSame('VINX', $r['vin']);
+    }
+
+    public function test_enrichment_city_parser(): void
+    {
+        $s = new ListingEnrichment;
+        $this->assertSame('대구', $s->city('대구 서구 문화로 37'));     // 광역시
+        $this->assertSame('안산', $s->city('경기 안산시 단원구 원포공원1로 16'));   // 도+시
+        $this->assertNull($s->city(''));
+    }
+
+    public function test_enrichment_failure_is_safe(): void
+    {
+        Http::fake(['*api.encar.com*' => Http::response('', 500)]);
+        $this->assertSame([], (new ListingEnrichment)->byEncarId('1'));   // throw 안 함, prefill 없음
+    }
+
+    public function test_listings_link_prefills_from_encar(): void
+    {
+        Http::fake(['*api.encar.com/v1/readside/vehicle/*' => Http::response([
+            'vehicleNo' => '244로9100', 'vin' => 'WMW21GA04S7R38829',
+            'advertisement' => ['price' => 6666],
+            'contact' => ['address' => '경기 안산시 단원구 원포공원1로 16'],
+        ], 200)]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('encarLink', 'https://fem.encar.com/cars/detail/42176484')
+            ->call('parseLink', 'encar')
+            ->assertSet('vehicle_number', '244로9100')
+            ->assertSet('expected_price', '66660000')   // 6666만 ×10000
+            ->assertSet('expected_price_currency', 'KRW')
+            ->assertSet('region', '안산')
+            ->assertSet('vin', 'WMW21GA04S7R38829');
+    }
+
+    public function test_enrichment_ssancar_inspected_routes_via_encar(): void
+    {
+        Http::fake([
+            '*api.encar.com*' => Http::response([
+                'vehicleNo' => '55오5555', 'vin' => 'VV', 'advertisement' => ['price' => 700], 'contact' => ['address' => '서울 강남구 테헤란로 1'],
+            ], 200),
+            '*ssancar.com*' => Http::response('<html><a href="https://fem.encar.com/cars/detail/999?x=1">원본</a></html>', 200),
+        ]);
+
+        $r = (new ListingEnrichment)->fromSsancar('https://www.ssancar.com/x?wr_id=786');
+
+        $this->assertSame('55오5555', $r['vehicle_number']);   // 검차매물 = encar 우회로 KRW·지역 확보
+        $this->assertSame(7000000, $r['prices']['KRW']);
+        $this->assertSame('서울', $r['region']);
+    }
+
+    public function test_enrichment_ssancar_money_block_three_currencies(): void
+    {
+        $money = '<p class="money">Price ₩ <span>10,500,000</span> $ <span>6,791</span> € <span>5,920</span></p>';
+        Http::fake(['*ssancar.com*' => Http::response('<em id="copy_txt">VIN1</em><div>12가3456</div>'.$money, 200)]);
+
+        $r = (new ListingEnrichment)->fromSsancar('https://www.ssancar.com/x?c_no=1');
+
+        $this->assertSame(10500000, $r['prices']['KRW']);
+        $this->assertSame(6791, $r['prices']['USD']);
+        $this->assertSame(5920, $r['prices']['EUR']);
+    }
+
+    public function test_listings_currency_toggle_changes_amount(): void
+    {
+        $money = '<p class="money">₩ <span>10,500,000</span> $ <span>6,791</span> € <span>5,920</span></p>';
+        Http::fake(['*ssancar.com*' => Http::response('<em id="copy_txt">VIN1</em><div>12가3456</div>'.$money, 200)]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('listings.index')
+            ->set('ssancarLink', 'https://www.ssancar.com/x?c_no=1')
+            ->call('parseLink', 'ssancar')
+            ->assertSet('expected_price_currency', 'KRW')->assertSet('expected_price', '10500000');
+        $c->call('pickCurrency', 'USD')->assertSet('expected_price', '6791')->assertSet('expected_price_currency', 'USD');
+        $c->call('pickCurrency', 'EUR')->assertSet('expected_price', '5920');
+    }
+
+    public function test_enrichment_ssancar_stock_parses_vin_plate_usd_price(): void
+    {
+        Http::fake(['*ssancar.com*' => Http::response('<div>차량번호 12가3456</div><em id="copy_txt">KMHXX1234567</em><span>52,473 USD</span>', 200)]);
+
+        $r = (new ListingEnrichment)->fromSsancar('https://www.ssancar.com/x?c_no=6915603');
+
+        $this->assertSame('KMHXX1234567', $r['vin']);
+        $this->assertSame('12가3456', $r['vehicle_number']);
+        $this->assertSame(52473, $r['prices']['USD']);   // money 블록 없으면 USD 텍스트 폴백
+    }
+
+    // ─────────────────────── 영업 포털 — car-erp 읽기(HMAC GET) ───────────────────────
+
+    private function carErpReadConfig(): void
+    {
+        config(['services.car_erp.base_url' => 'https://x.test', 'services.car_erp.read_hmac_secret' => 'sek']);
+    }
+
+    /** canonical 핀(계약 §1 정합 검증물) — car-erp 라이브 시 서명 불일치면 여기 vs car-erp diff. */
+    public function test_carerp_canonical_string_is_pinned(): void
+    {
+        $svc = new CarErpReadService;
+        // car-erp VerifyBoardReadHmac = ksort + http_build_query(urlencode). @=%40, ,=%2C.
+        $this->assertSame(
+            "GET\n/api/internal/board/finance?salesman_email=kim%40board.test\n1700000000\n",
+            $svc->canonical('GET', '/api/internal/board/finance', ['salesman_email' => 'kim@board.test'], '1700000000', '')
+        );
+        // 다중 쿼리 ksort: ids < salesman_email.
+        $this->assertSame(
+            "GET\n/api/internal/board/documents/roro_contract?ids=3%2C1%2C2&salesman_email=a%40b.test\n1700000000\n",
+            $svc->canonical('GET', '/api/internal/board/documents/roro_contract', ['salesman_email' => 'a@b.test', 'ids' => '3,1,2'], '1700000000', '')
+        );
+    }
+
+    public function test_carerp_signature_uses_read_secret(): void
+    {
+        $this->carErpReadConfig();
+        [$headers, $canonical] = (new CarErpReadService)->sign('GET', '/api/internal/board/finance', ['salesman_email' => 'k@b.test'], '');
+        $this->assertSame('sha256='.hash_hmac('sha256', $canonical, 'sek'), $headers['X-Board-Signature']);
+        $this->assertArrayHasKey('X-Timestamp', $headers);
+        $this->assertArrayHasKey('X-Nonce', $headers);
+    }
+
+    public function test_carerp_not_configured_is_noop_degrade(): void
+    {
+        config(['services.car_erp.base_url' => null, 'services.car_erp.read_hmac_secret' => null]);
+        Http::fake();
+
+        $r = (new CarErpReadService)->finance('k@b.test');
+
+        $this->assertFalse($r['ok']);
+        $this->assertSame('not_configured', $r['reason']);
+        Http::assertNothingSent();   // 안전밸브
+    }
+
+    public function test_carerp_finance_success_sends_signed_scoped_request(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake(['*/api/internal/board/finance*' => Http::response(['receivables_total_krw' => 100], 200)]);
+
+        $r = (new CarErpReadService)->finance('kim@board.test');
+
+        $this->assertTrue($r['ok']);
+        $this->assertSame(100, $r['data']['receivables_total_krw']);
+        Http::assertSent(fn ($req) => str_contains($req->url(), '/api/internal/board/finance')
+            && str_contains($req->url(), 'salesman_email=kim%40board.test')
+            && $req->hasHeader('X-Board-Signature') && $req->hasHeader('X-Timestamp') && $req->hasHeader('X-Nonce'));
+    }
+
+    public function test_carerp_http_error_degrades_not_zero(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake(['*' => Http::response('', 403)]);
+
+        $r = (new CarErpReadService)->receivables('k@b.test');
+
+        $this->assertFalse($r['ok']);   // degrade — 화면 "조회 불가"(0/완납 금지)
+        $this->assertSame(403, $r['status']);
+    }
+
+    public function test_carerp_document_rejects_non_allowed_type(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake();
+
+        $r = (new CarErpReadService)->document('deregistration', [1], 'k@b.test');   // 말소서류=PII
+
+        $this->assertFalse($r['ok']);
+        $this->assertSame('type_not_allowed', $r['reason']);
+        Http::assertNothingSent();   // 화이트리스트 board 측 강제
+    }
+
+    public function test_portal_uses_auth_email_override_and_renders(): void
+    {
+        $this->carErpReadConfig();
+        // 실제 finance 응답 키(InternalPortalController) — unpaid_total_krw.
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 5000, 'settlement_pending_count' => 2], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),   // 월별용 sales/settlements/purchases
+        ]);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'override@ce.test']);
+        $this->actingAs($sales);
+
+        Volt::test('portal.index')->assertSee('미수금 합계')->assertSee('5,000원');
+
+        // 스코프 = Auth 본인 오버라이드 이메일(요청 파라미터 아님).
+        Http::assertSent(fn ($req) => str_contains($req->url(), 'salesman_email=override%40ce.test'));
+    }
+
+    public function test_portal_degrades_when_not_configured(): void
+    {
+        config(['services.car_erp.base_url' => null, 'services.car_erp.read_hmac_secret' => null]);
+        Http::fake();
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->assertSee('조회 불가')->assertDontSee('완납');
+    }
+
+    public function test_carerp_shipping_request_posts_signed_with_email(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake(['*/api/internal/board/shipping-request*' => Http::response(['created' => [1], 'skipped' => []], 201)]);
+
+        $r = (new CarErpReadService)->shippingRequest('kim@board.test', [
+            'vehicle_ids' => [1], 'buyer_id' => 2, 'consignee_id' => 3, 'shipping_method' => 'RORO',
+        ]);
+
+        $this->assertTrue($r['ok']);
+        $this->assertSame([1], $r['data']['created']);
+        Http::assertSent(fn ($req) => $req->method() === 'POST'
+            && str_contains($req->url(), 'salesman_email=kim%40board.test')               // 쿼리(스코프 미들웨어)
+            && str_contains($req->body(), '"salesman_email":"kim@board.test"')             // 바디(§5)
+            && str_contains($req->body(), '"shipping_method":"RORO"')
+            && $req->hasHeader('X-Board-Signature'));
+    }
+
+    public function test_portal_receivables_groups_by_buyer_with_sum(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 0], 200),
+            '*/api/internal/board/receivables*' => Http::response(['count' => 2, 'data' => [
+                ['vehicle_number' => '11가1', 'buyer' => 'BuyerA', 'currency' => 'USD', 'exchange_rate' => 1300, 'unpaid_krw' => 1000],
+                ['vehicle_number' => '22나2', 'buyer' => 'BuyerA', 'currency' => 'USD', 'exchange_rate' => 1300, 'unpaid_krw' => 2000],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'receivables')
+            ->assertSee('BuyerA')->assertSee('11가1')->assertSee('3,000원');   // 바이어 그룹 + 합계
+    }
+
+    public function test_carerp_by_buyer_signed_scoped(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake(['*/api/internal/board/by-buyer*' => Http::response(['data' => [
+            ['buyer' => 'X', 'vehicle_count' => 2, 'sales_by_currency' => ['USD' => 100], 'payout_total_krw' => 5, 'payout_paid_krw' => 3],
+        ]], 200)]);
+
+        $r = (new CarErpReadService)->byBuyer('kim@board.test');
+
+        $this->assertTrue($r['ok']);
+        $this->assertSame('X', $r['data']['data'][0]['buyer']);
+        Http::assertSent(fn ($req) => str_contains($req->url(), '/api/internal/board/by-buyer')
+            && str_contains($req->url(), 'salesman_email=kim%40board.test') && $req->hasHeader('X-Board-Signature'));
+    }
+
+    public function test_portal_sales_and_settlements_use_by_buyer(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 0], 200),
+            '*/api/internal/board/by-buyer*' => Http::response(['data' => [
+                ['buyer' => 'BuyerY', 'vehicle_count' => 3, 'sales_by_currency' => ['USD' => 12000, 'EUR' => 3000], 'payout_total_krw' => 7000000, 'payout_paid_krw' => 5000000],
+            ]], 200),
+            '*/api/internal/board/sales*' => Http::response(['count' => 1, 'data' => [
+                ['buyer' => 'BuyerY', 'vehicle_number' => '77다7', 'currency' => 'USD', 'sale_price' => 12000, 'sale_date' => '2026-05-01'],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')
+            ->call('setTab', 'sales')->assertSee('BuyerY')->assertSee('USD')->assertSee('12,000')->assertSee('EUR')
+            ->assertSee('77다7')   // 펼침용 차량 상세
+            ->call('setTab', 'settlements')->assertSee('7,000,000')->assertSee('지급 완료');
+    }
+
+    public function test_portal_shipping_shows_in_progress_cards(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 0], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 2, 'data' => [
+                ['vehicle_id' => 1, 'vehicle_number' => 'REQ001', 'buyer' => ['id' => 5, 'name' => 'BuyerZ'], 'consignees' => [], 'shipping_status' => 'requested', 'shipping_method' => 'RORO'],
+                ['vehicle_id' => 2, 'vehicle_number' => 'AVAIL2', 'buyer' => ['id' => 6, 'name' => 'BuyerW'], 'consignees' => []],   // 요청전(none)
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'shipping')
+            ->assertSee('진행 중인 선적요청')->assertSee('REQ001')->assertSee('요청됨')   // 맨 위 카드
+            ->assertSee('BuyerW');   // 요청전 = 아래 선택그룹
+    }
+
+    public function test_portal_finance_abbreviates_amounts(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 704369898, 'purchase_unpaid_total' => 0], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->assertSee('7억 436만원');   // 요약 한글 축약
+    }
+
+    public function test_portal_finance_shows_monthly(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 0], 200),
+            '*/api/internal/board/sales*' => Http::response(['count' => 2, 'data' => [
+                ['vehicle_number' => 'A', 'sale_date' => '2026-05-10', 'sale_price' => 1, 'currency' => 'USD'],
+                ['vehicle_number' => 'B', 'sale_date' => '2026-05-20', 'sale_price' => 1, 'currency' => 'USD'],
+            ]], 200),
+            '*/api/internal/board/settlements*' => Http::response(['count' => 1, 'data' => [
+                ['vehicle_number' => 'A', 'confirmed_at' => '2026-05-15', 'actual_payout' => 700000, 'status' => 'paid'],
+            ]], 200),
+            '*/api/internal/board/purchases*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')
+            ->assertSee('월별 실적')->assertSee('2026-05')->assertSee('700,000');   // 5월 판매2·정산70만
+    }
+
+    public function test_portal_receivables_hides_paid_and_sorts(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 0], 200),
+            '*/api/internal/board/receivables*' => Http::response(['count' => 3, 'data' => [
+                ['vehicle_number' => 'PAIDX', 'buyer' => 'B', 'currency' => 'USD', 'exchange_rate' => 1300, 'unpaid_krw' => 0],
+                ['vehicle_number' => 'OWE1', 'buyer' => 'B', 'currency' => 'USD', 'exchange_rate' => 1300, 'unpaid_krw' => 500],
+                ['vehicle_number' => 'OWE2', 'buyer' => 'B', 'currency' => 'USD', 'exchange_rate' => 1300, 'unpaid_krw' => 900],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('portal.index')->call('setTab', 'receivables');
+        $c->assertDontSee('PAIDX')->assertSee('OWE1')->assertSee('OWE2');   // 완납(0원) 기본 숨김
+        $c->set('hidePaid', false)->assertSee('PAIDX');                     // 토글 끄면 보임
+        $c->call('sortRecv', 'vehicle_number');                            // 정렬 토글
+        $this->assertSame('vehicle_number', $c->get('recvSort'));
+        $this->assertSame('asc', $c->get('recvDir'));
+    }
+
+    public function test_portal_shipping_lists_and_submits(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 0], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 1, 'data' => [
+                ['vehicle_id' => 10, 'vehicle_number' => '11가1111', 'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignees' => [['id' => 3, 'name' => 'ConsX']]],
+            ]], 200),
+            '*/api/internal/board/shipping-request*' => Http::response(['created' => [10], 'skipped' => []], 201),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')
+            ->call('setTab', 'shipping')
+            ->assertSee('BuyerX')->assertSee('11가1111')
+            ->set('selectedIds', [10])
+            ->set('consigneeByBuyer.2', 3)
+            ->call('submitShipping', 2, [10])
+            ->assertSee('선적요청 접수 완료')->assertSee('1대');   // 큰 성공 배너
+
+        Http::assertSent(fn ($req) => str_contains($req->url(), 'shipping-request')
+            && str_contains($req->body(), '"vehicle_ids":[10]') && str_contains($req->body(), '"consignee_id":3'));
     }
 }

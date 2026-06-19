@@ -24,6 +24,8 @@ Route::middleware(['auth'])->group(function () {
     // ── board 4뷰 ──
     Volt::route('listings', 'listings.index')->middleware('role:sales,manager')->name('listings');
     Volt::route('verdicts', 'verdicts.index')->middleware('role:sales,manager')->name('verdicts');
+    // 영업 포털 — car-erp 읽기 미러(재무) [연동: board-portal-api.md]
+    Volt::route('portal', 'portal.index')->middleware('role:sales,manager')->name('portal');
     Volt::route('inspection', 'inspection.index')->middleware('role:inspection,manager')->name('inspection');
     Volt::route('auction', 'auction.index')->middleware('role:auction,manager')->name('auction');
     Volt::route('manage', 'manage.index')->middleware('role:manager')->name('manage');

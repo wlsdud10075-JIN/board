@@ -29,6 +29,7 @@ class User extends Authenticatable // implements MustVerifyEmail
         'is_active',
         'car_erp_salesman_id',
         'car_erp_salesman_email',
+        'respond_agent_email',
     ];
 
     /** board 업무 역할 4종 (영업/현지확인/경매/관리) */
@@ -103,6 +104,12 @@ class User extends Authenticatable // implements MustVerifyEmail
     public function canSeeAll(): bool
     {
         return $this->isSuper() || $this->role !== 'sales';
+    }
+
+    /** respond.io 상담원 이메일 — 매핑값 우선, 없으면 로그인 이메일(연동 A 승격 라우팅). */
+    public function respondAgentEmail(): string
+    {
+        return $this->respond_agent_email ?: $this->email;
     }
 
     public function listings(): HasMany

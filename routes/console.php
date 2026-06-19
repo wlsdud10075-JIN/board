@@ -24,3 +24,6 @@ Schedule::command('db:backup --keep=30')->dailyAt('03:00');
 // 연동 A(C) — respond.io 회신 폴링 → 자동 verdict 적용(직렬화). 미설정이면 명령 내부 no-op.
 // withoutOverlapping(락②): 폴링 두 개 동시 실행 방지.
 Schedule::command('board:poll-verdicts')->everyTwoMinutes()->withoutOverlapping();
+
+// 연동 A — 승격 플래그 폴링 → 승격 대기 캡처(+7일 만료 정리). 미설정이면 만료 정리만 하고 no-op.
+Schedule::command('board:poll-promotions')->everyTwoMinutes()->withoutOverlapping();

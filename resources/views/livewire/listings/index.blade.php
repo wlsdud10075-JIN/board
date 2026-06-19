@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\PromotionRequest;
 use App\Models\PurchaseListing;
 use App\Services\ExchangeRateService;
 use App\Support\TimeGate;
@@ -20,8 +21,13 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $c_no = '';               // 매물번호 (ssancar c_no, 조인키)
     public string $ssancar_ref = '';        // ssancar wr_id/car_no (비-c_no, "wr_id:786")
     public string $encar_id = '';           // Encar 차 식별 (URL 자동추출)
-    public string $respond_conversation_id = ''; // respond.io 대화 연결(스파인, 영업이 채팅에서 복사)
-    public string $linkInput = '';          // 승격: 유입 링크 붙여넣기 → 자동추출
+    public string $respond_contact_id = ''; // respond.io 대화 연결(스파인, 영업이 채팅에서 복사)
+    public string $encarLink = '';          // 엔카 링크 → JSON API enrich
+    public string $ssancarLink = '';        // ssancar 링크 → 페이지 파싱 enrich
+    public ?int $promotingId = null;        // 승격 대기에서 시작한 경우 — 저장 시 consume
+    public ?string $expected_price = null;  // 매물 표시가 = 차값 (enrichment 자동채움 · 참고가, car_cost 와 별개)
+    public string $expected_price_currency = 'KRW';   // 매물 표시가 통화 (원/미/유로 토글)
+    public array $priceOptions = [];        // enrichment 통화별 금액 {KRW,USD,EUR} — 토글 시 금액 변경
     public ?string $car_cost = null;        // 차값 (KRW)
     public ?string $discount_rate = null;   // 할인율 (%)
     public ?int $shipping_usd = null;       // 배송금액 (USD 고정 택1)
@@ -38,7 +44,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public ?int $editingId = null;
     public string $e_region = '';
     public string $e_c_no = '';
-    public string $e_respond_conversation_id = '';   // 연동 A: 대화 연결 (나중에 붙일 수 있게 수정 가능)
+    public string $e_respond_contact_id = '';   // 연동 A: 대화 연결 (나중에 붙일 수 있게 수정 가능)
     public string $e_owner_name = '';
     public string $e_payee_name = '';
     public string $e_payee_bank = '';
@@ -143,6 +149,50 @@ new #[Layout('components.layouts.app')] class extends Component {
         return $this->editingId ? PurchaseListing::find($this->editingId) : null;
     }
 
+    /** 승격 대기 — 담당 영업(respond.io assignee)에게만. 관리/super 는 전체(미배정 포함=관리자 풀). */
+    #[Computed]
+    public function promotions()
+    {
+        $me = Auth::user();
+        $q = PromotionRequest::where('status', PromotionRequest::PENDING);
+        if (! $me->canSeeAll()) {
+            $q->where('assigned_email', $me->respondAgentEmail());
+        }
+
+        return $q->latest()->get();
+    }
+
+    /** 승격 대기 조회 — 본인 담당만(관리/super 전체). 가시성=조작권한 일치(IDOR 방지). */
+    private function visiblePromotion(int $id): PromotionRequest
+    {
+        $me = Auth::user();
+        $q = PromotionRequest::where('status', PromotionRequest::PENDING)->where('id', $id);
+        if (! $me->canSeeAll()) {
+            $q->where('assigned_email', $me->respondAgentEmail());
+        }
+
+        return $q->firstOrFail();
+    }
+
+    /** 승격 대기건에서 시작 — 컨택트 자동주입 + 추가 폼 열기. 영업은 링크+차번호만 입력. */
+    public function promoteFrom(int $id): void
+    {
+        $req = $this->visiblePromotion($id);
+        $this->resetForm();
+        $this->respond_contact_id = $req->respond_contact_id;
+        $this->promotingId = $req->id;
+        $this->showAdd = true;
+        session()->flash('ok', '['.$req->label.'] 바이어 연결됨 — 링크와 차량번호만 입력하면 됩니다.');
+    }
+
+    /** 승격 대기 무시 — 전환 안 되는 바이어(구경만) 정리. 본인 담당만(관리/super 전체). */
+    public function dismissPromotion(int $id): void
+    {
+        $req = $this->visiblePromotion($id);
+        $req->update(['status' => PromotionRequest::DISMISSED, 'handled_by_user_id' => Auth::id()]);
+        unset($this->promotions);
+    }
+
     /** 경매가 시간잠금됐으면 영업은 수정 불가 (관리자는 우회). 엔카·잠금 전은 가능. */
     public function editable(PurchaseListing $l): bool
     {
@@ -155,7 +205,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->editingId = $l->id;
         $this->e_region = $l->region ?? '';
         $this->e_c_no = $l->c_no ?? '';
-        $this->e_respond_conversation_id = $l->respond_conversation_id ?? '';
+        $this->e_respond_contact_id = $l->respond_contact_id ?? '';
         $this->e_owner_name = $l->owner_name ?? '';
         $this->e_payee_name = $l->payee_name ?? '';
         $this->e_payee_bank = $l->payee_bank ?? '';
@@ -172,7 +222,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_respond_conversation_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number']);
+        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number']);
         unset($this->editing);
     }
 
@@ -189,7 +239,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->validate([
             'e_region' => 'nullable|string|max:60',
             'e_c_no' => 'nullable|string|max:50',
-            'e_respond_conversation_id' => 'nullable|string|max:80',
+            'e_respond_contact_id' => 'nullable|string|max:80',
             'e_owner_name' => 'nullable|string|max:60',
             'e_payee_name' => 'nullable|string|max:60',
             'e_payee_bank' => 'nullable|string|max:40',
@@ -205,7 +255,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $l->region = $this->e_region ?: null;
         $l->c_no = $this->e_c_no ?: null;
-        $l->respond_conversation_id = $this->e_respond_conversation_id ?: null;
+        $l->respond_contact_id = $this->e_respond_contact_id ?: null;
         $l->owner_name = $this->e_owner_name ?: null;
         $l->payee_name = $this->e_payee_name ?: null;
         $l->payee_bank = $this->e_payee_bank ?: null;
@@ -244,34 +294,50 @@ new #[Layout('components.layouts.app')] class extends Component {
     }
 
     /** 승격: 붙인 링크에서 식별자 자동추출(encar_id/c_no/ssancar_ref) + 유입카테고리/출처 세팅. */
-    public function parseLink(): void
+    public function parseLink(string $which = 'encar'): void
     {
-        $r = \App\Support\ListingLink::parse($this->linkInput);
+        $field = $which.'Link';
+        $url = trim($which === 'ssancar' ? $this->ssancarLink : $this->encarLink);
+        if ($url === '') {
+            return;
+        }
+        $r = \App\Support\ListingLink::parse($url);
 
         if ($r === []) {
-            $this->addError('linkInput', '엔카/ssancar 링크에서 식별값을 찾지 못했습니다. (직접 입력 가능)');
+            $this->addError($field, '링크에서 식별값을 찾지 못했습니다. (직접 입력 가능)');
 
             return;
         }
 
-        $this->resetErrorBag('linkInput');
-        if (isset($r['origin'])) {
-            $this->origin = $r['origin'];
+        $this->resetErrorBag($field);
+        foreach (['origin', 'source', 'encar_id', 'encar_url', 'c_no', 'ssancar_ref'] as $k) {
+            if (isset($r[$k])) {
+                $this->{$k} = $r[$k];
+            }
         }
-        if (isset($r['source'])) {
-            $this->source = $r['source'];
+
+        // 매물 자동채움(enrichment) — 빈 칸만 prefill, 영업이 확인 후 저장(IDENTITY_LOCKED 자동확정 금지).
+        $e = app(\App\Services\ListingEnrichment::class)->enrich($r, $url);
+        $filled = [];
+        if (! empty($e['vehicle_number']) && $this->vehicle_number === '') {
+            $this->vehicle_number = $e['vehicle_number'];
+            $filled[] = '차량번호';
         }
-        if (isset($r['encar_id'])) {
-            $this->encar_id = $r['encar_id'];
+        $prices = $e['prices'] ?? [];
+        if ($prices && ($this->expected_price === null || $this->expected_price === '')) {
+            $this->priceOptions = $prices;   // {KRW,USD,EUR} — 토글 시 금액 변경
+            $cur = isset($prices['KRW']) ? 'KRW' : array_key_first($prices);
+            $this->expected_price_currency = $cur;
+            $this->expected_price = (string) $prices[$cur];
+            $filled[] = '차값('.implode('/', array_keys($prices)).')';
         }
-        if (isset($r['encar_url'])) {
-            $this->encar_url = $r['encar_url'];
+        if (! empty($e['region']) && $this->region === '') {
+            $this->region = $e['region'];
+            $filled[] = '지역';
         }
-        if (isset($r['c_no'])) {
-            $this->c_no = $r['c_no'];
-        }
-        if (isset($r['ssancar_ref'])) {
-            $this->ssancar_ref = $r['ssancar_ref'];
+        if (! empty($e['vin']) && $this->vin === '') {
+            $this->vin = $e['vin'];
+            $filled[] = 'VIN';
         }
 
         $bits = array_filter([
@@ -280,7 +346,21 @@ new #[Layout('components.layouts.app')] class extends Component {
             $r['ssancar_ref'] ?? null,
         ]);
         $cat = PurchaseListing::ORIGIN_LABELS[$this->origin] ?? '';
-        session()->flash('ok', '['.$cat.'] 추출: '.implode(' · ', $bits).' — 차량번호만 입력하면 됩니다.');
+        $name = ! empty($e['name']) ? ' · 차종: '.$e['name'] : '';
+        $auto = $filled ? ' · 자동채움: '.implode('/', $filled) : '';
+        session()->flash('ok', '['.$cat.'] 추출: '.implode(' · ', $bits).$name.$auto.' — 확인 후 저장하세요.');
+    }
+
+    /** 통화 토글 — enrichment 통화별 금액이 있으면 그 금액으로 바꿈(없으면 라벨만). */
+    public function pickCurrency(string $cur): void
+    {
+        if (! in_array($cur, ['KRW', 'USD', 'EUR'], true)) {
+            return;
+        }
+        $this->expected_price_currency = $cur;
+        if (isset($this->priceOptions[$cur])) {
+            $this->expected_price = (string) $this->priceOptions[$cur];
+        }
     }
 
     public function save(): void
@@ -297,7 +377,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             'c_no' => 'nullable|string|max:50',
             'ssancar_ref' => 'nullable|string|max:50',
             'encar_id' => 'nullable|string|max:50',
-            'respond_conversation_id' => 'nullable|string|max:80',
+            'respond_contact_id' => 'nullable|string|max:80',
+            'expected_price' => 'nullable|numeric|min:0',
             'payee_name' => 'nullable|string|max:60',
             'payee_bank' => 'nullable|string|max:40',
             'payee_account' => 'nullable|string|max:40',
@@ -344,10 +425,12 @@ new #[Layout('components.layouts.app')] class extends Component {
             'c_no' => $this->c_no ?: null,
             'ssancar_ref' => $this->ssancar_ref ?: null,
             'encar_id' => $this->encar_id ?: null,
-            'respond_conversation_id' => $this->respond_conversation_id ?: null,
+            'respond_contact_id' => $this->respond_contact_id ?: null,
             'payee_name' => $this->payee_name ?: null,
             'payee_bank' => $this->payee_bank ?: null,
             'payee_account' => $this->payee_account ?: null,
+            'expected_price' => ($this->expected_price === null || $this->expected_price === '') ? null : (int) $this->expected_price,
+            'expected_price_currency' => $this->expected_price_currency,
             'car_cost' => $carCost,
             'discount_rate' => $discount,
             'shipping_usd' => $shipping,
@@ -362,6 +445,14 @@ new #[Layout('components.layouts.app')] class extends Component {
         $listing->final_price = $listing->totalKrw($this->usdRate());   // 금액 입력 시 최종금액(KRW) 스냅샷
         $listing->save();
 
+        // 승격 대기에서 시작했으면 consume(대기 목록서 제거 + listing 연결).
+        if ($this->promotingId) {
+            PromotionRequest::where('status', PromotionRequest::PENDING)
+                ->where('id', $this->promotingId)
+                ->update(['status' => PromotionRequest::CONSUMED, 'purchase_listing_id' => $listing->id, 'handled_by_user_id' => Auth::id()]);
+            unset($this->promotions);
+        }
+
         $this->resetForm();
         $this->showAdd = false;
         unset($this->listings);
@@ -370,7 +461,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     private function resetForm(): void
     {
-        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_conversation_id', 'linkInput', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
+        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'encarLink', 'ssancarLink', 'promotingId', 'expected_price', 'expected_price_currency', 'priceOptions', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
         $this->origin = 'encar';
         $this->source = 'encar';
         $this->resetErrorBag();
@@ -418,6 +509,32 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="card-sm mb-3 border-green-200 bg-green-50 text-[13px] text-green-700">✓ {{ session('ok') }}</div>
     @endif
 
+    {{-- 승격 대기 (연동 A · respond.io 에서 바이어가 board 처리 의사 표시 → 담당 영업에게 라우팅) --}}
+    @if ($this->promotions->isNotEmpty())
+        <div class="card mb-4" style="border-color:#fde68a;background:#fffbeb">
+            <h2 class="mb-2 font-bold text-amber-800">📥 승격 대기 <span class="text-amber-500">· {{ $this->promotions->count() }}명</span></h2>
+            <p class="mb-3 text-[11px] text-amber-700/80">바이어가 채팅에서 board 처리를 요청했습니다. “승격”을 누르면 컨택트가 자동 연결됩니다 — 링크와 차량번호만 입력하세요.</p>
+            <div class="space-y-2">
+                @foreach ($this->promotions as $p)
+                    <div class="flex items-center justify-between gap-2 rounded-md border border-amber-200 bg-white px-3 py-2">
+                        <div class="min-w-0">
+                            <div class="truncate font-semibold text-gray-800">{{ $p->label ?: '컨택트 '.$p->respond_contact_id }}</div>
+                            <div class="text-[11px] text-gray-400">컨택트 {{ $p->respond_contact_id }} · {{ $p->created_at->diffForHumans() }}</div>
+                            @if (auth()->user()->canSeeAll())
+                                <div class="text-[11px] {{ $p->assigned_email ? 'text-gray-400' : 'text-amber-600' }}">담당: {{ $p->assigned_email ?: '미배정' }}</div>
+                            @endif
+                        </div>
+                        <div class="flex shrink-0 gap-1.5">
+                            <button class="btn-primary btn-sm" wire:click="promoteFrom({{ $p->id }})">승격</button>
+                            <button class="btn-ghost btn-sm" wire:click="dismissPromotion({{ $p->id }})"
+                                    wire:confirm="이 승격 대기를 무시하시겠습니까?">무시</button>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+    @endif
+
     <div class="card">
         <div class="mb-3 flex items-center justify-between">
             <h2 class="font-bold text-gray-800">내 매입예정 리스트 <span class="text-gray-400">· {{ $this->listings->count() }}건</span></h2>
@@ -437,15 +554,23 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <p class="mb-3 text-[11px] text-gray-400">💡 매입방법: <b>{{ $source === 'auction' ? '경매 (시간잠금·낙찰/유찰)' : '엔카 즉시구매 (구매대기/확정)' }}</b> — 카테고리에서 자동 결정</p>
                 @error('origin') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                {{-- 승격: 유입 링크 붙여넣기 → 식별자 자동추출 (연동 A) --}}
+                {{-- 승격: 링크 붙여넣기 → 식별자 자동추출 + 자동채움. 엔카/ssancar 분리(둘 다 넣으면 합쳐서 채움). --}}
                 <div class="card-sm mb-3" style="background:#f0f7ff;border-color:#dbeafe">
-                    <label class="label-base">🔗 유입 링크 붙여넣기 <span class="text-gray-400">(엔카 / ssancar — 자동추출)</span></label>
+                    <label class="label-base">🔗 엔카 링크 <span class="text-gray-400">(차량번호·차값·지역·VIN 자동)</span></label>
                     <div class="flex gap-2">
-                        <input class="input-base flex-1" wire:model="linkInput" wire:keydown.enter.prevent="parseLink"
-                               placeholder="https://fem.encar.com/cars/detail/...  또는  https://www.ssancar.com/...">
-                        <button type="button" class="btn-primary btn-sm shrink-0" wire:click="parseLink">추출</button>
+                        <input class="input-base flex-1" wire:model="encarLink" wire:keydown.enter.prevent="parseLink('encar')"
+                               placeholder="https://fem.encar.com/cars/detail/42176484">
+                        <button type="button" class="btn-primary btn-sm shrink-0" wire:click="parseLink('encar')">추출</button>
                     </div>
-                    @error('linkInput') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    @error('encarLink') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+
+                    <label class="label-base mt-2">🔗 ssancar 링크 <span class="text-gray-400">(차량번호·VIN · 검차매물은 엔카가격까지)</span></label>
+                    <div class="flex gap-2">
+                        <input class="input-base flex-1" wire:model="ssancarLink" wire:keydown.enter.prevent="parseLink('ssancar')"
+                               placeholder="https://www.ssancar.com/...?c_no= / ?wr_id=">
+                        <button type="button" class="btn-primary btn-sm shrink-0" wire:click="parseLink('ssancar')">추출</button>
+                    </div>
+                    @error('ssancarLink') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     @if ($encar_id || $c_no || $ssancar_ref)
                         <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
                             <span class="text-gray-400">추출됨:</span>
@@ -454,9 +579,25 @@ new #[Layout('components.layouts.app')] class extends Component {
                             @if ($ssancar_ref)<span class="badge badge-gray">{{ $ssancar_ref }}</span>@endif
                         </div>
                     @endif
-                    <label class="label-base mt-2">respond.io 대화 연결 <span class="text-gray-400">(선택 · conversation id)</span></label>
-                    <input class="input-base" wire:model="respond_conversation_id" placeholder="채팅에서 복사 — 이후 회신(수락/거절) 자동매칭 스파인">
-                    @error('respond_conversation_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    <label class="label-base mt-2">매물 표시가 (= 차값) <span class="text-gray-400">(링크 추출 시 자동 · 통화 선택)</span></label>
+                    <div class="flex gap-2">
+                        <input class="input-base flex-1" wire:model="expected_price" inputmode="numeric" placeholder="링크 추출 시 자동 · 직접 입력 가능">
+                        <div class="inline-flex shrink-0 overflow-hidden rounded-md border border-gray-300">
+                            @foreach (['KRW' => '원', 'USD' => '$', 'EUR' => '€'] as $cur => $sym)
+                                <button type="button" wire:click="pickCurrency('{{ $cur }}')"
+                                    class="px-2.5 py-1.5 text-[13px] font-semibold {{ $expected_price_currency === $cur ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }} {{ isset($priceOptions[$cur]) ? '' : 'opacity-60' }}">{{ $sym }}</button>
+                            @endforeach
+                        </div>
+                    </div>
+                    @if ($priceOptions)
+                        <p class="mt-1 text-[11px] text-gray-500">💱 링크 표시가: @foreach ($priceOptions as $cur => $amt)<span class="mr-2 whitespace-nowrap">{{ ['KRW' => '원', 'USD' => '$', 'EUR' => '€'][$cur] ?? $cur }} {{ number_format($amt) }}</span>@endforeach— 버튼으로 통화 선택(금액 자동 변경)</p>
+                    @else
+                        <p class="mt-1 text-[11px] text-gray-400">💡 엔카=원화 / ssancar=3통화 자동. 통화 버튼으로 변경. (가격계산용 ‘차값’과 별개 참고가)</p>
+                    @endif
+                    @error('expected_price') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    <label class="label-base mt-2">respond.io 컨택트 ID <span class="text-gray-400">(선택 · 바이어 식별 · 자동회신 매칭키)</span></label>
+                    <input class="input-base" wire:model="respond_contact_id" placeholder="respond.io 바이어 컨택트 ID (예: 469733036)">
+                    @error('respond_contact_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 </div>
 
                 {{-- 차량번호 · 차값 · 할인율 · 지역 (한 행) --}}
@@ -486,27 +627,15 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <input class="input-base" wire:model="region" list="regionList" placeholder="수원 입력 → 자동완성">
                         @error('region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
+                    <div>
+                        <label class="label-base">매물번호 <span class="text-gray-400">(c_no)</span></label>
+                        <input class="input-base" wire:model="c_no" placeholder="링크 추출 시 자동">
+                        @error('c_no') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
                 </div>
                 <datalist id="regionList">
                     @foreach (config('board.regions') as $r)<option value="{{ $r }}">@endforeach
                 </datalist>
-
-                {{-- 엔카 매물 URL + 매물번호(c_no) --}}
-                @if ($source === 'encar')
-                    <div class="mt-3 grid gap-3 sm:grid-cols-2">
-                        <div>
-                            <label class="label-base">엔카 매물 URL</label>
-                            <input class="input-base" wire:model="encar_url" placeholder="https://encar.com/...">
-                            @error('encar_url') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                        </div>
-                        <div>
-                            <label class="label-base">매물번호 <span class="text-gray-400">(c_no)</span></label>
-                            <input class="input-base" wire:model="c_no" placeholder="예: 6797296">
-                            @error('c_no') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                        </div>
-                    </div>
-                    <p class="mt-1 text-[11px] text-gray-400">💡 매물번호(c_no)는 ssancar 매물 식별값 — 추후 respond.io 연동 시 자동 입력.</p>
-                @endif
 
                 {{-- 경매 전용 식별 정보 --}}
                 @if ($source === 'auction')
@@ -700,9 +829,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <input class="input-base" wire:model="e_owner_name" placeholder="등록 소유자명" maxlength="60" @unless ($canEdit) disabled @endunless>
                 @error('e_owner_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                <label class="label-base mt-3">respond.io 대화 연결 <span class="text-gray-400">(conversation id · verdict 자동매칭)</span></label>
-                <input class="input-base" wire:model="e_respond_conversation_id" placeholder="채팅에서 복사" @unless ($canEdit) disabled @endunless>
-                @error('e_respond_conversation_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                <label class="label-base mt-3">respond.io 컨택트 ID <span class="text-gray-400">(바이어 식별 · 자동회신 매칭키)</span></label>
+                <input class="input-base" wire:model="e_respond_contact_id" placeholder="respond.io 바이어 컨택트 ID" @unless ($canEdit) disabled @endunless>
+                @error('e_respond_contact_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 @if ($e->encar_id || $e->c_no || $e->ssancar_ref)
                     <div class="mt-1 flex flex-wrap gap-1.5 text-[11px]">
                         <span class="text-gray-400">유입:</span>
