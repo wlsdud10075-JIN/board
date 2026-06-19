@@ -34,6 +34,8 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public array $monthly = [];               // 요약 탭 월별 집계(판매 건수·정산 실지급·매입)
 
+    public array $salesDetail = [];           // 판매내역 펼침용 per-vehicle (바이어별 차량 리스트)
+
     private const TABS = ['finance', 'receivables', 'purchases', 'sales', 'settlements', 'shipping'];
 
     /**
@@ -125,6 +127,12 @@ new #[Layout('components.layouts.app')] class extends Component {
             'shipping' => $svc->shippable($email),
             default => $svc->finance($email),
         };
+        // 판매내역 = by-buyer(헤더) + per-vehicle 상세(펼침용 차량 리스트).
+        $this->salesDetail = [];
+        if ($this->tab === 'sales') {
+            $s = $svc->sales($email);
+            $this->salesDetail = ($s['ok'] ?? false) ? (array) data_get($s['data'], 'data', []) : [];
+        }
         // 요약 탭 = 합계 + 월별(판매/정산/매입). 다른 탭은 월별 불필요.
         $this->monthly = $this->tab === 'finance' ? $this->buildMonthly($email) : [];
     }
@@ -410,31 +418,44 @@ new #[Layout('components.layouts.app')] class extends Component {
             @endforelse
 
         @elseif ($tab === 'sales')
-            {{-- 판매내역 — 바이어별 통화별 판매합 (by-buyer, 통화 혼재라 같은 통화끼리만 합산) --}}
-            @php $buyers = data_get($result['data'], 'data', []); @endphp
-            <div class="overflow-x-auto">
-                <table class="tbl">
-                    <thead><tr><th>바이어</th><th>차량수</th><th>판매 합계 (통화별)</th></tr></thead>
-                    <tbody>
-                        @forelse ($buyers as $b)
-                            <tr>
-                                <td class="font-semibold text-gray-700">{{ data_get($b, 'buyer') ?: '(바이어 미지정)' }}</td>
-                                <td class="whitespace-nowrap text-gray-500">{{ data_get($b, 'vehicle_count', 0) }}대</td>
-                                <td>
-                                    @php $byCur = (array) data_get($b, 'sales_by_currency', []); @endphp
-                                    @forelse ($byCur as $cur => $amt)
-                                        <span class="mr-3 inline-block whitespace-nowrap"><b class="text-gray-500">{{ $cur }}</b> {{ number_format((float) $amt) }}</span>
-                                    @empty
-                                        <span class="text-gray-300">—</span>
-                                    @endforelse
-                                </td>
-                            </tr>
-                        @empty
-                            <tr><td colspan="3" class="py-8 text-center text-gray-400">판매내역이 없습니다.</td></tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
+            {{-- 판매내역 — 바이어별 통화별 합(by-buyer) + 펼치면 그 바이어가 산 차량 리스트 --}}
+            @php
+                $buyers = data_get($result['data'], 'data', []);
+                $detailByBuyer = collect($salesDetail)->groupBy(fn ($r) => data_get($r, 'buyer') ?: '(바이어 미지정)');
+            @endphp
+            @forelse ($buyers as $b)
+                @php
+                    $bName = data_get($b, 'buyer') ?: '(바이어 미지정)';
+                    $rows = $detailByBuyer[$bName] ?? collect();
+                    $byCur = (array) data_get($b, 'sales_by_currency', []);
+                @endphp
+                <div class="card-sm mb-2" x-data="{ open: false }">
+                    <button type="button" class="flex w-full items-center gap-2 text-left font-bold text-gray-800" @click="open = !open">
+                        <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span>
+                        🧑 {{ $bName }} <span class="text-xs font-normal text-gray-400">· {{ data_get($b, 'vehicle_count', 0) }}대</span>
+                        <span class="ml-auto text-[13px]">@forelse ($byCur as $cur => $amt)<span class="ml-2 whitespace-nowrap"><b class="text-gray-500">{{ $cur }}</b> {{ number_format((float) $amt) }}</span>@empty<span class="text-gray-300">—</span>@endforelse</span>
+                    </button>
+                    <div x-show="open" x-cloak class="mt-2 overflow-x-auto">
+                        <table class="tbl">
+                            <thead><tr><th>차량</th><th>통화</th><th>판매가</th><th>판매일</th></tr></thead>
+                            <tbody>
+                                @forelse ($rows as $row)
+                                    <tr>
+                                        <td class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') }}</td>
+                                        <td>{{ data_get($row, 'currency') ?: '—' }}</td>
+                                        <td>{{ ($p = data_get($row, 'sale_price')) !== null && is_numeric($p) ? number_format((float) $p) : '—' }}</td>
+                                        <td>{{ data_get($row, 'sale_date') ?: '—' }}</td>
+                                    </tr>
+                                @empty
+                                    <tr><td colspan="4" class="py-3 text-center text-gray-400">차량 상세 없음</td></tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            @empty
+                <p class="py-8 text-center text-gray-400">판매내역이 없습니다.</p>
+            @endforelse
 
         @elseif ($tab === 'settlements')
             {{-- 정산내역 — 바이어별 정산 실지급 (by-buyer, payout 내림차순) --}}

@@ -1411,12 +1411,16 @@ class BoardTest extends TestCase
             '*/api/internal/board/by-buyer*' => Http::response(['data' => [
                 ['buyer' => 'BuyerY', 'vehicle_count' => 3, 'sales_by_currency' => ['USD' => 12000, 'EUR' => 3000], 'payout_total_krw' => 7000000, 'payout_paid_krw' => 5000000],
             ]], 200),
+            '*/api/internal/board/sales*' => Http::response(['count' => 1, 'data' => [
+                ['buyer' => 'BuyerY', 'vehicle_number' => '77다7', 'currency' => 'USD', 'sale_price' => 12000, 'sale_date' => '2026-05-01'],
+            ]], 200),
             '*' => Http::response(['count' => 0, 'data' => []], 200),
         ]);
         $this->actingAs($this->mkUser('sales'));
 
         Volt::test('portal.index')
             ->call('setTab', 'sales')->assertSee('BuyerY')->assertSee('USD')->assertSee('12,000')->assertSee('EUR')
+            ->assertSee('77다7')   // 펼침용 차량 상세
             ->call('setTab', 'settlements')->assertSee('7,000,000')->assertSee('지급 완료');
     }
 
