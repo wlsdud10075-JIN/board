@@ -122,22 +122,22 @@ new #[Layout('components.layouts.app')] class extends Component {
         };
     }
 
-    /** 차량금액(KRW) = 차값 − (차값 × 할인율%) + 매도비(고정). */
-    public function calcCarPrice($cost, $rate): ?int
+    /** 차량금액(KRW) = 차값(통화 KRW환산) − (×할인율%) + 매도비(고정). $cur=차값 통화(엔카=KRW). */
+    public function calcCarPrice($cost, $rate, string $cur = 'KRW'): ?int
     {
-        if ($cost === null || $cost === '') {
+        $krw = \App\Support\Money::toKrw($cost, $cur, $this->usdRate(), $this->eurRate());
+        if ($krw === null) {
             return null;
         }
-        $cost = (int) $cost;
-        $discount = (int) round($cost * ((float) $rate / 100));
+        $discount = (int) round($krw * ((float) $rate / 100));
 
-        return $cost - $discount + (int) config('board.sales_fee');
+        return $krw - $discount + (int) config('board.sales_fee');
     }
 
     /** 최종금액(KRW) = 차량금액 + 배송(USD→KRW, 임시환율). */
-    public function calcTotal($cost, $rate, $usd): ?int
+    public function calcTotal($cost, $rate, $usd, string $cur = 'KRW'): ?int
     {
-        $car = $this->calcCarPrice($cost, $rate);
+        $car = $this->calcCarPrice($cost, $rate, $cur);
         if ($car === null) {
             return null;
         }
@@ -278,7 +278,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->car_cost = ($this->e_car_cost === null || $this->e_car_cost === '') ? null : (int) $this->e_car_cost;
         $l->discount_rate = ($this->e_discount_rate === null || $this->e_discount_rate === '') ? null : (float) $this->e_discount_rate;
         $l->shipping_usd = $this->e_shipping_usd ?: null;
-        $l->final_price = $l->totalKrw($this->usdRate()) ?? $l->final_price;
+        $l->final_price = $l->totalKrw($this->usdRate(), $this->eurRate()) ?? $l->final_price;
         if ($l->source === 'encar') {
             $l->encar_url = $this->e_encar_url ?: null;
             $l->encar_dealer = $this->e_encar_dealer ?: null;
@@ -346,11 +346,11 @@ new #[Layout('components.layouts.app')] class extends Component {
             $this->expected_price_currency = $cur;
             $this->expected_price = (string) $prices[$cur];
             $filled[] = '매물표시가('.implode('/', array_keys($prices)).')';
-        }
-        // 크롤링 KRW 금액 → 차값(car_cost, KRW 전용) 자동 매핑 — 빈 칸만(영업 입력 보존). 금액산정 즉시 반영.
-        if (isset($prices['KRW']) && ($this->car_cost === null || $this->car_cost === '')) {
-            $this->car_cost = (string) $prices['KRW'];
-            $filled[] = '차값';
+            // 차값 = 선택통화 금액 그대로(외화 그대로 보관). 빈 칸만(영업 입력 보존).
+            if ($this->car_cost === null || $this->car_cost === '') {
+                $this->car_cost = (string) $prices[$cur];
+                $filled[] = '차값('.$cur.')';
+            }
         }
         if (! empty($e['region']) && $this->region === '') {
             $this->region = $e['region'];
@@ -372,7 +372,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         session()->flash('ok', '['.$cat.'] 추출: '.implode(' · ', $bits).$name.$auto.' — 확인 후 저장하세요.');
     }
 
-    /** 통화 토글 — 매물표시가 표시만 변경(추출된 통화만). 차값(car_cost)은 가져온 원래 KRW 금액으로 고정. */
+    /** 통화 토글(매물표시가) — 그 통화로 차값을 "그대로" 가져옴(외화 그대로 고정). 추출된 통화만. */
     public function pickCurrency(string $cur): void
     {
         if (! in_array($cur, ['KRW', 'USD', 'EUR'], true)) {
@@ -385,6 +385,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->expected_price_currency = $cur;
         if (isset($this->priceOptions[$cur])) {
             $this->expected_price = (string) $this->priceOptions[$cur];
+            $this->car_cost = (string) $this->priceOptions[$cur];   // 차값 = 선택통화 금액 그대로(환산X)
         }
     }
 
@@ -473,7 +474,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'status' => 'draft',
             'buyer_verdict' => 'none',
         ]);
-        $listing->final_price = $listing->totalKrw($this->usdRate());   // 금액 입력 시 최종금액(KRW) 스냅샷
+        $listing->final_price = $listing->totalKrw($this->usdRate(), $this->eurRate());   // 최종금액(KRW) 스냅샷(차값통화 환산)
         $listing->save();
 
         $this->storeSalesFiles($listing, $this->salesFiles);
@@ -706,7 +707,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @if ($priceOptions)
                         <p class="mt-1 text-[11px] text-gray-500">💱 링크 표시가: @foreach ($priceOptions as $cur => $amt)<span class="mr-2 whitespace-nowrap">{{ ['KRW' => '원', 'USD' => '$', 'EUR' => '€'][$cur] ?? $cur }} {{ number_format($amt) }}</span>@endforeach— 버튼으로 통화 선택(금액 자동 변경)</p>
                     @else
-                        <p class="mt-1 text-[11px] text-gray-400">💡 엔카=원화 / ssancar=3통화 자동. 통화 버튼으로 변경. KRW 금액은 아래 ‘차값’에도 자동 입력됩니다(수정 가능).</p>
+                        <p class="mt-1 text-[11px] text-gray-400">💡 엔카=원화 / ssancar=3통화 자동. 통화 버튼으로 선택한 통화 금액이 아래 ‘차값’에 그대로 들어갑니다(외화 그대로 · 수정 가능). 환율 환산은 금액산정에서만.</p>
                     @endif
                     @error('expected_price') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     <label class="label-base mt-2">respond.io 컨택트 ID <span class="text-gray-400">(선택 · 바이어 식별 · 자동회신 매칭키)</span></label>
@@ -727,7 +728,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                         @error('owner_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                     <div>
-                        <label class="label-base">차값 (원)</label>
+                        <label class="label-base">차값 ({{ \App\Support\Money::SYMBOLS[$expected_price_currency] ?? '원' }})</label>
                         <input class="input-base" wire:model.live.debounce.400ms="car_cost" inputmode="numeric" placeholder="13000000">
                         @error('car_cost') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
@@ -761,8 +762,8 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 {{-- 금액 산정 (§6) --}}
                 @php
-                    $carPrice = $this->calcCarPrice($car_cost, $discount_rate);
-                    $total = $this->calcTotal($car_cost, $discount_rate, $shipping_usd);
+                    $carPrice = $this->calcCarPrice($car_cost, $discount_rate, $expected_price_currency);
+                    $total = $this->calcTotal($car_cost, $discount_rate, $shipping_usd, $expected_price_currency);
                     $shipKrw = $shipping_usd ? (int) $shipping_usd * $this->usdRate() : null;
                 @endphp
                 <div class="mt-3 flex items-center justify-between">
@@ -929,8 +930,8 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 {{-- 금액 산정 (§6) --}}
                 @php
-                    $eCar = $this->calcCarPrice($e_car_cost, $e_discount_rate);
-                    $eTotal = $this->calcTotal($e_car_cost, $e_discount_rate, $e_shipping_usd);
+                    $eCar = $this->calcCarPrice($e_car_cost, $e_discount_rate, $e->expected_price_currency);
+                    $eTotal = $this->calcTotal($e_car_cost, $e_discount_rate, $e_shipping_usd, $e->expected_price_currency);
                     $eShipKrw = $e_shipping_usd ? (int) $e_shipping_usd * $this->usdRate() : null;
                 @endphp
                 <div class="mb-2 flex justify-end">
@@ -943,7 +944,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 </div>
                 <div class="grid grid-cols-2 gap-3">
                     <div>
-                        <label class="label-base">차값 (원)</label>
+                        <label class="label-base">차값 ({{ \App\Support\Money::SYMBOLS[$e->expected_price_currency] ?? '원' }})</label>
                         <input class="input-base" wire:model.live.debounce.400ms="e_car_cost" inputmode="numeric" @unless ($canEdit) disabled @endunless>
                         @error('e_car_cost') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>

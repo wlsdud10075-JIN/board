@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Jobs\SyncWonListingToCarErp;
 use App\Models\Scopes\SalesmanScope;
 use App\Services\BoardAudit;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Attributes\ScopedBy;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -44,15 +45,33 @@ class PurchaseListing extends Model
 
     // ─────────────────────── 금액 (§6) ───────────────────────
 
-    /** 차량금액(Car Price, KRW) = 차값 − (차값 × 할인율%) + 매도비(고정). 입력 없으면 null. */
-    public function carPriceKrw(): ?int
+    /** 차값을 KRW 로 환산 — car_cost 는 expected_price_currency 통화(엔카=KRW). 차값 자체는 불변, 계산용. */
+    public function carCostKrw(?int $krwPerUsd = null, ?int $krwPerEur = null): ?int
     {
-        if ($this->car_cost === null) {
+        return Money::toKrw(
+            $this->car_cost,
+            $this->expected_price_currency,
+            $krwPerUsd ?? (int) config('board.default_krw_per_usd'),
+            $krwPerEur ?? (int) config('board.default_krw_per_eur'),
+        );
+    }
+
+    /** 차값 표시(통화기호 포함) — 가져온 통화 그대로. */
+    public function carCostDisplay(): string
+    {
+        return Money::display($this->car_cost, $this->expected_price_currency);
+    }
+
+    /** 차량금액(Car Price, KRW) = 차값(KRW환산) − (×할인율%) + 매도비(고정). 입력 없으면 null. */
+    public function carPriceKrw(?int $krwPerUsd = null, ?int $krwPerEur = null): ?int
+    {
+        $cost = $this->carCostKrw($krwPerUsd, $krwPerEur);
+        if ($cost === null) {
             return null;
         }
-        $discount = (int) round($this->car_cost * ((float) $this->discount_rate / 100));
+        $discount = (int) round($cost * ((float) $this->discount_rate / 100));
 
-        return $this->car_cost - $discount + (int) config('board.sales_fee');
+        return $cost - $discount + (int) config('board.sales_fee');
     }
 
     /** 배송금액을 KRW 로 환산 (임시환율 — 슬라이스2에서 라이브 환율로 대체). */
@@ -67,9 +86,9 @@ class PurchaseListing extends Model
     }
 
     /** 최종금액(Total, KRW) = 차량금액 + 배송금액(KRW 환산). 둘 중 하나라도 없으면 차량금액만/ null. */
-    public function totalKrw(?int $krwPerUsd = null): ?int
+    public function totalKrw(?int $krwPerUsd = null, ?int $krwPerEur = null): ?int
     {
-        $car = $this->carPriceKrw();
+        $car = $this->carPriceKrw($krwPerUsd, $krwPerEur);
         if ($car === null) {
             return null;
         }

@@ -216,7 +216,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 {{-- 금액 --}}
                 <div class="grid grid-cols-2 gap-2 text-xs text-gray-500">
-                    <div>차값<br><b class="text-sm text-gray-800">{{ $d->car_cost ? number_format($d->car_cost).'원' : '—' }}</b></div>
+                    <div>차값<br><b class="text-sm text-gray-800">{{ $d->carCostDisplay() }}</b></div>
                     <div>할인율<br><b class="text-sm text-gray-800">{{ $d->discount_rate !== null ? $d->discount_rate.'%' : '—' }}</b></div>
                     <div>배송<br><b class="text-sm text-gray-800">{{ $d->shipping_usd ? '$'.number_format($d->shipping_usd) : '—' }}</b></div>
                     <div>바이어<br><b class="text-sm text-gray-800">{{ $d->buyer_name ?: '—' }}</b></div>

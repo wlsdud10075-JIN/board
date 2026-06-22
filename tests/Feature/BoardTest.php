@@ -1488,20 +1488,78 @@ class BoardTest extends TestCase
             ->assertSet('vin', 'WMW21GA04S7R38829');
     }
 
-    public function test_currency_toggle_changes_display_only_not_car_cost(): void
+    public function test_pricetag_toggle_sets_car_cost_as_is(): void
     {
+        // 매물표시가 통화토글 = 그 통화 금액을 차값에 "그대로"(외화 그대로) + 통화 기록.
         $this->actingAs($this->mkUser('sales'));
 
-        // 통화 토글은 매물표시가 표시만 바꾸고, 가져온 원래 차값(KRW)은 고정.
         Volt::test('listings.index')
             ->set('priceOptions', ['KRW' => 10000000, 'USD' => 7000, 'EUR' => 6500])
-            ->set('car_cost', '10000000')                 // 추출 시 가져온 원래 차값(KRW)
-            ->set('expected_price_currency', 'KRW')
             ->call('pickCurrency', 'USD')
-            ->assertSet('expected_price', '7000')          // 매물표시가는 USD 표시로
-            ->assertSet('car_cost', '10000000')            // 차값은 변경 안 됨
+            ->assertSet('car_cost', '7000')                // 외화 그대로
+            ->assertSet('expected_price_currency', 'USD')
             ->call('pickCurrency', 'EUR')
-            ->assertSet('car_cost', '10000000');           // 여전히 고정
+            ->assertSet('car_cost', '6500')
+            ->assertSet('expected_price_currency', 'EUR')
+            ->call('pickCurrency', 'KRW')
+            ->assertSet('car_cost', '10000000')
+            ->assertSet('expected_price_currency', 'KRW');
+    }
+
+    public function test_display_toggle_does_not_change_car_cost(): void
+    {
+        // 금액산정 통화토글(displayCurrency) = 표시만, 차값 불변(적용환율 눌러도).
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('priceOptions', ['KRW' => 10000000, 'USD' => 7000])
+            ->call('pickCurrency', 'USD')
+            ->assertSet('car_cost', '7000')
+            ->set('displayCurrency', 'EUR')
+            ->assertSet('car_cost', '7000')                // 환율 토글해도 차값 불변
+            ->set('displayCurrency', 'KRW')
+            ->assertSet('car_cost', '7000');
+    }
+
+    public function test_foreign_car_cost_renders_with_currency_in_drawers(): void
+    {
+        // USD 차값이 각 화면 드로어에서 $ 로 표기되는지(7,000원 아님) — 렌더 스모크.
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction',
+            'car_cost' => 7000, 'expected_price_currency' => 'USD',
+        ]);
+
+        $this->actingAs($this->mkUser('manager'));
+        Volt::test('manage.index')->call('openEdit', $l->id)->assertSee('차값 ($)');
+
+        $this->actingAs($this->mkUser('inspection'));
+        Volt::test('inspection.index')->call('openDrawer', $l->id)->assertSee('차값 ($)');
+
+        $this->actingAs($this->mkUser('auction'));
+        Volt::test('auction.index')->call('openDetail', $l->id)->assertSee('$7,000');
+    }
+
+    public function test_foreign_car_cost_converts_to_krw_in_final_price(): void
+    {
+        // 싼카 USD 차값 → 저장 시 final_price 는 KRW 환산(차값은 USD 그대로 보관).
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('priceOptions', ['KRW' => 10000000, 'USD' => 7000])
+            ->set('krwPerUsd', 1400)
+            ->set('vehicle_number', '33가3333')
+            ->set('vin', 'USDVIN0001')
+            ->call('pickCurrency', 'USD')                  // 차값 = $7,000(USD)
+            ->set('discount_rate', '0')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $l = PurchaseListing::where('vin', 'USDVIN0001')->first();
+        $this->assertNotNull($l);
+        $this->assertSame(7000, $l->car_cost);             // 차값은 USD 금액 그대로 보관
+        $this->assertSame('USD', $l->expected_price_currency);
+        // final_price(KRW) = 7,000×1,400 − 0% + 440,000(매도비) = 10,240,000 (배송 없음)
+        $this->assertSame(7000 * 1400 + (int) config('board.sales_fee'), $l->final_price);
     }
 
     public function test_currency_toggle_disabled_for_missing_currency(): void
