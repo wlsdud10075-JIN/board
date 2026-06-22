@@ -1505,6 +1505,20 @@ class BoardTest extends TestCase
             ->assertSet('car_cost', '10000000');
     }
 
+    public function test_currency_toggle_disabled_for_missing_currency(): void
+    {
+        $this->actingAs($this->mkUser('sales'));
+
+        // 엔카(원화만 추출) — USD/EUR 선택해도 무시(라벨·차값 안 바뀜)
+        Volt::test('listings.index')
+            ->set('priceOptions', ['KRW' => 10000000])
+            ->set('expected_price_currency', 'KRW')
+            ->call('pickCurrency', 'USD')
+            ->assertSet('expected_price_currency', 'KRW')   // 그대로(미화 비활성)
+            ->call('pickCurrency', 'KRW')
+            ->assertSet('expected_price_currency', 'KRW');
+    }
+
     public function test_enrichment_ssancar_inspected_routes_via_encar(): void
     {
         Http::fake([

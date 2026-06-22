@@ -378,6 +378,10 @@ new #[Layout('components.layouts.app')] class extends Component {
         if (! in_array($cur, ['KRW', 'USD', 'EUR'], true)) {
             return;
         }
+        // 링크에서 추출된 통화만 선택 가능(엔카=원화만). 링크 전(빈 priceOptions)엔 라벨 토글 허용.
+        if (! empty($this->priceOptions) && ! isset($this->priceOptions[$cur])) {
+            return;
+        }
         $this->expected_price_currency = $cur;
         if (isset($this->priceOptions[$cur])) {
             $this->expected_price = (string) $this->priceOptions[$cur];
@@ -700,8 +704,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <input class="input-base flex-1" wire:model="expected_price" inputmode="numeric" placeholder="링크 추출 시 자동 · 직접 입력 가능">
                         <div class="inline-flex shrink-0 overflow-hidden rounded-md border border-gray-300">
                             @foreach (['KRW' => '원', 'USD' => '$', 'EUR' => '€'] as $cur => $sym)
-                                <button type="button" wire:click="pickCurrency('{{ $cur }}')"
-                                    class="px-2.5 py-1.5 text-[13px] font-semibold {{ $expected_price_currency === $cur ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }} {{ isset($priceOptions[$cur]) ? '' : 'opacity-60' }}">{{ $sym }}</button>
+                                {{-- 추출된 통화만 활성 — 엔카=원화만, ssancar=3통화. 링크 전(빈 priceOptions)엔 전부 허용. --}}
+                                @php $curOff = ! empty($priceOptions) && ! isset($priceOptions[$cur]); @endphp
+                                <button type="button" wire:click="pickCurrency('{{ $cur }}')" @disabled($curOff)
+                                    class="px-2.5 py-1.5 text-[13px] font-semibold {{ $expected_price_currency === $cur ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }} {{ $curOff ? 'cursor-not-allowed opacity-40' : '' }}">{{ $sym }}</button>
                             @endforeach
                         </div>
                     </div>
