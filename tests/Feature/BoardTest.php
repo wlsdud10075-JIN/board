@@ -1483,8 +1483,26 @@ class BoardTest extends TestCase
             ->assertSet('vehicle_number', '244로9100')
             ->assertSet('expected_price', '66660000')   // 6666만 ×10000
             ->assertSet('expected_price_currency', 'KRW')
+            ->assertSet('car_cost', '66660000')         // 크롤링 KRW → 차값 자동매핑(금액산정 입력)
             ->assertSet('region', '안산')
             ->assertSet('vin', 'WMW21GA04S7R38829');
+    }
+
+    public function test_currency_toggle_syncs_car_cost_to_krw(): void
+    {
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('priceOptions', ['KRW' => 10000000, 'USD' => 7000, 'EUR' => 6500])
+            ->set('krwPerUsd', 1400)
+            ->set('krwPerEur', 1500)
+            ->call('pickCurrency', 'USD')                 // 미화 선택 → 차값 = 7000×1400 KRW
+            ->assertSet('expected_price', '7000')
+            ->assertSet('car_cost', (string) (7000 * 1400))
+            ->call('pickCurrency', 'EUR')                 // 유로 선택 → 차값 = 6500×1500 KRW
+            ->assertSet('car_cost', (string) (6500 * 1500))
+            ->call('pickCurrency', 'KRW')                 // 원화 선택 → 차값 = KRW 그대로
+            ->assertSet('car_cost', '10000000');
     }
 
     public function test_enrichment_ssancar_inspected_routes_via_encar(): void
