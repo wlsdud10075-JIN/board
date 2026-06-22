@@ -1488,21 +1488,20 @@ class BoardTest extends TestCase
             ->assertSet('vin', 'WMW21GA04S7R38829');
     }
 
-    public function test_currency_toggle_syncs_car_cost_to_krw(): void
+    public function test_currency_toggle_changes_display_only_not_car_cost(): void
     {
         $this->actingAs($this->mkUser('sales'));
 
+        // 통화 토글은 매물표시가 표시만 바꾸고, 가져온 원래 차값(KRW)은 고정.
         Volt::test('listings.index')
             ->set('priceOptions', ['KRW' => 10000000, 'USD' => 7000, 'EUR' => 6500])
-            ->set('krwPerUsd', 1400)
-            ->set('krwPerEur', 1500)
-            ->call('pickCurrency', 'USD')                 // 미화 선택 → 차값 = 7000×1400 KRW
-            ->assertSet('expected_price', '7000')
-            ->assertSet('car_cost', (string) (7000 * 1400))
-            ->call('pickCurrency', 'EUR')                 // 유로 선택 → 차값 = 6500×1500 KRW
-            ->assertSet('car_cost', (string) (6500 * 1500))
-            ->call('pickCurrency', 'KRW')                 // 원화 선택 → 차값 = KRW 그대로
-            ->assertSet('car_cost', '10000000');
+            ->set('car_cost', '10000000')                 // 추출 시 가져온 원래 차값(KRW)
+            ->set('expected_price_currency', 'KRW')
+            ->call('pickCurrency', 'USD')
+            ->assertSet('expected_price', '7000')          // 매물표시가는 USD 표시로
+            ->assertSet('car_cost', '10000000')            // 차값은 변경 안 됨
+            ->call('pickCurrency', 'EUR')
+            ->assertSet('car_cost', '10000000');           // 여전히 고정
     }
 
     public function test_currency_toggle_disabled_for_missing_currency(): void

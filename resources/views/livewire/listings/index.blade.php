@@ -372,7 +372,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         session()->flash('ok', '['.$cat.'] 추출: '.implode(' · ', $bits).$name.$auto.' — 확인 후 저장하세요.');
     }
 
-    /** 통화 토글 — enrichment 통화별 금액으로 매물표시가 변경 + 차값(KRW)을 선택통화 환산값으로 동기화. */
+    /** 통화 토글 — 매물표시가 표시만 변경(추출된 통화만). 차값(car_cost)은 가져온 원래 KRW 금액으로 고정. */
     public function pickCurrency(string $cur): void
     {
         if (! in_array($cur, ['KRW', 'USD', 'EUR'], true)) {
@@ -385,14 +385,6 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->expected_price_currency = $cur;
         if (isset($this->priceOptions[$cur])) {
             $this->expected_price = (string) $this->priceOptions[$cur];
-            // 차값(car_cost)은 금액산정상 KRW 전용 → 선택통화를 KRW 로 환산해 동기화.
-            $amount = (float) $this->priceOptions[$cur];
-            $krw = match ($cur) {
-                'USD' => (int) round($amount * $this->usdRate()),
-                'EUR' => (int) round($amount * $this->eurRate()),
-                default => (int) $amount,
-            };
-            $this->car_cost = (string) $krw;
         }
     }
 
