@@ -7,6 +7,20 @@ return [
     // S3 검차 사진 prefix (외관만 — 서류/번호판 제외)
     'inspection_photo_prefix' => 'purchase-board/inspections/vehicle-photos',
 
+    // 영업 차량 첨부 prefix — 사진(외관)·서류(차량등록증 등) 분리. 연동 B 로 car-erp 첨부탭 전달.
+    'sales_photo_prefix' => 'purchase-board/sales/photos',
+    'sales_document_prefix' => 'purchase-board/sales/documents',
+
+    // 영업 첨부 1대당 최대 건수 (car-erp 차량 첨부탭이 10건 cap 이라 맞춤)
+    'attachment_max' => (int) env('BOARD_ATTACHMENT_MAX', 10),
+
+    // 업로드 금지 확장자 (실행파일 — Jin: "exe 같은 실행파일만 차단, 나머지 허용")
+    'blocked_upload_ext' => [
+        'exe', 'msi', 'bat', 'cmd', 'com', 'scr', 'pif', 'cpl', 'reg',
+        'ps1', 'psm1', 'vbs', 'vbe', 'js', 'jse', 'wsf', 'wsh', 'hta',
+        'sh', 'bin', 'run', 'dll', 'jar', 'app', 'apk', 'deb', 'rpm',
+    ],
+
     // 사진 저장 디스크 — 로컬은 public, 운영은 s3 (FILESYSTEM 분리). 운영 전환 시 .env BOARD_PHOTO_DISK=s3
     'photo_disk' => env('BOARD_PHOTO_DISK', 'public'),
 

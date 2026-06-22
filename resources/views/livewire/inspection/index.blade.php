@@ -65,20 +65,21 @@ new #[Layout('components.layouts.app')] class extends Component {
     // ── 검사지역 + 금액 재설계 (§6) ──
     public string $region = '';
     public string $inspection_note = '';
-    public ?string $car_cost = null;       // 차값 (KRW)
+    public ?string $car_cost = null;       // 차값 (가져온 통화 그대로 — costCurrency)
+    public string $costCurrency = 'KRW';   // 차값 통화 (listing.expected_price_currency, 엔카=KRW)
     public ?string $discount_rate = null;  // 할인율 (%)
     public ?int $shipping_usd = null;      // 배송금액 (USD 고정 택1)
 
-    /** 입력값 기준 차량금액(KRW) 미리보기 = 차값 − (차값 × 할인율%) + 매도비. */
+    /** 입력값 기준 차량금액(KRW) 미리보기 = 차값(통화 KRW환산) − (×할인율%) + 매도비. */
     public function carPricePreview(): ?int
     {
-        if ($this->car_cost === null || $this->car_cost === '') {
+        $krw = \App\Support\Money::toKrw($this->car_cost, $this->costCurrency, $this->usdRate(), $this->eurRate());
+        if ($krw === null) {
             return null;
         }
-        $cost = (int) $this->car_cost;
-        $discount = (int) round($cost * ((float) $this->discount_rate / 100));
+        $discount = (int) round($krw * ((float) $this->discount_rate / 100));
 
-        return $cost - $discount + (int) config('board.sales_fee');
+        return $krw - $discount + (int) config('board.sales_fee');
     }
 
     /** 최종금액(KRW) 미리보기 = 차량금액 + 배송(USD→KRW, 임시환율). */
@@ -243,6 +244,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->region = $l->region ?? '';
         $this->inspection_note = $l->inspection_note ?? '';
         $this->car_cost = $l->car_cost !== null ? (string) $l->car_cost : null;
+        $this->costCurrency = $l->expected_price_currency ?: 'KRW';
         $this->discount_rate = $l->discount_rate !== null ? (string) $l->discount_rate : null;
         $this->shipping_usd = $l->shipping_usd;
         $this->photos = [];
@@ -270,7 +272,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->discount_rate = ($this->discount_rate === null || $this->discount_rate === '') ? null : (float) $this->discount_rate;
         $l->shipping_usd = $this->shipping_usd ?: null;
         // 최종금액(KRW) 스냅샷 — 공식 입력이 있으면 자동 계산, 없으면 수동 final_price 유지.
-        $computed = $l->totalKrw($this->usdRate());
+        $computed = $l->totalKrw($this->usdRate(), $this->eurRate());
         if ($computed !== null) {
             $l->final_price = $computed;
         } elseif ($this->final_price !== null && $this->final_price !== '') {
@@ -288,11 +290,15 @@ new #[Layout('components.layouts.app')] class extends Component {
         $start = (int) $l->photos()->max('sort');
 
         foreach (array_values($this->photos) as $i => $file) {
+            if (\App\Support\UploadGuard::isExecutable($file->getClientOriginalName())) {
+                continue;   // 실행파일 차단(검차는 사진/영상만)
+            }
             $path = $file->store($prefix, $disk);
             $l->photos()->create([
                 's3_path' => $path,
                 'original_name' => $file->getClientOriginalName(),
                 'sort' => $start + $i + 1,
+                'kind' => \App\Models\InspectionPhoto::KIND_INSPECTION,
             ]);
         }
         $this->photos = [];
@@ -623,7 +629,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @endphp
                 <div class="grid grid-cols-2 gap-3">
                     <div>
-                        <label class="label-base">차값 (원)</label>
+                        <label class="label-base">차값 ({{ \App\Support\Money::SYMBOLS[$costCurrency] ?? '원' }})</label>
                         <input class="input-base" wire:model.live.debounce.400ms="car_cost" inputmode="numeric" placeholder="13000000">
                         @error('car_cost') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>

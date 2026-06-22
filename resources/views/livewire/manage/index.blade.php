@@ -26,6 +26,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $region = '';
     public ?string $expected_price = null;
     public ?string $car_cost = null;
+    public string $costCurrency = 'KRW';
     public ?string $discount_rate = null;
     public ?int $shipping_usd = null;
     public ?string $final_price = null;
@@ -126,6 +127,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->region = $l->region ?? '';
         $this->expected_price = $l->expected_price !== null ? (string) $l->expected_price : null;
         $this->car_cost = $l->car_cost !== null ? (string) $l->car_cost : null;
+        $this->costCurrency = $l->expected_price_currency ?: 'KRW';
         $this->discount_rate = $l->discount_rate !== null ? (string) $l->discount_rate : null;
         $this->shipping_usd = $l->shipping_usd;
         $this->final_price = $l->final_price !== null ? (string) $l->final_price : null;
@@ -364,7 +366,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @error('region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 <div class="mt-3 grid grid-cols-3 gap-2">
-                    <div><label class="label-base">차값</label><input class="input-base" wire:model="car_cost" inputmode="numeric"></div>
+                    <div><label class="label-base">차값 ({{ \App\Support\Money::SYMBOLS[$costCurrency] ?? '원' }})</label><input class="input-base" wire:model="car_cost" inputmode="numeric"></div>
                     <div><label class="label-base">할인율%</label><input class="input-base" wire:model="discount_rate" inputmode="decimal"></div>
                     <div><label class="label-base">배송$</label>
                         <select class="input-base" wire:model="shipping_usd">

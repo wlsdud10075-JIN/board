@@ -7,6 +7,7 @@ use App\Jobs\SyncWonListingToCarErp;
 use App\Models\BoardAuditLog;
 use App\Models\ExchangeRate;
 use App\Models\InspectionAssignment;
+use App\Models\InspectionPhoto;
 use App\Models\IntegrationEvent;
 use App\Models\PromotionRequest;
 use App\Models\PurchaseListing;
@@ -18,11 +19,14 @@ use App\Services\RespondIoService;
 use App\Services\VerdictService;
 use App\Support\ListingLink;
 use App\Support\TimeGate;
+use App\Support\UploadGuard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Volt\Volt;
 use Tests\TestCase;
 
@@ -153,6 +157,189 @@ class BoardTest extends TestCase
         // 차량금액 = 13,000,000 − 0% + 440,000(매도비) = 13,440,000
         // 최종금액 = 13,440,000 + 1640 × 1380(임시환율) = 15,703,200 스냅샷
         $this->assertSame(13440000 + 1640 * (int) config('board.default_krw_per_usd'), $l->final_price);
+    }
+
+    // ─────────────────────── 차량 첨부 (영업 업로드 → 연동 B car-erp) ───────────────────────
+
+    public function test_sales_attachments_separate_from_inspection_photos(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'));
+        $l->photos()->create(['s3_path' => 'i/insp.jpg', 'original_name' => 'insp.jpg', 'sort' => 1, 'kind' => InspectionPhoto::KIND_INSPECTION]);
+        $l->salesAttachments()->create(['s3_path' => 's/photo.jpg', 'original_name' => 'photo.jpg', 'sort' => 1, 'kind' => InspectionPhoto::KIND_SALES_PHOTO]);
+        $l->salesAttachments()->create(['s3_path' => 's/reg.pdf', 'original_name' => 'reg.pdf', 'sort' => 2, 'kind' => InspectionPhoto::KIND_SALES_DOCUMENT]);
+
+        // photos() = 검차사진만, salesAttachments() = 영업 자료만 (서로 격리)
+        $this->assertSame(1, $l->photos()->count());
+        $this->assertSame('i/insp.jpg', $l->photos()->first()->s3_path);
+        $this->assertSame(2, $l->salesAttachments()->count());
+    }
+
+    public function test_listings_save_stores_sales_attachments(): void
+    {
+        Storage::fake('public');
+        config(['board.photo_disk' => 'public']);
+        $kim = $this->mkUser('sales');
+        $this->actingAs($kim);
+
+        // 첨부파일 1칸 — 이미지=사진/그 외=서류 자동분류
+        Volt::test('listings.index')
+            ->set('source', 'encar')
+            ->set('vehicle_number', '77가7777')
+            ->set('vin', 'ATTACHVIN01')
+            ->set('salesFiles', [
+                UploadedFile::fake()->image('front.jpg'),
+                UploadedFile::fake()->image('side.jpg'),
+                UploadedFile::fake()->create('차량등록증.pdf', 20, 'application/pdf'),
+            ])
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $l = PurchaseListing::where('vin', 'ATTACHVIN01')->first();
+        $this->assertNotNull($l);
+        $this->assertSame(3, $l->salesAttachments()->count());
+        $this->assertSame(2, $l->salesAttachments()->where('kind', InspectionPhoto::KIND_SALES_PHOTO)->count());   // 이미지 2 → 사진
+        $doc = $l->salesAttachments()->where('kind', InspectionPhoto::KIND_SALES_DOCUMENT)->first();              // pdf → 서류
+        $this->assertNotNull($doc);
+        $this->assertFalse((bool) $doc->share_to_buyer);          // 서류는 바이어 미전송
+        $this->assertSame($kim->id, $doc->uploaded_by_user_id);
+        Storage::disk('public')->assertExists($doc->s3_path);
+    }
+
+    public function test_executable_upload_blocked_in_listings(): void
+    {
+        Storage::fake('public');
+        config(['board.photo_disk' => 'public']);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('source', 'encar')
+            ->set('vehicle_number', '44가4444')
+            ->set('vin', 'EXEVIN0001')
+            ->set('salesFiles', [UploadedFile::fake()->create('virus.exe', 10)])
+            ->call('save')
+            ->assertHasErrors('salesFiles');   // 실행파일 차단 → listing 생성 안 됨
+
+        $this->assertNull(PurchaseListing::where('vin', 'EXEVIN0001')->first());
+    }
+
+    public function test_upload_guard_blocks_executables_allows_docs(): void
+    {
+        // 실행파일 차단 (대소문자 무관)
+        $this->assertTrue(UploadGuard::isExecutable('virus.exe'));
+        $this->assertTrue(UploadGuard::isExecutable('Setup.MSI'));
+        $this->assertTrue(UploadGuard::isExecutable('run.bat'));
+        // 사진·서류 허용
+        $this->assertFalse(UploadGuard::isExecutable('차량등록증.pdf'));
+        $this->assertFalse(UploadGuard::isExecutable('front.jpg'));
+        $this->assertFalse(UploadGuard::isExecutable('no-extension'));
+    }
+
+    public function test_attachment_cap_enforced(): void
+    {
+        Storage::fake('public');
+        config(['board.photo_disk' => 'public', 'board.attachment_max' => 10]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $eleven = [];
+        for ($i = 0; $i < 11; $i++) {
+            $eleven[] = UploadedFile::fake()->image("p{$i}.jpg");
+        }
+
+        Volt::test('listings.index')
+            ->set('source', 'encar')
+            ->set('vehicle_number', '55가5555')
+            ->set('vin', 'CAPVIN0001')
+            ->set('salesFiles', $eleven)
+            ->call('save')
+            ->assertHasErrors('salesFiles');
+
+        $this->assertNull(PurchaseListing::where('vin', 'CAPVIN0001')->first());
+    }
+
+    public function test_sync_payload_includes_sales_attachments(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh']);
+        Http::fake(['*/api/internal/purchase-sync' => Http::response(['vehicle_id' => 900], 200)]);
+
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'won', 'source' => 'auction', 'final_price' => 9000000]);
+        $l->photos()->create(['s3_path' => 'i/x.jpg', 'original_name' => 'x.jpg', 'sort' => 1, 'kind' => InspectionPhoto::KIND_INSPECTION]);
+        $l->salesAttachments()->create(['s3_path' => 's/a.jpg', 'original_name' => 'a.jpg', 'sort' => 1, 'kind' => InspectionPhoto::KIND_SALES_PHOTO]);
+        $l->salesAttachments()->create(['s3_path' => 's/r.pdf', 'original_name' => 'r.pdf', 'sort' => 2, 'kind' => InspectionPhoto::KIND_SALES_DOCUMENT]);
+
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        Http::assertSent(function ($request) {
+            $att = $request['attachments'] ?? [];
+
+            return $request['contract_version'] === 2
+                && count($att) === 2                                   // 검차사진(i/x.jpg)은 제외, 영업 자료만
+                && collect($att)->pluck('s3_path')->sort()->values()->all() === ['s/a.jpg', 's/r.pdf']
+                && collect($att)->firstWhere('kind', 'sales_document')['s3_path'] === 's/r.pdf';
+        });
+    }
+
+    public function test_edit_drawer_appends_attachments_and_cap_counts_existing(): void
+    {
+        Storage::fake('public');
+        config(['board.photo_disk' => 'public', 'board.attachment_max' => 10]);
+        $kim = $this->mkUser('sales');
+        $this->actingAs($kim);
+        $l = $this->mkListing($kim);
+        for ($i = 1; $i <= 9; $i++) {
+            $l->salesAttachments()->create(['s3_path' => "s/e{$i}.jpg", 'original_name' => "e{$i}.jpg", 'sort' => $i, 'kind' => InspectionPhoto::KIND_SALES_PHOTO]);
+        }
+
+        // 9 + 1 = 10 → OK (편집 드로어 업로드 경로)
+        Volt::test('listings.index')
+            ->call('openEdit', $l->id)
+            ->set('eSalesFiles', [UploadedFile::fake()->create('reg.pdf', 10, 'application/pdf')])
+            ->call('update')
+            ->assertHasNoErrors();
+        $this->assertSame(10, $l->fresh()->salesAttachments()->count());
+
+        // 10 + 1 = 11 → cap 초과(기존건수 반영) → 에러, 저장 안 됨
+        Volt::test('listings.index')
+            ->call('openEdit', $l->id)
+            ->set('eSalesFiles', [UploadedFile::fake()->image('over.jpg')])
+            ->call('update')
+            ->assertHasErrors('eSalesFiles');
+        $this->assertSame(10, $l->fresh()->salesAttachments()->count());
+    }
+
+    public function test_delete_sales_attachment_removes_file_and_blocks_other_user(): void
+    {
+        Storage::fake('public');
+        config(['board.photo_disk' => 'public']);
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim);
+        Storage::disk('public')->put('s/del.jpg', 'x');
+        $att = $l->salesAttachments()->create(['s3_path' => 's/del.jpg', 'original_name' => 'del.jpg', 'sort' => 1, 'kind' => InspectionPhoto::KIND_SALES_PHOTO]);
+
+        // 다른 영업은 삭제 불가 (SalesmanScope: 본인 글 아님 → findOrFail throws)
+        $this->actingAs($this->mkUser('sales'));
+        $this->assertItThrows(fn () => Volt::test('listings.index')->set('editingId', $l->id)->call('deleteSalesAttachment', $att->id));
+        $this->assertDatabaseHas('inspection_photos', ['id' => $att->id]);
+        Storage::disk('public')->assertExists('s/del.jpg');
+
+        // 본인은 삭제 가능 + S3 파일까지 삭제
+        $this->actingAs($kim);
+        Volt::test('listings.index')->call('openEdit', $l->id)->call('deleteSalesAttachment', $att->id);
+        $this->assertDatabaseMissing('inspection_photos', ['id' => $att->id]);
+        Storage::disk('public')->assertMissing('s/del.jpg');
+    }
+
+    public function test_edit_drawer_renders_attachment_section(): void
+    {
+        config(['board.photo_disk' => 'public']);
+        $kim = $this->mkUser('sales');
+        $this->actingAs($kim);
+        $l = $this->mkListing($kim);
+        $l->salesAttachments()->create(['s3_path' => 's/reg.pdf', 'original_name' => 'reg.pdf', 'sort' => 1, 'kind' => InspectionPhoto::KIND_SALES_DOCUMENT]);
+
+        Volt::test('listings.index')
+            ->call('openEdit', $l->id)
+            ->assertSee('차량 첨부')
+            ->assertSee('reg.pdf');   // 서류 분기(isDocument) 렌더
     }
 
     public function test_state_machine_blocks_invalid_transition_but_manager_overrides(): void
@@ -1296,8 +1483,97 @@ class BoardTest extends TestCase
             ->assertSet('vehicle_number', '244로9100')
             ->assertSet('expected_price', '66660000')   // 6666만 ×10000
             ->assertSet('expected_price_currency', 'KRW')
+            ->assertSet('car_cost', '66660000')         // 크롤링 KRW → 차값 자동매핑(금액산정 입력)
             ->assertSet('region', '안산')
             ->assertSet('vin', 'WMW21GA04S7R38829');
+    }
+
+    public function test_pricetag_toggle_sets_car_cost_as_is(): void
+    {
+        // 매물표시가 통화토글 = 그 통화 금액을 차값에 "그대로"(외화 그대로) + 통화 기록.
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('priceOptions', ['KRW' => 10000000, 'USD' => 7000, 'EUR' => 6500])
+            ->call('pickCurrency', 'USD')
+            ->assertSet('car_cost', '7000')                // 외화 그대로
+            ->assertSet('expected_price_currency', 'USD')
+            ->call('pickCurrency', 'EUR')
+            ->assertSet('car_cost', '6500')
+            ->assertSet('expected_price_currency', 'EUR')
+            ->call('pickCurrency', 'KRW')
+            ->assertSet('car_cost', '10000000')
+            ->assertSet('expected_price_currency', 'KRW');
+    }
+
+    public function test_display_toggle_does_not_change_car_cost(): void
+    {
+        // 금액산정 통화토글(displayCurrency) = 표시만, 차값 불변(적용환율 눌러도).
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('priceOptions', ['KRW' => 10000000, 'USD' => 7000])
+            ->call('pickCurrency', 'USD')
+            ->assertSet('car_cost', '7000')
+            ->set('displayCurrency', 'EUR')
+            ->assertSet('car_cost', '7000')                // 환율 토글해도 차값 불변
+            ->set('displayCurrency', 'KRW')
+            ->assertSet('car_cost', '7000');
+    }
+
+    public function test_foreign_car_cost_renders_with_currency_in_drawers(): void
+    {
+        // USD 차값이 각 화면 드로어에서 $ 로 표기되는지(7,000원 아님) — 렌더 스모크.
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction',
+            'car_cost' => 7000, 'expected_price_currency' => 'USD',
+        ]);
+
+        $this->actingAs($this->mkUser('manager'));
+        Volt::test('manage.index')->call('openEdit', $l->id)->assertSee('차값 ($)');
+
+        $this->actingAs($this->mkUser('inspection'));
+        Volt::test('inspection.index')->call('openDrawer', $l->id)->assertSee('차값 ($)');
+
+        $this->actingAs($this->mkUser('auction'));
+        Volt::test('auction.index')->call('openDetail', $l->id)->assertSee('$7,000');
+    }
+
+    public function test_foreign_car_cost_converts_to_krw_in_final_price(): void
+    {
+        // 싼카 USD 차값 → 저장 시 final_price 는 KRW 환산(차값은 USD 그대로 보관).
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('priceOptions', ['KRW' => 10000000, 'USD' => 7000])
+            ->set('krwPerUsd', 1400)
+            ->set('vehicle_number', '33가3333')
+            ->set('vin', 'USDVIN0001')
+            ->call('pickCurrency', 'USD')                  // 차값 = $7,000(USD)
+            ->set('discount_rate', '0')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $l = PurchaseListing::where('vin', 'USDVIN0001')->first();
+        $this->assertNotNull($l);
+        $this->assertSame(7000, $l->car_cost);             // 차값은 USD 금액 그대로 보관
+        $this->assertSame('USD', $l->expected_price_currency);
+        // final_price(KRW) = 7,000×1,400 − 0% + 440,000(매도비) = 10,240,000 (배송 없음)
+        $this->assertSame(7000 * 1400 + (int) config('board.sales_fee'), $l->final_price);
+    }
+
+    public function test_currency_toggle_disabled_for_missing_currency(): void
+    {
+        $this->actingAs($this->mkUser('sales'));
+
+        // 엔카(원화만 추출) — USD/EUR 선택해도 무시(라벨·차값 안 바뀜)
+        Volt::test('listings.index')
+            ->set('priceOptions', ['KRW' => 10000000])
+            ->set('expected_price_currency', 'KRW')
+            ->call('pickCurrency', 'USD')
+            ->assertSet('expected_price_currency', 'KRW')   // 그대로(미화 비활성)
+            ->call('pickCurrency', 'KRW')
+            ->assertSet('expected_price_currency', 'KRW');
     }
 
     public function test_enrichment_ssancar_inspected_routes_via_encar(): void
