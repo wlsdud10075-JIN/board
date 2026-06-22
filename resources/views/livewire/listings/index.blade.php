@@ -1,16 +1,27 @@
 <?php
 
+use App\Models\InspectionPhoto;
 use App\Models\PromotionRequest;
 use App\Models\PurchaseListing;
 use App\Services\ExchangeRateService;
 use App\Support\TimeGate;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
+use Livewire\WithFileUploads;
 
 new #[Layout('components.layouts.app')] class extends Component {
+    use WithFileUploads;
+
     public bool $showAdd = false;
+
+    // 차량 첨부 (영업 업로드 → 연동 B 로 car-erp 첨부탭). 사진=외관 / 서류=차량등록증 등.
+    public array $salesPhotos = [];        // 추가 폼
+    public array $salesDocs = [];
+    public array $eSalesPhotos = [];       // 편집 드로어
+    public array $eSalesDocs = [];
 
     public string $origin = 'encar';        // 유입 카테고리(화면) — source 는 여기서 도출
     public string $source = 'encar';        // 매입방법(내부) — 워크플로·연동B
@@ -217,12 +228,13 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->e_encar_dealer = $l->encar_dealer ?? '';
         $this->e_auction_venue = $l->auction_venue ?? '';
         $this->e_lot_number = $l->lot_number ?? '';
+        $this->reset(['eSalesPhotos', 'eSalesDocs']);
         $this->resetErrorBag();
     }
 
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number']);
+        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'eSalesPhotos', 'eSalesDocs']);
         unset($this->editing);
     }
 
@@ -251,7 +263,13 @@ new #[Layout('components.layouts.app')] class extends Component {
             'e_encar_dealer' => 'nullable|string|max:100',
             'e_auction_venue' => 'nullable|string|max:100',
             'e_lot_number' => 'nullable|string|max:50',
+            'eSalesPhotos.*' => 'file|max:20480',
+            'eSalesDocs.*' => 'file|max:51200',
         ]);
+
+        if (! $this->checkSalesFiles($this->eSalesPhotos, $this->eSalesDocs, $l->salesAttachments()->count(), 'eSalesPhotos')) {
+            return;
+        }
 
         $l->region = $this->e_region ?: null;
         $l->c_no = $this->e_c_no ?: null;
@@ -272,6 +290,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             $l->lot_number = $this->e_lot_number ?: null;
         }
         $l->save();
+        $this->storeSalesFiles($l, $this->eSalesPhotos, $this->eSalesDocs);
 
         unset($this->listings);
         session()->flash('ok', $l->vehicle_number.' 수정되었습니다.');
@@ -389,10 +408,17 @@ new #[Layout('components.layouts.app')] class extends Component {
             'encar_dealer' => 'nullable|string|max:100',
             'auction_venue' => 'nullable|string|max:100',
             'lot_number' => 'nullable|string|max:50',
+            'salesPhotos.*' => 'file|max:20480',
+            'salesDocs.*' => 'file|max:51200',
         ], attributes: [
             'vehicle_number' => '차량번호',
             'vin' => '차대번호(VIN)',
         ]);
+
+        // 첨부 사전검증(실행파일·건수) — listing 생성 전
+        if (! $this->checkSalesFiles($this->salesPhotos, $this->salesDocs, 0, 'salesPhotos')) {
+            return;
+        }
 
         // 중복 차량 차단 (차량번호 = 식별값). 본인격리 무시하고 전역 조회(타 영업 중복도 차단).
         $dup = PurchaseListing::withoutGlobalScope(\App\Models\Scopes\SalesmanScope::class)
@@ -445,6 +471,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $listing->final_price = $listing->totalKrw($this->usdRate());   // 금액 입력 시 최종금액(KRW) 스냅샷
         $listing->save();
 
+        $this->storeSalesFiles($listing, $this->salesPhotos, $this->salesDocs);
+
         // 승격 대기에서 시작했으면 consume(대기 목록서 제거 + listing 연결).
         if ($this->promotingId) {
             PromotionRequest::where('status', PromotionRequest::PENDING)
@@ -459,9 +487,84 @@ new #[Layout('components.layouts.app')] class extends Component {
         session()->flash('ok', '매입예정이 등록되었습니다.');
     }
 
+    /** 첨부 사전검증 — 실행파일 차단 + 최대건수(car-erp 첨부탭 10건 cap). 통과=true. */
+    private function checkSalesFiles(array $photos, array $docs, int $existing, string $errKey): bool
+    {
+        $photos = array_values(array_filter($photos));
+        $docs = array_values(array_filter($docs));
+        if (empty($photos) && empty($docs)) {
+            return true;
+        }
+
+        foreach (array_merge($photos, $docs) as $f) {
+            if (\App\Support\UploadGuard::isExecutable($f->getClientOriginalName())) {
+                $this->addError($errKey, '실행파일은 업로드할 수 없습니다: '.$f->getClientOriginalName());
+
+                return false;
+            }
+        }
+
+        $max = (int) config('board.attachment_max');
+        if ($existing + count($photos) + count($docs) > $max) {
+            $this->addError($errKey, "차량 첨부는 최대 {$max}건까지입니다. (현재 {$existing}건)");
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /** 첨부 저장 — 사진/서류 종류별 prefix. 서류는 바이어 전송 금지(§28). */
+    private function storeSalesFiles(PurchaseListing $l, array $photos, array $docs): void
+    {
+        $photos = array_values(array_filter($photos));
+        $docs = array_values(array_filter($docs));
+        if (empty($photos) && empty($docs)) {
+            return;
+        }
+
+        $disk = config('board.photo_disk');
+        $sort = (int) $l->salesAttachments()->max('sort');
+
+        foreach ($photos as $f) {
+            $path = $f->store(config('board.sales_photo_prefix').'/'.$l->id, $disk);
+            $l->salesAttachments()->create([
+                's3_path' => $path,
+                'original_name' => $f->getClientOriginalName(),
+                'sort' => ++$sort,
+                'kind' => InspectionPhoto::KIND_SALES_PHOTO,
+                'uploaded_by_user_id' => Auth::id(),
+            ]);
+        }
+        foreach ($docs as $f) {
+            $path = $f->store(config('board.sales_document_prefix').'/'.$l->id, $disk);
+            $l->salesAttachments()->create([
+                's3_path' => $path,
+                'original_name' => $f->getClientOriginalName(),
+                'sort' => ++$sort,
+                'kind' => InspectionPhoto::KIND_SALES_DOCUMENT,
+                'uploaded_by_user_id' => Auth::id(),
+                'share_to_buyer' => false,   // 서류는 절대 바이어 미전송
+            ]);
+        }
+    }
+
+    /** 편집 드로어에서 첨부 삭제 — 본인 글(SalesmanScope)·편집가능·sales_* 한정(IDOR 방지). */
+    public function deleteSalesAttachment(int $id): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        if (! $this->editable($l)) {
+            return;
+        }
+        $p = $l->salesAttachments()->whereKey($id)->firstOrFail();
+        Storage::disk(config('board.photo_disk'))->delete($p->s3_path);
+        $p->delete();
+        unset($this->editing);
+    }
+
     private function resetForm(): void
     {
-        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'encarLink', 'ssancarLink', 'promotingId', 'expected_price', 'expected_price_currency', 'priceOptions', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number']);
+        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'encarLink', 'ssancarLink', 'promotingId', 'expected_price', 'expected_price_currency', 'priceOptions', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number', 'salesPhotos', 'salesDocs']);
         $this->origin = 'encar';
         $this->source = 'encar';
         $this->resetErrorBag();
@@ -698,6 +801,31 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @error('payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 <p class="mt-1 text-[11px] text-gray-400">💡 지금 알면 미리 입력 → 구매단계 자동 표시. 비워두면 구매담당자가 입력. (은행 선택 시 계좌 자동 하이픈 · 계좌번호 암호화)</p>
 
+                {{-- 차량 첨부 (영업 자료 → 낙찰 시 연동 B 로 car-erp 첨부탭) --}}
+                <label class="label-base mt-3">차량 첨부 <span class="text-gray-400">(사진·서류 · 최대 {{ config('board.attachment_max') }}건 · 낙찰 시 car-erp 자동등록)</span></label>
+                <div class="grid gap-2 sm:grid-cols-2">
+                    <div>
+                        <label class="flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-gray-300 py-3 text-[13px] text-gray-500 hover:border-[var(--color-primary)]">
+                            📷 외관 사진
+                            <input type="file" accept="image/*" multiple wire:model="salesPhotos" class="hidden">
+                        </label>
+                        <div wire:loading wire:target="salesPhotos" class="mt-1 text-xs text-gray-400">업로드 중…</div>
+                        @if (count($salesPhotos))<p class="mt-1 text-[11px] text-gray-500">사진 {{ count($salesPhotos) }}개 — 저장 시 반영</p>@endif
+                    </div>
+                    <div>
+                        <label class="flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-gray-300 py-3 text-[13px] text-gray-500 hover:border-[var(--color-primary)]">
+                            📄 서류 <span class="ml-1 text-gray-400">(차량등록증 등)</span>
+                            <input type="file" accept="image/*,application/pdf,.pdf" multiple wire:model="salesDocs" class="hidden">
+                        </label>
+                        <div wire:loading wire:target="salesDocs" class="mt-1 text-xs text-gray-400">업로드 중…</div>
+                        @if (count($salesDocs))<p class="mt-1 text-[11px] text-gray-500">서류 {{ count($salesDocs) }}개 — 저장 시 반영</p>@endif
+                    </div>
+                </div>
+                @error('salesPhotos') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                @error('salesPhotos.*') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                @error('salesDocs.*') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                <p class="mt-1 text-[11px] text-gray-400">💡 영업이 받은 차량 사진·서류를 올리면 낙찰 후 car-erp 에 자동 등록 → 관리가 확인·보완. (실행파일 불가)</p>
+
                 <p class="mt-2 text-xs text-gray-500"><b>차량번호</b> 필수. 금액은 선택 입력이며 현지 차상태 확인 후 조정될 수 있습니다.</p>
                 @error('source') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
@@ -879,6 +1007,53 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <input class="input-base" wire:model="e_auction_venue" @unless ($canEdit) disabled @endunless>
                     <label class="label-base mt-3">출품번호</label>
                     <input class="input-base" wire:model="e_lot_number" @unless ($canEdit) disabled @endunless>
+                @endif
+
+                {{-- 차량 첨부 (영업 자료 → 연동 B car-erp 첨부탭) --}}
+                <label class="label-base mt-4">차량 첨부 <span class="text-gray-400">(사진·서류 · 최대 {{ config('board.attachment_max') }}건)</span></label>
+                @if ($e->salesAttachments->count())
+                    <div class="mt-1 grid grid-cols-4 gap-2">
+                        @foreach ($e->salesAttachments as $p)
+                            <div class="relative overflow-hidden rounded-md border border-gray-200" wire:key="att-{{ $p->id }}">
+                                @if ($p->isDocument())
+                                    <a href="{{ $p->shareUrl() }}" target="_blank" class="flex aspect-square w-full flex-col items-center justify-center bg-gray-50 p-1 text-center text-[10px] text-gray-500 hover:bg-gray-100">
+                                        <span class="text-lg">📄</span><span class="line-clamp-2 break-all">{{ $p->original_name }}</span>
+                                    </a>
+                                @else
+                                    <a href="{{ $p->shareUrl() }}" target="_blank"><img src="{{ $p->shareUrl() }}" class="aspect-square w-full object-cover" alt=""></a>
+                                @endif
+                                @if ($canEdit)
+                                    <button type="button" wire:click="deleteSalesAttachment({{ $p->id }})" wire:confirm="이 첨부를 삭제하시겠습니까?"
+                                        class="absolute right-0.5 top-0.5 rounded bg-black/55 px-1 text-[10px] font-semibold text-white hover:bg-red-600">✕</button>
+                                @endif
+                            </div>
+                        @endforeach
+                    </div>
+                @else
+                    <p class="mt-1 text-[11px] text-gray-400">아직 첨부가 없습니다.</p>
+                @endif
+                @if ($canEdit)
+                    <div class="mt-2 grid gap-2 sm:grid-cols-2">
+                        <div>
+                            <label class="flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-gray-300 py-2.5 text-[13px] text-gray-500 hover:border-[var(--color-primary)]">
+                                📷 외관 사진 추가
+                                <input type="file" accept="image/*" multiple wire:model="eSalesPhotos" class="hidden">
+                            </label>
+                            <div wire:loading wire:target="eSalesPhotos" class="mt-1 text-xs text-gray-400">업로드 중…</div>
+                            @if (count($eSalesPhotos))<p class="mt-1 text-[11px] text-gray-500">사진 {{ count($eSalesPhotos) }}개 — 저장 시 반영</p>@endif
+                        </div>
+                        <div>
+                            <label class="flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-gray-300 py-2.5 text-[13px] text-gray-500 hover:border-[var(--color-primary)]">
+                                📄 서류 추가
+                                <input type="file" accept="image/*,application/pdf,.pdf" multiple wire:model="eSalesDocs" class="hidden">
+                            </label>
+                            <div wire:loading wire:target="eSalesDocs" class="mt-1 text-xs text-gray-400">업로드 중…</div>
+                            @if (count($eSalesDocs))<p class="mt-1 text-[11px] text-gray-500">서류 {{ count($eSalesDocs) }}개 — 저장 시 반영</p>@endif
+                        </div>
+                    </div>
+                    @error('eSalesPhotos') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    @error('eSalesPhotos.*') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    @error('eSalesDocs.*') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 @endif
 
                 {{-- 읽기전용 진행 정보 (현지확인·경매에서 채워짐) --}}

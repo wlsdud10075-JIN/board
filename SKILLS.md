@@ -159,6 +159,7 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 9. **Livewire morph + Alpine 접기 카드 = `wire:key` 필수 (2026-06-19)** — `@forelse` 안에서 `x-data="{ open }"` 접기 카드를 `wire:key` 없이 쓰면, 탭 전환 등 Livewire 재렌더(morph)가 이전 DOM 노드를 재사용해 **첫 항목의 Alpine 상태가 깨짐**(토글 불능·계속 펼침, 나머지는 정상). 증상: 기본 탭은 멀쩡한데 `setTab` 으로 들어가는 탭의 첫 카드만 안 접힘. 해결 = 반복 루트 요소마다 `wire:key="...-{{ $loop->index }}"`. (portal 판매/미수금/선적/월별에서 발생·수정.)
 9. **Tailwind v4 `!important` 위치 (★2회 발생)** — v4 는 **후행** `bg-red-500!`, 선행 `!bg-red-500`(v3 문법)은 **무시됨**. `input-base{width:100%}`·`btn-outline{background:#fff}` 같은 커스텀 클래스를 못 덮어 "세로로 쌓임/배경 안 변함" 증상. 해결 = 인라인 `style`/`@style` 디렉티브(확실, 빌드 불필요) 또는 grid 레이아웃. blade 새 클래스는 `npm run build` 필요도 주의.
 10. **목록 전체로드 금지** — `->latest()->get()` 는 수천 건에서 느림. `/manage` 처럼 `paginate()` + DB 필터 + 별도 `count()` KPI. (옛 코드 답습 말 것)
+11. **Livewire temp-upload `mimes` allowlist 가 새 파일타입을 조용히 거부 (2026-06-22)** — `config/livewire.php` `temporary_file_upload.rules` 의 `mimes:...` 는 **전역**. 여기 없는 확장자(예: pdf/문서)는 `wire:model` 업로드 단계에서 **컴포넌트 에러 없이 드롭**됨 → save 시 그 파일만 안 들어옴(딴 파일은 정상). 증상 디버깅 어려움(검증통과+일부만 저장). 새 업로드 타입 추가 시 **이 전역 rules 부터 확인**. board 는 사진+영상+문서(pdf/doc/xls/hwp/zip 등) allowlist + `App\Support\UploadGuard`(실행파일 확장자 blocklist, 2차 게이트)로 운영. 영업 첨부 종류 = `inspection_photos.kind`(inspection/sales_photo/sales_document), 연동 B 는 sales_* 만 전송(§12).
 
 ## 12. 연동 B 계약 — board "보내는 절반" (수신 = car-erp/heyman)
 > 두 앱(board·car-erp)이 만나는 **유일한 접점 = 이 API 계약**. DB·보안경계 다른 별도 앱이라 합치지 않고 계약으로 느슨하게 연결.
@@ -173,23 +174,25 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 
 **⚠️ 매칭키 = `vehicle_number` (VIN 아님 — 2026-06-15 정정)**: board 는 **VIN 을 모른다**. VIN 은 **NICE 차량조회로만** 나오고 그건 **car-erp 책임**이다. board 가 가진 건 **차량번호 + 소유자명**뿐. 그래서 board 는 `vehicle_number + owner_name` 을 보내고 **car-erp 가 NICE 로 VIN 을 조회**해 채운다. **멱등/매칭/식별 키 = `vehicle_number`** (board IDENTITY_LOCKED 도 vehicle_number 가 실질 키 — vin 은 항상 null). → 과거 이 계약을 vin 기반으로 짰던 건 drift(이 결정이 문서에 없어서). 다시 vin 으로 되돌리지 말 것.
 
-**payload**:
+**payload** (`contract_version: 2` — v2 = `attachments[]` 추가, 전방호환):
 ```json
 {
-  "contract_version": 1,
+  "contract_version": 2,
   "vehicle_number": "...", "owner_name": "...", "source": "encar|auction",
   "final_price": 0, "salesman_email": "...", "car_erp_salesman_id": null,
-  "c_no": null, "payee_name": null, "payee_bank": null, "payee_account": null
+  "c_no": null, "payee_name": null, "payee_bank": null, "payee_account": null,
+  "attachments": [{ "s3_path": "...", "original_name": "...", "kind": "sales_photo|sales_document", "sort": 1 }]
 }
 ```
 - `owner_name`(소유자/차주명) = car-erp NICE 조회 입력값. board 입력 UX = payee 와 동일(매입예정 영업 선택입력 → 경매/구매 드로어 보정). nullable 이지만 없으면 car-erp NICE 불가 → car-erp 는 owner_name 없으면 vehicle_number 로만 생성 후 VIN 수동.
 - **vin 은 payload 에 없음**(board 가 모름). car-erp 가 NICE 로 채워 `nice_reg_vin` 에 저장.
 - `salesman_email` = board 영업의 **`users.car_erp_salesman_email`(오버라이드) ?: 로그인 email**. car-erp 가 이 이메일로 salesmen 매칭. (`/users` 에서 숫자 id 대신 car-erp 이메일만 입력 — id 는 DB 봐야 알아서 폐기. `car_erp_salesman_id` 는 잔존하나 보통 null.)
 - **응답(계약)**: `2xx` + `{"vehicle_id": <int>}`. board 는 이 id 를 `car_erp_vehicle_id` 에 저장 후 `won→synced` 전이. 비-2xx 또는 vehicle_id 없으면 Job 예외 → 큐 재시도(`$tries=5`, backoff 60/300/900/1800s).
+- **`attachments[]` (v2, 차량 첨부 — 영업이 board 에 올린 사진+서류)**: `s3_path`(공유 버킷 `heysellcar-erp-docs` 키, **바이트 아님**) · `original_name` · `kind`(sales_photo 외관 / sales_document 차량등록증 등) · `sort`. **검차 사진(kind=inspection)은 제외** — 그건 바이어 전송(§28) 전용. 빈 배열 가능. **1회 발사**(won→synced, `car_erp_vehicle_id` null 가드). synced 후 추가/누락 보완은 **car-erp [관리] 몫**(board 재전송 경로 없음 — 영업은 won 전 자료확보가 일반적). 수신측(car-erp): 차량 첨부탭(최대 10건 cap·`s3_path` 중복스킵)에 행 생성, S3 접근방식(키 직접참조 vs 자기 prefix 복사)은 car-erp 결정. 권위 인계 = `meetings/handoff-car-erp-vehicle-attachments.md`. **car-erp 무수정 예외 확장 → car-erp 먼저 배포.**
 - **버전·전방호환**: `contract_version` 명시. **양쪽 모두 "모르는 필드는 무시"** → 필드 추가해도 안 깨짐.
 - **로그**: 모든 시도(성공/실패) = `integration_events`(outbound/car_erp/purchase_sync) append-only. **`payee_account` 는 로그에 `***` 마스킹**(전송 본문엔 실값). board_audit_logs 와 별개.
 - **안전밸브**: `services.car_erp.base_url`/`hmac_secret` 미설정 시 Job no-op → car-erp 수신측 배포 전 board 를 master 배포해도 안 터짐(아무것도 안 보냄).
-- **보안경계**: RRN/전화/서류 미포함. `payee_account` 는 board 암호화 보관(§6e), 전송은 HMAC+HTTPS 한정 → car-erp 매입탭 정산계좌로 수신.
+- **보안경계**: RRN/전화 미포함. ⚠️ **서류(차량등록증)는 v2 부터 `attachments` 로 포함** — board "서류 미보유" 원칙의 **범위한정 예외**(2026-06-22 Jin: 차량등록증은 주소·RRN **마스킹본**이고 car-erp 가 NICE 로 권위데이터 재등록 → board 보유분은 참고사본, 실행파일만 차단). `payee_account` 는 board 암호화 보관(§6e), 전송은 HMAC+HTTPS 한정 → car-erp 매입탭 정산계좌로 수신.
 - **멱등**: board `car_erp_vehicle_id` null 가드 + car-erp `vehicle_number` 사전조회(중복=스킵, NICE 재조회 방지). 응답 `{vehicle_id}` → board `purchase_listings.car_erp_vehicle_id` 채움.
 - ⚠️ **계약 변경 시 배포 순서**: 필드 추가/변경은 **수신측(car-erp) 먼저 배포**(받을 준비) → 그 다음 board 가 보내기 시작. (car-erp 배포 `artisan down` 1~3분은 board 큐+재시도가 자동 흡수.)
 - **수신 스펙(권위) = car-erp docs**: `PurchaseSyncController` — 영업 매칭(이메일→salesman→`manager_user_id`로 담당 관리 자동 솔팅), `vehicle_number` 멱등, **NICE(vehicle_number+owner_name) → VIN**, payee→정산계좌.

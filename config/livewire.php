@@ -130,7 +130,8 @@ return [
 
     'temporary_file_upload' => [
         'disk' => env('LIVEWIRE_TEMPORARY_FILE_UPLOAD_DISK'), // Example: 'local', 's3'             | Default: 'default'
-        'rules' => ['file', 'mimes:jpg,jpeg,png,webp,gif,mp4,mov,avi,wmv,m4v', 'max:204800'], // 검차 사진+영상 200MB (서버 php.ini upload_max_filesize 동반 상향 필요)
+        // 검차 사진+영상(200MB) + 영업 차량첨부(사진·서류). 실행파일은 allowlist 미포함 + UploadGuard 로 이중차단.
+        'rules' => ['file', 'mimes:jpg,jpeg,png,webp,gif,heic,heif,mp4,mov,avi,wmv,m4v,pdf,doc,docx,xls,xlsx,ppt,pptx,hwp,hwpx,txt,csv,zip', 'max:204800'],
         'directory' => null,                                  // Example: 'tmp'                     | Default: 'livewire-tmp'
         'middleware' => null,                                 // Example: 'throttle:5,1'            | Default: 'throttle:60,1'
         'preview_mimes' => [                                  // Supported file types for temporary pre-signed file URLs...

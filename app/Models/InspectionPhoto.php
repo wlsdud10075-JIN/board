@@ -8,8 +8,19 @@ use Illuminate\Support\Facades\Storage;
 
 class InspectionPhoto extends Model
 {
+    // 첨부 종류 (kind). inspection=검차사진(기존), sales_*=영업 차량첨부(→연동 B car-erp).
+    public const KIND_INSPECTION = 'inspection';
+
+    public const KIND_SALES_PHOTO = 'sales_photo';
+
+    public const KIND_SALES_DOCUMENT = 'sales_document';
+
+    /** 연동 B 로 car-erp 첨부탭에 전달하는 종류(영업 자료만 — 검차사진은 제외). */
+    public const SALES_KINDS = [self::KIND_SALES_PHOTO, self::KIND_SALES_DOCUMENT];
+
     protected $fillable = [
         'purchase_listing_id', 's3_path', 'original_name', 'sort', 'share_to_buyer',
+        'kind', 'uploaded_by_user_id',
     ];
 
     protected function casts(): array
@@ -20,6 +31,12 @@ class InspectionPhoto extends Model
     public function listing(): BelongsTo
     {
         return $this->belongsTo(PurchaseListing::class, 'purchase_listing_id');
+    }
+
+    /** 서류 첨부 여부 — 바이어 전송 제외(§28) + UI 분기. */
+    public function isDocument(): bool
+    {
+        return $this->kind === self::KIND_SALES_DOCUMENT;
     }
 
     /** 영상 파일 여부 (확장자 기준) — 렌더링 시 <video> vs <img> 분기. */

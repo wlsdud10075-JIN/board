@@ -52,9 +52,18 @@ class SyncWonListingToCarErp implements ShouldQueue
             return;
         }
 
+        // 영업이 board 에 올린 차량 첨부(외관 사진 + 서류) — 키만 전송(바이트 아님, 공유 S3).
+        // car-erp 가 받아 차량 첨부탭(최대 10건)에 행 생성. 1회 발사(synced 후 추가는 car-erp 몫).
+        $attachments = $l->salesAttachments->map(fn ($p) => [
+            's3_path' => $p->s3_path,
+            'original_name' => $p->original_name,
+            'kind' => $p->kind,
+            'sort' => $p->sort,
+        ])->values()->all();
+
         // board 는 VIN 을 모른다(NICE 조회=car-erp). 매칭키 = vehicle_number, NICE 입력 = owner_name.
         $payload = [
-            'contract_version' => 1,
+            'contract_version' => 2,   // v2: attachments[] 추가(전방호환 — car-erp 미구현이면 무시)
             'vehicle_number' => $l->vehicle_number,
             'owner_name' => $l->owner_name,
             'source' => $l->source,
@@ -66,6 +75,7 @@ class SyncWonListingToCarErp implements ShouldQueue
             'payee_name' => $l->payee_name,
             'payee_bank' => $l->payee_bank,
             'payee_account' => $l->payee_account,
+            'attachments' => $attachments,
         ];
 
         // 서명 대상 = 직렬화된 raw body (car-erp 가 동일 바이트로 검증)

@@ -7,6 +7,7 @@ use App\Jobs\SyncWonListingToCarErp;
 use App\Models\BoardAuditLog;
 use App\Models\ExchangeRate;
 use App\Models\InspectionAssignment;
+use App\Models\InspectionPhoto;
 use App\Models\IntegrationEvent;
 use App\Models\PromotionRequest;
 use App\Models\PurchaseListing;
@@ -18,11 +19,14 @@ use App\Services\RespondIoService;
 use App\Services\VerdictService;
 use App\Support\ListingLink;
 use App\Support\TimeGate;
+use App\Support\UploadGuard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Volt\Volt;
 use Tests\TestCase;
 
@@ -153,6 +157,168 @@ class BoardTest extends TestCase
         // 차량금액 = 13,000,000 − 0% + 440,000(매도비) = 13,440,000
         // 최종금액 = 13,440,000 + 1640 × 1380(임시환율) = 15,703,200 스냅샷
         $this->assertSame(13440000 + 1640 * (int) config('board.default_krw_per_usd'), $l->final_price);
+    }
+
+    // ─────────────────────── 차량 첨부 (영업 업로드 → 연동 B car-erp) ───────────────────────
+
+    public function test_sales_attachments_separate_from_inspection_photos(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'));
+        $l->photos()->create(['s3_path' => 'i/insp.jpg', 'original_name' => 'insp.jpg', 'sort' => 1, 'kind' => InspectionPhoto::KIND_INSPECTION]);
+        $l->salesAttachments()->create(['s3_path' => 's/photo.jpg', 'original_name' => 'photo.jpg', 'sort' => 1, 'kind' => InspectionPhoto::KIND_SALES_PHOTO]);
+        $l->salesAttachments()->create(['s3_path' => 's/reg.pdf', 'original_name' => 'reg.pdf', 'sort' => 2, 'kind' => InspectionPhoto::KIND_SALES_DOCUMENT]);
+
+        // photos() = 검차사진만, salesAttachments() = 영업 자료만 (서로 격리)
+        $this->assertSame(1, $l->photos()->count());
+        $this->assertSame('i/insp.jpg', $l->photos()->first()->s3_path);
+        $this->assertSame(2, $l->salesAttachments()->count());
+    }
+
+    public function test_listings_save_stores_sales_attachments(): void
+    {
+        Storage::fake('public');
+        config(['board.photo_disk' => 'public']);
+        $kim = $this->mkUser('sales');
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')
+            ->set('source', 'encar')
+            ->set('vehicle_number', '77가7777')
+            ->set('vin', 'ATTACHVIN01')
+            ->set('salesPhotos', [UploadedFile::fake()->image('front.jpg'), UploadedFile::fake()->image('side.jpg')])
+            ->set('salesDocs', [UploadedFile::fake()->create('차량등록증.pdf', 20, 'application/pdf')])
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $l = PurchaseListing::where('vin', 'ATTACHVIN01')->first();
+        $this->assertNotNull($l);
+        $this->assertSame(3, $l->salesAttachments()->count());
+        $this->assertSame(2, $l->salesAttachments()->where('kind', InspectionPhoto::KIND_SALES_PHOTO)->count());
+        $doc = $l->salesAttachments()->where('kind', InspectionPhoto::KIND_SALES_DOCUMENT)->first();
+        $this->assertNotNull($doc);
+        $this->assertFalse((bool) $doc->share_to_buyer);          // 서류는 바이어 미전송
+        $this->assertSame($kim->id, $doc->uploaded_by_user_id);
+        Storage::disk('public')->assertExists($doc->s3_path);
+    }
+
+    public function test_upload_guard_blocks_executables_allows_docs(): void
+    {
+        // 실행파일 차단 (대소문자 무관)
+        $this->assertTrue(UploadGuard::isExecutable('virus.exe'));
+        $this->assertTrue(UploadGuard::isExecutable('Setup.MSI'));
+        $this->assertTrue(UploadGuard::isExecutable('run.bat'));
+        // 사진·서류 허용
+        $this->assertFalse(UploadGuard::isExecutable('차량등록증.pdf'));
+        $this->assertFalse(UploadGuard::isExecutable('front.jpg'));
+        $this->assertFalse(UploadGuard::isExecutable('no-extension'));
+    }
+
+    public function test_attachment_cap_enforced(): void
+    {
+        Storage::fake('public');
+        config(['board.photo_disk' => 'public', 'board.attachment_max' => 10]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $eleven = [];
+        for ($i = 0; $i < 11; $i++) {
+            $eleven[] = UploadedFile::fake()->image("p{$i}.jpg");
+        }
+
+        Volt::test('listings.index')
+            ->set('source', 'encar')
+            ->set('vehicle_number', '55가5555')
+            ->set('vin', 'CAPVIN0001')
+            ->set('salesPhotos', $eleven)
+            ->call('save')
+            ->assertHasErrors('salesPhotos');
+
+        $this->assertNull(PurchaseListing::where('vin', 'CAPVIN0001')->first());
+    }
+
+    public function test_sync_payload_includes_sales_attachments(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh']);
+        Http::fake(['*/api/internal/purchase-sync' => Http::response(['vehicle_id' => 900], 200)]);
+
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'won', 'source' => 'auction', 'final_price' => 9000000]);
+        $l->photos()->create(['s3_path' => 'i/x.jpg', 'original_name' => 'x.jpg', 'sort' => 1, 'kind' => InspectionPhoto::KIND_INSPECTION]);
+        $l->salesAttachments()->create(['s3_path' => 's/a.jpg', 'original_name' => 'a.jpg', 'sort' => 1, 'kind' => InspectionPhoto::KIND_SALES_PHOTO]);
+        $l->salesAttachments()->create(['s3_path' => 's/r.pdf', 'original_name' => 'r.pdf', 'sort' => 2, 'kind' => InspectionPhoto::KIND_SALES_DOCUMENT]);
+
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        Http::assertSent(function ($request) {
+            $att = $request['attachments'] ?? [];
+
+            return $request['contract_version'] === 2
+                && count($att) === 2                                   // 검차사진(i/x.jpg)은 제외, 영업 자료만
+                && collect($att)->pluck('s3_path')->sort()->values()->all() === ['s/a.jpg', 's/r.pdf']
+                && collect($att)->firstWhere('kind', 'sales_document')['s3_path'] === 's/r.pdf';
+        });
+    }
+
+    public function test_edit_drawer_appends_attachments_and_cap_counts_existing(): void
+    {
+        Storage::fake('public');
+        config(['board.photo_disk' => 'public', 'board.attachment_max' => 10]);
+        $kim = $this->mkUser('sales');
+        $this->actingAs($kim);
+        $l = $this->mkListing($kim);
+        for ($i = 1; $i <= 9; $i++) {
+            $l->salesAttachments()->create(['s3_path' => "s/e{$i}.jpg", 'original_name' => "e{$i}.jpg", 'sort' => $i, 'kind' => InspectionPhoto::KIND_SALES_PHOTO]);
+        }
+
+        // 9 + 1 = 10 → OK (편집 드로어 업로드 경로)
+        Volt::test('listings.index')
+            ->call('openEdit', $l->id)
+            ->set('eSalesDocs', [UploadedFile::fake()->create('reg.pdf', 10, 'application/pdf')])
+            ->call('update')
+            ->assertHasNoErrors();
+        $this->assertSame(10, $l->fresh()->salesAttachments()->count());
+
+        // 10 + 1 = 11 → cap 초과(기존건수 반영) → 에러, 저장 안 됨
+        Volt::test('listings.index')
+            ->call('openEdit', $l->id)
+            ->set('eSalesPhotos', [UploadedFile::fake()->image('over.jpg')])
+            ->call('update')
+            ->assertHasErrors('eSalesPhotos');
+        $this->assertSame(10, $l->fresh()->salesAttachments()->count());
+    }
+
+    public function test_delete_sales_attachment_removes_file_and_blocks_other_user(): void
+    {
+        Storage::fake('public');
+        config(['board.photo_disk' => 'public']);
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim);
+        Storage::disk('public')->put('s/del.jpg', 'x');
+        $att = $l->salesAttachments()->create(['s3_path' => 's/del.jpg', 'original_name' => 'del.jpg', 'sort' => 1, 'kind' => InspectionPhoto::KIND_SALES_PHOTO]);
+
+        // 다른 영업은 삭제 불가 (SalesmanScope: 본인 글 아님 → findOrFail throws)
+        $this->actingAs($this->mkUser('sales'));
+        $this->assertItThrows(fn () => Volt::test('listings.index')->set('editingId', $l->id)->call('deleteSalesAttachment', $att->id));
+        $this->assertDatabaseHas('inspection_photos', ['id' => $att->id]);
+        Storage::disk('public')->assertExists('s/del.jpg');
+
+        // 본인은 삭제 가능 + S3 파일까지 삭제
+        $this->actingAs($kim);
+        Volt::test('listings.index')->call('openEdit', $l->id)->call('deleteSalesAttachment', $att->id);
+        $this->assertDatabaseMissing('inspection_photos', ['id' => $att->id]);
+        Storage::disk('public')->assertMissing('s/del.jpg');
+    }
+
+    public function test_edit_drawer_renders_attachment_section(): void
+    {
+        config(['board.photo_disk' => 'public']);
+        $kim = $this->mkUser('sales');
+        $this->actingAs($kim);
+        $l = $this->mkListing($kim);
+        $l->salesAttachments()->create(['s3_path' => 's/reg.pdf', 'original_name' => 'reg.pdf', 'sort' => 1, 'kind' => InspectionPhoto::KIND_SALES_DOCUMENT]);
+
+        Volt::test('listings.index')
+            ->call('openEdit', $l->id)
+            ->assertSee('차량 첨부')
+            ->assertSee('reg.pdf');   // 서류 분기(isDocument) 렌더
     }
 
     public function test_state_machine_blocks_invalid_transition_but_manager_overrides(): void

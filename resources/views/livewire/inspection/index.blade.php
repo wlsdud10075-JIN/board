@@ -293,6 +293,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 's3_path' => $path,
                 'original_name' => $file->getClientOriginalName(),
                 'sort' => $start + $i + 1,
+                'kind' => \App\Models\InspectionPhoto::KIND_INSPECTION,
             ]);
         }
         $this->photos = [];

@@ -223,9 +223,20 @@ class PurchaseListing extends Model
         return $this->belongsTo(User::class, 'created_by_user_id');
     }
 
+    /** 검차 사진/영상 (현지확인). 영업 첨부(sales_*)는 제외 — 기존 inspection/auction/바이어전송 동작 보존. */
     public function photos(): HasMany
     {
-        return $this->hasMany(InspectionPhoto::class)->orderBy('sort');
+        return $this->hasMany(InspectionPhoto::class)
+            ->where('kind', InspectionPhoto::KIND_INSPECTION)
+            ->orderBy('sort');
+    }
+
+    /** 영업 차량 첨부(외관 사진 + 서류) — 연동 B 로 car-erp 첨부탭에 전달. */
+    public function salesAttachments(): HasMany
+    {
+        return $this->hasMany(InspectionPhoto::class)
+            ->whereIn('kind', InspectionPhoto::SALES_KINDS)
+            ->orderBy('sort');
     }
 
     // ─────────────────────── 헬퍼 ───────────────────────
