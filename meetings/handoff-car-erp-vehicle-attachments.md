@@ -39,6 +39,7 @@
 
 - **`attachments`** = 영업이 board 에 올린 **별도 세트만**(검차 사진은 포함 안 함 — 그건 바이어 전송 파이프 §28 전용). `kind ∈ {sales_photo, sales_document}`.
 - **`s3_path`** = 공유 버킷 `heysellcar-erp-docs` 내 키. **바이트 전송 없음** → payload 가볍다.
+- ⚠️ **파일타입 = 실행파일 빼고 무엇이든**(2026-06-22 Jin: 사진·PDF·엑셀·한글·zip 등). board 는 업로드를 **첨부파일 1칸**으로 통합하고 mime 으로 `kind` 자동분류(`image/*`→sales_photo / 그 외→sales_document)한다. → **car-erp 첨부탭이 이미지/PDF 외 타입(xlsx 등)도 저장·다운로드 가능해야 함**(미리보기는 못 해도 최소 다운로드). `kind` 계약값(sales_photo/sales_document) 자체는 불변 → **수신 로직 변경 불필요, 첨부탭의 파일타입 허용범위만 확인.**
 - **1회 발사**: `won→synced` 전이 시 한 번(`car_erp_vehicle_id` null 가드로 멱등). **Jin 확인: 영업은 대부분 won 전에 자료 확보** → 재전송 경로 불필요. synced 후 추가/누락 보완은 **car-erp [관리] 몫**(= Jin 이 말한 "관리가 빠진거 추가").
 - 전방호환: car-erp 가 아직 `attachments` 미구현이면 **그냥 무시**(기존처럼 차량만 생성). 깨지지 않음.
 - HMAC 서명 방식·엔드포인트·응답(`{vehicle_id}`) 전부 기존 §12 그대로(서명 대상 = raw body, 재직렬화 금지).

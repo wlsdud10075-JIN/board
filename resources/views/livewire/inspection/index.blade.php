@@ -288,6 +288,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         $start = (int) $l->photos()->max('sort');
 
         foreach (array_values($this->photos) as $i => $file) {
+            if (\App\Support\UploadGuard::isExecutable($file->getClientOriginalName())) {
+                continue;   // 실행파일 차단(검차는 사진/영상만)
+            }
             $path = $file->store($prefix, $disk);
             $l->photos()->create([
                 's3_path' => $path,

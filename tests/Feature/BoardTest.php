@@ -181,24 +181,45 @@ class BoardTest extends TestCase
         $kim = $this->mkUser('sales');
         $this->actingAs($kim);
 
+        // 첨부파일 1칸 — 이미지=사진/그 외=서류 자동분류
         Volt::test('listings.index')
             ->set('source', 'encar')
             ->set('vehicle_number', '77가7777')
             ->set('vin', 'ATTACHVIN01')
-            ->set('salesPhotos', [UploadedFile::fake()->image('front.jpg'), UploadedFile::fake()->image('side.jpg')])
-            ->set('salesDocs', [UploadedFile::fake()->create('차량등록증.pdf', 20, 'application/pdf')])
+            ->set('salesFiles', [
+                UploadedFile::fake()->image('front.jpg'),
+                UploadedFile::fake()->image('side.jpg'),
+                UploadedFile::fake()->create('차량등록증.pdf', 20, 'application/pdf'),
+            ])
             ->call('save')
             ->assertHasNoErrors();
 
         $l = PurchaseListing::where('vin', 'ATTACHVIN01')->first();
         $this->assertNotNull($l);
         $this->assertSame(3, $l->salesAttachments()->count());
-        $this->assertSame(2, $l->salesAttachments()->where('kind', InspectionPhoto::KIND_SALES_PHOTO)->count());
-        $doc = $l->salesAttachments()->where('kind', InspectionPhoto::KIND_SALES_DOCUMENT)->first();
+        $this->assertSame(2, $l->salesAttachments()->where('kind', InspectionPhoto::KIND_SALES_PHOTO)->count());   // 이미지 2 → 사진
+        $doc = $l->salesAttachments()->where('kind', InspectionPhoto::KIND_SALES_DOCUMENT)->first();              // pdf → 서류
         $this->assertNotNull($doc);
         $this->assertFalse((bool) $doc->share_to_buyer);          // 서류는 바이어 미전송
         $this->assertSame($kim->id, $doc->uploaded_by_user_id);
         Storage::disk('public')->assertExists($doc->s3_path);
+    }
+
+    public function test_executable_upload_blocked_in_listings(): void
+    {
+        Storage::fake('public');
+        config(['board.photo_disk' => 'public']);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('source', 'encar')
+            ->set('vehicle_number', '44가4444')
+            ->set('vin', 'EXEVIN0001')
+            ->set('salesFiles', [UploadedFile::fake()->create('virus.exe', 10)])
+            ->call('save')
+            ->assertHasErrors('salesFiles');   // 실행파일 차단 → listing 생성 안 됨
+
+        $this->assertNull(PurchaseListing::where('vin', 'EXEVIN0001')->first());
     }
 
     public function test_upload_guard_blocks_executables_allows_docs(): void
@@ -228,9 +249,9 @@ class BoardTest extends TestCase
             ->set('source', 'encar')
             ->set('vehicle_number', '55가5555')
             ->set('vin', 'CAPVIN0001')
-            ->set('salesPhotos', $eleven)
+            ->set('salesFiles', $eleven)
             ->call('save')
-            ->assertHasErrors('salesPhotos');
+            ->assertHasErrors('salesFiles');
 
         $this->assertNull(PurchaseListing::where('vin', 'CAPVIN0001')->first());
     }
@@ -271,7 +292,7 @@ class BoardTest extends TestCase
         // 9 + 1 = 10 → OK (편집 드로어 업로드 경로)
         Volt::test('listings.index')
             ->call('openEdit', $l->id)
-            ->set('eSalesDocs', [UploadedFile::fake()->create('reg.pdf', 10, 'application/pdf')])
+            ->set('eSalesFiles', [UploadedFile::fake()->create('reg.pdf', 10, 'application/pdf')])
             ->call('update')
             ->assertHasNoErrors();
         $this->assertSame(10, $l->fresh()->salesAttachments()->count());
@@ -279,9 +300,9 @@ class BoardTest extends TestCase
         // 10 + 1 = 11 → cap 초과(기존건수 반영) → 에러, 저장 안 됨
         Volt::test('listings.index')
             ->call('openEdit', $l->id)
-            ->set('eSalesPhotos', [UploadedFile::fake()->image('over.jpg')])
+            ->set('eSalesFiles', [UploadedFile::fake()->image('over.jpg')])
             ->call('update')
-            ->assertHasErrors('eSalesPhotos');
+            ->assertHasErrors('eSalesFiles');
         $this->assertSame(10, $l->fresh()->salesAttachments()->count());
     }
 
