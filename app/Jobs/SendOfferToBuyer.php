@@ -19,7 +19,7 @@ use Illuminate\Queue\SerializesModels;
  * 트리거: 현지확인 "바이어 전달" 시 dispatch(afterCommit).
  * 가드: respond_contact_id 있어야 + respond.io 설정돼야(안전밸브 미설정 no-op).
  * 개인정보(§28): share_to_buyer=true 사진만 전송(외관만, 서류/번호판 제외).
- * 금액: 바이어는 KRW 안 봄 — final_price(KRW)를 USD 로 환산해 전송.
+ * 금액: 현지확인에서 확정한 offer_currency(USD/EUR/KRW)로 환산해 전송(미설정 시 USD 폴백).
  */
 class SendOfferToBuyer implements ShouldQueue
 {
@@ -40,12 +40,14 @@ class SendOfferToBuyer implements ShouldQueue
             return;   // 컨택트 미연결이면 전송 불가
         }
 
-        // 최종금액 → USD 환산 (바이어용, KRW 미노출)
-        $rate = $rates->krwPerUsd() ?: (int) config('board.default_krw_per_usd');
-        $usd = $l->final_price ? (int) round($l->final_price / max(1, $rate)) : null;
+        // 최종금액 → 확정 통화(offer_currency)로 환산 (바이어용)
+        $offer = $l->offerAmount($rates->krwPerUsd(), $rates->krwPerEur());
 
-        $text = $usd
-            ? '[SSANCAR] 견적 안내 — 최종 금액 USD '.number_format($usd).' (차량+배송). 차량 사진/영상 확인 부탁드립니다.'
+        $sym = match ($offer['currency'] ?? null) {
+            'EUR' => 'EUR ', 'KRW' => 'KRW ', 'USD' => 'USD ', default => '',
+        };
+        $text = $offer
+            ? '[SSANCAR] 견적 안내 — 최종 금액 '.$sym.number_format($offer['amount']).' (차량+배송). 차량 사진/영상 확인 부탁드립니다.'
             : '[SSANCAR] 차량 사진/영상 보내드립니다.';
 
         $okText = $respond->sendText($l->respond_contact_id, $text);
@@ -64,7 +66,7 @@ class SendOfferToBuyer implements ShouldQueue
             'target' => 'respond_io',
             'event_type' => 'send_offer',
             'purchase_listing_id' => $l->id,
-            'request_payload' => ['contact_id' => $l->respond_contact_id, 'usd' => $usd, 'photos' => $sentPhotos],
+            'request_payload' => ['contact_id' => $l->respond_contact_id, 'offer' => $offer, 'photos' => $sentPhotos],
             'response_status' => $okText ? 200 : 500,
             'response_body' => $okText ? "text+{$sentPhotos}p" : 'text_failed',
             'error' => $okText ? null : 'sendText failed',

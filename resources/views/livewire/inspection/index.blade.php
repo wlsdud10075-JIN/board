@@ -247,6 +247,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->costCurrency = $l->expected_price_currency ?: 'KRW';
         $this->discount_rate = $l->discount_rate !== null ? (string) $l->discount_rate : null;
         $this->shipping_usd = $l->shipping_usd;
+        // 이전에 확정한 판매통화가 있으면 그대로 보여줌(없으면 KRW). 처음 정한 통화가 이어짐.
+        $this->displayCurrency = $l->offer_currency ?: 'KRW';
         $this->photos = [];
         // 스테이징 선택 초기화 (전달은 draft 에서만 / 회신은 바이어 회신 화면)
         $this->sendSelected = false;
@@ -278,6 +280,13 @@ new #[Layout('components.layouts.app')] class extends Component {
         } elseif ($this->final_price !== null && $this->final_price !== '') {
             $l->final_price = (int) $this->final_price;
         }
+        // 판매 통화 확정 — 현지확인에서 고른 표시통화를 굳힘(바이어 견적·연동B 판매가 통화).
+        $l->offer_currency = $this->displayCurrency;
+        $l->offer_rate = match ($this->displayCurrency) {
+            'USD' => $this->usdRate(),
+            'EUR' => $this->eurRate(),
+            default => 1,
+        };
     }
 
     private function persistPhotos(PurchaseListing $l): void

@@ -18,6 +18,44 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $payee_bank = '';
     public string $payee_account = '';
 
+    // v3 — car-erp 바이어/컨사이니 (드롭다운 선택 → 연동B buyer_id/consignee_id). 본인 스코프.
+    public ?int $buyerId = null;
+    public ?int $consigneeId = null;
+    public array $buyerOpts = [];
+    public array $consigneeOpts = [];
+
+    private function salesmanEmail(): string
+    {
+        $u = auth()->user();
+
+        return $u?->car_erp_salesman_email ?: ($u?->email ?? '');
+    }
+
+    private function loadBuyers(): void
+    {
+        $r = app(\App\Services\CarErpReadService::class)->buyers($this->salesmanEmail());
+        $this->buyerOpts = $r['ok'] ? (array) ($r['data']['data'] ?? []) : [];
+    }
+
+    private function loadConsignees(): void
+    {
+        if (! $this->buyerId) {
+            $this->consigneeOpts = [];
+
+            return;
+        }
+        $r = app(\App\Services\CarErpReadService::class)->consignees($this->salesmanEmail(), $this->buyerId);
+        $this->consigneeOpts = $r['ok'] ? (array) ($r['data']['data'] ?? []) : [];
+    }
+
+    /** 바이어 변경 시 컨사이니 목록 갱신 + 선택 초기화. */
+    public function updatedBuyerId(): void
+    {
+        $this->buyerId = $this->buyerId ?: null;
+        $this->consigneeId = null;
+        $this->loadConsignees();
+    }
+
     private function payeeRules(): array
     {
         return [
@@ -51,12 +89,17 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->payee_name = $l->payee_name ?? '';
         $this->payee_bank = $l->payee_bank ?? '';
         $this->payee_account = $l->payee_account ?? '';
+        $this->buyerId = $l->car_erp_buyer_id;
+        $this->consigneeId = $l->car_erp_consignee_id;
+        $this->loadBuyers();
+        $this->loadConsignees();
         $this->resetErrorBag();
     }
 
     public function closeDetail(): void
     {
-        $this->reset(['detailId', 'owner_name', 'payee_name', 'payee_bank', 'payee_account']);
+        $this->reset(['detailId', 'owner_name', 'payee_name', 'payee_bank', 'payee_account',
+            'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts']);
         unset($this->detail);
     }
 
@@ -66,6 +109,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->payee_name = $this->payee_name ?: null;
         $l->payee_bank = $this->payee_bank ?: null;
         $l->payee_account = $this->payee_account ?: null;
+        $l->car_erp_buyer_id = $this->buyerId ?: null;
+        $l->car_erp_consignee_id = $this->consigneeId ?: null;
     }
 
     /** 입금정보만 저장(이미 won 인 차량 보정용). */
@@ -114,7 +159,8 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $l->status = $result;
         $l->save();
-        $this->reset(['detailId', 'owner_name', 'payee_name', 'payee_bank', 'payee_account']);
+        $this->reset(['detailId', 'owner_name', 'payee_name', 'payee_bank', 'payee_account',
+            'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts']);
         unset($this->listings, $this->detail);
         session()->flash('ok', __('auction.flash_processed', ['no' => $l->vehicle_number, 'label' => $l->statusLabel()]));
     }
@@ -249,6 +295,29 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <div class="section-title-sm">{{ __('auction.owner') }} <span class="text-[11px] font-normal text-gray-400">{{ __('auction.owner_hint') }}</span></div>
                     <input wire:model.blur="owner_name" class="input-base" placeholder="{{ __('auction.owner_placeholder') }}" maxlength="60">
                     @error('owner_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                @endif
+
+                {{-- 바이어/컨사이니 (car-erp 목록 드롭다운) — accepted·won, 본인 스코프. 미구성/무목록=수동 --}}
+                @if (in_array($d->status, ['accepted', 'won'], true))
+                    <div class="section-title-sm">{{ __('auction.buyer') }} <span class="text-[11px] font-normal text-gray-400">{{ __('auction.buyer_hint') }}</span></div>
+                    @if (empty($buyerOpts))
+                        <p class="text-xs text-gray-400">{{ __('auction.buyer_unavailable') }}</p>
+                    @else
+                        <select wire:model.live="buyerId" class="input-base">
+                            <option value="">{{ __('auction.buyer_select') }}</option>
+                            @foreach ($buyerOpts as $b)
+                                <option value="{{ $b['id'] }}">{{ $b['name'] }}{{ !empty($b['country']) ? ' ('.$b['country'].')' : '' }}</option>
+                            @endforeach
+                        </select>
+                        @if ($buyerId)
+                            <select wire:model="consigneeId" class="input-base mt-2">
+                                <option value="">{{ __('auction.consignee_select') }}</option>
+                                @foreach ($consigneeOpts as $c)
+                                    <option value="{{ $c['id'] }}">{{ $c['name'] }}</option>
+                                @endforeach
+                            </select>
+                        @endif
+                    @endif
                 @endif
 
                 {{-- 입금정보 (정산 = 판매자/경매장 계좌) — accepted·won 에서 입력/수정 --}}

@@ -78,6 +78,18 @@ class CarErpReadService
         return $this->get('/by-buyer', ['salesman_email' => $email]);
     }
 
+    /** v3 — 바이어 드롭다운(경매/구매). 본인 스코프(car-erp 결정: IDOR 격리). {count,data:[{id,name,country}]}. */
+    public function buyers(string $email): array
+    {
+        return $this->get('/buyers', ['salesman_email' => $email]);
+    }
+
+    /** v3 — 선택 바이어 하위 컨사이니 드롭다운. {count,data:[{id,name}]}. */
+    public function consignees(string $email, int $buyerId): array
+    {
+        return $this->get('/consignees', ['salesman_email' => $email, 'buyer_id' => $buyerId]);
+    }
+
     /** ③ 선적요청 — salesman_email 은 쿼리(=스코프 미들웨어)+바디(§5) 양쪽. */
     public function shippingRequest(string $email, array $payload): array
     {

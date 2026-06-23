@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\IntegrationEvent;
 use App\Models\PurchaseListing;
 use App\Models\Scopes\SalesmanScope;
+use App\Services\ExchangeRateService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -61,13 +62,40 @@ class SyncWonListingToCarErp implements ShouldQueue
             'sort' => $p->sort,
         ])->values()->all();
 
+        // ── v3 금액 분해 (매입=KRW 원장 / 판매=확정통화). 환율은 sync 시점 스냅샷(관리가 ERP서 미세조정). ──
+        $snap = app(ExchangeRateService::class)->snapshot();
+        $usdR = (int) ($snap['USD'] ?? 0) ?: (int) config('board.default_krw_per_usd');
+        $eurR = (int) ($snap['EUR'] ?? 0) ?: (int) config('board.default_krw_per_eur');
+
+        $carCostKrw = $l->carCostKrw($usdR, $eurR);
+        // 매입가(구입금액) = 차값(KRW환산) − 할인. 매도비·배송 제외(car-erp purchase_price 교정).
+        $purchasePriceKrw = $carCostKrw !== null
+            ? $carCostKrw - (int) round($carCostKrw * ((float) $l->discount_rate / 100))
+            : null;
+        $sellingFeeKrw = $carCostKrw !== null ? (int) config('board.sales_fee') : null;   // 매도비
+        $carPriceKrw = $l->carPriceKrw($usdR, $eurR);   // 차량금액 = 구입금액 + 매도비
+
+        $offer = $l->offerAmount($usdR, $eurR);         // 판매 통화/환율(현지확인 확정)
+        $saleCurrency = $offer['currency'] ?? null;
+        $saleRate = $offer['rate'] ?? null;
+        // 판매가(차량 판매분) = 차량금액 → 판매통화. car-erp sale_price = 판매통화 기준.
+        $salePrice = ($carPriceKrw !== null && $saleRate)
+            ? ($saleCurrency === 'KRW' ? $carPriceKrw : round($carPriceKrw / max(1, $saleRate), 2))
+            : null;
+        // 운임비 = shipping_usd(USD원가)를 판매통화로 환산 — car-erp 가 판매가와 직접 합산(같은 통화 가정).
+        $transportFee = null;
+        if ($l->shipping_usd !== null && $saleRate) {
+            $transportKrw = $l->shipping_usd * $usdR;
+            $transportFee = $saleCurrency === 'KRW' ? $transportKrw : round($transportKrw / max(1, $saleRate), 2);
+        }
+
         // board 는 VIN 을 모른다(NICE 조회=car-erp). 매칭키 = vehicle_number, NICE 입력 = owner_name.
         $payload = [
-            'contract_version' => 2,   // v2: attachments[] 추가(전방호환 — car-erp 미구현이면 무시)
+            'contract_version' => 3,   // v3: 금액분해(매입가=구입금액)+판매pre-fill+바이어/컨사이니. 전방호환(v1/v2 수용)
             'vehicle_number' => $l->vehicle_number,
             'owner_name' => $l->owner_name,
             'source' => $l->source,
-            'final_price' => $l->final_price,
+            'final_price' => $l->final_price,   // v2 호환 유지(car-erp: purchase_price_krw ?? final_price)
             // car-erp 영업 매칭 이메일 — 오버라이드(car_erp_salesman_email) 있으면 그걸, 없으면 로그인 이메일.
             'salesman_email' => $l->creator?->car_erp_salesman_email ?: $l->creator?->email,
             'car_erp_salesman_id' => $l->creator?->car_erp_salesman_id,
@@ -76,6 +104,17 @@ class SyncWonListingToCarErp implements ShouldQueue
             'payee_bank' => $l->payee_bank,
             'payee_account' => $l->payee_account,
             'attachments' => $attachments,
+            // v3 매입측(KRW)
+            'purchase_price_krw' => $purchasePriceKrw,
+            'selling_fee_krw' => $sellingFeeKrw,
+            // v3 판매측(판매통화 pre-fill — 관리 편집)
+            'transport_fee' => $transportFee,
+            'sale_price' => $salePrice,
+            'sale_currency' => $saleCurrency,
+            'sale_exchange_rate' => $saleRate,
+            // v3 바이어/컨사이니(경매/구매 드롭다운 선택, 미선택=null)
+            'buyer_id' => $l->car_erp_buyer_id,
+            'consignee_id' => $l->car_erp_consignee_id,
         ];
 
         // 서명 대상 = 직렬화된 raw body (car-erp 가 동일 바이트로 검증)
