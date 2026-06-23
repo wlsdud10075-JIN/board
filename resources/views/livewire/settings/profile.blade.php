@@ -113,6 +113,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             </div>
         </form>
 
-        <livewire:settings.delete-user-form />
+        {{-- 계정 자가삭제 숨김 — board는 super가 /users 에서 is_active 로 계정 관리(자가 하드삭제는 매물·감사 연결 끊김).
+             컴포넌트(delete-user-form)는 남겨둠 → 필요 시 이 줄만 되살리면 복구. --}}
+        {{-- <livewire:settings.delete-user-form /> --}}
     </x-settings.layout>
 </section>

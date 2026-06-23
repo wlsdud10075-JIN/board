@@ -1977,7 +1977,8 @@ class BoardTest extends TestCase
     public function test_personal_settings_pages_load(): void
     {
         $u = $this->mkUser('manager');
-        $this->actingAs($u)->get('/settings/profile')->assertOk()->assertSee('프로필', false);
+        // 프로필 로드 + 계정 자가삭제 버튼은 숨김(board는 super가 계정 관리)
+        $this->actingAs($u)->get('/settings/profile')->assertOk()->assertSee('프로필', false)->assertDontSee('계정 삭제', false);
         $this->actingAs($u)->get('/settings/password')->assertOk()->assertSee('비밀번호', false);
         $this->actingAs($u)->get('/settings/appearance')->assertOk()->assertSee('화면 설정', false);
     }
