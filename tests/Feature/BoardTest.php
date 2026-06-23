@@ -1326,6 +1326,40 @@ class BoardTest extends TestCase
         Bus::assertDispatched(SendOfferToBuyer::class, fn ($j) => $j->listingId === $l->id);
     }
 
+    public function test_inspection_finalizes_offer_currency(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft', 'car_cost' => 9000000]);
+        $this->actingAs($this->mkUser('inspection'));
+
+        Volt::test('inspection.index')
+            ->call('openDrawer', $l->id)
+            ->set('car_cost', '9000000')
+            ->set('displayCurrency', 'EUR')
+            ->call('save')->assertHasNoErrors();
+
+        $l->refresh();
+        $this->assertSame('EUR', $l->offer_currency);
+        $this->assertGreaterThan(0, $l->offer_rate);   // 확정 시점 EUR 환율 스냅샷
+    }
+
+    public function test_send_offer_uses_chosen_currency(): void
+    {
+        $this->respondConfig();
+        config(['board.photo_disk' => 'public']);
+        Http::fake(['*/message' => Http::response(['messageId' => 1], 200)]);
+
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_contact_id' => 'ct_eur',
+            'final_price' => 13800000, 'offer_currency' => 'EUR', 'offer_rate' => 1500,
+        ]);
+
+        (new SendOfferToBuyer($l->id))->handle(app(RespondIoService::class), app(ExchangeRateService::class));
+
+        // 13,800,000 / 1500 = 9,200 EUR — 메시지에 EUR 금액
+        Http::assertSent(fn ($req) => str_contains($req->url(), '/message')
+            && str_contains((string) ($req['message']['text'] ?? ''), 'EUR 9,200'));
+    }
+
     // ─────────────────────── 연동 A — 승격 자동연결 (board_promote 폴링) ───────────────────────
 
     public function test_poll_captures_pending_promotion_and_resets(): void

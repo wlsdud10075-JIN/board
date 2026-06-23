@@ -23,7 +23,7 @@ class PurchaseListing extends Model
         'respond_conversation_id', 'respond_contact_id', 'encar_id',
         'vehicle_number', 'owner_name', 'vin',
         'expected_price', 'expected_price_currency', 'car_cost', 'discount_rate', 'shipping_usd',
-        'final_price', 'encar_url', 'encar_dealer',
+        'final_price', 'offer_currency', 'offer_rate', 'encar_url', 'encar_dealer',
         'auction_venue', 'lot_number', 'status', 'buyer_verdict', 'verdict_channel',
         'buyer_name', 'payee_name', 'payee_bank', 'payee_account',
         'inspection_memo', 'inspection_note', 'lock_at', 'car_erp_vehicle_id',
@@ -37,6 +37,7 @@ class PurchaseListing extends Model
             'discount_rate' => 'decimal:2',
             'shipping_usd' => 'integer',
             'final_price' => 'integer',
+            'offer_rate' => 'integer',
             'payee_account' => 'encrypted',   // 계좌번호 at-rest 암호화 (§6e)
             'lock_at' => 'datetime',
             'car_erp_vehicle_id' => 'integer',
@@ -94,6 +95,28 @@ class PurchaseListing extends Model
         }
 
         return $car + (int) ($this->shippingKrw($krwPerUsd) ?? 0);
+    }
+
+    /**
+     * 바이어 견적·판매가 — final_price(KRW)를 offer_currency 로 환산.
+     * offer_rate(확정 시점 스냅샷) 우선, 없으면 인자 라이브 환율. KRW면 그대로.
+     * 반환: ['currency'=>str, 'amount'=>int, 'rate'=>int] | null.
+     */
+    public function offerAmount(?int $krwPerUsd = null, ?int $krwPerEur = null): ?array
+    {
+        if ($this->final_price === null) {
+            return null;
+        }
+        $cur = $this->offer_currency ?: 'USD';
+        if ($cur === 'KRW') {
+            return ['currency' => 'KRW', 'amount' => $this->final_price, 'rate' => 1];
+        }
+        $rate = $this->offer_rate ?: match ($cur) {
+            'EUR' => $krwPerEur ?? (int) config('board.default_krw_per_eur'),
+            default => $krwPerUsd ?? (int) config('board.default_krw_per_usd'),
+        };
+
+        return ['currency' => $cur, 'amount' => (int) round($this->final_price / max(1, $rate)), 'rate' => (int) $rate];
     }
 
     // ─────────────────────── 상태머신 ───────────────────────
