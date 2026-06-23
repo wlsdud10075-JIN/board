@@ -20,6 +20,12 @@
 - **판매탭 = board pre-fill, car-erp 관리 확정**: board 최종금액 ≈ 판매금원화. 단 ①판매통화(EUR/USD) 결정 ②KRW총액→통화 환산 후 판매금액(차량)/운임비 분해 ③딜별 ±5% = 관리 몫.
 - **정산탭 = car-erp 고유**(부가세9%·판매마진·총마진·정산비율·지급액). board 안 건드림.
 
+## 응답키 권위 = car-erp 문서 (역링크, 복사금지=drift)
+- purchase-sync v3 수신·매핑 권위 = car-erp `docs/integration/purchase-sync-receiver.md`.
+- buyers/consignees 목록 엔드포인트 응답키 권위 = car-erp `docs/integration/board-portal-api.md`. **board 는 표시만**.
+- ⚠️ **buyers 엔드포인트 = 영업 본인 스코프** (인계문서 "전체 허용 권장"과 다름 — Jin 결정: IDOR 격리). board 는 본인 salesman_email 바이어만 받음(타 영업 바이어=car-erp 수동). board `CarErpReadService::buyers($email)` 이 본인 이메일만 전달.
+- car-erp 구현·배포 완료(67a4ca5: 운임비 통화버그 수정 — transport_fee 판매통화 그대로 저장).
+
 ## car-erp 수신 그릇 (확인됨)
 vehicles: `purchase_price`(매입가KRW) · `selling_fee`(매도비KRW,별도) · `transport_fee`(운임비,USD decimal) · `sale_price`(판매가,currency기준) · `currency`(enum USD/EUR/…) · `exchange_rate` · `buyer_id`→`buyers`(id,name) · `consignee_id`→`consignees`(id,name,buyer_id 하위). 현재 purchase-sync는 `purchase_price`(=board final_price, ⚠️부풀음)+정산계좌+첨부만 채움. 나머지 미수신.
 
