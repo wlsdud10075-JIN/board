@@ -78,8 +78,11 @@ return [
     |
     */
 
-    'locale' => env('APP_LOCALE', 'en'),
+    'locale' => env('APP_LOCALE', 'ko'),
 
+    // fallback=en — board 는 lang/ko/validation.php 가 없어 ko 폴백 시 검증 메시지가 raw 키로 깨짐.
+    // en 폴백 = 미번역 키(validation·auth JSON)를 프레임워크 영어 문장으로. nav/settings 는 양쪽 다 번역돼 영향 없음.
+    // (한글 검증 메시지 = 추후 i18n 단계에서 lang:publish + lang/ko/validation.php 작성)
     'fallback_locale' => env('APP_FALLBACK_LOCALE', 'en'),
 
     'faker_locale' => env('APP_FAKER_LOCALE', 'en_US'),

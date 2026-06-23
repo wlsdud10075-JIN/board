@@ -200,14 +200,14 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         // 조회 전용 — super 가 타인 포털 열람 중엔 쓰기 차단(본인 계정에서만 요청). 서버 게이트.
         if ($this->isViewingOther()) {
-            $this->shipNote = '조회 전용입니다. 선적요청은 본인 계정에서 진행하세요.';
+            $this->shipNote = __('portal.flash_view_only_ship');
 
             return;
         }
         $this->shipDone = null;
         $ids = array_values(array_intersect(array_map('intval', $this->selectedIds), $vehicleIds));
         if ($ids === []) {
-            $this->shipNote = '차량을 선택하세요.';
+            $this->shipNote = __('portal.flash_select_vehicle');
 
             return;
         }
@@ -221,7 +221,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         ]);
 
         if (! ($res['ok'] ?? false)) {
-            $this->shipNote = '선적요청 전송 실패 — 잠시 후 다시 시도하세요.';
+            $this->shipNote = __('portal.flash_ship_failed');
 
             return;
         }
@@ -240,13 +240,13 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         // 조회 전용 — 타인 포털 열람 중엔 서류(타인 PII) 다운로드 차단. 서버 게이트.
         if ($this->isViewingOther()) {
-            $this->shipNote = '조회 전용입니다. 서류는 본인 계정에서 받으세요.';
+            $this->shipNote = __('portal.flash_view_only_docs');
 
             return null;
         }
         $ids = array_values(array_intersect(array_map('intval', $this->selectedIds), $vehicleIds));
         if ($ids === []) {
-            $this->shipNote = '서류 받을 차량을 선택하세요.';
+            $this->shipNote = __('portal.flash_select_vehicle_docs');
 
             return null;
         }
@@ -255,7 +255,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $res = $this->svc()->document($type, $ids, $this->salesmanEmail());
         if (! ($res['ok'] ?? false)) {
-            $this->shipNote = '서류를 불러올 수 없습니다. (car-erp 연동 확인)';
+            $this->shipNote = __('portal.flash_docs_failed');
 
             return null;
         }
@@ -280,22 +280,22 @@ new #[Layout('components.layouts.app')] class extends Component {
             $eok = intdiv($won, 100000000);
             $man = intdiv(abs($won) % 100000000, 10000);
 
-            return $man ? $eok.'억 '.number_format($man).'만원' : $eok.'억원';
+            return $man ? $eok.__('portal.abbr_eok').' '.number_format($man).__('portal.abbr_man') : $eok.__('portal.abbr_eok').__('portal.abbr_won');
         }
         if ($abs >= 10000) {
-            return number_format(intdiv($won, 10000)).'만원';
+            return number_format(intdiv($won, 10000)).__('portal.abbr_man');
         }
 
-        return number_format($won).'원';
+        return number_format($won).__('portal.abbr_won');
     }
 
     public function degradeMessage(): string
     {
         return match ($this->result['status'] ?? 0) {
-            403 => '내 영업 계정이 car-erp에 연결되지 않았습니다. (관리자에게 car-erp 영업 이메일 매핑을 요청하세요)',
+            403 => __('portal.degrade_403'),
             default => match ($this->result['reason'] ?? '') {
-                'not_configured' => 'car-erp 연동이 아직 설정되지 않았습니다. (관리자 문의)',
-                default => '지금은 car-erp 정보를 불러올 수 없습니다. 잠시 후 다시 시도하세요.',
+                'not_configured' => __('portal.degrade_not_configured'),
+                default => __('portal.degrade_default'),
             },
         };
     }
@@ -303,11 +303,11 @@ new #[Layout('components.layouts.app')] class extends Component {
 
 <div class="p-3 md:p-6">
     <div class="mb-4">
-        <h1 class="text-xl font-bold text-gray-800">내 정산·미수·선적 (포털)</h1>
+        <h1 class="text-xl font-bold text-gray-800">{{ __('portal.title') }}</h1>
         @if (auth()->user()->isSuper() && $viewUserId !== null)
-            <p class="mt-0.5 text-xs text-gray-500">👁️ <b class="text-[var(--color-primary-text)]">{{ $this->viewingName() }}</b> 님의 정보 조회 중 — car-erp 원장 읽기. 수정·선적실무는 car-erp.</p>
+            <p class="mt-0.5 text-xs text-gray-500">👁️ {!! __('portal.viewing_other', ['name' => '<b class="text-[var(--color-primary-text)]">'.e($this->viewingName()).'</b>']) !!}</p>
         @else
-            <p class="mt-0.5 text-xs text-gray-500">🔒 본인({{ auth()->user()->name }}) 정보만 — car-erp 원장 읽기. 수정·선적실무는 car-erp.</p>
+            <p class="mt-0.5 text-xs text-gray-500">🔒 {{ __('portal.viewing_self', ['name' => auth()->user()->name]) }}</p>
         @endif
     </div>
 
@@ -315,12 +315,12 @@ new #[Layout('components.layouts.app')] class extends Component {
     @if (auth()->user()->isSuper())
         <div class="card-sm mb-3" style="background:#f8f9fb">
             <div class="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                <span class="text-[12px] font-semibold text-gray-600">👁️ 사용자별 조회</span>
-                <span class="text-[11px] text-gray-400">이름을 누르면 그 사용자의 정산·미수·선적이 표시됩니다 (시스템관리자 전용)</span>
+                <span class="text-[12px] font-semibold text-gray-600">👁️ {{ __('portal.view_by_user') }}</span>
+                <span class="text-[11px] text-gray-400">{{ __('portal.view_by_user_hint') }}</span>
             </div>
             <div class="flex flex-wrap gap-1">
                 <button wire:click="viewUser(null)"
-                    class="rounded-md border px-2.5 py-1 text-[12px] font-semibold {{ $viewUserId === null ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">나(본인)</button>
+                    class="rounded-md border px-2.5 py-1 text-[12px] font-semibold {{ $viewUserId === null ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">{{ __('portal.view_self_btn') }}</button>
                 @foreach ($this->portalUsers as $pu)
                     <button wire:click="viewUser({{ $pu->id }})"
                         class="rounded-md border px-2.5 py-1 text-[12px] font-semibold {{ $viewUserId === $pu->id ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">
@@ -333,11 +333,11 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     {{-- 탭 --}}
     <div class="mb-3 flex flex-wrap gap-1">
-        @foreach (['finance' => '요약', 'receivables' => '미수금', 'purchases' => '매입내역', 'sales' => '판매내역', 'settlements' => '정산내역', 'shipping' => '🚢 선적요청'] as $key => $label)
+        @foreach (['finance' => __('portal.tab.finance'), 'receivables' => __('portal.tab.receivables'), 'purchases' => __('portal.tab.purchases'), 'sales' => __('portal.tab.sales'), 'settlements' => __('portal.tab.settlements'), 'shipping' => '🚢 '.__('portal.tab.shipping')] as $key => $label)
             <button wire:click="setTab('{{ $key }}')"
                 class="rounded-md border px-3 py-1.5 text-[13px] font-semibold {{ $tab === $key ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">{{ $label }}</button>
         @endforeach
-        <button wire:click="reload" class="ml-auto rounded-md border border-gray-300 bg-white px-3 py-1.5 text-[13px] text-blue-600" title="새로고침">↻ 갱신</button>
+        <button wire:click="reload" class="ml-auto rounded-md border border-gray-300 bg-white px-3 py-1.5 text-[13px] text-blue-600" title="{{ __('portal.reload_title') }}">↻ {{ __('portal.reload') }}</button>
     </div>
 
     {{-- 선적요청 성공 — 크게, 확실하게 --}}
@@ -347,14 +347,14 @@ new #[Layout('components.layouts.app')] class extends Component {
              class="mb-4 flex items-center gap-4 rounded-xl border-2 border-green-400 bg-green-50 px-5 py-4 shadow-md">
             <div class="text-4xl">✅</div>
             <div class="flex-1">
-                <div class="text-lg font-bold text-green-800">선적요청 접수 완료!</div>
+                <div class="text-lg font-bold text-green-800">{{ __('portal.ship_done_title') }}</div>
                 <div class="mt-0.5 text-[15px] text-green-700">
-                    <b class="text-xl text-green-800">{{ $shipDone['created'] }}대</b> 선적요청이 car-erp로 전송됐습니다.
-                    @if ($shipDone['skipped']) <span class="text-amber-600">({{ $shipDone['skipped'] }}대는 이미 요청됨/대상 아님 — 건너뜀)</span> @endif
+                    {!! __('portal.ship_done_body', ['count' => '<b class="text-xl text-green-800">'.e($shipDone['created']).'</b>']) !!}
+                    @if ($shipDone['skipped']) <span class="text-amber-600">{{ __('portal.ship_done_skipped', ['count' => $shipDone['skipped']]) }}</span> @endif
                 </div>
-                <div class="mt-1 text-[12px] text-green-600">📨 car-erp 관리(수출통관)에게 알람이 전달되어 선적 진행이 시작됩니다.</div>
+                <div class="mt-1 text-[12px] text-green-600">📨 {{ __('portal.ship_done_alarm') }}</div>
             </div>
-            <button @click="show = false" class="self-start text-green-400 hover:text-green-700" title="닫기">✕</button>
+            <button @click="show = false" class="self-start text-green-400 hover:text-green-700" title="{{ __('common.close') }}">✕</button>
         </div>
     @endif
     @if ($shipNote)
@@ -364,27 +364,27 @@ new #[Layout('components.layouts.app')] class extends Component {
     <div class="card">
         @if (! ($result['ok'] ?? false))
             <div class="card-sm border-amber-200 bg-amber-50 text-[13px] text-amber-800">
-                ⚠️ <b>조회 불가</b> — {{ $this->degradeMessage() }}
+                ⚠️ <b>{{ __('portal.unavailable') }}</b> — {{ $this->degradeMessage() }}
             </div>
 
         @elseif ($tab === 'finance')
             @php $sum = is_array($result['data']) ? $result['data'] : []; @endphp
             <div class="grid gap-3 sm:grid-cols-4">
-                <div class="card-sm"><div class="text-xs text-gray-500">미수금 합계</div><div class="mt-1 text-lg font-bold text-gray-800" title="{{ isset($sum['unpaid_total_krw']) ? number_format((int) $sum['unpaid_total_krw']).'원' : '' }}">{{ isset($sum['unpaid_total_krw']) ? $this->abbrevKrw($sum['unpaid_total_krw']) : '—' }}</div></div>
-                <div class="card-sm"><div class="text-xs text-gray-500">매입 미지급 합계</div><div class="mt-1 text-lg font-bold text-gray-800" title="{{ isset($sum['purchase_unpaid_total']) ? number_format((int) $sum['purchase_unpaid_total']).'원' : '' }}">{{ isset($sum['purchase_unpaid_total']) ? $this->abbrevKrw($sum['purchase_unpaid_total']) : '—' }}</div></div>
-                <div class="card-sm"><div class="text-xs text-gray-500">정산 대기</div><div class="mt-1 text-lg font-bold text-gray-800">{{ $sum['settlement_pending_count'] ?? '—' }}건</div></div>
-                <div class="card-sm"><div class="text-xs text-gray-500">환율 미입력</div><div class="mt-1 text-lg font-bold {{ ($sum['fx_missing_count'] ?? 0) ? 'text-amber-600' : 'text-gray-800' }}">{{ $sum['fx_missing_count'] ?? '—' }}건</div></div>
+                <div class="card-sm"><div class="text-xs text-gray-500">{{ __('portal.kpi_unpaid_total') }}</div><div class="mt-1 text-lg font-bold text-gray-800" title="{{ isset($sum['unpaid_total_krw']) ? number_format((int) $sum['unpaid_total_krw']).__('common.won_currency') : '' }}">{{ isset($sum['unpaid_total_krw']) ? $this->abbrevKrw($sum['unpaid_total_krw']) : '—' }}</div></div>
+                <div class="card-sm"><div class="text-xs text-gray-500">{{ __('portal.kpi_purchase_unpaid_total') }}</div><div class="mt-1 text-lg font-bold text-gray-800" title="{{ isset($sum['purchase_unpaid_total']) ? number_format((int) $sum['purchase_unpaid_total']).__('common.won_currency') : '' }}">{{ isset($sum['purchase_unpaid_total']) ? $this->abbrevKrw($sum['purchase_unpaid_total']) : '—' }}</div></div>
+                <div class="card-sm"><div class="text-xs text-gray-500">{{ __('portal.kpi_settlement_pending') }}</div><div class="mt-1 text-lg font-bold text-gray-800">{{ isset($sum['settlement_pending_count']) ? __('portal.unit_count', ['count' => $sum['settlement_pending_count']]) : '—' }}</div></div>
+                <div class="card-sm"><div class="text-xs text-gray-500">{{ __('portal.kpi_fx_missing') }}</div><div class="mt-1 text-lg font-bold {{ ($sum['fx_missing_count'] ?? 0) ? 'text-amber-600' : 'text-gray-800' }}">{{ isset($sum['fx_missing_count']) ? __('portal.unit_count', ['count' => $sum['fx_missing_count']]) : '—' }}</div></div>
             </div>
 
             {{-- 월별 (판매 건수·정산 실지급·매입) — 날짜 있는 리스트서 집계. 판매액은 통화혼재라 건수만. --}}
             <div class="mt-4" wire:key="monthly" x-data="{ open: true }">
                 <button type="button" class="mb-2 flex items-center gap-2 font-bold text-gray-700" @click="open = !open">
-                    <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span> 📅 월별 실적
+                    <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span> 📅 {{ __('portal.monthly_perf') }}
                 </button>
                 <div x-show="open" x-cloak>
                     <div class="hidden overflow-x-auto sm:block">
                         <table class="tbl">
-                            <thead><tr><th>월</th><th>판매(건)</th><th>정산 실지급(원)</th><th>매입(건)</th><th>매입가(원)</th></tr></thead>
+                            <thead><tr><th>{{ __('portal.col_month') }}</th><th>{{ __('portal.col_sales_cnt') }}</th><th>{{ __('portal.col_settle_sum') }}</th><th>{{ __('portal.col_purch_cnt') }}</th><th>{{ __('portal.col_purch_sum') }}</th></tr></thead>
                             <tbody>
                                 @forelse ($monthly as $month => $row)
                                     <tr>
@@ -395,7 +395,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                         <td>{{ number_format((float) ($row['purch_sum'] ?? 0)) }}</td>
                                     </tr>
                                 @empty
-                                    <tr><td colspan="5" class="py-6 text-center text-gray-400">월별 실적이 없습니다.</td></tr>
+                                    <tr><td colspan="5" class="py-6 text-center text-gray-400">{{ __('portal.monthly_empty') }}</td></tr>
                                 @endforelse
                             </tbody>
                         </table>
@@ -405,17 +405,17 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <div class="card-tight">
                                 <div class="font-semibold text-gray-700">{{ $month }}</div>
                                 <div class="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-gray-600">
-                                    <div>판매 <b class="text-gray-800">{{ $row['sales_cnt'] ?? 0 }}</b>건</div>
-                                    <div>매입 <b class="text-gray-800">{{ $row['purch_cnt'] ?? 0 }}</b>건</div>
-                                    <div>정산 <b class="text-gray-800">{{ number_format((float) ($row['settle_sum'] ?? 0)) }}</b></div>
-                                    <div>매입가 <b class="text-gray-800">{{ number_format((float) ($row['purch_sum'] ?? 0)) }}</b></div>
+                                    <div>{{ __('portal.m_sales') }} <b class="text-gray-800">{{ $row['sales_cnt'] ?? 0 }}</b>{{ __('portal.count_suffix') }}</div>
+                                    <div>{{ __('portal.m_purchase') }} <b class="text-gray-800">{{ $row['purch_cnt'] ?? 0 }}</b>{{ __('portal.count_suffix') }}</div>
+                                    <div>{{ __('portal.m_settle') }} <b class="text-gray-800">{{ number_format((float) ($row['settle_sum'] ?? 0)) }}</b></div>
+                                    <div>{{ __('portal.m_purch_price') }} <b class="text-gray-800">{{ number_format((float) ($row['purch_sum'] ?? 0)) }}</b></div>
                                 </div>
                             </div>
                         @empty
-                            <div class="py-6 text-center text-gray-400">월별 실적이 없습니다.</div>
+                            <div class="py-6 text-center text-gray-400">{{ __('portal.monthly_empty') }}</div>
                         @endforelse
                     </div>
-                    <p class="mt-1 text-[11px] text-gray-400">💡 판매액은 통화가 섞여 합산 대신 건수로 표시. 정산·매입은 원화 합산.</p>
+                    <p class="mt-1 text-[11px] text-gray-400">💡 {{ __('portal.monthly_note') }}</p>
                 </div>
             </div>
 
@@ -434,7 +434,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     $batches = $inProgress->groupBy(fn ($v) => (data_get($v, 'buyer.id') ?? 0).'|'.(data_get($v, 'requested_method') ?? '').'|'.$statusOf($v));
                 @endphp
                 <div class="mb-4">
-                    <h3 class="mb-2 flex items-center gap-2 text-[14px] font-bold text-gray-800">🚚 진행 중인 선적요청 <span class="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-500">{{ $inProgress->count() }}대</span></h3>
+                    <h3 class="mb-2 flex items-center gap-2 text-[14px] font-bold text-gray-800">🚚 {{ __('portal.ship_inprogress_title') }} <span class="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-500">{{ __('portal.unit_vehicles', ['count' => $inProgress->count()]) }}</span></h3>
                     <div class="grid gap-2.5 lg:grid-cols-2">
                         @foreach ($batches as $batch)
                             @php
@@ -448,11 +448,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     <div class="flex min-w-0 items-center gap-2">
                                         <span class="text-base">{{ $method === 'CONTAINER' ? '📦' : '🚢' }}</span>
                                         <div class="min-w-0">
-                                            <div class="truncate text-[13px] font-bold text-gray-800">{{ data_get($b0, 'buyer.name') ?: '바이어 미지정' }}</div>
-                                            <div class="text-[11px] text-gray-500">{{ $method ?: '방식 미정' }} · {{ $batch->count() }}대</div>
+                                            <div class="truncate text-[13px] font-bold text-gray-800">{{ data_get($b0, 'buyer.name') ?: __('portal.buyer_unassigned') }}</div>
+                                            <div class="text-[11px] text-gray-500">{{ $method ?: __('portal.ship_method_undefined') }} · {{ __('portal.unit_vehicles', ['count' => $batch->count()]) }}</div>
                                         </div>
                                     </div>
-                                    <span class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold {{ $busy ? 'bg-blue-600 text-white' : 'bg-amber-500 text-white' }}">{{ $busy ? '진행중' : '요청됨' }}</span>
+                                    <span class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold {{ $busy ? 'bg-blue-600 text-white' : 'bg-amber-500 text-white' }}">{{ $busy ? __('portal.ship_status_in_progress') : __('portal.ship_status_requested') }}</span>
                                 </div>
                                 <div class="flex flex-wrap gap-1.5 px-3.5 py-2.5">
                                     @foreach ($batch as $v)
@@ -462,15 +462,15 @@ new #[Layout('components.layouts.app')] class extends Component {
                             </div>
                         @endforeach
                     </div>
-                    <p class="mt-1.5 text-[11px] text-gray-400">💡 <b>요청됨</b> = car-erp 관리(수출통관) 접수 / <b>진행중</b> = 처리 중. 선적·통관이 끝나면 목록에서 빠집니다.</p>
+                    <p class="mt-1.5 text-[11px] text-gray-400">💡 {!! __('portal.ship_inprogress_note') !!}</p>
                 </div>
             @endif
 
-            <p class="mb-3 text-[13px] text-gray-500">판매완료된 본인 수출 차량을 <b>바이어별로 묶어</b> RORO/컨테이너 선적을 요청합니다. 요청하면 car-erp 관리(수출통관)에게 즉시 알람이 갑니다.</p>
+            <p class="mb-3 text-[13px] text-gray-500">{!! __('portal.ship_intro') !!}</p>
             @php $byBuyer = $available->groupBy(fn ($v) => data_get($v, 'buyer.id') ?? 0); @endphp
             @forelse ($byBuyer as $buyerId => $group)
                 @php
-                    $buyerName = data_get($group->first(), 'buyer.name') ?? '(바이어 미지정)';
+                    $buyerName = data_get($group->first(), 'buyer.name') ?? __('portal.buyer_unassigned_paren');
                     $consignees = data_get($group->first(), 'consignees', []);
                     $vIds = $group->pluck('vehicle_id')->map(fn ($i) => (int) $i)->all();
                     $method = $methodByBuyer[$buyerId] ?? 'RORO';
@@ -478,7 +478,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <div class="card-sm mb-3" style="background:#f8f9fb" wire:key="ship-{{ $buyerId }}" x-data="{ open: false }">
                     <button type="button" class="flex w-full items-center gap-2 text-left font-bold text-gray-800" @click="open = !open">
                         <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span>
-                        🧑 {{ $buyerName }} <span class="text-xs font-normal text-gray-400">· {{ count($vIds) }}대 선적가능</span>
+                        🧑 {{ $buyerName }} <span class="text-xs font-normal text-gray-400">· {{ __('portal.ship_available_count', ['count' => count($vIds)]) }}</span>
                     </button>
                     <div x-show="open" x-cloak class="mt-2">
                     @if ($this->isViewingOther())
@@ -488,7 +488,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <span class="rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[12px] font-semibold text-gray-700">{{ data_get($v, 'vehicle_number') }}</span>
                             @endforeach
                         </div>
-                        <p class="text-[11px] text-gray-400">👁️ 조회 전용 — 선적요청·서류는 본인({{ $this->viewingName() }}) 계정에서 진행합니다.</p>
+                        <p class="text-[11px] text-gray-400">👁️ {{ __('portal.ship_view_only_note', ['name' => $this->viewingName()]) }}</p>
                     @else
                     <div class="mb-2 space-y-1">
                         @foreach ($group as $v)
@@ -501,7 +501,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <div class="flex flex-wrap items-center gap-2">
                         {{-- 컨사이니 (기존 선택만) --}}
                         <select wire:model="consigneeByBuyer.{{ $buyerId }}" class="input-base w-auto text-[13px]">
-                            <option value="">컨사이니 선택</option>
+                            <option value="">{{ __('portal.consignee_select') }}</option>
                             @foreach ($consignees as $c)
                                 <option value="{{ data_get($c, 'id') }}">{{ data_get($c, 'name') }}</option>
                             @endforeach
@@ -513,19 +513,19 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     class="px-3 py-1.5 text-[13px] font-semibold {{ $method === $m ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }}">{{ $m }}</button>
                             @endforeach
                         </div>
-                        <button wire:click="submitShipping({{ $buyerId }}, {{ json_encode($vIds) }})" class="btn-primary btn-sm">🚢 선적요청</button>
+                        <button wire:click="submitShipping({{ $buyerId }}, {{ json_encode($vIds) }})" class="btn-primary btn-sm">🚢 {{ __('portal.ship_request_btn') }}</button>
                     </div>
                     {{-- ①② 서류 (선택 차량, method별 2종) --}}
                     <div class="mt-2 flex flex-wrap items-center gap-2 border-t border-gray-200 pt-2 text-[12px]">
-                        <span class="text-gray-400">선택 차량 서류({{ $method }}):</span>
-                        <button wire:click="downloadDocs({{ $buyerId }}, {{ json_encode($vIds) }}, 'contract')" class="btn-ghost btn-sm">📄 계약서</button>
-                        <button wire:click="downloadDocs({{ $buyerId }}, {{ json_encode($vIds) }}, 'invoice_packing')" class="btn-ghost btn-sm">📄 인보이스·패킹</button>
+                        <span class="text-gray-400">{{ __('portal.docs_label', ['method' => $method]) }}</span>
+                        <button wire:click="downloadDocs({{ $buyerId }}, {{ json_encode($vIds) }}, 'contract')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_contract') }}</button>
+                        <button wire:click="downloadDocs({{ $buyerId }}, {{ json_encode($vIds) }}, 'invoice_packing')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_invoice_packing') }}</button>
                     </div>
                     @endif
                     </div>
                 </div>
             @empty
-                <p class="py-8 text-center text-gray-400">선적 가능한 차량이 없습니다. (판매완료·수출·미요청 차량만 표시)</p>
+                <p class="py-8 text-center text-gray-400">{{ __('portal.ship_empty') }}</p>
             @endforelse
 
         @elseif ($tab === 'receivables')
@@ -556,19 +556,19 @@ new #[Layout('components.layouts.app')] class extends Component {
                         return $desc ? -$cmp : $cmp;
                     })->values();
                 };
-                $byBuyer = $items->groupBy(fn ($r) => data_get($r, 'buyer') ?: '(바이어 미지정)');
-                $cols = ['vehicle_number' => '차량', 'currency' => '통화', 'exchange_rate' => '환율', 'unpaid_krw' => '미수금(원)'];
+                $byBuyer = $items->groupBy(fn ($r) => data_get($r, 'buyer') ?: __('portal.buyer_unassigned_paren'));
+                $cols = ['vehicle_number' => __('portal.col_vehicle'), 'currency' => __('portal.col_currency'), 'exchange_rate' => __('portal.col_exchange_rate'), 'unpaid_krw' => __('portal.col_unpaid_krw')];
             @endphp
             <label class="mb-2 flex items-center gap-2 text-[12px] text-gray-500">
-                <input type="checkbox" wire:model.live="hidePaid"> 완납(0원) 숨기기
+                <input type="checkbox" wire:model.live="hidePaid"> {{ __('portal.hide_paid') }}
             </label>
             @forelse ($byBuyer as $buyer => $rows)
                 <div class="card-sm mb-2" wire:key="recv-{{ $loop->index }}" x-data="{ open: false }">
                     <button type="button" class="flex w-full items-center gap-2 text-left font-bold text-gray-800" @click="open = !open">
                         <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span>
-                        🧑 {{ $buyer }} <span class="text-xs font-normal text-gray-400">· {{ $rows->count() }}대</span>
+                        🧑 {{ $buyer }} <span class="text-xs font-normal text-gray-400">· {{ __('portal.unit_vehicles', ['count' => $rows->count()]) }}</span>
                         @php $sum = $rows->sum(fn ($r) => (float) (data_get($r, 'unpaid_krw') ?? 0)); @endphp
-                        <span class="ml-auto text-[13px] font-bold text-[var(--color-primary-text)]">{{ number_format($sum) }}원</span>
+                        <span class="ml-auto text-[13px] font-bold text-[var(--color-primary-text)]">{{ number_format($sum) }}{{ __('common.won_currency') }}</span>
                     </button>
                     <div x-show="open" x-cloak class="mt-2">
                         <div class="hidden overflow-x-auto sm:block">
@@ -585,7 +585,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                                 @php $val = data_get($row, $k); @endphp
                                                 <td class="whitespace-nowrap {{ $val === null ? 'text-amber-600' : 'text-gray-700' }}">
                                                     @if ($val === null)
-                                                        {{ $k === 'unpaid_krw' ? '환율 미입력' : '—' }}
+                                                        {{ $k === 'unpaid_krw' ? __('portal.fx_missing') : '—' }}
                                                     @elseif ($k === 'unpaid_krw' && is_numeric($val))
                                                         {{ number_format((float) $val) }}
                                                     @else
@@ -604,10 +604,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <div class="flex items-center justify-between gap-2 rounded-md border border-gray-100 bg-gray-50 px-2.5 py-2">
                                     <div class="min-w-0">
                                         <div class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') ?: '—' }}</div>
-                                        <div class="text-[11px] text-gray-400">{{ data_get($row, 'currency') ?: '—' }} · 환율 {{ data_get($row, 'exchange_rate') ?? '—' }}</div>
+                                        <div class="text-[11px] text-gray-400">{{ data_get($row, 'currency') ?: '—' }} · {{ __('portal.fx_rate_label') }} {{ data_get($row, 'exchange_rate') ?? '—' }}</div>
                                     </div>
                                     <div class="shrink-0 text-right text-sm font-bold {{ $unpaid === null ? 'text-amber-600' : 'text-gray-800' }}">
-                                        {{ $unpaid === null ? '환율 미입력' : number_format((float) $unpaid).'원' }}
+                                        {{ $unpaid === null ? __('portal.fx_missing') : number_format((float) $unpaid).__('common.won_currency') }}
                                     </div>
                                 </div>
                             @endforeach
@@ -615,31 +615,31 @@ new #[Layout('components.layouts.app')] class extends Component {
                     </div>
                 </div>
             @empty
-                <p class="py-8 text-center text-gray-400">미수금 내역이 없습니다.{{ $hidePaid ? ' (완납 숨김 적용 중)' : '' }}</p>
+                <p class="py-8 text-center text-gray-400">{{ __('portal.recv_empty') }}{{ $hidePaid ? __('portal.recv_empty_hidden') : '' }}</p>
             @endforelse
 
         @elseif ($tab === 'sales')
             {{-- 판매내역 — 바이어별 통화별 합(by-buyer) + 펼치면 그 바이어가 산 차량 리스트 --}}
             @php
                 $buyers = data_get($result['data'], 'data', []);
-                $detailByBuyer = collect($salesDetail)->groupBy(fn ($r) => data_get($r, 'buyer') ?: '(바이어 미지정)');
+                $detailByBuyer = collect($salesDetail)->groupBy(fn ($r) => data_get($r, 'buyer') ?: __('portal.buyer_unassigned_paren'));
             @endphp
             @forelse ($buyers as $b)
                 @php
-                    $bName = data_get($b, 'buyer') ?: '(바이어 미지정)';
+                    $bName = data_get($b, 'buyer') ?: __('portal.buyer_unassigned_paren');
                     $rows = $detailByBuyer[$bName] ?? collect();
                     $byCur = (array) data_get($b, 'sales_by_currency', []);
                 @endphp
                 <div class="card-sm mb-2" wire:key="sales-{{ $loop->index }}" x-data="{ open: false }">
                     <button type="button" class="flex w-full items-center gap-2 text-left font-bold text-gray-800" @click="open = !open">
                         <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span>
-                        🧑 {{ $bName }} <span class="text-xs font-normal text-gray-400">· {{ data_get($b, 'vehicle_count', 0) }}대</span>
+                        🧑 {{ $bName }} <span class="text-xs font-normal text-gray-400">· {{ __('portal.unit_vehicles', ['count' => data_get($b, 'vehicle_count', 0)]) }}</span>
                         <span class="ml-auto text-[13px]">@forelse ($byCur as $cur => $amt)<span class="ml-2 whitespace-nowrap"><b class="text-gray-500">{{ $cur }}</b> {{ number_format((float) $amt) }}</span>@empty<span class="text-gray-300">—</span>@endforelse</span>
                     </button>
                     <div x-show="open" x-cloak class="mt-2">
                         <div class="hidden overflow-x-auto sm:block">
                             <table class="tbl">
-                                <thead><tr><th>차량</th><th>통화</th><th>판매가</th><th>판매일</th></tr></thead>
+                                <thead><tr><th>{{ __('portal.col_vehicle') }}</th><th>{{ __('portal.col_currency') }}</th><th>{{ __('portal.col_sale_price') }}</th><th>{{ __('portal.col_sale_date') }}</th></tr></thead>
                                 <tbody>
                                     @forelse ($rows as $row)
                                         <tr>
@@ -649,7 +649,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                             <td>{{ data_get($row, 'sale_date') ?: '—' }}</td>
                                         </tr>
                                     @empty
-                                        <tr><td colspan="4" class="py-3 text-center text-gray-400">차량 상세 없음</td></tr>
+                                        <tr><td colspan="4" class="py-3 text-center text-gray-400">{{ __('portal.sales_detail_empty') }}</td></tr>
                                     @endforelse
                                 </tbody>
                             </table>
@@ -667,13 +667,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     </div>
                                 </div>
                             @empty
-                                <div class="py-3 text-center text-gray-400">차량 상세 없음</div>
+                                <div class="py-3 text-center text-gray-400">{{ __('portal.sales_detail_empty') }}</div>
                             @endforelse
                         </div>
                     </div>
                 </div>
             @empty
-                <p class="py-8 text-center text-gray-400">판매내역이 없습니다.</p>
+                <p class="py-8 text-center text-gray-400">{{ __('portal.sales_empty') }}</p>
             @endforelse
 
         @elseif ($tab === 'settlements')
@@ -681,17 +681,17 @@ new #[Layout('components.layouts.app')] class extends Component {
             @php $buyers = data_get($result['data'], 'data', []); @endphp
             <div class="hidden overflow-x-auto sm:block">
                 <table class="tbl">
-                    <thead><tr><th>바이어</th><th>차량수</th><th>정산 실지급(원)</th><th>지급 완료(원)</th></tr></thead>
+                    <thead><tr><th>{{ __('portal.col_buyer') }}</th><th>{{ __('portal.col_vehicle_count') }}</th><th>{{ __('portal.col_payout_total') }}</th><th>{{ __('portal.col_payout_paid') }}</th></tr></thead>
                     <tbody>
                         @forelse ($buyers as $b)
                             <tr>
-                                <td class="font-semibold text-gray-700">{{ data_get($b, 'buyer') ?: '(바이어 미지정)' }}</td>
-                                <td class="whitespace-nowrap text-gray-500">{{ data_get($b, 'vehicle_count', 0) }}대</td>
+                                <td class="font-semibold text-gray-700">{{ data_get($b, 'buyer') ?: __('portal.buyer_unassigned_paren') }}</td>
+                                <td class="whitespace-nowrap text-gray-500">{{ __('portal.unit_vehicles', ['count' => data_get($b, 'vehicle_count', 0)]) }}</td>
                                 <td class="whitespace-nowrap font-semibold text-gray-800">{{ number_format((float) data_get($b, 'payout_total_krw', 0)) }}</td>
                                 <td class="whitespace-nowrap text-gray-500">{{ number_format((float) data_get($b, 'payout_paid_krw', 0)) }}</td>
                             </tr>
                         @empty
-                            <tr><td colspan="4" class="py-8 text-center text-gray-400">정산내역이 없습니다.</td></tr>
+                            <tr><td colspan="4" class="py-8 text-center text-gray-400">{{ __('portal.settle_empty') }}</td></tr>
                         @endforelse
                     </tbody>
                 </table>
@@ -700,16 +700,16 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @forelse ($buyers as $b)
                     <div class="card-tight">
                         <div class="flex items-center justify-between gap-2">
-                            <span class="font-semibold text-gray-700">{{ data_get($b, 'buyer') ?: '(바이어 미지정)' }}</span>
-                            <span class="shrink-0 text-xs text-gray-400">{{ data_get($b, 'vehicle_count', 0) }}대</span>
+                            <span class="font-semibold text-gray-700">{{ data_get($b, 'buyer') ?: __('portal.buyer_unassigned_paren') }}</span>
+                            <span class="shrink-0 text-xs text-gray-400">{{ __('portal.unit_vehicles', ['count' => data_get($b, 'vehicle_count', 0)]) }}</span>
                         </div>
                         <div class="mt-1 grid grid-cols-2 gap-x-3 text-xs text-gray-600">
-                            <div>정산 실지급 <b class="text-gray-800">{{ number_format((float) data_get($b, 'payout_total_krw', 0)) }}</b></div>
-                            <div>지급 완료 <b class="text-gray-800">{{ number_format((float) data_get($b, 'payout_paid_krw', 0)) }}</b></div>
+                            <div>{{ __('portal.lbl_payout_total') }} <b class="text-gray-800">{{ number_format((float) data_get($b, 'payout_total_krw', 0)) }}</b></div>
+                            <div>{{ __('portal.lbl_payout_paid') }} <b class="text-gray-800">{{ number_format((float) data_get($b, 'payout_paid_krw', 0)) }}</b></div>
                         </div>
                     </div>
                 @empty
-                    <div class="py-8 text-center text-gray-400">정산내역이 없습니다.</div>
+                    <div class="py-8 text-center text-gray-400">{{ __('portal.settle_empty') }}</div>
                 @endforelse
             </div>
 
@@ -717,7 +717,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             {{-- 매입내역 — buyer 무관(경매/판매처) → 평면 목록 --}}
             @php
                 $items = data_get($result['data'], 'data', []);
-                $cols = ['vehicle_number' => '차량', 'purchase_price' => '매입가', 'cost_total' => '비용합', 'purchase_unpaid' => '미지급', 'purchase_date' => '매입일'];
+                $cols = ['vehicle_number' => __('portal.col_vehicle'), 'purchase_price' => __('portal.col_purchase_price'), 'cost_total' => __('portal.col_cost_total'), 'purchase_unpaid' => __('portal.col_purchase_unpaid'), 'purchase_date' => __('portal.col_purchase_date')];
             @endphp
             <div class="hidden overflow-x-auto sm:block">
                 <table class="tbl">
@@ -739,7 +739,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 @endforeach
                             </tr>
                         @empty
-                            <tr><td colspan="{{ count($cols) }}" class="py-8 text-center text-gray-400">매입내역이 없습니다.</td></tr>
+                            <tr><td colspan="{{ count($cols) }}" class="py-8 text-center text-gray-400">{{ __('portal.purch_empty') }}</td></tr>
                         @endforelse
                     </tbody>
                 </table>
@@ -752,18 +752,18 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <span class="shrink-0 text-[11px] text-gray-400">{{ data_get($row, 'purchase_date') ?: '' }}</span>
                         </div>
                         <div class="mt-1 grid grid-cols-3 gap-x-2 text-xs text-gray-600">
-                            @foreach (['purchase_price' => '매입가', 'cost_total' => '비용합', 'purchase_unpaid' => '미지급'] as $key => $label)
+                            @foreach (['purchase_price' => __('portal.col_purchase_price'), 'cost_total' => __('portal.col_cost_total'), 'purchase_unpaid' => __('portal.col_purchase_unpaid')] as $key => $label)
                                 @php $val = data_get($row, $key); @endphp
                                 <div>{{ $label }}<br><b class="text-gray-800">{{ ($val === null || ! is_numeric($val)) ? '—' : number_format((float) $val) }}</b></div>
                             @endforeach
                         </div>
                     </div>
                 @empty
-                    <div class="py-8 text-center text-gray-400">매입내역이 없습니다.</div>
+                    <div class="py-8 text-center text-gray-400">{{ __('portal.purch_empty') }}</div>
                 @endforelse
             </div>
         @endif
     </div>
 
-    <p class="mt-2 text-[11px] text-gray-400">💡 읽기전용(car-erp 원장). 금액·정산·선적 실무 수정은 car-erp 담당에게. 선적요청은 car-erp 관리에게 알람으로 전달됩니다.</p>
+    <p class="mt-2 text-[11px] text-gray-400">💡 {{ __('portal.footer_note') }}</p>
 </div>

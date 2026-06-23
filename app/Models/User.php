@@ -27,6 +27,7 @@ class User extends Authenticatable // implements MustVerifyEmail
         'role',
         'permission',
         'is_active',
+        'locale',
         'car_erp_salesman_id',
         'car_erp_salesman_email',
         'respond_agent_email',
@@ -34,6 +35,9 @@ class User extends Authenticatable // implements MustVerifyEmail
 
     /** board 업무 역할 4종 (영업/현지확인/경매/관리) */
     public const ROLES = ['sales', 'inspection', 'auction', 'manager'];
+
+    /** i18n Phase 0 — 지원 언어. 'ko' 기본(항상), 'en'은 super가 기능설정에서 활성화해야 노출. */
+    public const LOCALES = ['ko', 'en'];
 
     /** 권한 단계 (car-erp 미러) — super=시스템관리자, user=role 기반 */
     public const PERMISSIONS = ['super', 'user'];
@@ -77,7 +81,11 @@ class User extends Authenticatable // implements MustVerifyEmail
 
     public function roleLabel(): string
     {
-        return self::ROLE_LABELS[$this->role] ?? $this->role;
+        // i18n — 번역키 우선, 미정의면 한글 상수 폴백.
+        $key = 'nav.role.'.$this->role;
+        $label = __($key);
+
+        return is_string($label) && $label !== $key ? $label : (self::ROLE_LABELS[$this->role] ?? (string) $this->role);
     }
 
     public function isSales(): bool

@@ -142,7 +142,11 @@ class PurchaseListing extends Model
 
     public function originLabel(): string
     {
-        return self::ORIGIN_LABELS[$this->origin] ?? ($this->isAuction() ? '경매' : '엔카');
+        if (isset(self::ORIGIN_LABELS[$this->origin])) {
+            return __('domain.origin.'.$this->origin);
+        }
+
+        return $this->isAuction() ? __('domain.origin.auction') : __('domain.origin.encar');
     }
 
     public function originBadge(): string
@@ -284,15 +288,37 @@ class PurchaseListing extends Model
     public function statusLabel(): string
     {
         return match ($this->status) {
-            'draft' => '현지확인 대기',
-            'awaiting_buyer' => '회신대기',
-            'accepted' => $this->isAuction() ? '경매대기' : '구매대기',
-            'rejected' => '거절',
-            'won' => $this->isAuction() ? '낙찰' : '구매확정',
-            'failed' => $this->isAuction() ? '유찰' : '취소',
-            'synced' => 'ERP 전환완료',
+            'draft' => __('domain.status_live.draft'),
+            'awaiting_buyer' => __('domain.status_live.awaiting_buyer'),
+            'accepted' => $this->isAuction() ? __('domain.status_live.accepted_auction') : __('domain.status_live.accepted_encar'),
+            'rejected' => __('domain.status_live.rejected'),
+            'won' => $this->isAuction() ? __('domain.status_live.won_auction') : __('domain.status_live.won_encar'),
+            'failed' => $this->isAuction() ? __('domain.status_live.failed_auction') : __('domain.status_live.failed_encar'),
+            'synced' => __('domain.status_live.synced'),
             default => $this->status,
         };
+    }
+
+    /** 상태 드롭다운/필터 옵션 (번역). key=상태값, value=번역 라벨. */
+    public static function statusOptions(): array
+    {
+        $out = [];
+        foreach (array_keys(self::STATUS_LABELS) as $k) {
+            $out[$k] = __('domain.status.'.$k);
+        }
+
+        return $out;
+    }
+
+    /** 유입(origin) 드롭다운/필터 옵션 (번역). */
+    public static function originOptions(): array
+    {
+        $out = [];
+        foreach (array_keys(self::ORIGIN_LABELS) as $k) {
+            $out[$k] = __('domain.origin.'.$k);
+        }
+
+        return $out;
     }
 
     public function statusBadge(): string
@@ -311,9 +337,9 @@ class PurchaseListing extends Model
     public function verdictLabel(): ?string
     {
         return match ($this->buyer_verdict) {
-            'pending' => '회신대기',
-            'accepted' => '수락',
-            'rejected' => '거절',
+            'pending' => __('domain.verdict.pending'),
+            'accepted' => __('domain.verdict.accepted'),
+            'rejected' => __('domain.verdict.rejected'),
             default => null,
         };
     }

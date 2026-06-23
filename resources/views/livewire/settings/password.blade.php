@@ -4,9 +4,10 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
 
-new class extends Component {
+new #[Layout('components.layouts.app')] class extends Component {
     public string $current_password = '';
     public string $password = '';
     public string $password_confirmation = '';
@@ -40,12 +41,12 @@ new class extends Component {
 <section class="w-full">
     @include('partials.settings-heading')
 
-    <x-settings.layout heading="Update password" subheading="Ensure your account is using a long, random password to stay secure">
+    <x-settings.layout :heading="__('settings.password.heading')" :subheading="__('settings.password.subheading')">
         <form wire:submit="updatePassword" class="mt-6 space-y-6">
             <flux:input
                 wire:model="current_password"
                 id="update_password_current_passwordpassword"
-                label="{{ __('Current password') }}"
+                :label="__('settings.password.current')"
                 type="password"
                 name="current_password"
                 required
@@ -54,7 +55,7 @@ new class extends Component {
             <flux:input
                 wire:model="password"
                 id="update_password_password"
-                label="{{ __('New password') }}"
+                :label="__('settings.password.new')"
                 type="password"
                 name="password"
                 required
@@ -63,7 +64,7 @@ new class extends Component {
             <flux:input
                 wire:model="password_confirmation"
                 id="update_password_password_confirmation"
-                label="{{ __('Confirm Password') }}"
+                :label="__('settings.password.confirm')"
                 type="password"
                 name="password_confirmation"
                 required
@@ -72,11 +73,11 @@ new class extends Component {
 
             <div class="flex items-center gap-4">
                 <div class="flex items-center justify-end">
-                    <flux:button variant="primary" type="submit" class="w-full">{{ __('Save') }}</flux:button>
+                    <flux:button variant="primary" type="submit" class="w-full">{{ __('settings.password.save') }}</flux:button>
                 </div>
 
                 <x-action-message class="me-3" on="password-updated">
-                    {{ __('Saved.') }}
+                    {{ __('settings.password.saved') }}
                 </x-action-message>
             </div>
         </form>

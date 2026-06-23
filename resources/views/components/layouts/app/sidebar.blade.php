@@ -6,8 +6,15 @@
 <body class="min-h-screen bg-gray-50">
 @php
     $user = auth()->user();
-    $permLabel = $user->isSuper() ? '시스템관리자' : $user->roleLabel();
+    $permLabel = $user->isSuper() ? __('nav.perm.super') : $user->roleLabel();
     $workGuideUrl = config('board.work_guide_url') ?: '';
+
+    // 브랜드 텍스트 — 기능설정(sidebar_brand)과 동일 출처. 로그인 화면과 한 곳에서 같이 변경.
+    $sidebarBrand = trim((string) \App\Models\Setting::get('sidebar_brand', 'HeymanBoard')) ?: 'HeymanBoard';
+    $sidebarBrandInitial = mb_strtoupper(mb_substr($sidebarBrand, 0, 1));
+
+    // i18n Phase 0 — 영어 활성 시에만 상단바 언어 전환 노출
+    $localeEnEnabled = (bool) \App\Models\Setting::get('locale_en_enabled', false);
 
     // 승격 대기 뱃지 (영업=본인 담당 / 관리·super=전체)
     $pendingPromo = 0;
@@ -21,36 +28,38 @@
 
     $routeName = request()->route()?->getName();
     $breadcrumb = match ($routeName) {
-        'dashboard' => '대시보드',
-        'listings' => '매입예정',
-        'verdicts' => '바이어 회신',
-        'portal' => '내 정산·미수·선적',
-        'inspection' => '현지확인',
-        'auction' => '경매/구매',
-        'manage' => '관리자',
-        'users' => '사용자 관리',
-        'audit' => '감사 로그',
-        'settings.profile' => '내 설정',
-        'settings.password' => '비밀번호',
-        'settings.appearance' => '화면 설정',
+        'dashboard' => __('nav.crumb.dashboard'),
+        'listings' => __('nav.crumb.listings'),
+        'verdicts' => __('nav.crumb.verdicts'),
+        'portal' => __('nav.crumb.portal'),
+        'inspection' => __('nav.crumb.inspection'),
+        'auction' => __('nav.crumb.auction'),
+        'manage' => __('nav.crumb.manage'),
+        'users' => __('nav.crumb.users'),
+        'audit' => __('nav.crumb.audit'),
+        'settings.profile' => __('nav.crumb.settings_profile'),
+        'settings.password' => __('nav.crumb.settings_password'),
+        'settings.appearance' => __('nav.crumb.settings_appearance'),
+        'admin.settings' => __('nav.crumb.admin_settings'),
         default => '',
     };
 
     $can = fn ($roles) => $user->isSuper() || in_array($user->role, (array) $roles, true);
     $menuGroups = [
-        ['key' => 'work', 'label' => '업무', 'items' => [
-            ['label' => '매입예정 (영업)', 'href' => route('listings'), 'icon' => 'clipboard', 'active' => request()->routeIs('listings'), 'show' => $can(['sales', 'manager']), 'badge' => $pendingPromo ?: null],
-            ['label' => '바이어 회신', 'href' => route('verdicts'), 'icon' => 'chat', 'active' => request()->routeIs('verdicts'), 'show' => $can(['sales', 'manager'])],
-            ['label' => '내 정산·미수 (포털)', 'href' => route('portal'), 'icon' => 'wallet', 'active' => request()->routeIs('portal'), 'show' => $can(['sales', 'manager'])],
-            ['label' => '현지확인', 'href' => route('inspection'), 'icon' => 'camera', 'active' => request()->routeIs('inspection'), 'show' => $can(['inspection', 'manager'])],
-            ['label' => '경매/구매', 'href' => route('auction'), 'icon' => 'banknotes', 'active' => request()->routeIs('auction'), 'show' => $can(['auction', 'manager'])],
+        ['key' => 'work', 'label' => __('nav.group.work'), 'items' => [
+            ['label' => __('nav.menu.listings'), 'href' => route('listings'), 'icon' => 'clipboard', 'active' => request()->routeIs('listings'), 'show' => $can(['sales', 'manager']), 'badge' => $pendingPromo ?: null],
+            ['label' => __('nav.menu.verdicts'), 'href' => route('verdicts'), 'icon' => 'chat', 'active' => request()->routeIs('verdicts'), 'show' => $can(['sales', 'manager'])],
+            ['label' => __('nav.menu.portal'), 'href' => route('portal'), 'icon' => 'wallet', 'active' => request()->routeIs('portal'), 'show' => $can(['sales', 'manager'])],
+            ['label' => __('nav.menu.inspection'), 'href' => route('inspection'), 'icon' => 'camera', 'active' => request()->routeIs('inspection'), 'show' => $can(['inspection', 'manager'])],
+            ['label' => __('nav.menu.auction'), 'href' => route('auction'), 'icon' => 'banknotes', 'active' => request()->routeIs('auction'), 'show' => $can(['auction', 'manager'])],
         ]],
-        ['key' => 'manage', 'label' => '관리', 'items' => [
-            ['label' => '관리자', 'href' => route('manage'), 'icon' => 'shield', 'active' => request()->routeIs('manage'), 'show' => $can(['manager'])],
+        ['key' => 'manage', 'label' => __('nav.group.manage'), 'items' => [
+            ['label' => __('nav.menu.manage'), 'href' => route('manage'), 'icon' => 'shield', 'active' => request()->routeIs('manage'), 'show' => $can(['manager'])],
         ]],
-        ['key' => 'system', 'label' => '시스템', 'items' => [
-            ['label' => '사용자 관리', 'href' => route('users'), 'icon' => 'user-group', 'active' => request()->routeIs('users'), 'show' => $user->isSuper()],
-            ['label' => '감사 로그', 'href' => route('audit'), 'icon' => 'document', 'active' => request()->routeIs('audit'), 'show' => $user->isSuper()],
+        ['key' => 'system', 'label' => __('nav.group.system'), 'items' => [
+            ['label' => __('nav.menu.users'), 'href' => route('users'), 'icon' => 'user-group', 'active' => request()->routeIs('users'), 'show' => $user->isSuper()],
+            ['label' => __('nav.menu.audit'), 'href' => route('audit'), 'icon' => 'document', 'active' => request()->routeIs('audit'), 'show' => $user->isSuper()],
+            ['label' => __('nav.menu.settings'), 'href' => route('admin.settings'), 'icon' => 'cog', 'active' => request()->routeIs('admin.settings'), 'show' => $user->isSuper()],
         ]],
     ];
 
@@ -100,8 +109,8 @@
         <div class="flex h-12 items-center border-b border-white/5 px-2 shrink-0">
             <a href="{{ route('dashboard') }}" wire:navigate @click="if(isMobile) closeMobile()"
                class="flex w-full items-center gap-2 overflow-hidden" :class="(isMobile || open) ? 'px-1.5' : 'justify-center'">
-                <span class="flex h-7 w-7 items-center justify-center rounded-md text-[11px] font-bold text-white shrink-0" style="background-color:var(--color-primary);">B</span>
-                <span x-show="isMobile || open" x-transition.opacity class="min-w-0 flex-1 truncate text-[13px] font-medium text-white">매입·검차·경매</span>
+                <span class="flex h-7 w-7 items-center justify-center rounded-md text-[11px] font-bold text-white shrink-0" style="background-color:var(--color-primary);">{{ $sidebarBrandInitial }}</span>
+                <span x-show="isMobile || open" x-transition.opacity class="min-w-0 flex-1 truncate text-[13px] font-medium text-white">{{ $sidebarBrand }}</span>
             </a>
         </div>
 
@@ -150,23 +159,23 @@
         <div class="border-t border-white/5 py-2 shrink-0">
             @if ($workGuideUrl)
                 <a href="{{ $workGuideUrl }}" target="_blank" rel="noopener noreferrer" @click="if(isMobile) closeMobile()"
-                   :title="(isMobile || open) ? '' : '업무 가이드'" class="sidebar-item" :class="{ 'sidebar-item-collapsed': !isMobile && !open }">
+                   :title="(isMobile || open) ? '' : '{{ __('nav.action.work_guide') }}'" class="sidebar-item" :class="{ 'sidebar-item-collapsed': !isMobile && !open }">
                     <svg class="sidebar-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">{!! $icons['book'] !!}</svg>
-                    <span x-show="isMobile || open" class="flex-1 truncate">업무 가이드</span>
+                    <span x-show="isMobile || open" class="flex-1 truncate">{{ __('nav.action.work_guide') }}</span>
                     <svg x-show="isMobile || open" class="ml-auto h-3 w-3 shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5h5m0 0v5m0-5L10 14M9 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-3"/></svg>
                 </a>
             @endif
             <a href="{{ route('settings.profile') }}" wire:navigate @click="if(isMobile) closeMobile()"
-               :title="(isMobile || open) ? '' : '내 설정'" class="sidebar-item {{ request()->routeIs('settings.*') ? 'is-active' : '' }}" :class="{ 'sidebar-item-collapsed': !isMobile && !open }">
+               :title="(isMobile || open) ? '' : '{{ __('nav.action.my_settings') }}'" class="sidebar-item {{ request()->routeIs('settings.profile') || request()->routeIs('settings.password') || request()->routeIs('settings.appearance') ? 'is-active' : '' }}" :class="{ 'sidebar-item-collapsed': !isMobile && !open }">
                 <svg class="sidebar-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">{!! $icons['cog'] !!}</svg>
-                <span x-show="isMobile || open" class="truncate">내 설정</span>
+                <span x-show="isMobile || open" class="truncate">{{ __('nav.action.my_settings') }}</span>
             </a>
             <form method="POST" action="{{ route('logout') }}">
                 @csrf
-                <button type="submit" :title="(isMobile || open) ? '' : '로그아웃'"
+                <button type="submit" :title="(isMobile || open) ? '' : '{{ __('nav.action.logout') }}'"
                         class="sidebar-item w-[calc(100%-16px)] text-left" :class="{ 'sidebar-item-collapsed w-[calc(100%-12px)]': !isMobile && !open }">
                     <svg class="sidebar-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">{!! $icons['logout'] !!}</svg>
-                    <span x-show="isMobile || open" class="truncate">로그아웃</span>
+                    <span x-show="isMobile || open" class="truncate">{{ __('nav.action.logout') }}</span>
                 </button>
             </form>
         </div>
@@ -179,6 +188,24 @@
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">{!! $icons['menu'] !!}</svg>
             </button>
             <div class="ml-2 truncate text-[13px] text-gray-700">{{ $breadcrumb }}</div>
+
+            {{-- i18n Phase 0 — 언어 전환 (영어 활성 시만 노출) --}}
+            @if ($localeEnEnabled)
+                <form method="POST" action="{{ route('locale.update') }}" class="ml-auto flex items-center gap-0.5 rounded-md bg-gray-100 p-0.5">
+                    @csrf
+                    @foreach (['ko', 'en'] as $loc)
+                        <button type="submit" name="locale" value="{{ $loc }}"
+                                @class([
+                                    'rounded px-2 py-0.5 text-[11px] font-medium transition',
+                                    'text-white' => app()->getLocale() === $loc,
+                                    'text-gray-500 hover:bg-gray-200' => app()->getLocale() !== $loc,
+                                ])
+                                @style(['background-color: var(--color-primary)' => app()->getLocale() === $loc])>
+                            {{ __('nav.lang.'.$loc) }}
+                        </button>
+                    @endforeach
+                </form>
+            @endif
         </header>
         <main class="flex-1 overflow-auto bg-gray-50">
             {{ $slot }}
