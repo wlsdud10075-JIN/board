@@ -60,4 +60,11 @@ return [
     'flash_payee_saved' => 'Payment info saved.',
     'flash_only_accepted' => 'Only buyer-accepted vehicles can be executed.',
     'flash_processed' => ':no — :label processed.',
+
+    // Buyer / consignee dropdown (car-erp list)
+    'buyer' => 'Buyer / Consignee',
+    'buyer_hint' => 'Select from car-erp list (your accounts)',
+    'buyer_unavailable' => 'Buyer list unavailable — assign manually in car-erp.',
+    'buyer_select' => 'Select buyer',
+    'consignee_select' => 'Select consignee (optional)',
 ];

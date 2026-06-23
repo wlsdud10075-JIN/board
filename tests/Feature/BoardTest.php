@@ -273,11 +273,60 @@ class BoardTest extends TestCase
         Http::assertSent(function ($request) {
             $att = $request['attachments'] ?? [];
 
-            return $request['contract_version'] === 2
+            return $request['contract_version'] === 3
                 && count($att) === 2                                   // 검차사진(i/x.jpg)은 제외, 영업 자료만
                 && collect($att)->pluck('s3_path')->sort()->values()->all() === ['s/a.jpg', 's/r.pdf']
                 && collect($att)->firstWhere('kind', 'sales_document')['s3_path'] === 's/r.pdf';
         });
+    }
+
+    public function test_sync_payload_v3_amounts_buyer_consignee(): void
+    {
+        config([
+            'services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh',
+            'board.default_krw_per_usd' => 1400, 'board.default_krw_per_eur' => 1500, 'board.sales_fee' => 440000,
+        ]);
+        Http::fake(['*/api/internal/purchase-sync' => Http::response(['vehicle_id' => 901], 200)]);
+
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'won', 'source' => 'auction', 'final_price' => 12736000,
+            'car_cost' => 10000000, 'expected_price_currency' => 'KRW', 'discount_rate' => 1, 'shipping_usd' => 1640,
+            'offer_currency' => 'EUR', 'offer_rate' => 1500, 'car_erp_buyer_id' => 55, 'car_erp_consignee_id' => 66,
+        ]);
+
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        Http::assertSent(function ($r) {
+            return $r['contract_version'] === 3
+                && $r['purchase_price_krw'] === 9900000          // 1000만 − 할인1%(10만)
+                && $r['selling_fee_krw'] === 440000              // 매도비
+                && $r['sale_currency'] === 'EUR'
+                && $r['sale_exchange_rate'] === 1500
+                && $r['sale_price'] === 6893.33                  // 차량금액 10,340,000 / 1500
+                && $r['transport_fee'] === 1530.67               // 1640 USD ×1400 / 1500 (판매통화 환산)
+                && $r['buyer_id'] === 55 && $r['consignee_id'] === 66;
+        });
+    }
+
+    public function test_auction_buyer_dropdown_loads_and_persists(): void
+    {
+        Bus::fake();
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        Http::fake([
+            '*/api/internal/board/buyers*' => Http::response(['count' => 1, 'data' => [['id' => 55, 'name' => 'Faturat', 'country' => 'Kosovo']]], 200),
+            '*/api/internal/board/consignees*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')
+            ->call('openDetail', $l->id)
+            ->assertSet('buyerOpts', [['id' => 55, 'name' => 'Faturat', 'country' => 'Kosovo']])
+            ->set('buyerId', 55)
+            ->call('conclude', $l->id, 'won')->assertHasNoErrors();
+
+        $this->assertSame(55, $l->fresh()->car_erp_buyer_id);
     }
 
     public function test_edit_drawer_appends_attachments_and_cap_counts_existing(): void

@@ -60,4 +60,11 @@ return [
     'flash_payee_saved' => '입금정보를 저장했습니다.',
     'flash_only_accepted' => '바이어 수락 상태의 차량만 집행할 수 있습니다.',
     'flash_processed' => ':no — :label 처리되었습니다.',
+
+    // 바이어/컨사이니 드롭다운 (car-erp 목록)
+    'buyer' => '바이어 / 컨사이니',
+    'buyer_hint' => 'car-erp 목록에서 선택 (본인 담당)',
+    'buyer_unavailable' => '바이어 목록을 불러올 수 없습니다 — car-erp에서 수동 지정.',
+    'buyer_select' => '바이어 선택',
+    'consignee_select' => '컨사이니 선택 (선택)',
 ];

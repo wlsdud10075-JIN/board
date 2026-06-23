@@ -27,6 +27,7 @@ class PurchaseListing extends Model
         'auction_venue', 'lot_number', 'status', 'buyer_verdict', 'verdict_channel',
         'buyer_name', 'payee_name', 'payee_bank', 'payee_account',
         'inspection_memo', 'inspection_note', 'lock_at', 'car_erp_vehicle_id',
+        'car_erp_buyer_id', 'car_erp_consignee_id',
     ];
 
     protected function casts(): array
@@ -41,6 +42,8 @@ class PurchaseListing extends Model
             'payee_account' => 'encrypted',   // 계좌번호 at-rest 암호화 (§6e)
             'lock_at' => 'datetime',
             'car_erp_vehicle_id' => 'integer',
+            'car_erp_buyer_id' => 'integer',
+            'car_erp_consignee_id' => 'integer',
         ];
     }
 
