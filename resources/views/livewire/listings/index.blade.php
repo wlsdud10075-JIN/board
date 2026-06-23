@@ -91,7 +91,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $rates->refresh();
         $this->loadRates($rates);
-        session()->flash('ok', '환율을 갱신했습니다.');
+        session()->flash('ok', __('listings.rate.refreshed'));
     }
 
     /** 배송 USD→KRW 환산에 쓸 환율 (라이브 우선, 없으면 config 폴백). */
@@ -191,7 +191,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->respond_contact_id = $req->respond_contact_id;
         $this->promotingId = $req->id;
         $this->showAdd = true;
-        session()->flash('ok', '['.$req->label.'] 바이어 연결됨 — 링크와 차량번호만 입력하면 됩니다.');
+        session()->flash('ok', __('listings.promo.promoted_flash', ['label' => $req->label]));
     }
 
     /** 승격 대기 무시 — 전환 안 되는 바이어(구경만) 정리. 본인 담당만(관리/super 전체). */
@@ -241,7 +241,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l = PurchaseListing::findOrFail($this->editingId);
 
         if (! $this->editable($l)) {
-            $this->addError('e_car_cost', '시간잠금된 경매 차량은 수정할 수 없습니다. (관리자 문의)');
+            $this->addError('e_car_cost', __('listings.drawer.locked_error'));
 
             return;
         }
@@ -290,7 +290,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->storeSalesFiles($l, $this->eSalesFiles);
 
         unset($this->listings);
-        session()->flash('ok', $l->vehicle_number.' 수정되었습니다.');
+        session()->flash('ok', __('listings.drawer.updated_flash', ['number' => $l->vehicle_number]));
         $this->closeEdit();
     }
 
@@ -320,7 +320,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $r = \App\Support\ListingLink::parse($url);
 
         if ($r === []) {
-            $this->addError($field, '링크에서 식별값을 찾지 못했습니다. (직접 입력 가능)');
+            $this->addError($field, __('listings.links.parse_error'));
 
             return;
         }
@@ -337,7 +337,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $filled = [];
         if (! empty($e['vehicle_number']) && $this->vehicle_number === '') {
             $this->vehicle_number = $e['vehicle_number'];
-            $filled[] = '차량번호';
+            $filled[] = __('listings.links.fill_vehicle_number');
         }
         $prices = $e['prices'] ?? [];
         if ($prices && ($this->expected_price === null || $this->expected_price === '')) {
@@ -345,20 +345,20 @@ new #[Layout('components.layouts.app')] class extends Component {
             $cur = isset($prices['KRW']) ? 'KRW' : array_key_first($prices);
             $this->expected_price_currency = $cur;
             $this->expected_price = (string) $prices[$cur];
-            $filled[] = '매물표시가('.implode('/', array_keys($prices)).')';
+            $filled[] = __('listings.links.fill_price', ['currencies' => implode('/', array_keys($prices))]);
             // 차값 = 선택통화 금액 그대로(외화 그대로 보관). 빈 칸만(영업 입력 보존).
             if ($this->car_cost === null || $this->car_cost === '') {
                 $this->car_cost = (string) $prices[$cur];
-                $filled[] = '차값('.$cur.')';
+                $filled[] = __('listings.links.fill_car_cost', ['currency' => $cur]);
             }
         }
         if (! empty($e['region']) && $this->region === '') {
             $this->region = $e['region'];
-            $filled[] = '지역';
+            $filled[] = __('listings.links.fill_region');
         }
         if (! empty($e['vin']) && $this->vin === '') {
             $this->vin = $e['vin'];
-            $filled[] = 'VIN';
+            $filled[] = __('listings.links.fill_vin');
         }
 
         $bits = array_filter([
@@ -366,10 +366,10 @@ new #[Layout('components.layouts.app')] class extends Component {
             isset($r['c_no']) ? 'c_no '.$r['c_no'] : null,
             $r['ssancar_ref'] ?? null,
         ]);
-        $cat = PurchaseListing::ORIGIN_LABELS[$this->origin] ?? '';
-        $name = ! empty($e['name']) ? ' · 차종: '.$e['name'] : '';
-        $auto = $filled ? ' · 자동채움: '.implode('/', $filled) : '';
-        session()->flash('ok', '['.$cat.'] 추출: '.implode(' · ', $bits).$name.$auto.' — 확인 후 저장하세요.');
+        $cat = PurchaseListing::originOptions()[$this->origin] ?? '';
+        $name = ! empty($e['name']) ? __('listings.links.enrich_name', ['name' => $e['name']]) : '';
+        $auto = $filled ? __('listings.links.enrich_auto', ['fields' => implode('/', $filled)]) : '';
+        session()->flash('ok', __('listings.links.enrich_category', ['cat' => $cat]).implode(' · ', $bits).$name.$auto.__('listings.links.enrich_suffix'));
     }
 
     /** 통화 토글(매물표시가) — 그 통화로 차값을 "그대로" 가져옴(외화 그대로 고정). 추출된 통화만. */
@@ -417,8 +417,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             'lot_number' => 'nullable|string|max:50',
             'salesFiles.*' => 'file|max:204800',
         ], attributes: [
-            'vehicle_number' => '차량번호',
-            'vin' => '차대번호(VIN)',
+            'vehicle_number' => __('listings.add_form.attr_vehicle_number'),
+            'vin' => __('listings.add_form.attr_vin'),
         ]);
 
         // 첨부 사전검증(실행파일·건수) — listing 생성 전
@@ -430,14 +430,14 @@ new #[Layout('components.layouts.app')] class extends Component {
         $dup = PurchaseListing::withoutGlobalScope(\App\Models\Scopes\SalesmanScope::class)
             ->where('vehicle_number', $this->vehicle_number)->first();
         if ($dup) {
-            $this->addError('vehicle_number', '이미 등록된 차량번호입니다 (#'.$dup->id.').');
+            $this->addError('vehicle_number', __('listings.add_form.dup_error', ['id' => $dup->id]));
 
             return;
         }
 
         // 경매 등록 시간잠금 (관리자 우회)
         if ($this->source === 'auction' && TimeGate::auctionRegistrationLocked() && ! Auth::user()->isManager()) {
-            $this->addError('source', '경매 차량 등록은 '.config('board.auction_lock_time').' 에 마감되었습니다. 관리자 해제가 필요합니다.');
+            $this->addError('source', __('listings.add_form.auction_locked_error', ['time' => config('board.auction_lock_time')]));
 
             return;
         }
@@ -490,7 +490,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->resetForm();
         $this->showAdd = false;
         unset($this->listings);
-        session()->flash('ok', '매입예정이 등록되었습니다.');
+        session()->flash('ok', __('listings.add_form.saved_flash'));
     }
 
     /** 첨부 사전검증 — 실행파일 차단 + 최대건수(car-erp 첨부탭 10건 cap). 통과=true. */
@@ -503,7 +503,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         foreach ($files as $f) {
             if (\App\Support\UploadGuard::isExecutable($f->getClientOriginalName())) {
-                $this->addError($errKey, '실행파일(.exe 등)은 올릴 수 없습니다: '.$f->getClientOriginalName());
+                $this->addError($errKey, __('listings.attach.exec_error', ['name' => $f->getClientOriginalName()]));
 
                 return false;
             }
@@ -511,7 +511,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $max = (int) config('board.attachment_max');
         if ($existing + count($files) > $max) {
-            $this->addError($errKey, "첨부파일은 최대 {$max}건까지입니다. (현재 {$existing}건)");
+            $this->addError($errKey, __('listings.attach.max_error', ['max' => $max, 'existing' => $existing]));
 
             return false;
         }
@@ -592,19 +592,19 @@ new #[Layout('components.layouts.app')] class extends Component {
     {{-- 헤더 --}}
     <div class="mb-4 flex items-start justify-between gap-3">
         <div>
-            <h1 class="text-xl font-bold text-gray-800">매입예정 (영업)</h1>
-            <p class="mt-0.5 text-xs text-gray-500">🔒 본인({{ auth()->user()->name }}) 리스트만 표시 — 서버/DB 레벨 격리</p>
+            <h1 class="text-xl font-bold text-gray-800">{{ __('listings.heading') }}</h1>
+            <p class="mt-0.5 text-xs text-gray-500">{{ __('listings.own_only_note', ['name' => auth()->user()->name]) }}</p>
         </div>
         {{-- 환율 (네이버/다음 라이브 · 실패 시 폴백) --}}
         <div class="card-sm shrink-0 text-right text-[13px]" style="background:#f5f8ff;border-color:#dbeafe">
             <div class="flex items-center justify-end gap-1 text-[11px] text-gray-500">
-                💱 적용 환율
-                <span class="font-semibold {{ $rateLive ? 'text-green-600' : 'text-amber-600' }}">{{ $rateLive ? 'LIVE' : '임시' }}</span>
-                <button wire:click="refreshRate" wire:loading.attr="disabled" class="text-blue-500 hover:text-blue-700" title="환율 갱신">↻</button>
+                {{ __('listings.rate.label') }}
+                <span class="font-semibold {{ $rateLive ? 'text-green-600' : 'text-amber-600' }}">{{ $rateLive ? __('listings.rate.live') : __('listings.rate.temp') }}</span>
+                <button wire:click="refreshRate" wire:loading.attr="disabled" class="text-blue-500 hover:text-blue-700" title="{{ __('listings.rate.refresh_title') }}">↻</button>
             </div>
-            <div class="font-bold text-gray-800">USD 1 = {{ number_format($krwPerUsd) }}원</div>
-            <div class="font-bold text-gray-800">EUR 1 = {{ number_format($krwPerEur) }}원</div>
-            @if ($rateFetchedAt)<div class="text-[10px] text-gray-400">{{ $rateFetchedAt }} 기준</div>@endif
+            <div class="font-bold text-gray-800">{{ __('listings.rate.usd_line', ['amount' => number_format($krwPerUsd)]) }}</div>
+            <div class="font-bold text-gray-800">{{ __('listings.rate.eur_line', ['amount' => number_format($krwPerEur)]) }}</div>
+            @if ($rateFetchedAt)<div class="text-[10px] text-gray-400">{{ __('listings.rate.as_of', ['time' => $rateFetchedAt]) }}</div>@endif
         </div>
     </div>
 
@@ -613,9 +613,9 @@ new #[Layout('components.layouts.app')] class extends Component {
          style="border-color:{{ $auctionLocked ? '#fecaca' : '#bbf7d0' }};background:{{ $auctionLocked ? '#fef2f2' : '#f0fdf4' }}">
         <span>⏰</span>
         <span class="font-semibold {{ $auctionLocked ? 'text-red-700' : 'text-green-700' }}">
-            🔨 경매 등록 {{ $auctionLocked ? '마감됨 ('.config('board.auction_lock_time').' 이후 · 관리자 해제 필요)' : '가능 ('.config('board.auction_lock_time').' 마감)' }}
+            {{ $auctionLocked ? __('listings.timegate.auction_closed', ['time' => config('board.auction_lock_time')]) : __('listings.timegate.auction_open', ['time' => config('board.auction_lock_time')]) }}
         </span>
-        <span class="text-gray-500">· 🛒 엔카는 상시 등록</span>
+        <span class="text-gray-500">{{ __('listings.timegate.encar_always') }}</span>
     </div>
 
     @if (session('ok'))
@@ -625,22 +625,22 @@ new #[Layout('components.layouts.app')] class extends Component {
     {{-- 승격 대기 (연동 A · respond.io 에서 바이어가 board 처리 의사 표시 → 담당 영업에게 라우팅) --}}
     @if ($this->promotions->isNotEmpty())
         <div class="card mb-4" style="border-color:#fde68a;background:#fffbeb">
-            <h2 class="mb-2 font-bold text-amber-800">📥 승격 대기 <span class="text-amber-500">· {{ $this->promotions->count() }}명</span></h2>
-            <p class="mb-3 text-[11px] text-amber-700/80">바이어가 채팅에서 board 처리를 요청했습니다. “승격”을 누르면 컨택트가 자동 연결됩니다 — 링크와 차량번호만 입력하세요.</p>
+            <h2 class="mb-2 font-bold text-amber-800">{{ __('listings.promo.heading') }} <span class="text-amber-500">· {{ __('listings.promo.count', ['count' => $this->promotions->count()]) }}</span></h2>
+            <p class="mb-3 text-[11px] text-amber-700/80">{{ __('listings.promo.intro') }}</p>
             <div class="space-y-2">
                 @foreach ($this->promotions as $p)
                     <div class="flex items-center justify-between gap-2 rounded-md border border-amber-200 bg-white px-3 py-2">
                         <div class="min-w-0">
-                            <div class="truncate font-semibold text-gray-800">{{ $p->label ?: '컨택트 '.$p->respond_contact_id }}</div>
-                            <div class="text-[11px] text-gray-400">컨택트 {{ $p->respond_contact_id }} · {{ $p->created_at->diffForHumans() }}</div>
+                            <div class="truncate font-semibold text-gray-800">{{ $p->label ?: __('listings.promo.contact_fallback', ['id' => $p->respond_contact_id]) }}</div>
+                            <div class="text-[11px] text-gray-400">{{ __('listings.promo.contact_meta', ['id' => $p->respond_contact_id]) }} · {{ $p->created_at->diffForHumans() }}</div>
                             @if (auth()->user()->canSeeAll())
-                                <div class="text-[11px] {{ $p->assigned_email ? 'text-gray-400' : 'text-amber-600' }}">담당: {{ $p->assigned_email ?: '미배정' }}</div>
+                                <div class="text-[11px] {{ $p->assigned_email ? 'text-gray-400' : 'text-amber-600' }}">{{ __('listings.promo.assignee', ['name' => $p->assigned_email ?: __('listings.promo.unassigned')]) }}</div>
                             @endif
                         </div>
                         <div class="flex shrink-0 gap-1.5">
-                            <button class="btn-primary btn-sm" wire:click="promoteFrom({{ $p->id }})">승격</button>
+                            <button class="btn-primary btn-sm" wire:click="promoteFrom({{ $p->id }})">{{ __('listings.promo.promote') }}</button>
                             <button class="btn-ghost btn-sm" wire:click="dismissPromotion({{ $p->id }})"
-                                    wire:confirm="이 승격 대기를 무시하시겠습니까?">무시</button>
+                                    wire:confirm="{{ __('listings.promo.dismiss_confirm') }}">{{ __('listings.promo.dismiss') }}</button>
                         </div>
                     </div>
                 @endforeach
@@ -650,51 +650,51 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     <div class="card">
         <div class="mb-3 flex items-center justify-between">
-            <h2 class="font-bold text-gray-800">내 매입예정 리스트 <span class="text-gray-400">· {{ $this->listings->count() }}건</span></h2>
-            <button class="btn-primary" wire:click="toggleAdd">+ 매입예정 추가</button>
+            <h2 class="font-bold text-gray-800">{{ __('listings.list.heading') }} <span class="text-gray-400">· {{ __('listings.list.count', ['count' => $this->listings->count()]) }}</span></h2>
+            <button class="btn-primary" wire:click="toggleAdd">{{ __('listings.list.add') }}</button>
         </div>
 
         {{-- 추가 폼 --}}
         @if ($showAdd)
             <div class="card-sm mb-4" style="background:#f8f9fb">
-                <label class="label-base">출처 (유입 카테고리) <span class="text-red-500">*</span></label>
+                <label class="label-base">{{ __('listings.add_form.origin_label') }} <span class="text-red-500">*</span></label>
                 <div class="mb-1 flex flex-wrap gap-1">
-                    @foreach (\App\Models\PurchaseListing::ORIGIN_LABELS as $key => $lbl)
+                    @foreach (\App\Models\PurchaseListing::originOptions() as $key => $lbl)
                         <button type="button" wire:click="setOrigin('{{ $key }}')"
                             class="rounded-md border px-3 py-1.5 text-[13px] font-semibold {{ $origin === $key ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">{{ $lbl }}</button>
                     @endforeach
                 </div>
-                <p class="mb-3 text-[11px] text-gray-400">💡 매입방법: <b>{{ $source === 'auction' ? '경매 (시간잠금·낙찰/유찰)' : '엔카 즉시구매 (구매대기/확정)' }}</b> — 카테고리에서 자동 결정</p>
+                <p class="mb-3 text-[11px] text-gray-400">{{ __('listings.add_form.method_prefix') }}<b>{{ $source === 'auction' ? __('listings.add_form.method_auction') : __('listings.add_form.method_encar') }}</b>{{ __('listings.add_form.method_suffix') }}</p>
                 @error('origin') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 {{-- 승격: 링크 붙여넣기 → 식별자 자동추출 + 자동채움. 엔카/ssancar 분리(둘 다 넣으면 합쳐서 채움). --}}
                 <div class="card-sm mb-3" style="background:#f0f7ff;border-color:#dbeafe">
-                    <label class="label-base">🔗 엔카 링크 <span class="text-gray-400">(차량번호·차값·지역·VIN 자동)</span></label>
+                    <label class="label-base">{{ __('listings.links.encar_label') }} <span class="text-gray-400">{{ __('listings.links.encar_hint') }}</span></label>
                     <div class="flex gap-2">
                         <input class="input-base flex-1" wire:model="encarLink" wire:keydown.enter.prevent="parseLink('encar')"
-                               placeholder="https://fem.encar.com/cars/detail/42176484">
-                        <button type="button" class="btn-primary btn-sm shrink-0" wire:click="parseLink('encar')">추출</button>
+                               placeholder="{{ __('listings.links.encar_ph') }}">
+                        <button type="button" class="btn-primary btn-sm shrink-0" wire:click="parseLink('encar')">{{ __('listings.links.extract') }}</button>
                     </div>
                     @error('encarLink') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                    <label class="label-base mt-2">🔗 ssancar 링크 <span class="text-gray-400">(차량번호·VIN · 검차매물은 엔카가격까지)</span></label>
+                    <label class="label-base mt-2">{{ __('listings.links.ssancar_label') }} <span class="text-gray-400">{{ __('listings.links.ssancar_hint') }}</span></label>
                     <div class="flex gap-2">
                         <input class="input-base flex-1" wire:model="ssancarLink" wire:keydown.enter.prevent="parseLink('ssancar')"
-                               placeholder="https://www.ssancar.com/...?c_no= / ?wr_id=">
-                        <button type="button" class="btn-primary btn-sm shrink-0" wire:click="parseLink('ssancar')">추출</button>
+                               placeholder="{{ __('listings.links.ssancar_ph') }}">
+                        <button type="button" class="btn-primary btn-sm shrink-0" wire:click="parseLink('ssancar')">{{ __('listings.links.extract') }}</button>
                     </div>
                     @error('ssancarLink') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     @if ($encar_id || $c_no || $ssancar_ref)
                         <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
-                            <span class="text-gray-400">추출됨:</span>
+                            <span class="text-gray-400">{{ __('listings.links.extracted') }}</span>
                             @if ($encar_id)<span class="badge badge-encar">encar #{{ $encar_id }}</span>@endif
                             @if ($c_no)<span class="badge badge-blue">c_no {{ $c_no }}</span>@endif
                             @if ($ssancar_ref)<span class="badge badge-gray">{{ $ssancar_ref }}</span>@endif
                         </div>
                     @endif
-                    <label class="label-base mt-2">매물 표시가 (= 차값) <span class="text-gray-400">(링크 추출 시 자동 · 통화 선택)</span></label>
+                    <label class="label-base mt-2">{{ __('listings.links.price_label') }} <span class="text-gray-400">{{ __('listings.links.price_hint') }}</span></label>
                     <div class="flex gap-2">
-                        <input class="input-base flex-1" wire:model="expected_price" inputmode="numeric" placeholder="링크 추출 시 자동 · 직접 입력 가능">
+                        <input class="input-base flex-1" wire:model="expected_price" inputmode="numeric" placeholder="{{ __('listings.links.price_ph') }}">
                         <div class="inline-flex shrink-0 overflow-hidden rounded-md border border-gray-300">
                             @foreach (['KRW' => '원', 'USD' => '$', 'EUR' => '€'] as $cur => $sym)
                                 {{-- 추출된 통화만 활성 — 엔카=원화만, ssancar=3통화. 링크 전(빈 priceOptions)엔 전부 허용. --}}
@@ -705,46 +705,46 @@ new #[Layout('components.layouts.app')] class extends Component {
                         </div>
                     </div>
                     @if ($priceOptions)
-                        <p class="mt-1 text-[11px] text-gray-500">💱 링크 표시가: @foreach ($priceOptions as $cur => $amt)<span class="mr-2 whitespace-nowrap">{{ ['KRW' => '원', 'USD' => '$', 'EUR' => '€'][$cur] ?? $cur }} {{ number_format($amt) }}</span>@endforeach— 버튼으로 통화 선택(금액 자동 변경)</p>
+                        <p class="mt-1 text-[11px] text-gray-500">{{ __('listings.links.price_options_prefix') }}@foreach ($priceOptions as $cur => $amt)<span class="mr-2 whitespace-nowrap">{{ ['KRW' => '원', 'USD' => '$', 'EUR' => '€'][$cur] ?? $cur }} {{ number_format($amt) }}</span>@endforeach{{ __('listings.links.price_options_suffix') }}</p>
                     @else
-                        <p class="mt-1 text-[11px] text-gray-400">💡 엔카=원화 / ssancar=3통화 자동. 통화 버튼으로 선택한 통화 금액이 아래 ‘차값’에 그대로 들어갑니다(외화 그대로 · 수정 가능). 환율 환산은 금액산정에서만.</p>
+                        <p class="mt-1 text-[11px] text-gray-400">{{ __('listings.links.price_help') }}</p>
                     @endif
                     @error('expected_price') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                    <label class="label-base mt-2">respond.io 컨택트 ID <span class="text-gray-400">(선택 · 바이어 식별 · 자동회신 매칭키)</span></label>
-                    <input class="input-base" wire:model="respond_contact_id" placeholder="respond.io 바이어 컨택트 ID (예: 469733036)">
+                    <label class="label-base mt-2">{{ __('listings.links.contact_label') }} <span class="text-gray-400">{{ __('listings.links.contact_hint') }}</span></label>
+                    <input class="input-base" wire:model="respond_contact_id" placeholder="{{ __('listings.links.contact_ph') }}">
                     @error('respond_contact_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 </div>
 
                 {{-- 차량번호 · 차값 · 할인율 · 지역 (한 행) --}}
                 <div class="grid gap-3 sm:grid-cols-4">
                     <div>
-                        <label class="label-base">차량번호 <span class="text-red-500">*</span></label>
-                        <input class="input-base" wire:model="vehicle_number" placeholder="12가3456">
+                        <label class="label-base">{{ __('listings.add_form.vehicle_number') }} <span class="text-red-500">*</span></label>
+                        <input class="input-base" wire:model="vehicle_number" placeholder="{{ __('listings.add_form.vehicle_number_ph') }}">
                         @error('vehicle_number') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                     <div>
-                        <label class="label-base">소유자 <span class="text-gray-400">(차주명)</span></label>
-                        <input class="input-base" wire:model="owner_name" placeholder="등록 소유자명">
+                        <label class="label-base">{{ __('listings.add_form.owner') }} <span class="text-gray-400">{{ __('listings.add_form.owner_hint') }}</span></label>
+                        <input class="input-base" wire:model="owner_name" placeholder="{{ __('listings.add_form.owner_ph') }}">
                         @error('owner_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                     <div>
-                        <label class="label-base">차값 ({{ \App\Support\Money::SYMBOLS[$expected_price_currency] ?? '원' }})</label>
-                        <input class="input-base" wire:model.live.debounce.400ms="car_cost" inputmode="numeric" placeholder="13000000">
+                        <label class="label-base">{{ __('listings.add_form.car_cost') }} ({{ \App\Support\Money::SYMBOLS[$expected_price_currency] ?? '원' }})</label>
+                        <input class="input-base" wire:model.live.debounce.400ms="car_cost" inputmode="numeric" placeholder="{{ __('listings.add_form.car_cost_ph') }}">
                         @error('car_cost') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                     <div>
-                        <label class="label-base">할인율 (%)</label>
-                        <input class="input-base" wire:model.live.debounce.400ms="discount_rate" inputmode="decimal" placeholder="0">
+                        <label class="label-base">{{ __('listings.add_form.discount_rate') }}</label>
+                        <input class="input-base" wire:model.live.debounce.400ms="discount_rate" inputmode="decimal" placeholder="{{ __('listings.add_form.discount_rate_ph') }}">
                         @error('discount_rate') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                     <div>
-                        <label class="label-base">지역</label>
-                        <input class="input-base" wire:model="region" list="regionList" placeholder="수원 입력 → 자동완성">
+                        <label class="label-base">{{ __('listings.add_form.region') }}</label>
+                        <input class="input-base" wire:model="region" list="regionList" placeholder="{{ __('listings.add_form.region_ph') }}">
                         @error('region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                     <div>
-                        <label class="label-base">매물번호 <span class="text-gray-400">(c_no)</span></label>
-                        <input class="input-base" wire:model="c_no" placeholder="링크 추출 시 자동">
+                        <label class="label-base">{{ __('listings.add_form.c_no') }} <span class="text-gray-400">{{ __('listings.add_form.c_no_hint') }}</span></label>
+                        <input class="input-base" wire:model="c_no" placeholder="{{ __('listings.add_form.c_no_ph') }}">
                         @error('c_no') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                 </div>
@@ -755,8 +755,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                 {{-- 경매 전용 식별 정보 --}}
                 @if ($source === 'auction')
                     <div class="mt-3 grid gap-3 sm:grid-cols-2">
-                        <div><label class="label-base">경매장</label><input class="input-base" wire:model="auction_venue" placeholder="롯데 / 현대 글로비스"></div>
-                        <div><label class="label-base">출품번호</label><input class="input-base" wire:model="lot_number" placeholder="A-1024"></div>
+                        <div><label class="label-base">{{ __('listings.add_form.auction_venue') }}</label><input class="input-base" wire:model="auction_venue" placeholder="{{ __('listings.add_form.auction_venue_ph') }}"></div>
+                        <div><label class="label-base">{{ __('listings.add_form.lot_number') }}</label><input class="input-base" wire:model="lot_number" placeholder="{{ __('listings.add_form.lot_number_ph') }}"></div>
                     </div>
                 @endif
 
@@ -767,7 +767,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     $shipKrw = $shipping_usd ? (int) $shipping_usd * $this->usdRate() : null;
                 @endphp
                 <div class="mt-3 flex items-center justify-between">
-                    <span class="text-xs font-semibold text-gray-600">금액 산정</span>
+                    <span class="text-xs font-semibold text-gray-600">{{ __('listings.pricing.heading') }}</span>
                     <div class="inline-flex overflow-hidden rounded-md border border-gray-300 text-xs">
                         @foreach (['KRW' => '원', 'USD' => '$', 'EUR' => '€'] as $cur => $sym)
                             <button type="button" wire:click="$set('displayCurrency', '{{ $cur }}')"
@@ -776,13 +776,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                     </div>
                 </div>
                 <div class="mt-1 flex items-center justify-between text-xs text-gray-500">
-                    <span>＋ 매도비 (고정)</span><span class="font-semibold text-gray-700">{{ number_format((int) config('board.sales_fee')) }}원</span>
+                    <span>{{ __('listings.pricing.sales_fee') }}</span><span class="font-semibold text-gray-700">{{ number_format((int) config('board.sales_fee')) }}원</span>
                 </div>
                 <div class="mt-1 flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 text-sm">
-                    <span class="text-gray-600">차량금액 (Car Price)</span>
+                    <span class="text-gray-600">{{ __('listings.pricing.car_price') }}</span>
                     <span class="font-bold text-gray-800">{{ $this->fmt($carPrice) }}</span>
                 </div>
-                <label class="label-base mt-3">배송금액 (USD 고정)</label>
+                <label class="label-base mt-3">{{ __('listings.pricing.shipping_label') }}</label>
                 <div class="inline-flex overflow-hidden rounded-md border border-gray-300">
                     @foreach (config('board.shipping_options') as $opt)
                         <button type="button" wire:click="$set('shipping_usd', {{ $opt }})"
@@ -790,36 +790,36 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @endforeach
                 </div>
                 @error('shipping_usd') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                @if ($shipKrw !== null)<div class="mt-1 text-right text-xs text-gray-500">배송 {{ $this->fmt($shipKrw) }}</div>@endif
+                @if ($shipKrw !== null)<div class="mt-1 text-right text-xs text-gray-500">{{ __('listings.pricing.shipping_prefix') }}{{ $this->fmt($shipKrw) }}</div>@endif
                 <div class="mt-2 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
-                    <span class="text-sm font-semibold text-gray-700">최종금액 (Total)</span>
+                    <span class="text-sm font-semibold text-gray-700">{{ __('listings.pricing.total') }}</span>
                     <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $this->fmt($total) }}</span>
                 </div>
 
                 {{-- 입금정보 (선택 — 알면 미리, 모르면 구매단계에서) §6e · car-erp 형식(은행 자동완성 + 계좌 마스킹) --}}
-                <label class="label-base mt-3">입금정보 <span class="text-gray-400">(선택 · 정산계좌)</span></label>
+                <label class="label-base mt-3">{{ __('listings.payee.label') }} <span class="text-gray-400">{{ __('listings.payee.hint') }}</span></label>
                 <div x-data class="grid gap-2 sm:grid-cols-3">
                     <div>
                         <input x-ref="bankAdd" wire:model.blur="payee_bank" list="korean-banks-add" autocomplete="off"
-                               class="input-base" placeholder="은행" maxlength="100"
+                               class="input-base" placeholder="{{ __('listings.payee.bank_ph') }}" maxlength="100"
                                x-on:input="$refs.acctAdd.value = $store.koreanBanks.applyMask($el.value, $refs.acctAdd.value)">
                         <datalist id="korean-banks-add"><template x-for="b in $store.koreanBanks.names()" :key="b"><option :value="b"></option></template></datalist>
                     </div>
-                    <div><input wire:model.blur="payee_name" class="input-base" placeholder="예금주" maxlength="60"></div>
+                    <div><input wire:model.blur="payee_name" class="input-base" placeholder="{{ __('listings.payee.name_ph') }}" maxlength="60"></div>
                     <div><input x-ref="acctAdd" wire:model.blur="payee_account" autocomplete="off"
-                               class="input-base font-mono" placeholder="계좌번호"
+                               class="input-base font-mono" placeholder="{{ __('listings.payee.account_ph') }}"
                                x-on:input="$el.value = $store.koreanBanks.applyMask($refs.bankAdd.value, $el.value)"></div>
                 </div>
                 @error('payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                <p class="mt-1 text-[11px] text-gray-400">💡 지금 알면 미리 입력 → 구매단계 자동 표시. 비워두면 구매담당자가 입력. (은행 선택 시 계좌 자동 하이픈 · 계좌번호 암호화)</p>
+                <p class="mt-1 text-[11px] text-gray-400">{{ __('listings.payee.help') }}</p>
 
                 {{-- 차량 첨부 (영업 자료 → 낙찰 시 연동 B 로 car-erp 첨부탭) · 첨부파일 1칸 통합 --}}
-                <label class="label-base mt-3">차량 첨부파일 <span class="text-gray-400">(사진·서류·엑셀 등 · 최대 {{ config('board.attachment_max') }}건 · 낙찰 시 car-erp 자동등록)</span></label>
+                <label class="label-base mt-3">{{ __('listings.attach.add_label') }} <span class="text-gray-400">{{ __('listings.attach.add_hint', ['max' => config('board.attachment_max')]) }}</span></label>
                 <label class="flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-gray-300 py-3 text-[13px] text-gray-500 hover:border-[var(--color-primary)]">
-                    📎 파일 선택 (여러 개 가능 · 실행파일 제외 모두)
+                    {{ __('listings.attach.dropzone') }}
                     <input type="file" multiple wire:model="salesFiles" class="hidden">
                 </label>
-                <div wire:loading wire:target="salesFiles" class="mt-1 text-xs text-gray-400">업로드 중…</div>
+                <div wire:loading wire:target="salesFiles" class="mt-1 text-xs text-gray-400">{{ __('listings.attach.uploading') }}</div>
                 @if (count($salesFiles))
                     <div class="mt-2 grid grid-cols-4 gap-2 sm:grid-cols-6">
                         @foreach ($salesFiles as $i => $f)
@@ -836,18 +836,18 @@ new #[Layout('components.layouts.app')] class extends Component {
                             </div>
                         @endforeach
                     </div>
-                    <p class="mt-1 text-[11px] text-gray-500">{{ count($salesFiles) }}개 선택됨 — 저장 시 반영</p>
+                    <p class="mt-1 text-[11px] text-gray-500">{{ __('listings.attach.selected', ['count' => count($salesFiles)]) }}</p>
                 @endif
                 @error('salesFiles') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 @error('salesFiles.*') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                <p class="mt-1 text-[11px] text-gray-400">💡 영업이 받은 차량 사진·서류를 올리면 낙찰 후 car-erp 에 자동 등록 → 관리가 확인·보완. (이미지=사진/그 외=서류 자동분류, 실행파일만 불가)</p>
+                <p class="mt-1 text-[11px] text-gray-400">{{ __('listings.attach.help') }}</p>
 
-                <p class="mt-2 text-xs text-gray-500"><b>차량번호</b> 필수. 금액은 선택 입력이며 현지 차상태 확인 후 조정될 수 있습니다.</p>
+                <p class="mt-2 text-xs text-gray-500">{!! __('listings.add_form.note') !!}</p>
                 @error('source') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 <div class="mt-3 flex gap-2">
-                    <button class="btn-primary btn-sm" wire:click="save">저장</button>
-                    <button class="btn-ghost btn-sm" wire:click="toggleAdd">취소</button>
+                    <button class="btn-primary btn-sm" wire:click="save">{{ __('common.save') }}</button>
+                    <button class="btn-ghost btn-sm" wire:click="toggleAdd">{{ __('common.cancel') }}</button>
                 </div>
             </div>
         @endif
@@ -856,7 +856,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="hidden overflow-x-auto sm:block">
             <table class="tbl">
                 <thead>
-                    <tr><th class="w-px whitespace-nowrap">차량</th><th>출처</th><th>최종금액</th><th>추가검사사항</th><th>바이어</th><th>상태</th></tr>
+                    <tr><th class="w-px whitespace-nowrap">{{ __('listings.table.vehicle') }}</th><th>{{ __('listings.table.source') }}</th><th>{{ __('listings.table.total') }}</th><th>{{ __('listings.table.inspection_note') }}</th><th>{{ __('listings.table.buyer') }}</th><th>{{ __('listings.table.status') }}</th></tr>
                 </thead>
                 <tbody>
                     @forelse ($this->listings as $l)
@@ -872,7 +872,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <td><span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span></td>
                         </tr>
                     @empty
-                        <tr><td colspan="6" class="py-8 text-center text-gray-400">매입예정이 없습니다. “+ 매입예정 추가”로 등록하세요.</td></tr>
+                        <tr><td colspan="6" class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -901,10 +901,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @endif
                 </div>
             @empty
-                <div class="py-8 text-center text-gray-400">매입예정이 없습니다. “+ 매입예정 추가”로 등록하세요.</div>
+                <div class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</div>
             @endforelse
         </div>
-        <p class="mt-2 text-xs text-gray-400">💡 행을 클릭하면 내용을 보고 수정할 수 있습니다 (시간잠금된 경매 차량 제외).</p>
+        <p class="mt-2 text-xs text-gray-400">{{ __('listings.list.row_hint') }}</p>
     </div>
 
     {{-- 편집 드로어 (본인 글 수정) --}}
@@ -913,19 +913,19 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="fixed inset-0 z-40 bg-black/40" wire:click="closeEdit"></div>
         <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[440px]">
             <div class="flex items-center justify-between border-b border-gray-200 px-5 py-4">
-                <h3 class="font-bold text-gray-800">{{ $e->vehicle_number }} · 매입예정 수정</h3>
+                <h3 class="font-bold text-gray-800">{{ __('listings.drawer.title', ['number' => $e->vehicle_number]) }}</h3>
                 <button class="text-gray-400 hover:text-gray-600" wire:click="closeEdit">✕</button>
             </div>
             <div class="px-5 py-4">
                 <div class="card-sm mb-3 bg-gray-50 text-xs text-gray-500">
-                    차량번호 <b>{{ $e->vehicle_number }}</b> · VIN <b>{{ $e->vin }}</b>
+                    {{ __('listings.add_form.vehicle_number') }} <b>{{ $e->vehicle_number }}</b> · VIN <b>{{ $e->vin }}</b>
                     · <span class="badge {{ $e->originBadge() }}">{{ $e->originLabel() }}</span>
-                    <span class="text-gray-400">({{ $e->isAuction() ? '경매' : '엔카 즉시구매' }})</span><br>
-                    <span class="text-gray-400">식별값(차량번호·VIN)·출처는 수정 불가</span>
+                    <span class="text-gray-400">({{ $e->isAuction() ? __('listings.drawer.method_auction') : __('listings.drawer.method_encar') }})</span><br>
+                    <span class="text-gray-400">{{ __('listings.drawer.summary_locked') }}</span>
                 </div>
 
                 @unless ($canEdit)
-                    <div class="card-sm mb-3 border-amber-200 bg-amber-50 text-[13px] text-amber-800">🔒 시간잠금된 경매 차량입니다. 수정은 관리자에게 문의하세요.</div>
+                    <div class="card-sm mb-3 border-amber-200 bg-amber-50 text-[13px] text-amber-800">{{ __('listings.drawer.locked_notice') }}</div>
                 @endunless
 
                 {{-- 금액 산정 (§6) --}}
@@ -944,23 +944,23 @@ new #[Layout('components.layouts.app')] class extends Component {
                 </div>
                 <div class="grid grid-cols-2 gap-3">
                     <div>
-                        <label class="label-base">차값 ({{ \App\Support\Money::SYMBOLS[$e->expected_price_currency] ?? '원' }})</label>
+                        <label class="label-base">{{ __('listings.add_form.car_cost') }} ({{ \App\Support\Money::SYMBOLS[$e->expected_price_currency] ?? '원' }})</label>
                         <input class="input-base" wire:model.live.debounce.400ms="e_car_cost" inputmode="numeric" @unless ($canEdit) disabled @endunless>
                         @error('e_car_cost') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                     <div>
-                        <label class="label-base">할인율 (%)</label>
+                        <label class="label-base">{{ __('listings.add_form.discount_rate') }}</label>
                         <input class="input-base" wire:model.live.debounce.400ms="e_discount_rate" inputmode="decimal" @unless ($canEdit) disabled @endunless>
                         @error('e_discount_rate') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                 </div>
                 <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
-                    <span>＋ 매도비 (고정)</span><span class="font-semibold text-gray-700">{{ number_format((int) config('board.sales_fee')) }}원</span>
+                    <span>{{ __('listings.pricing.sales_fee') }}</span><span class="font-semibold text-gray-700">{{ number_format((int) config('board.sales_fee')) }}원</span>
                 </div>
                 <div class="mt-1 flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 text-sm">
-                    <span class="text-gray-600">차량금액</span><span class="font-bold text-gray-800">{{ $this->fmt($eCar) }}</span>
+                    <span class="text-gray-600">{{ __('listings.pricing.car_price_short') }}</span><span class="font-bold text-gray-800">{{ $this->fmt($eCar) }}</span>
                 </div>
-                <label class="label-base mt-3">배송금액 (USD 고정)</label>
+                <label class="label-base mt-3">{{ __('listings.pricing.shipping_label') }}</label>
                 <div class="inline-flex overflow-hidden rounded-md border border-gray-300">
                     @foreach (config('board.shipping_options') as $opt)
                         <button type="button" @if ($canEdit) wire:click="$set('e_shipping_usd', {{ $opt }})" @else disabled @endif
@@ -968,44 +968,44 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @endforeach
                 </div>
                 @error('e_shipping_usd') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                @if ($eShipKrw !== null)<div class="mt-1 text-right text-xs text-gray-500">배송 {{ $this->fmt($eShipKrw) }}</div>@endif
+                @if ($eShipKrw !== null)<div class="mt-1 text-right text-xs text-gray-500">{{ __('listings.pricing.shipping_prefix') }}{{ $this->fmt($eShipKrw) }}</div>@endif
                 <div class="mt-2 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
-                    <span class="text-sm font-semibold text-gray-700">최종금액</span><span class="text-base font-bold text-[var(--color-primary-text)]">{{ $this->fmt($eTotal) }}</span>
+                    <span class="text-sm font-semibold text-gray-700">{{ __('listings.pricing.total_short') }}</span><span class="text-base font-bold text-[var(--color-primary-text)]">{{ $this->fmt($eTotal) }}</span>
                 </div>
 
                 {{-- 입금정보 (선택) §6e · car-erp 형식 --}}
-                <label class="label-base mt-3">입금정보 <span class="text-gray-400">(선택 · 정산계좌)</span></label>
+                <label class="label-base mt-3">{{ __('listings.payee.label') }} <span class="text-gray-400">{{ __('listings.payee.hint') }}</span></label>
                 <div x-data class="grid gap-2 sm:grid-cols-3">
                     <div>
                         <input x-ref="bankEdit" wire:model.blur="e_payee_bank" list="korean-banks-edit" autocomplete="off"
-                               class="input-base" placeholder="은행" maxlength="100" @unless ($canEdit) disabled @endunless
+                               class="input-base" placeholder="{{ __('listings.payee.bank_ph') }}" maxlength="100" @unless ($canEdit) disabled @endunless
                                x-on:input="$refs.acctEdit.value = $store.koreanBanks.applyMask($el.value, $refs.acctEdit.value)">
                         <datalist id="korean-banks-edit"><template x-for="b in $store.koreanBanks.names()" :key="b"><option :value="b"></option></template></datalist>
                     </div>
-                    <div><input wire:model.blur="e_payee_name" class="input-base" placeholder="예금주" maxlength="60" @unless ($canEdit) disabled @endunless></div>
+                    <div><input wire:model.blur="e_payee_name" class="input-base" placeholder="{{ __('listings.payee.name_ph') }}" maxlength="60" @unless ($canEdit) disabled @endunless></div>
                     <div><input x-ref="acctEdit" wire:model.blur="e_payee_account" autocomplete="off"
-                               class="input-base font-mono" placeholder="계좌번호" @unless ($canEdit) disabled @endunless
+                               class="input-base font-mono" placeholder="{{ __('listings.payee.account_ph') }}" @unless ($canEdit) disabled @endunless
                                x-on:input="$el.value = $store.koreanBanks.applyMask($refs.bankEdit.value, $el.value)"></div>
                 </div>
                 @error('e_payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                <label class="label-base mt-3">지역</label>
-                <input class="input-base" wire:model="e_region" list="regionListEdit" placeholder="수원 입력 → 자동완성" @unless ($canEdit) disabled @endunless>
+                <label class="label-base mt-3">{{ __('listings.add_form.region') }}</label>
+                <input class="input-base" wire:model="e_region" list="regionListEdit" placeholder="{{ __('listings.add_form.region_ph') }}" @unless ($canEdit) disabled @endunless>
                 <datalist id="regionListEdit">
                     @foreach (config('board.regions') as $r)<option value="{{ $r }}">@endforeach
                 </datalist>
                 @error('e_region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                <label class="label-base mt-3">소유자 <span class="text-gray-400">(차주명)</span></label>
-                <input class="input-base" wire:model="e_owner_name" placeholder="등록 소유자명" maxlength="60" @unless ($canEdit) disabled @endunless>
+                <label class="label-base mt-3">{{ __('listings.add_form.owner') }} <span class="text-gray-400">{{ __('listings.add_form.owner_hint') }}</span></label>
+                <input class="input-base" wire:model="e_owner_name" placeholder="{{ __('listings.add_form.owner_ph') }}" maxlength="60" @unless ($canEdit) disabled @endunless>
                 @error('e_owner_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                <label class="label-base mt-3">respond.io 컨택트 ID <span class="text-gray-400">(바이어 식별 · 자동회신 매칭키)</span></label>
-                <input class="input-base" wire:model="e_respond_contact_id" placeholder="respond.io 바이어 컨택트 ID" @unless ($canEdit) disabled @endunless>
+                <label class="label-base mt-3">{{ __('listings.drawer.contact_label') }} <span class="text-gray-400">{{ __('listings.drawer.contact_hint') }}</span></label>
+                <input class="input-base" wire:model="e_respond_contact_id" placeholder="{{ __('listings.drawer.contact_ph') }}" @unless ($canEdit) disabled @endunless>
                 @error('e_respond_contact_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 @if ($e->encar_id || $e->c_no || $e->ssancar_ref)
                     <div class="mt-1 flex flex-wrap gap-1.5 text-[11px]">
-                        <span class="text-gray-400">유입:</span>
+                        <span class="text-gray-400">{{ __('listings.drawer.origin_prefix') }}</span>
                         @if ($e->encar_id)<span class="badge badge-encar">encar #{{ $e->encar_id }}</span>@endif
                         @if ($e->c_no)<span class="badge badge-blue">c_no {{ $e->c_no }}</span>@endif
                         @if ($e->ssancar_ref)<span class="badge badge-gray">{{ $e->ssancar_ref }}</span>@endif
@@ -1013,20 +1013,20 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @endif
 
                 @if ($e->source === 'encar')
-                    <label class="label-base mt-3">엔카 매물 URL</label>
-                    <input class="input-base" wire:model="e_encar_url" placeholder="https://encar.com/..." @unless ($canEdit) disabled @endunless>
-                    <label class="label-base mt-3">매물번호 <span class="text-gray-400">(c_no)</span></label>
-                    <input class="input-base" wire:model="e_c_no" placeholder="예: 6797296" @unless ($canEdit) disabled @endunless>
+                    <label class="label-base mt-3">{{ __('listings.drawer.encar_url') }}</label>
+                    <input class="input-base" wire:model="e_encar_url" placeholder="{{ __('listings.drawer.encar_url_ph') }}" @unless ($canEdit) disabled @endunless>
+                    <label class="label-base mt-3">{{ __('listings.add_form.c_no') }} <span class="text-gray-400">{{ __('listings.add_form.c_no_hint') }}</span></label>
+                    <input class="input-base" wire:model="e_c_no" placeholder="{{ __('listings.drawer.c_no_ph') }}" @unless ($canEdit) disabled @endunless>
                     @error('e_c_no') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 @else
-                    <label class="label-base mt-3">경매장</label>
+                    <label class="label-base mt-3">{{ __('listings.add_form.auction_venue') }}</label>
                     <input class="input-base" wire:model="e_auction_venue" @unless ($canEdit) disabled @endunless>
-                    <label class="label-base mt-3">출품번호</label>
+                    <label class="label-base mt-3">{{ __('listings.add_form.lot_number') }}</label>
                     <input class="input-base" wire:model="e_lot_number" @unless ($canEdit) disabled @endunless>
                 @endif
 
                 {{-- 차량 첨부 (영업 자료 → 연동 B car-erp 첨부탭) --}}
-                <label class="label-base mt-4">차량 첨부 <span class="text-gray-400">(사진·서류 · 최대 {{ config('board.attachment_max') }}건)</span></label>
+                <label class="label-base mt-4">{{ __('listings.attach.drawer_label') }} <span class="text-gray-400">{{ __('listings.attach.drawer_hint', ['max' => config('board.attachment_max')]) }}</span></label>
                 @if ($e->salesAttachments->count())
                     <div class="mt-1 grid grid-cols-4 gap-2">
                         @foreach ($e->salesAttachments as $p)
@@ -1039,21 +1039,21 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     <a href="{{ $p->shareUrl() }}" target="_blank"><img src="{{ $p->shareUrl() }}" class="aspect-square w-full object-cover" alt=""></a>
                                 @endif
                                 @if ($canEdit)
-                                    <button type="button" wire:click="deleteSalesAttachment({{ $p->id }})" wire:confirm="이 첨부를 삭제하시겠습니까?"
+                                    <button type="button" wire:click="deleteSalesAttachment({{ $p->id }})" wire:confirm="{{ __('listings.attach.delete_confirm') }}"
                                         class="absolute right-0.5 top-0.5 rounded bg-black/55 px-1 text-[10px] font-semibold text-white hover:bg-red-600">✕</button>
                                 @endif
                             </div>
                         @endforeach
                     </div>
                 @else
-                    <p class="mt-1 text-[11px] text-gray-400">아직 첨부가 없습니다.</p>
+                    <p class="mt-1 text-[11px] text-gray-400">{{ __('listings.attach.drawer_empty') }}</p>
                 @endif
                 @if ($canEdit)
                     <label class="mt-2 flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-gray-300 py-2.5 text-[13px] text-gray-500 hover:border-[var(--color-primary)]">
-                        📎 파일 추가 (사진·서류·엑셀 등 · 실행파일 제외)
+                        {{ __('listings.attach.drawer_add') }}
                         <input type="file" multiple wire:model="eSalesFiles" class="hidden">
                     </label>
-                    <div wire:loading wire:target="eSalesFiles" class="mt-1 text-xs text-gray-400">업로드 중…</div>
+                    <div wire:loading wire:target="eSalesFiles" class="mt-1 text-xs text-gray-400">{{ __('listings.attach.uploading') }}</div>
                     @if (count($eSalesFiles))
                         <div class="mt-2 grid grid-cols-4 gap-2">
                             @foreach ($eSalesFiles as $i => $f)
@@ -1070,7 +1070,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 </div>
                             @endforeach
                         </div>
-                        <p class="mt-1 text-[11px] text-gray-500">{{ count($eSalesFiles) }}개 선택됨 — 저장 시 반영</p>
+                        <p class="mt-1 text-[11px] text-gray-500">{{ __('listings.attach.selected', ['count' => count($eSalesFiles)]) }}</p>
                     @endif
                     @error('eSalesFiles') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     @error('eSalesFiles.*') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
@@ -1078,17 +1078,17 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 {{-- 읽기전용 진행 정보 (현지확인·경매에서 채워짐) --}}
                 <div class="mt-4 grid grid-cols-2 gap-3 text-xs text-gray-500">
-                    <div>현지 최종금액<br><b class="text-sm text-gray-800">{{ $e->final_price ? number_format($e->final_price).'원' : '— (현지확인 후)' }}</b></div>
-                    <div>상태<br><span class="badge {{ $e->statusBadge() }}">{{ $e->statusLabel() }}</span></div>
-                    <div>바이어<br>@if ($e->verdictLabel())<span class="badge {{ $e->verdictBadge() }}">{{ $e->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</div>
-                    <div>바이어명<br><b class="text-gray-800">{{ $e->buyer_name ?: '—' }}</b></div>
+                    <div>{{ __('listings.drawer.local_total') }}<br><b class="text-sm text-gray-800">{{ $e->final_price ? number_format($e->final_price).'원' : __('listings.drawer.local_total_pending') }}</b></div>
+                    <div>{{ __('listings.drawer.status') }}<br><span class="badge {{ $e->statusBadge() }}">{{ $e->statusLabel() }}</span></div>
+                    <div>{{ __('listings.drawer.buyer') }}<br>@if ($e->verdictLabel())<span class="badge {{ $e->verdictBadge() }}">{{ $e->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</div>
+                    <div>{{ __('listings.drawer.buyer_name') }}<br><b class="text-gray-800">{{ $e->buyer_name ?: '—' }}</b></div>
                 </div>
 
                 <div class="mt-5 flex gap-2">
                     @if ($canEdit)
-                        <button class="btn-primary flex-1 justify-center" wire:click="update">저장</button>
+                        <button class="btn-primary flex-1 justify-center" wire:click="update">{{ __('common.save') }}</button>
                     @endif
-                    <button class="btn-ghost" wire:click="closeEdit">{{ $canEdit ? '취소' : '닫기' }}</button>
+                    <button class="btn-ghost" wire:click="closeEdit">{{ $canEdit ? __('common.cancel') : __('common.close') }}</button>
                 </div>
             </div>
         </div>

@@ -76,7 +76,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->applyPayee($l);
         $l->save();
         unset($this->detail, $this->listings);
-        session()->flash('ok', '입금정보를 저장했습니다.');
+        session()->flash('ok', __('auction.flash_payee_saved'));
     }
 
     public function photoUrl(string $path): string
@@ -102,7 +102,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $l = PurchaseListing::findOrFail($id);
         if ($l->status !== 'accepted') {
-            session()->flash('err', '바이어 수락 상태의 차량만 집행할 수 있습니다.');
+            session()->flash('err', __('auction.flash_only_accepted'));
 
             return;
         }
@@ -116,14 +116,14 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->save();
         $this->reset(['detailId', 'owner_name', 'payee_name', 'payee_bank', 'payee_account']);
         unset($this->listings, $this->detail);
-        session()->flash('ok', $l->vehicle_number.' — '.$l->statusLabel().' 처리되었습니다.');
+        session()->flash('ok', __('auction.flash_processed', ['no' => $l->vehicle_number, 'label' => $l->statusLabel()]));
     }
 }; ?>
 
 <div class="p-3 md:p-6">
     <div class="mb-4">
-        <h1 class="text-xl font-bold text-gray-800">경매/구매</h1>
-        <p class="mt-0.5 text-xs text-gray-500">🏁 바이어가 <b>수락</b>한 차량만 진입 — 경매=낙찰/유찰 · 엔카=구매확정/취소 · 현지 최종금액으로 집행</p>
+        <h1 class="text-xl font-bold text-gray-800">{{ __('auction.title') }}</h1>
+        <p class="mt-0.5 text-xs text-gray-500">{!! __('auction.subtitle') !!}</p>
     </div>
 
     @if (session('ok'))
@@ -135,33 +135,33 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     <div class="card">
         <div class="mb-3 flex items-center gap-2">
-            <h2 class="font-bold text-gray-800">경매/구매 컨트롤창</h2>
-            <span class="pill-count">수락 {{ $this->listings->where('status', 'accepted')->count() }}건</span>
+            <h2 class="font-bold text-gray-800">{{ __('auction.panel_title') }}</h2>
+            <span class="pill-count">{{ __('auction.accepted_count', ['count' => $this->listings->where('status', 'accepted')->count()]) }}</span>
         </div>
 
         {{-- 데스크톱: 표 --}}
         <div class="hidden overflow-x-auto sm:block">
             <table class="tbl">
                 <thead>
-                    <tr><th>차량</th><th>출처</th><th>영업</th><th>현지 최종금액</th><th>처리</th></tr>
+                    <tr><th>{{ __('auction.col_vehicle') }}</th><th>{{ __('auction.col_source') }}</th><th>{{ __('auction.col_salesman') }}</th><th>{{ __('auction.col_final_price') }}</th><th>{{ __('auction.col_process') }}</th></tr>
                 </thead>
                 <tbody>
                     @forelse ($this->listings as $l)
                         <tr class="cursor-pointer hover:bg-gray-50" wire:click="openDetail({{ $l->id }})">
                             <td class="font-semibold text-gray-800">{{ $l->vehicle_number }}</td>
-                            <td><span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }}">{{ $l->isAuction() ? '경매' : '엔카' }}</span></td>
+                            <td><span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }}">{{ $l->isAuction() ? __('domain.source.auction') : __('domain.source.encar') }}</span></td>
                             <td class="text-gray-600">{{ $l->creator->name }}</td>
-                            <td class="font-semibold text-[var(--color-primary-text)]">{{ $l->final_price ? number_format($l->final_price).'원' : '—' }}</td>
+                            <td class="font-semibold text-[var(--color-primary-text)]">{{ $l->final_price ? number_format($l->final_price).__('common.won_currency') : '—' }}</td>
                             <td>
                                 @if ($l->status === 'accepted')
-                                    <span class="badge badge-amber">집행 대기 · 클릭</span>
+                                    <span class="badge badge-amber">{{ __('auction.pending_click') }}</span>
                                 @else
                                     <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }} ✓</span>
                                 @endif
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="5" class="py-8 text-center text-gray-400">수락된 차량이 없습니다.</td></tr>
+                        <tr><td colspan="5" class="py-8 text-center text-gray-400">{{ __('auction.empty') }}</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -174,24 +174,24 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <div class="flex items-start justify-between gap-2">
                         <div class="min-w-0">
                             <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
-                            <div class="text-xs text-gray-400">영업 {{ $l->creator->name }}</div>
+                            <div class="text-xs text-gray-400">{{ __('auction.salesman_label') }} {{ $l->creator->name }}</div>
                         </div>
-                        <span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }} shrink-0">{{ $l->isAuction() ? '경매' : '엔카' }}</span>
+                        <span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }} shrink-0">{{ $l->isAuction() ? __('domain.source.auction') : __('domain.source.encar') }}</span>
                     </div>
                     <div class="mt-2 flex items-center justify-between gap-2">
                         @if ($l->status === 'accepted')
-                            <span class="badge badge-amber">집행 대기 · 탭</span>
+                            <span class="badge badge-amber">{{ __('auction.pending_tap') }}</span>
                         @else
                             <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }} ✓</span>
                         @endif
-                        <span class="shrink-0 text-sm font-semibold text-[var(--color-primary-text)]">{{ $l->final_price ? number_format($l->final_price).'원' : '—' }}</span>
+                        <span class="shrink-0 text-sm font-semibold text-[var(--color-primary-text)]">{{ $l->final_price ? number_format($l->final_price).__('common.won_currency') : '—' }}</span>
                     </div>
                 </div>
             @empty
-                <div class="py-8 text-center text-gray-400">수락된 차량이 없습니다.</div>
+                <div class="py-8 text-center text-gray-400">{{ __('auction.empty') }}</div>
             @endforelse
         </div>
-        <p class="mt-2 text-xs text-gray-400">💡 행을 클릭하면 차량 상세를 볼 수 있습니다.</p>
+        <p class="mt-2 text-xs text-gray-400">{{ __('auction.row_click_hint') }}</p>
     </div>
 
     {{-- ─────────── 상세 드로어 (읽기전용 + 집행) ─────────── --}}
@@ -200,7 +200,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="fixed inset-0 z-40 bg-black/40" wire:click="closeDetail"></div>
         <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[440px]">
             <div class="flex items-center justify-between border-b border-gray-200 px-5 py-4">
-                <h3 class="font-bold text-gray-800">{{ $d->vehicle_number }} · 상세
+                <h3 class="font-bold text-gray-800">{{ $d->vehicle_number }} · {{ __('common.detail') }}
                     <span class="badge {{ $d->statusBadge() }} ml-1">{{ $d->statusLabel() }}</span>
                 </h3>
                 <button class="text-gray-400 hover:text-gray-600" wire:click="closeDetail">✕</button>
@@ -208,31 +208,31 @@ new #[Layout('components.layouts.app')] class extends Component {
 
             <div class="px-5 py-4 text-sm">
                 <div class="card-sm mb-3 bg-gray-50 text-xs text-gray-600">
-                    <span class="badge {{ $d->isAuction() ? 'badge-auction' : 'badge-encar' }}">{{ $d->isAuction() ? '경매' : '엔카' }}</span>
-                    · 영업 <b>{{ $d->creator->name }}</b> · 지역 <b>{{ $d->region ?: '—' }}</b><br>
-                    VIN <b>{{ $d->vin ?: '— (NICE 조회 예정)' }}</b>
-                    @if ($d->isAuction())· {{ $d->auction_venue }} {{ $d->lot_number }}@else· {{ $d->encar_dealer ?: '' }} {{ $d->c_no ? '· 매물 '.$d->c_no : '' }}@endif
+                    <span class="badge {{ $d->isAuction() ? 'badge-auction' : 'badge-encar' }}">{{ $d->isAuction() ? __('domain.source.auction') : __('domain.source.encar') }}</span>
+                    · {{ __('auction.salesman_label') }} <b>{{ $d->creator->name }}</b> · {{ __('auction.region_label') }} <b>{{ $d->region ?: '—' }}</b><br>
+                    VIN <b>{{ $d->vin ?: __('auction.vin_pending') }}</b>
+                    @if ($d->isAuction())· {{ $d->auction_venue }} {{ $d->lot_number }}@else· {{ $d->encar_dealer ?: '' }} {{ $d->c_no ? __('auction.listing_no', ['no' => $d->c_no]) : '' }}@endif
                 </div>
 
                 {{-- 금액 --}}
                 <div class="grid grid-cols-2 gap-2 text-xs text-gray-500">
-                    <div>차값<br><b class="text-sm text-gray-800">{{ $d->carCostDisplay() }}</b></div>
-                    <div>할인율<br><b class="text-sm text-gray-800">{{ $d->discount_rate !== null ? $d->discount_rate.'%' : '—' }}</b></div>
-                    <div>배송<br><b class="text-sm text-gray-800">{{ $d->shipping_usd ? '$'.number_format($d->shipping_usd) : '—' }}</b></div>
-                    <div>바이어<br><b class="text-sm text-gray-800">{{ $d->buyer_name ?: '—' }}</b></div>
+                    <div>{{ __('auction.car_cost') }}<br><b class="text-sm text-gray-800">{{ $d->carCostDisplay() }}</b></div>
+                    <div>{{ __('auction.discount_rate') }}<br><b class="text-sm text-gray-800">{{ $d->discount_rate !== null ? $d->discount_rate.'%' : '—' }}</b></div>
+                    <div>{{ __('auction.shipping') }}<br><b class="text-sm text-gray-800">{{ $d->shipping_usd ? '$'.number_format($d->shipping_usd) : '—' }}</b></div>
+                    <div>{{ __('auction.buyer') }}<br><b class="text-sm text-gray-800">{{ $d->buyer_name ?: '—' }}</b></div>
                 </div>
                 <div class="mt-3 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
-                    <span class="font-semibold text-gray-700">현지 최종금액</span>
-                    <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $d->final_price ? number_format($d->final_price).'원' : '—' }}</span>
+                    <span class="font-semibold text-gray-700">{{ __('auction.final_price') }}</span>
+                    <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $d->final_price ? number_format($d->final_price).__('common.won_currency') : '—' }}</span>
                 </div>
 
                 @if ($d->inspection_memo || $d->inspection_note)
-                    <div class="section-title-sm">검사 메모</div>
+                    <div class="section-title-sm">{{ __('auction.inspection_memo') }}</div>
                     <p class="text-xs text-gray-600">{{ $d->inspection_memo }}{{ $d->inspection_note ? ' · '.$d->inspection_note : '' }}</p>
                 @endif
 
                 @if ($d->photos->count())
-                    <div class="section-title-sm">차량 사진</div>
+                    <div class="section-title-sm">{{ __('auction.vehicle_photos') }}</div>
                     <div class="grid grid-cols-4 gap-2">
                         @foreach ($d->photos as $p)
                             @if ($p->isVideo())
@@ -246,26 +246,26 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 {{-- 소유자(차주) — accepted·won 에서 입력/보정 (car-erp NICE 조회 입력값) --}}
                 @if (in_array($d->status, ['accepted', 'won'], true))
-                    <div class="section-title-sm">소유자 <span class="text-[11px] font-normal text-gray-400">(차주명 · car-erp VIN 조회용)</span></div>
-                    <input wire:model.blur="owner_name" class="input-base" placeholder="등록 소유자명" maxlength="60">
+                    <div class="section-title-sm">{{ __('auction.owner') }} <span class="text-[11px] font-normal text-gray-400">{{ __('auction.owner_hint') }}</span></div>
+                    <input wire:model.blur="owner_name" class="input-base" placeholder="{{ __('auction.owner_placeholder') }}" maxlength="60">
                     @error('owner_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 @endif
 
                 {{-- 입금정보 (정산 = 판매자/경매장 계좌) — accepted·won 에서 입력/수정 --}}
                 @if (in_array($d->status, ['accepted', 'won'], true))
-                    <div class="section-title-sm">입금정보 <span class="text-[11px] font-normal text-gray-400">(매입 정산 계좌 · car-erp 전달)</span></div>
+                    <div class="section-title-sm">{{ __('auction.payment_info') }} <span class="text-[11px] font-normal text-gray-400">{{ __('auction.payment_info_hint') }}</span></div>
                     <div x-data>
                         <div class="grid grid-cols-2 gap-2">
                             <div>
                                 <input x-ref="bankAuc" wire:model.blur="payee_bank" list="korean-banks-auction" autocomplete="off"
-                                       class="input-base" placeholder="은행" maxlength="100"
+                                       class="input-base" placeholder="{{ __('auction.bank_placeholder') }}" maxlength="100"
                                        x-on:input="$refs.acctAuc.value = $store.koreanBanks.applyMask($el.value, $refs.acctAuc.value)">
                                 <datalist id="korean-banks-auction"><template x-for="b in $store.koreanBanks.names()" :key="b"><option :value="b"></option></template></datalist>
                             </div>
-                            <div><input wire:model.blur="payee_name" class="input-base" placeholder="예금주" maxlength="60"></div>
+                            <div><input wire:model.blur="payee_name" class="input-base" placeholder="{{ __('auction.payee_placeholder') }}" maxlength="60"></div>
                         </div>
                         <input x-ref="acctAuc" wire:model.blur="payee_account" autocomplete="off"
-                               class="input-base mt-2 font-mono" placeholder="계좌번호 (암호화 저장)"
+                               class="input-base mt-2 font-mono" placeholder="{{ __('auction.account_placeholder') }}"
                                x-on:input="$el.value = $store.koreanBanks.applyMask($refs.bankAuc.value, $el.value)">
                     </div>
                     @error('payee_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
@@ -275,14 +275,14 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 {{-- 집행 --}}
                 @if ($d->status === 'accepted')
-                    <div class="section-title-sm">집행</div>
-                    <p class="mb-1 text-[11px] text-gray-400">낙찰/구매확정 시 위 입금정보가 함께 저장됩니다.</p>
+                    <div class="section-title-sm">{{ __('auction.execute') }}</div>
+                    <p class="mb-1 text-[11px] text-gray-400">{{ __('auction.execute_hint') }}</p>
                     <div class="flex gap-2">
-                        <button class="btn-green flex-1 justify-center" wire:click="conclude({{ $d->id }}, 'won')">{{ $d->isAuction() ? '낙찰' : '구매확정' }}</button>
-                        <button class="btn-ghost flex-1 justify-center" wire:click="conclude({{ $d->id }}, 'failed')">{{ $d->isAuction() ? '유찰' : '취소' }}</button>
+                        <button class="btn-green flex-1 justify-center" wire:click="conclude({{ $d->id }}, 'won')">{{ $d->isAuction() ? __('auction.won_auction') : __('auction.won_encar') }}</button>
+                        <button class="btn-ghost flex-1 justify-center" wire:click="conclude({{ $d->id }}, 'failed')">{{ $d->isAuction() ? __('auction.failed_auction') : __('auction.failed_encar') }}</button>
                     </div>
                 @elseif ($d->status === 'won')
-                    <button class="btn-primary mt-3 w-full justify-center" wire:click="savePayee">입금정보 저장</button>
+                    <button class="btn-primary mt-3 w-full justify-center" wire:click="savePayee">{{ __('auction.save_payment_info') }}</button>
                 @endif
             </div>
         </div>

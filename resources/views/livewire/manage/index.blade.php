@@ -218,15 +218,15 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->allowManagerOverride = true;
         $l->save();
 
-        session()->flash('ok', $l->vehicle_number.' 수정 완료 — 변경 내역이 감사로그에 기록됐습니다.');
+        session()->flash('ok', __('manage.saved', ['vehicle' => $l->vehicle_number]));
         $this->closeEdit();
     }
 }; ?>
 
 <div class="p-3 md:p-6">
     <div class="mb-4">
-        <h1 class="text-xl font-bold text-gray-800">관리자</h1>
-        <p class="mt-0.5 text-xs text-gray-500">✏️ 시간잠금 무관 수정 (예상가·최종금액·출처·상태) — 단 <b>차량번호·VIN은 수정 불가</b>. 모든 변경은 감사로그 기록.</p>
+        <h1 class="text-xl font-bold text-gray-800">{{ __('manage.title') }}</h1>
+        <p class="mt-0.5 text-xs text-gray-500">{!! __('manage.subtitle_html') !!}</p>
     </div>
 
     @if (session('ok'))
@@ -236,57 +236,57 @@ new #[Layout('components.layouts.app')] class extends Component {
     {{-- KPI (클릭 = 그 차원 필터 토글) --}}
     @php $k = $this->kpi; @endphp
     <div class="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">
-        <button type="button" wire:click="kpiFilter('today')" class="kpi text-left {{ $fToday ? 'ring-2 ring-[var(--color-primary)]' : '' }}"><div class="k">오늘 매입예정</div><div class="v">{{ $k['today'] }}</div></button>
-        <button type="button" wire:click="kpiFilter('encar')" class="kpi text-left {{ $fSource === 'encar' ? 'ring-2 ring-[var(--color-encar)]' : '' }}"><div class="k">엔카</div><div class="v" style="color:var(--color-encar)">{{ $k['encar'] }}</div></button>
-        <button type="button" wire:click="kpiFilter('auction')" class="kpi text-left {{ $fSource === 'auction' ? 'ring-2 ring-[var(--color-auction)]' : '' }}"><div class="k">경매</div><div class="v" style="color:var(--color-auction)">{{ $k['auction'] }}</div></button>
-        <button type="button" wire:click="kpiFilter('accepted')" class="kpi text-left {{ $fVerdict === 'accepted' ? 'ring-2 ring-green-500' : '' }}"><div class="k">바이어 수락</div><div class="v" style="color:#16a34a">{{ $k['accepted'] }}</div></button>
-        <button type="button" wire:click="kpiFilter('won')" class="kpi text-left {{ $fStatus === 'won' ? 'ring-2 ring-[var(--color-primary)]' : '' }}"><div class="k">ERP 전환대기</div><div class="v" style="color:var(--color-primary)">{{ $k['won'] }}</div></button>
+        <button type="button" wire:click="kpiFilter('today')" class="kpi text-left {{ $fToday ? 'ring-2 ring-[var(--color-primary)]' : '' }}"><div class="k">{{ __('manage.kpi_today') }}</div><div class="v">{{ $k['today'] }}</div></button>
+        <button type="button" wire:click="kpiFilter('encar')" class="kpi text-left {{ $fSource === 'encar' ? 'ring-2 ring-[var(--color-encar)]' : '' }}"><div class="k">{{ __('manage.kpi_encar') }}</div><div class="v" style="color:var(--color-encar)">{{ $k['encar'] }}</div></button>
+        <button type="button" wire:click="kpiFilter('auction')" class="kpi text-left {{ $fSource === 'auction' ? 'ring-2 ring-[var(--color-auction)]' : '' }}"><div class="k">{{ __('manage.kpi_auction') }}</div><div class="v" style="color:var(--color-auction)">{{ $k['auction'] }}</div></button>
+        <button type="button" wire:click="kpiFilter('accepted')" class="kpi text-left {{ $fVerdict === 'accepted' ? 'ring-2 ring-green-500' : '' }}"><div class="k">{{ __('manage.kpi_accepted') }}</div><div class="v" style="color:#16a34a">{{ $k['accepted'] }}</div></button>
+        <button type="button" wire:click="kpiFilter('won')" class="kpi text-left {{ $fStatus === 'won' ? 'ring-2 ring-[var(--color-primary)]' : '' }}"><div class="k">{{ __('manage.kpi_won') }}</div><div class="v" style="color:var(--color-primary)">{{ $k['won'] }}</div></button>
     </div>
 
     {{-- 전체 현황 --}}
     <div class="card">
         <div class="mb-3 flex items-center gap-2">
-            <h2 class="font-bold text-gray-800">전체 현황</h2>
-            <span class="pill-count">{{ number_format($this->listings->total()) }}건</span>
+            <h2 class="font-bold text-gray-800">{{ __('manage.overview') }}</h2>
+            <span class="pill-count">{{ number_format($this->listings->total()) }}{{ __('manage.count_suffix') }}</span>
             @if ($fStatus || $fSource || $fVerdict || $fToday || $search)
-                <button class="btn-ghost btn-sm ml-auto" wire:click="clearFilters">필터해제 ✕</button>
+                <button class="btn-ghost btn-sm ml-auto" wire:click="clearFilters">{{ __('manage.clear_filters') }}</button>
             @endif
         </div>
         {{-- 필터 — 가로 grid (매입예정 추가폼과 동일 레이아웃) --}}
         <div class="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <input class="input-base" wire:model.live.debounce.400ms="search" placeholder="🔍 차량번호·매물번호·소유자">
+            <input class="input-base" wire:model.live.debounce.400ms="search" placeholder="{{ __('manage.search_placeholder') }}">
             <select class="input-base" wire:model.live="fStatus">
-                <option value="">상태 전체</option>
-                @foreach (\App\Models\PurchaseListing::STATUS_LABELS as $val => $label)<option value="{{ $val }}">{{ $label }}</option>@endforeach
+                <option value="">{{ __('manage.status_all') }}</option>
+                @foreach (\App\Models\PurchaseListing::statusOptions() as $val => $label)<option value="{{ $val }}">{{ $label }}</option>@endforeach
             </select>
             <select class="input-base" wire:model.live="fSource">
-                <option value="">출처 전체</option><option value="encar">엔카</option><option value="auction">경매</option>
+                <option value="">{{ __('manage.source_all') }}</option><option value="encar">{{ __('manage.source_encar') }}</option><option value="auction">{{ __('manage.source_auction') }}</option>
             </select>
             <select class="input-base" wire:model.live="fVerdict">
-                <option value="">바이어회신 전체</option>
-                <option value="pending">회신대기</option><option value="accepted">수락</option><option value="rejected">거절</option>
+                <option value="">{{ __('manage.verdict_all') }}</option>
+                <option value="pending">{{ __('manage.verdict_pending') }}</option><option value="accepted">{{ __('manage.verdict_accepted') }}</option><option value="rejected">{{ __('manage.verdict_rejected') }}</option>
             </select>
         </div>
         {{-- 데스크톱: 표 --}}
         <div class="hidden overflow-x-auto sm:block">
             <table class="tbl">
                 <thead>
-                    <tr><th>차량</th><th>출처</th><th>영업</th><th>예상가</th><th>최종금액</th><th>바이어</th><th>상태</th><th></th></tr>
+                    <tr><th>{{ __('manage.th_vehicle') }}</th><th>{{ __('manage.th_source') }}</th><th>{{ __('manage.th_sales') }}</th><th>{{ __('manage.th_expected') }}</th><th>{{ __('manage.th_total') }}</th><th>{{ __('manage.th_buyer') }}</th><th>{{ __('manage.th_status') }}</th><th></th></tr>
                 </thead>
                 <tbody>
                     @forelse ($this->listings as $l)
                         <tr>
                             <td class="font-semibold text-gray-800">{{ $l->vehicle_number }}</td>
-                            <td><span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }}">{{ $l->isAuction() ? '경매' : '엔카' }}</span></td>
+                            <td><span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }}">{{ $l->isAuction() ? __('manage.source_auction') : __('manage.source_encar') }}</span></td>
                             <td class="text-gray-600">{{ $l->creator->name }}</td>
                             <td class="text-gray-700">{{ $l->expected_price ? number_format($l->expected_price) : '—' }}</td>
                             <td class="font-semibold text-[var(--color-primary-text)]">{{ $l->final_price ? number_format($l->final_price) : '—' }}</td>
                             <td>@if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</td>
                             <td><span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span></td>
-                            <td><button class="btn-outline btn-sm" wire:click="openEdit({{ $l->id }})">✏️ 수정</button></td>
+                            <td><button class="btn-outline btn-sm" wire:click="openEdit({{ $l->id }})">✏️ {{ __('common.edit') }}</button></td>
                         </tr>
                     @empty
-                        <tr><td colspan="8" class="py-8 text-center text-gray-400">조건에 맞는 데이터가 없습니다.</td></tr>
+                        <tr><td colspan="8" class="py-8 text-center text-gray-400">{{ __('manage.empty') }}</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -299,9 +299,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <div class="flex items-start justify-between gap-2">
                         <div class="min-w-0">
                             <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
-                            <div class="text-xs text-gray-400">영업 {{ $l->creator->name }}</div>
+                            <div class="text-xs text-gray-400">{{ __('manage.card_sales') }} {{ $l->creator->name }}</div>
                         </div>
-                        <span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }} shrink-0">{{ $l->isAuction() ? '경매' : '엔카' }}</span>
+                        <span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }} shrink-0">{{ $l->isAuction() ? __('manage.source_auction') : __('manage.source_encar') }}</span>
                     </div>
                     <div class="mt-2 flex flex-wrap items-center gap-1">
                         <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span>
@@ -309,14 +309,14 @@ new #[Layout('components.layouts.app')] class extends Component {
                     </div>
                     <div class="mt-2 flex items-end justify-between gap-2">
                         <div class="min-w-0 text-xs text-gray-500">
-                            예상 {{ $l->expected_price ? number_format($l->expected_price) : '—' }}<br>
-                            최종 <b class="text-[var(--color-primary-text)]">{{ $l->final_price ? number_format($l->final_price).'원' : '—' }}</b>
+                            {{ __('manage.card_expected') }} {{ $l->expected_price ? number_format($l->expected_price) : '—' }}<br>
+                            {{ __('manage.card_total') }} <b class="text-[var(--color-primary-text)]">{{ $l->final_price ? number_format($l->final_price).__('common.won_currency') : '—' }}</b>
                         </div>
-                        <button class="btn-outline btn-sm shrink-0" wire:click="openEdit({{ $l->id }})">✏️ 수정</button>
+                        <button class="btn-outline btn-sm shrink-0" wire:click="openEdit({{ $l->id }})">✏️ {{ __('common.edit') }}</button>
                     </div>
                 </div>
             @empty
-                <div class="py-8 text-center text-gray-400">조건에 맞는 데이터가 없습니다.</div>
+                <div class="py-8 text-center text-gray-400">{{ __('manage.empty') }}</div>
             @endforelse
         </div>
         <div class="mt-3">{{ $this->listings->links() }}</div>
@@ -328,47 +328,47 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="fixed inset-0 z-40 bg-black/40" wire:click="closeEdit"></div>
         <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[440px]">
             <div class="flex items-center justify-between border-b border-gray-200 px-5 py-4">
-                <h3 class="font-bold text-gray-800">{{ $e->vehicle_number }} · 수정</h3>
+                <h3 class="font-bold text-gray-800">{{ $e->vehicle_number }} · {{ __('manage.edit_suffix') }}</h3>
                 <button class="text-gray-400 hover:text-gray-600" wire:click="closeEdit">✕</button>
             </div>
             <div class="px-5 py-4">
                 @if ($e->car_erp_vehicle_id === null)
-                    <label class="label-base">차량번호 <span class="text-xs font-normal text-amber-600">· 오타 정정 가능</span></label>
+                    <label class="label-base">{{ __('manage.vehicle_number') }} <span class="text-xs font-normal text-amber-600">{{ __('manage.vehicle_number_hint') }}</span></label>
                     <input class="input-base" wire:model="vehicle_number">
                     @error('vehicle_number') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                    <label class="label-base mt-3">차대번호 VIN</label>
+                    <label class="label-base mt-3">{{ __('manage.vin') }}</label>
                     <input class="input-base" wire:model="vin">
                     @error('vin') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 @else
                     <div class="card-sm bg-gray-50 text-xs text-gray-500">
-                        차량번호 <b>{{ $e->vehicle_number }}</b> · VIN <b>{{ $e->vin }}</b><br>
-                        <span class="text-gray-400">🔗 이미 car-erp 연동된 차량 — 식별값 수정 불가</span>
+                        {{ __('manage.identity_vehicle') }} <b>{{ $e->vehicle_number }}</b> · {{ __('manage.identity_vin') }} <b>{{ $e->vin }}</b><br>
+                        <span class="text-gray-400">{{ __('manage.identity_locked_html') }}</span>
                     </div>
                 @endif
 
-                <label class="label-base mt-3">소유자 (차주명)</label>
+                <label class="label-base mt-3">{{ __('manage.owner_name') }}</label>
                 <input class="input-base" wire:model="owner_name">
                 @error('owner_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                <label class="label-base mt-3">매물번호 (c_no)</label>
+                <label class="label-base mt-3">{{ __('manage.c_no') }}</label>
                 <input class="input-base" wire:model="c_no">
                 @error('c_no') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                <label class="label-base mt-3">출처</label>
+                <label class="label-base mt-3">{{ __('manage.source') }}</label>
                 <select class="input-base" wire:model="source">
-                    <option value="encar">엔카</option>
-                    <option value="auction">경매</option>
+                    <option value="encar">{{ __('manage.source_encar') }}</option>
+                    <option value="auction">{{ __('manage.source_auction') }}</option>
                 </select>
 
-                <label class="label-base mt-3">지역</label>
-                <input class="input-base" wire:model="region" list="regionListManage" placeholder="검사지역">
+                <label class="label-base mt-3">{{ __('manage.region') }}</label>
+                <input class="input-base" wire:model="region" list="regionListManage" placeholder="{{ __('manage.region_placeholder') }}">
                 <datalist id="regionListManage">@foreach (config('board.regions') as $r)<option value="{{ $r }}">@endforeach</datalist>
                 @error('region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 <div class="mt-3 grid grid-cols-3 gap-2">
-                    <div><label class="label-base">차값 ({{ \App\Support\Money::SYMBOLS[$costCurrency] ?? '원' }})</label><input class="input-base" wire:model="car_cost" inputmode="numeric"></div>
-                    <div><label class="label-base">할인율%</label><input class="input-base" wire:model="discount_rate" inputmode="decimal"></div>
-                    <div><label class="label-base">배송$</label>
+                    <div><label class="label-base">{{ __('manage.car_cost') }} ({{ \App\Support\Money::SYMBOLS[$costCurrency] ?? '원' }})</label><input class="input-base" wire:model="car_cost" inputmode="numeric"></div>
+                    <div><label class="label-base">{{ __('manage.discount_rate') }}</label><input class="input-base" wire:model="discount_rate" inputmode="decimal"></div>
+                    <div><label class="label-base">{{ __('manage.shipping_usd') }}</label>
                         <select class="input-base" wire:model="shipping_usd">
                             <option value="">—</option>
                             @foreach (config('board.shipping_options') as $opt)<option value="{{ $opt }}">{{ $opt }}</option>@endforeach
@@ -379,65 +379,65 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @error('discount_rate') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 @error('shipping_usd') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                <label class="label-base mt-3">예상가</label>
+                <label class="label-base mt-3">{{ __('manage.expected_price') }}</label>
                 <input class="input-base" wire:model="expected_price" inputmode="numeric">
                 @error('expected_price') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                <label class="label-base mt-3">현지 최종금액</label>
+                <label class="label-base mt-3">{{ __('manage.final_price') }}</label>
                 <input class="input-base" wire:model="final_price" inputmode="numeric">
                 @error('final_price') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                <label class="label-base mt-3">상태</label>
+                <label class="label-base mt-3">{{ __('manage.status') }}</label>
                 <select class="input-base" wire:model="status">
-                    @foreach (\App\Models\PurchaseListing::STATUS_LABELS as $val => $label)
+                    @foreach (\App\Models\PurchaseListing::statusOptions() as $val => $label)
                         <option value="{{ $val }}">{{ $label }}</option>
                     @endforeach
                 </select>
 
-                <label class="label-base mt-3">바이어 회신</label>
+                <label class="label-base mt-3">{{ __('manage.buyer_verdict') }}</label>
                 <select class="input-base" wire:model="buyer_verdict">
-                    <option value="none">없음</option>
-                    <option value="pending">회신대기</option>
-                    <option value="accepted">수락</option>
-                    <option value="rejected">거절</option>
+                    <option value="none">{{ __('manage.verdict_none') }}</option>
+                    <option value="pending">{{ __('manage.verdict_pending') }}</option>
+                    <option value="accepted">{{ __('manage.verdict_accepted') }}</option>
+                    <option value="rejected">{{ __('manage.verdict_rejected') }}</option>
                 </select>
 
-                <label class="label-base mt-3">바이어명</label>
+                <label class="label-base mt-3">{{ __('manage.buyer_name') }}</label>
                 <input class="input-base" wire:model="buyer_name">
 
-                <label class="label-base mt-3">메모 (차상태)</label>
+                <label class="label-base mt-3">{{ __('manage.inspection_memo') }}</label>
                 <input class="input-base" wire:model="inspection_memo">
                 @error('inspection_memo') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                <label class="label-base mt-3">추가검사사항</label>
+                <label class="label-base mt-3">{{ __('manage.inspection_note') }}</label>
                 <input class="input-base" wire:model="inspection_note">
                 @error('inspection_note') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 {{-- 출처별 식별값 --}}
                 @if ($source === 'encar')
-                    <label class="label-base mt-3">엔카 매물 URL</label>
+                    <label class="label-base mt-3">{{ __('manage.encar_url') }}</label>
                     <input class="input-base" wire:model="encar_url">
-                    <label class="label-base mt-3">엔카 딜러</label>
+                    <label class="label-base mt-3">{{ __('manage.encar_dealer') }}</label>
                     <input class="input-base" wire:model="encar_dealer">
                 @else
-                    <label class="label-base mt-3">경매장</label>
+                    <label class="label-base mt-3">{{ __('manage.auction_venue') }}</label>
                     <input class="input-base" wire:model="auction_venue">
-                    <label class="label-base mt-3">출품번호</label>
+                    <label class="label-base mt-3">{{ __('manage.lot_number') }}</label>
                     <input class="input-base" wire:model="lot_number">
                 @endif
 
                 {{-- 입금정보 (계좌는 암호화 저장, 감사로그엔 마스킹) --}}
-                <div class="section-title-sm mt-4">입금정보 <span class="text-[11px] font-normal text-gray-400">(정산 계좌)</span></div>
+                <div class="section-title-sm mt-4">{{ __('manage.payment_info') }} <span class="text-[11px] font-normal text-gray-400">{{ __('manage.payment_info_sub') }}</span></div>
                 <div class="grid grid-cols-2 gap-2">
-                    <input class="input-base" wire:model="payee_bank" placeholder="은행">
-                    <input class="input-base" wire:model="payee_name" placeholder="예금주">
+                    <input class="input-base" wire:model="payee_bank" placeholder="{{ __('manage.payee_bank') }}">
+                    <input class="input-base" wire:model="payee_name" placeholder="{{ __('manage.payee_name') }}">
                 </div>
-                <input class="input-base mt-2 font-mono" wire:model="payee_account" placeholder="계좌번호 (암호화)">
+                <input class="input-base mt-2 font-mono" wire:model="payee_account" placeholder="{{ __('manage.payee_account') }}">
                 @error('payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 <div class="mt-5 flex gap-2">
-                    <button class="btn-primary flex-1 justify-center" wire:click="save">저장 (감사로그 기록)</button>
-                    <button class="btn-ghost" wire:click="closeEdit">취소</button>
+                    <button class="btn-primary flex-1 justify-center" wire:click="save">{{ __('manage.save') }}</button>
+                    <button class="btn-ghost" wire:click="closeEdit">{{ __('common.cancel') }}</button>
                 </div>
             </div>
         </div>

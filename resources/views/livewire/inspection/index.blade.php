@@ -141,7 +141,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             $listings = $listings->filter(fn ($l) => in_array($l->region, $myRegions, true));
         }
 
-        return $listings->groupBy(fn ($l) => $l->region ?: '지역 미지정');
+        return $listings->groupBy(fn ($l) => $l->region ?: __('inspection.region_unset'));
     }
 
     /** 배정 대상 지역 후보 = 현재 검차대기 차량이 있는 지역(미지정 제외). */
@@ -195,18 +195,18 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->validate([
             'assignRegion' => 'required|string|max:60',
             'assignUserId' => 'required|integer|exists:users,id',
-        ], attributes: ['assignRegion' => '지역', 'assignUserId' => '담당자']);
+        ], attributes: ['assignRegion' => __('inspection.attr_region'), 'assignUserId' => __('inspection.attr_assignee')]);
 
         $count = InspectionAssignment::where('date', $this->assignDate)->where('region', $this->assignRegion)->count();
         if ($count >= InspectionAssignment::MAX_PER_REGION) {
-            $this->addError('assignUserId', '지역당 최대 '.InspectionAssignment::MAX_PER_REGION.'인까지 배정할 수 있습니다.');
+            $this->addError('assignUserId', __('inspection.max_per_region_error', ['max' => InspectionAssignment::MAX_PER_REGION]));
 
             return;
         }
 
         $u = User::find($this->assignUserId);
         if (! $u || $u->role !== 'inspection') {
-            $this->addError('assignUserId', '현지확인 담당자만 배정할 수 있습니다.');
+            $this->addError('assignUserId', __('inspection.only_inspection_assignable'));
 
             return;
         }
@@ -218,7 +218,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         ]);
         $this->assignUserId = null;
         unset($this->assignmentsByRegion, $this->regionGroups, $this->assignmentSummary);
-        session()->flash('ok', '배정되었습니다.');
+        session()->flash('ok', __('inspection.assigned_ok'));
     }
 
     public function unassign(int $id): void
@@ -329,11 +329,11 @@ new #[Layout('components.layouts.app')] class extends Component {
         if ($sending) {
             $rules['buyer_name'] = 'required|string|max:100';
         }
-        $this->validate($rules, attributes: ['buyer_name' => '바이어명']);
+        $this->validate($rules, attributes: ['buyer_name' => __('inspection.attr_buyer_name')]);
 
         // 전달하려면 최종금액(공식 차값 또는 수동 final_price) 중 하나는 있어야 함.
         if ($sending && $this->carPricePreview() === null && ($this->final_price === null || $this->final_price === '')) {
-            $this->addError('car_cost', '차값(또는 최종금액)을 입력해야 바이어에게 전달할 수 있습니다.');
+            $this->addError('car_cost', __('inspection.need_amount_to_forward'));
 
             return;
         }
@@ -344,7 +344,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
         $this->applyInspectionFields($l);
 
-        $msg = '저장되었습니다.';
+        $msg = __('inspection.saved_ok');
         if ($sending) {
             // 회신 채널 결정: 컨택트 미연결이면 자동 불가→수동. 강제수동(=수동 전환 선택) 시 수동.
             $channel = 'auto';
@@ -372,8 +372,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             $l->buyer_verdict = 'pending';
             $l->verdict_channel = $channel;
             $msg = $channel === 'manual'
-                ? '바이어에게 전달했습니다 (수동 회신 — 바이어 회신 화면에서 처리).'
-                : '바이어에게 전달했습니다 (자동 회신대기 — respond.io 회신 시 자동 처리).';
+                ? __('inspection.forwarded_manual')
+                : __('inspection.forwarded_auto');
         }
 
         $l->save();
@@ -411,7 +411,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $this->sendSelected = false;
         $this->sendConflictWith = null;
-        session()->flash('ok', '전달을 보류했습니다. 앞 차 회신 처리 후 다시 전달하세요. (입력값은 저장됨)');
+        session()->flash('ok', __('inspection.forward_held'));
         $this->closeDrawer();
     }
 
@@ -433,8 +433,8 @@ new #[Layout('components.layouts.app')] class extends Component {
 
 <div class="p-3 md:p-6">
     <div class="mb-4">
-        <h1 class="text-xl font-bold text-gray-800">현지확인</h1>
-        <p class="mt-0.5 text-xs text-gray-500">📍 지역별 그룹 · {{ $this->canAssign() ? '관리: 그날치 인원 배정' : '본인 배정 지역만 표시' }} → 차 상태 확인 → 최종금액 산정 → 바이어 전달</p>
+        <h1 class="text-xl font-bold text-gray-800">{{ __('inspection.title') }}</h1>
+        <p class="mt-0.5 text-xs text-gray-500">📍 {{ __('inspection.subtitle_flow', ['mode' => $this->canAssign() ? __('inspection.subtitle_manage') : __('inspection.subtitle_mine')]) }}</p>
     </div>
 
     @if (session('ok'))
@@ -445,30 +445,30 @@ new #[Layout('components.layouts.app')] class extends Component {
     @if ($this->canAssign())
         <div class="card mb-3" style="background:#f8f9fb">
             <div class="mb-2 flex items-center justify-between">
-                <h2 class="font-bold text-gray-800">📋 오늘 지역 배정 <span class="text-xs font-normal text-gray-400">({{ $assignDate }})</span></h2>
-                <span class="text-xs text-gray-400">지역당 최대 {{ \App\Models\InspectionAssignment::MAX_PER_REGION }}인</span>
+                <h2 class="font-bold text-gray-800">📋 {{ __('inspection.assign_panel_title') }} <span class="text-xs font-normal text-gray-400">({{ $assignDate }})</span></h2>
+                <span class="text-xs text-gray-400">{{ __('inspection.max_per_region', ['max' => \App\Models\InspectionAssignment::MAX_PER_REGION]) }}</span>
             </div>
             <div class="flex flex-wrap items-end gap-2">
                 <div class="min-w-[160px] flex-1">
-                    <label class="label-base">지역</label>
+                    <label class="label-base">{{ __('inspection.region') }}</label>
                     <select class="input-base" wire:model="assignRegion">
-                        <option value="">지역 선택</option>
+                        <option value="">{{ __('inspection.region_select') }}</option>
                         @foreach ($this->pendingRegions as $r)<option value="{{ $r }}">{{ $r }}</option>@endforeach
                     </select>
                 </div>
                 <div class="min-w-[140px] flex-1">
-                    <label class="label-base">담당자 (현지확인)</label>
+                    <label class="label-base">{{ __('inspection.assignee_inspection') }}</label>
                     <select class="input-base" wire:model="assignUserId">
-                        <option value="">담당자 선택</option>
+                        <option value="">{{ __('inspection.assignee_select') }}</option>
                         @foreach ($this->inspectors as $u)<option value="{{ $u->id }}">{{ $u->name }}</option>@endforeach
                     </select>
                 </div>
-                <button class="btn-primary btn-sm" wire:click="assign">+ 배정</button>
+                <button class="btn-primary btn-sm" wire:click="assign">{{ __('inspection.assign_button') }}</button>
             </div>
             @error('assignRegion') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             @error('assignUserId') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
             @if ($this->pendingRegions->isEmpty())
-                <p class="mt-2 text-xs text-gray-400">검차대기 차량에 <b>지역</b>이 지정되면 여기서 배정할 수 있습니다. (매입예정에서 지역 입력)</p>
+                <p class="mt-2 text-xs text-gray-400">{!! __('inspection.assign_hint', ['region' => '<b>'.__('inspection.assign_hint_region_word').'</b>']) !!}</p>
             @endif
 
             {{-- 배정 현황 요약 (정렬 가능) --}}
@@ -478,9 +478,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <table class="tbl text-[13px]">
                         <thead>
                             <tr>
-                                <th class="cursor-pointer select-none" wire:click="sortByCol('region')">지역{{ $arrow('region') }}</th>
-                                <th class="cursor-pointer select-none" wire:click="sortByCol('people')">배정 인원{{ $arrow('people') }}</th>
-                                <th class="cursor-pointer select-none" wire:click="sortByCol('cars')">차량 수{{ $arrow('cars') }}</th>
+                                <th class="cursor-pointer select-none" wire:click="sortByCol('region')">{{ __('inspection.col_region') }}{{ $arrow('region') }}</th>
+                                <th class="cursor-pointer select-none" wire:click="sortByCol('people')">{{ __('inspection.col_people') }}{{ $arrow('people') }}</th>
+                                <th class="cursor-pointer select-none" wire:click="sortByCol('cars')">{{ __('inspection.col_cars') }}{{ $arrow('cars') }}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -491,10 +491,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                                         @forelse ($row['people'] as $name)
                                             <span class="badge badge-blue">🧑‍🔧 {{ $name }}</span>
                                         @empty
-                                            <span class="text-xs text-amber-600">미배정</span>
+                                            <span class="text-xs text-amber-600">{{ __('inspection.unassigned') }}</span>
                                         @endforelse
                                     </td>
-                                    <td class="{{ $row['cars'] ? 'font-semibold text-gray-700' : 'text-gray-300' }}">{{ $row['cars'] }}건</td>
+                                    <td class="{{ $row['cars'] ? 'font-semibold text-gray-700' : 'text-gray-300' }}">{{ __('inspection.cars_count', ['count' => $row['cars']]) }}</td>
                                 </tr>
                             @endforeach
                         </tbody>
@@ -512,7 +512,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <button type="button" class="flex items-center gap-2" @click="open = !open">
                     <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span>
                     <h2 class="font-bold text-gray-800">📍 {{ $region }}</h2>
-                    <span class="pill-count">{{ $items->count() }}건</span>
+                    <span class="pill-count">{{ __('inspection.items_count', ['count' => $items->count()]) }}</span>
                 </button>
                 <span class="ml-1 flex flex-wrap items-center gap-1">
                     @forelse ($assigned as $a)
@@ -521,7 +521,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             @if ($this->canAssign())<button wire:click="unassign({{ $a->id }})" class="text-blue-400 hover:text-blue-700">✕</button>@endif
                         </span>
                     @empty
-                        <span class="text-xs text-gray-400">{{ $this->canAssign() ? '미배정' : '' }}</span>
+                        <span class="text-xs text-gray-400">{{ $this->canAssign() ? __('inspection.no_assignment_label') : '' }}</span>
                     @endforelse
                 </span>
             </div>
@@ -531,11 +531,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <div class="min-w-0 flex-1">
                             <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
                                 <span class="font-semibold text-gray-800">{{ $l->vehicle_number }}</span>
-                                <span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }}">{{ $l->isAuction() ? '경매' : '엔카' }}</span>
+                                <span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }}">{{ $l->isAuction() ? __('domain.source.auction') : __('domain.source.encar') }}</span>
                                 <span class="text-xs text-gray-400">{{ $l->creator->name }}</span>
                             </div>
                             <div class="mt-0.5 text-xs text-gray-500">
-                                {{ $l->final_price ? '최종 '.number_format($l->final_price).'원' : '금액 미정' }}
+                                {{ $l->final_price ? __('inspection.final_amount_prefix', ['amount' => number_format($l->final_price)]) : __('inspection.amount_undecided') }}
                                 {{ $l->inspection_note ? '· '.$l->inspection_note : '' }}
                             </div>
                         </div>
@@ -546,7 +546,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             </div>
         </div>
     @empty
-        <div class="card text-center text-gray-400">{{ $this->canAssign() ? '현지확인 대상 차량이 없습니다.' : '오늘 배정된 지역이 없습니다. (관리자 배정 대기)' }}</div>
+        <div class="card text-center text-gray-400">{{ $this->canAssign() ? __('inspection.empty_for_manager') : __('inspection.empty_for_inspector') }}</div>
     @endforelse
 
     {{-- ─────────── 드로어 ─────────── --}}
@@ -555,24 +555,24 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="fixed inset-0 z-40 bg-black/40" wire:click="closeDrawer"></div>
         <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[460px]">
             <div class="flex items-center justify-between border-b border-gray-200 px-5 py-4">
-                <h3 class="font-bold text-gray-800">{{ $e->vehicle_number }} · 현지 확인 <span class="text-xs text-gray-400">({{ $e->isAuction() ? '경매' : '엔카' }})</span></h3>
+                <h3 class="font-bold text-gray-800">{{ $e->vehicle_number }} · {{ __('inspection.drawer_title') }} <span class="text-xs text-gray-400">({{ $e->isAuction() ? __('domain.source.auction') : __('domain.source.encar') }})</span></h3>
                 <button class="text-gray-400 hover:text-gray-600" wire:click="closeDrawer">✕</button>
             </div>
 
             <div class="px-5 py-4">
-                <p class="text-xs text-gray-500">예상가 {{ $e->expected_price ? number_format($e->expected_price).'원' : '—' }} · 차 상태 보고 최종금액 산정</p>
+                <p class="text-xs text-gray-500">{{ __('inspection.expected_price_line', ['price' => $e->expected_price ? number_format($e->expected_price).__('common.won_currency') : '—']) }}</p>
 
                 {{-- 사진/영상 --}}
-                <div class="section-title-sm">차량 사진·영상 (외관만 · 서류/번호판 제외)</div>
+                <div class="section-title-sm">{{ __('inspection.photos_section') }}</div>
                 <label class="flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-gray-300 py-5 text-sm text-gray-500 hover:border-[var(--color-primary)]">
-                    📷 후면카메라 촬영 / 사진·영상 업로드
+                    📷 {{ __('inspection.photo_upload_label') }}
                     <input type="file" accept="image/*,video/*" capture="environment" multiple wire:model="photos" class="hidden">
                 </label>
-                <div wire:loading wire:target="photos" class="mt-1 text-xs text-gray-400">업로드 중…</div>
+                <div wire:loading wire:target="photos" class="mt-1 text-xs text-gray-400">{{ __('inspection.uploading') }}</div>
                 @error('photos.*') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 @if (count($photos))
-                    <p class="mt-2 text-xs text-gray-500">새 파일 {{ count($photos) }}개 — 저장 시 반영</p>
+                    <p class="mt-2 text-xs text-gray-500">{{ __('inspection.new_files_count', ['count' => count($photos)]) }}</p>
                 @endif
 
                 @if ($e->photos->count())
@@ -586,34 +586,34 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 @endif
                                 <button type="button" wire:click="toggleShare({{ $p->id }})"
                                     class="absolute inset-x-0 bottom-0 py-0.5 text-[10px] font-semibold {{ $p->share_to_buyer ? 'bg-green-600 text-white' : 'bg-black/55 text-white' }}">
-                                    {{ $p->share_to_buyer ? '✓ 바이어공개' : '바이어공개' }}
+                                    {{ $p->share_to_buyer ? __('inspection.share_to_buyer_on') : __('inspection.share_to_buyer') }}
                                 </button>
                             </div>
                         @endforeach
                     </div>
-                    <p class="mt-1 text-[11px] text-gray-400">💡 바이어에게 보낼 <b>외관 사진/영상만</b> "바이어공개" 켜기 (서류·번호판 제외). 전달 시 USD 금액과 함께 자동 전송.</p>
+                    <p class="mt-1 text-[11px] text-gray-400">💡 {!! __('inspection.photo_share_hint', ['exterior' => '<b>'.__('inspection.photo_share_hint_exterior').'</b>']) !!}</p>
                 @endif
 
                 {{-- 검사지역 --}}
-                <div class="section-title-sm">검사지역</div>
-                <input class="input-base" wire:model="region" list="regionList" placeholder="예: 경기 수원시 (입력 시 자동완성)">
+                <div class="section-title-sm">{{ __('inspection.inspection_region_section') }}</div>
+                <input class="input-base" wire:model="region" list="regionList" placeholder="{{ __('inspection.region_placeholder') }}">
                 <datalist id="regionList">
                     @foreach (config('board.regions') as $r)<option value="{{ $r }}">@endforeach
                 </datalist>
                 @error('region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 {{-- 메모 --}}
-                <div class="section-title-sm">차 상태 메모</div>
-                <input class="input-base" wire:model="inspection_memo" placeholder="예: 운전석 시트 사용감, 앞범퍼 미세 스크래치">
+                <div class="section-title-sm">{{ __('inspection.memo_section') }}</div>
+                <input class="input-base" wire:model="inspection_memo" placeholder="{{ __('inspection.memo_placeholder') }}">
 
                 {{-- 추가검사사항 (listings 표에 표시) --}}
-                <div class="section-title-sm">추가검사사항</div>
-                <input class="input-base" wire:model="inspection_note" placeholder="예: 보증서 미비, 타이어 교체 권장">
+                <div class="section-title-sm">{{ __('inspection.note_section') }}</div>
+                <input class="input-base" wire:model="inspection_note" placeholder="{{ __('inspection.note_placeholder') }}">
                 @error('inspection_note') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 {{-- 금액 산정 (§6) --}}
                 <div class="section-title-sm flex items-center justify-between">
-                    <span>금액 산정</span>
+                    <span>{{ __('inspection.pricing_section') }}</span>
                     <div class="inline-flex overflow-hidden rounded-md border border-gray-300 text-xs font-normal">
                         @foreach (['KRW' => '원', 'USD' => '$', 'EUR' => '€'] as $cur => $sym)
                             <button type="button" wire:click="$set('displayCurrency', '{{ $cur }}')"
@@ -629,26 +629,26 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @endphp
                 <div class="grid grid-cols-2 gap-3">
                     <div>
-                        <label class="label-base">차값 ({{ \App\Support\Money::SYMBOLS[$costCurrency] ?? '원' }})</label>
-                        <input class="input-base" wire:model.live.debounce.400ms="car_cost" inputmode="numeric" placeholder="13000000">
+                        <label class="label-base">{{ __('inspection.car_cost_label', ['symbol' => \App\Support\Money::SYMBOLS[$costCurrency] ?? '원']) }}</label>
+                        <input class="input-base" wire:model.live.debounce.400ms="car_cost" inputmode="numeric" placeholder="{{ __('inspection.car_cost_placeholder') }}">
                         @error('car_cost') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                     <div>
-                        <label class="label-base">할인율 (%)</label>
+                        <label class="label-base">{{ __('inspection.discount_rate_label') }}</label>
                         <input class="input-base" wire:model.live.debounce.400ms="discount_rate" inputmode="decimal" placeholder="0">
                         @error('discount_rate') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                 </div>
                 <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
-                    <span>＋ 매도비 (고정)</span>
-                    <span class="font-semibold text-gray-700">{{ number_format((int) config('board.sales_fee')) }}원</span>
+                    <span>{{ __('inspection.sales_fee_label') }}</span>
+                    <span class="font-semibold text-gray-700">{{ number_format((int) config('board.sales_fee')) }}{{ __('common.won_currency') }}</span>
                 </div>
                 <div class="mt-1 flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 text-sm">
-                    <span class="text-gray-600">차량금액 (Car Price)</span>
+                    <span class="text-gray-600">{{ __('inspection.car_price_label') }}</span>
                     <span class="font-bold text-gray-800">{{ $this->fmt($carPrice) }}</span>
                 </div>
 
-                <label class="label-base mt-3">배송금액 (USD 고정)</label>
+                <label class="label-base mt-3">{{ __('inspection.shipping_label') }}</label>
                 <div class="inline-flex overflow-hidden rounded-md border border-gray-300">
                     @foreach (config('board.shipping_options') as $opt)
                         <button type="button" wire:click="$set('shipping_usd', {{ $opt }})"
@@ -656,46 +656,46 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @endforeach
                 </div>
                 @error('shipping_usd') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                @if ($shipKrw !== null)<div class="mt-1 text-right text-xs text-gray-500">배송 {{ $this->fmt($shipKrw) }}</div>@endif
+                @if ($shipKrw !== null)<div class="mt-1 text-right text-xs text-gray-500">{{ __('inspection.shipping_line', ['amount' => $this->fmt($shipKrw)]) }}</div>@endif
 
                 <div class="mt-2 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
-                    <span class="text-sm font-semibold text-gray-700">최종금액 (Total)</span>
+                    <span class="text-sm font-semibold text-gray-700">{{ __('inspection.total_label') }}</span>
                     <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $this->fmt($total) }}</span>
                 </div>
-                <p class="mt-1 text-[11px] text-gray-400">배송 ${{ number_format((int) $shipping_usd) }} × {{ number_format($rate) }}원 적용</p>
+                <p class="mt-1 text-[11px] text-gray-400">{{ __('inspection.shipping_rate_note', ['usd' => number_format((int) $shipping_usd), 'rate' => number_format($rate)]) }}</p>
 
                 {{-- 바이어 전달 --}}
-                <div class="section-title-sm">바이어에게 전달</div>
-                <input class="input-base" wire:model="buyer_name" placeholder="바이어명 (respond.io 연락처)">
+                <div class="section-title-sm">{{ __('inspection.forward_section') }}</div>
+                <input class="input-base" wire:model="buyer_name" placeholder="{{ __('inspection.buyer_name_placeholder') }}">
                 @error('buyer_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 {{-- 전달 (draft 단계) — 클릭=선택만, 저장 눌러야 전달 --}}
                 @if ($e->status === 'draft')
                     <button type="button" wire:click="$toggle('sendSelected')" class="btn-outline btn-sm mt-2 w-full justify-center"
                             @style(['background-color:var(--color-primary);border-color:var(--color-primary);color:#fff;font-weight:700' => $sendSelected])>
-                        📤 사진 + 최종금액 바이어에게 전달 {{ $sendSelected ? '— 선택됨 ✓' : '' }}
+                        📤 {{ __('inspection.forward_button') }} {{ $sendSelected ? __('inspection.forward_button_selected') : '' }}
                     </button>
-                    <p class="mt-1 text-xs text-gray-400">선택 후 아래 <b>저장</b>을 눌러야 전달됩니다. 전달 후 바이어 회신은 <b>"바이어 회신"</b> 화면에서 처리합니다.</p>
+                    <p class="mt-1 text-xs text-gray-400">{!! __('inspection.forward_hint', ['save' => '<b>'.__('inspection.forward_hint_save').'</b>', 'verdicts' => '<b>'.__('inspection.forward_hint_verdicts').'</b>']) !!}</p>
 
                     {{-- (가) 가드: 같은 바이어 자동 회신대기 1대 초과 시 선택지 --}}
                     @if ($sendConflictWith)
                         <div class="card-sm mt-2 border-amber-300 bg-amber-50 text-amber-800">
-                            <p class="text-[13px] font-semibold">⚠️ 이 바이어는 이미 <b>자동 회신대기 차({{ $sendConflictWith }})</b>가 있습니다.</p>
-                            <p class="mt-0.5 text-xs">자동 회신은 한 번에 1대만 됩니다. 어떻게 할까요?</p>
+                            <p class="text-[13px] font-semibold">⚠️ {!! __('inspection.conflict_title', ['vehicle' => '<b>'.__('inspection.conflict_auto_word', ['vehicle' => e($sendConflictWith)]).'</b>']) !!}</p>
+                            <p class="mt-0.5 text-xs">{{ __('inspection.conflict_desc') }}</p>
                             <div class="mt-2 flex flex-col gap-2 sm:flex-row">
-                                <button type="button" class="btn-outline btn-sm flex-1 justify-center" wire:click="cancelSend">앞 차 처리 후 진행 (대기)</button>
-                                <button type="button" class="btn-primary btn-sm flex-1 justify-center" wire:click="sendAsManual">수동으로 전환해 전달</button>
+                                <button type="button" class="btn-outline btn-sm flex-1 justify-center" wire:click="cancelSend">{{ __('inspection.conflict_wait') }}</button>
+                                <button type="button" class="btn-primary btn-sm flex-1 justify-center" wire:click="sendAsManual">{{ __('inspection.conflict_manual') }}</button>
                             </div>
-                            <p class="mt-1 text-[11px] text-amber-600">※ "수동 전환" 시 이 차는 바이어 회신 화면에서 직접 처리합니다.</p>
+                            <p class="mt-1 text-[11px] text-amber-600">{{ __('inspection.conflict_manual_note') }}</p>
                         </div>
                     @endif
                 @elseif ($e->status === 'awaiting_buyer')
-                    <p class="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">⏳ 이미 바이어에게 전달됨(회신대기). 수락/거절은 <b>"바이어 회신"</b> 화면에서 처리하세요.</p>
+                    <p class="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">⏳ {!! __('inspection.already_forwarded', ['verdicts' => '<b>'.__('inspection.already_forwarded_verdicts').'</b>']) !!}</p>
                 @endif
 
                 <div class="mt-5 flex gap-2">
-                    <button class="btn-primary flex-1 justify-center" wire:click="save">저장</button>
-                    <button class="btn-ghost" wire:click="closeDrawer">취소</button>
+                    <button class="btn-primary flex-1 justify-center" wire:click="save">{{ __('common.save') }}</button>
+                    <button class="btn-ghost" wire:click="closeDrawer">{{ __('common.cancel') }}</button>
                 </div>
             </div>
         </div>

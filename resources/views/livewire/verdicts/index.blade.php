@@ -44,15 +44,20 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         unset($this->groups);
         session()->flash('ok', $ok
-            ? $l->vehicle_number.' → '.($verdict === 'accepted' ? '수락 (구매/경매 대기로 이동)' : '거절').' 처리됨'
-            : $l->vehicle_number.' 은 이미 처리되었습니다.');
+            ? __('verdicts.flash_processed', [
+                'vehicle' => $l->vehicle_number,
+                'verdict' => $verdict === 'accepted'
+                    ? __('verdicts.flash_accepted_note')
+                    : __('verdicts.flash_rejected_note'),
+            ])
+            : __('verdicts.flash_already', ['vehicle' => $l->vehicle_number]));
     }
 }; ?>
 
 <div class="p-3 md:p-6">
     <div class="mb-4">
-        <h1 class="text-xl font-bold text-gray-800">바이어 회신</h1>
-        <p class="mt-0.5 text-xs text-gray-500">회신대기 차량을 바이어별로 묶어 표시 · 차마다 <b>수락/거절</b>을 처리하세요 (한 바이어가 여러 대 검토 가능)</p>
+        <h1 class="text-xl font-bold text-gray-800">{{ __('verdicts.title') }}</h1>
+        <p class="mt-0.5 text-xs text-gray-500">{!! __('verdicts.subtitle', ['accept' => '<b>'.__('verdicts.accept').'</b>', 'reject' => '<b>'.__('verdicts.reject').'</b>']) !!}</p>
     </div>
 
     @if (session('ok'))
@@ -64,10 +69,10 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="card mb-4">
             <div class="mb-3 flex items-center justify-between border-b border-gray-100 pb-2">
                 <div>
-                    <span class="font-bold text-gray-800">🧑 {{ $head->buyer_name ?: '바이어 미지정' }}</span>
-                    <span class="ml-1 text-gray-400">· {{ $items->count() }}대 회신대기</span>
+                    <span class="font-bold text-gray-800">🧑 {{ $head->buyer_name ?: __('verdicts.buyer_unassigned') }}</span>
+                    <span class="ml-1 text-gray-400">· {{ __('verdicts.count_awaiting', ['count' => $items->count()]) }}</span>
                     @if ($head->respond_contact_id)
-                        <span class="ml-2 text-[11px] text-gray-400">컨택트 {{ $head->respond_contact_id }}</span>
+                        <span class="ml-2 text-[11px] text-gray-400">{{ __('verdicts.contact') }} {{ $head->respond_contact_id }}</span>
                     @endif
                 </div>
             </div>
@@ -76,24 +81,24 @@ new #[Layout('components.layouts.app')] class extends Component {
             <div class="hidden overflow-x-auto sm:block">
                 <table class="tbl">
                     <thead>
-                        <tr><th>차량</th><th>출처</th><th>최종금액</th><th>추가검사사항</th><th style="text-align:right">회신 처리</th></tr>
+                        <tr><th>{{ __('verdicts.th_vehicle') }}</th><th>{{ __('verdicts.th_origin') }}</th><th>{{ __('verdicts.th_final_price') }}</th><th>{{ __('verdicts.th_inspection_note') }}</th><th style="text-align:right">{{ __('verdicts.th_process') }}</th></tr>
                     </thead>
                     <tbody>
                         @foreach ($items as $l)
                             <tr>
                                 <td class="whitespace-nowrap align-middle">
                                     <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
-                                    <div class="text-xs text-gray-400">{{ $l->owner_name ?: '소유자 —' }}</div>
+                                    <div class="text-xs text-gray-400">{{ $l->owner_name ?: __('verdicts.owner_empty') }}</div>
                                 </td>
                                 <td class="align-middle"><span class="badge {{ $l->originBadge() }}">{{ $l->originLabel() }}</span></td>
-                                <td class="align-middle font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).'원' : '—' }}</td>
+                                <td class="align-middle font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).__('common.won_currency') : '—' }}</td>
                                 <td class="max-w-[200px] truncate align-middle text-xs text-gray-500" title="{{ $l->inspection_note }}">{{ $l->inspection_note ?: '—' }}</td>
                                 <td class="align-middle whitespace-nowrap">
                                     <div class="flex justify-end gap-2">
                                         <button class="btn-green" wire:click="accept({{ $l->id }})"
-                                                wire:confirm="{{ $l->vehicle_number }} — 바이어 수락으로 처리할까요? (구매/경매 대기로 이동)">수락</button>
+                                                wire:confirm="{{ __('verdicts.confirm_accept', ['vehicle' => $l->vehicle_number]) }}">{{ __('verdicts.accept') }}</button>
                                         <button class="btn-red" wire:click="reject({{ $l->id }})"
-                                                wire:confirm="{{ $l->vehicle_number }} — 바이어 거절로 처리할까요?">거절</button>
+                                                wire:confirm="{{ __('verdicts.confirm_reject', ['vehicle' => $l->vehicle_number]) }}">{{ __('verdicts.reject') }}</button>
                                     </div>
                                 </td>
                             </tr>
@@ -109,11 +114,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <div class="flex items-start justify-between gap-2">
                             <div class="min-w-0">
                                 <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
-                                <div class="text-xs text-gray-400">{{ $l->owner_name ?: '소유자 —' }}</div>
+                                <div class="text-xs text-gray-400">{{ $l->owner_name ?: __('verdicts.owner_empty') }}</div>
                             </div>
                             <div class="shrink-0 text-right">
                                 <span class="badge {{ $l->originBadge() }}">{{ $l->originLabel() }}</span>
-                                <div class="mt-1 text-sm font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).'원' : '—' }}</div>
+                                <div class="mt-1 text-sm font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).__('common.won_currency') : '—' }}</div>
                             </div>
                         </div>
                         @if ($l->inspection_note)
@@ -121,15 +126,15 @@ new #[Layout('components.layouts.app')] class extends Component {
                         @endif
                         <div class="mt-2 flex gap-2">
                             <button class="btn-green flex-1 justify-center" wire:click="accept({{ $l->id }})"
-                                    wire:confirm="{{ $l->vehicle_number }} — 바이어 수락으로 처리할까요? (구매/경매 대기로 이동)">수락</button>
+                                    wire:confirm="{{ __('verdicts.confirm_accept', ['vehicle' => $l->vehicle_number]) }}">{{ __('verdicts.accept') }}</button>
                             <button class="btn-red flex-1 justify-center" wire:click="reject({{ $l->id }})"
-                                    wire:confirm="{{ $l->vehicle_number }} — 바이어 거절로 처리할까요?">거절</button>
+                                    wire:confirm="{{ __('verdicts.confirm_reject', ['vehicle' => $l->vehicle_number]) }}">{{ __('verdicts.reject') }}</button>
                         </div>
                     </div>
                 @endforeach
             </div>
         </div>
     @empty
-        <div class="card py-10 text-center text-gray-400">회신대기 중인 차량이 없습니다. (현지확인에서 바이어에게 전달되면 여기 표시됩니다.)</div>
+        <div class="card py-10 text-center text-gray-400">{{ __('verdicts.empty') }}</div>
     @endforelse
 </div>

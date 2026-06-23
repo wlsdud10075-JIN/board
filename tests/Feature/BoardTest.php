@@ -11,6 +11,7 @@ use App\Models\InspectionPhoto;
 use App\Models\IntegrationEvent;
 use App\Models\PromotionRequest;
 use App\Models\PurchaseListing;
+use App\Models\Setting;
 use App\Models\User;
 use App\Services\CarErpReadService;
 use App\Services\ExchangeRateService;
@@ -26,6 +27,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Volt\Volt;
 use Tests\TestCase;
@@ -1968,5 +1970,143 @@ class BoardTest extends TestCase
 
         Http::assertSent(fn ($req) => str_contains($req->url(), 'shipping-request')
             && str_contains($req->body(), '"vehicle_ids":[10]') && str_contains($req->body(), '"consignee_id":3'));
+    }
+
+    // ─────────────────────── 내 설정 / 기능설정 ───────────────────────
+
+    public function test_personal_settings_pages_load(): void
+    {
+        $u = $this->mkUser('manager');
+        $this->actingAs($u)->get('/settings/profile')->assertOk()->assertSee('프로필', false);
+        $this->actingAs($u)->get('/settings/password')->assertOk()->assertSee('비밀번호', false);
+        $this->actingAs($u)->get('/settings/appearance')->assertOk()->assertSee('화면 설정', false);
+    }
+
+    public function test_feature_settings_is_super_only(): void
+    {
+        $this->actingAs($this->mkUser('manager'))->get('/admin/settings')->assertForbidden();
+        $this->actingAs($this->mkUser('manager', null, 'super'))->get('/admin/settings')->assertOk();
+    }
+
+    public function test_brand_setting_drives_sidebar_and_login(): void
+    {
+        $this->actingAs($this->mkUser('manager', null, 'super'));
+
+        Volt::test('admin.settings')
+            ->set('sidebarBrand', '테스트브랜드')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertSame('테스트브랜드', Setting::get('sidebar_brand'));
+
+        // 사이드바(인증) + 로그인 화면(게스트) 둘 다 같은 값 반영
+        $this->get('/settings/profile')->assertSee('테스트브랜드', false);
+        auth()->logout();
+        $this->get('/login')->assertSee('테스트브랜드', false);
+    }
+
+    public function test_brand_save_rejects_too_long(): void
+    {
+        $this->actingAs($this->mkUser('manager', null, 'super'));
+
+        Volt::test('admin.settings')
+            ->set('sidebarBrand', str_repeat('가', 13))
+            ->call('save')
+            ->assertHasErrors(['sidebarBrand']);
+    }
+
+    /** 배포 순간 settings 테이블이 아직 없어도 로그인 화면이 500 나지 않고 기본 브랜드로 degrade. */
+    public function test_login_survives_missing_settings_table(): void
+    {
+        Schema::drop('settings');
+
+        $this->get('/login')->assertOk()->assertSee('HeymanBoard', false);
+    }
+
+    // ─────────────────────── i18n Phase 0 (한글/영어) ───────────────────────
+
+    private function enableEnglish(): void
+    {
+        Setting::updateOrCreate(['key' => 'locale_en_enabled'], ['value' => '1', 'type' => 'boolean']);
+    }
+
+    public function test_locale_feature_toggle_persists(): void
+    {
+        $this->actingAs($this->mkUser('manager', null, 'super'));
+
+        Volt::test('admin.settings')->set('localeEnEnabled', true);
+        $this->assertTrue((bool) Setting::get('locale_en_enabled'));
+
+        Volt::test('admin.settings')->set('localeEnEnabled', false);
+        $this->assertFalse((bool) Setting::get('locale_en_enabled'));
+    }
+
+    public function test_user_switches_to_english_when_enabled(): void
+    {
+        $this->enableEnglish();
+        $u = $this->mkUser('manager', null, 'super');
+
+        $this->actingAs($u)->post('/locale', ['locale' => 'en'])->assertRedirect();
+        $this->assertSame('en', $u->fresh()->locale);
+
+        // 영어 chrome 렌더 (사이드바 메뉴/브레드크럼 영어)
+        $this->actingAs($u->fresh())->get('/admin/settings')
+            ->assertSee('Feature Settings', false)
+            ->assertSee('Audit Log', false)
+            ->assertDontSee('감사 로그', false);
+    }
+
+    public function test_english_is_gated_by_feature_toggle(): void
+    {
+        // 영어 비활성 상태에서 en 시도 → ko 강제 저장
+        $u = $this->mkUser('manager');
+        $this->actingAs($u)->post('/locale', ['locale' => 'en']);
+        $this->assertSame('ko', $u->fresh()->locale);
+    }
+
+    public function test_middleware_forces_ko_when_feature_off(): void
+    {
+        // 사용자 locale 이 en 이라도 기능설정이 꺼져 있으면 미들웨어가 ko 적용
+        $u = $this->mkUser('manager', null, 'super');
+        $u->update(['locale' => 'en']);
+
+        $this->actingAs($u->fresh())->get('/admin/settings')
+            ->assertSee('기능설정', false)
+            ->assertDontSee('Feature Settings', false);
+    }
+
+    public function test_lang_switch_shown_only_when_enabled(): void
+    {
+        $u = $this->mkUser('manager', null, 'super');
+
+        $this->actingAs($u)->get('/admin/settings')->assertDontSee('name="locale"', false);
+
+        $this->enableEnglish();
+        $this->actingAs($u)->get('/admin/settings')->assertSee('name="locale"', false);
+    }
+
+    /** ko 로케일에서 검증 메시지가 raw 키가 아니라 실제 문장으로 렌더되는지(영어 폴백). 리허설 등록폼 직격. */
+    public function test_validation_messages_are_not_raw_keys_in_ko(): void
+    {
+        app()->setLocale('ko');
+
+        $this->assertNotSame('validation.required', __('validation.required'));
+        $this->assertStringNotContainsString('validation.', __('validation.max.string', ['attribute' => 'X', 'max' => '12']));
+    }
+
+    /** 8개 업무화면이 영어 로케일에서 깨지지 않고 렌더되는지(번역 누락·blade 에러 잡음). super=전 화면 접근. */
+    public function test_all_business_screens_render_in_english(): void
+    {
+        $this->enableEnglish();
+        $u = $this->mkUser('manager', null, 'super');
+        $u->update(['locale' => 'en']);
+        $this->actingAs($u->fresh());
+
+        foreach (['/listings', '/verdicts', '/portal', '/inspection', '/auction', '/manage', '/users', '/audit'] as $url) {
+            $this->get($url)->assertOk();
+        }
+
+        // 영어 chrome 실제 적용 확인(샘플)
+        $this->get('/manage')->assertSee('Feature Settings', false)->assertSee('Audit Log', false);
     }
 }

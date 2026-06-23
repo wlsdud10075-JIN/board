@@ -4,9 +4,10 @@ use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\Rule;
+use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
 
-new class extends Component {
+new #[Layout('components.layouts.app')] class extends Component {
     public string $name = '';
     public string $email = '';
 
@@ -72,29 +73,29 @@ new class extends Component {
 <section class="w-full">
     @include('partials.settings-heading')
 
-    <x-settings.layout heading="Profile" subheading="Update your name and email address">
+    <x-settings.layout :heading="__('settings.profile.heading')" :subheading="__('settings.profile.subheading')">
         <form wire:submit="updateProfileInformation" class="my-6 w-full space-y-6">
-            <flux:input wire:model="name" label="{{ __('Name') }}" type="text" name="name" required autofocus autocomplete="name" />
+            <flux:input wire:model="name" :label="__('settings.profile.name')" type="text" name="name" required autofocus autocomplete="name" />
 
             <div>
-                <flux:input wire:model="email" label="{{ __('Email') }}" type="email" name="email" required autocomplete="email" />
+                <flux:input wire:model="email" :label="__('settings.profile.email')" type="email" name="email" required autocomplete="email" />
 
                 @if (auth()->user() instanceof \Illuminate\Contracts\Auth\MustVerifyEmail &&! auth()->user()->hasVerifiedEmail())
                     <div>
                         <p class="mt-2 text-sm text-gray-800">
-                            {{ __('Your email address is unverified.') }}
+                            {{ __('settings.profile.unverified') }}
 
                             <button
                                 wire:click.prevent="resendVerificationNotification"
                                 class="rounded-md text-sm text-gray-600 underline hover:text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
                             >
-                                {{ __('Click here to re-send the verification email.') }}
+                                {{ __('settings.profile.resend') }}
                             </button>
                         </p>
 
                         @if (session('status') === 'verification-link-sent')
                             <p class="mt-2 text-sm font-medium text-green-600">
-                                {{ __('A new verification link has been sent to your email address.') }}
+                                {{ __('settings.profile.sent') }}
                             </p>
                         @endif
                     </div>
@@ -103,11 +104,11 @@ new class extends Component {
 
             <div class="flex items-center gap-4">
                 <div class="flex items-center justify-end">
-                    <flux:button variant="primary" type="submit" class="w-full">{{ __('Save') }}</flux:button>
+                    <flux:button variant="primary" type="submit" class="w-full">{{ __('settings.profile.save') }}</flux:button>
                 </div>
 
                 <x-action-message class="me-3" on="profile-updated">
-                    {{ __('Saved.') }}
+                    {{ __('settings.profile.saved') }}
                 </x-action-message>
             </div>
         </form>
