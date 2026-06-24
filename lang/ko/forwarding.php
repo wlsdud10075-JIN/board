@@ -32,6 +32,7 @@ return [
 
     // 인앱 알림 (검차완료 도착)
     'notify' => '🔔 검차완료 :count대 — 전달 대기',
+    'notify_synced' => 'car-erp 전송 완료 :count건 — ERP전환완료',
 
     'conflict_title' => '같은 바이어에게 이미 자동 회신대기 차(:vehicle)가 있습니다.',
     'conflict_desc' => '자동 회신은 한 바이어당 1대씩 처리됩니다. 이 차는 수동으로 전달할 수 있습니다.',
