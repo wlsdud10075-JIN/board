@@ -1685,6 +1685,23 @@ class BoardTest extends TestCase
         $this->assertNull($c->instance()->quoteData());   // 금액 미설정 → 카드 없이 사진만
     }
 
+    public function test_quote_card_romanizes_vehicle_number(): void
+    {
+        Bus::fake();
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, [
+            'status' => 'inspected', 'vehicle_number' => '375러1924', 'final_price' => 10000000,
+            'offer_currency' => 'KRW', 'offer_rate' => 1,
+        ]);
+        $this->actingAs($sales);
+
+        $c = Volt::test('forwarding.index')->call('openDetail', $l->id);
+        $q = $c->instance()->quoteData();
+
+        $this->assertSame('375 REO 1924', $q['vehicle']);            // 카드는 로마자 표기
+        $this->assertSame('375러1924', $l->fresh()->vehicle_number);  // 실제 식별값은 불변
+    }
+
     public function test_verdicts_requote_returns_to_inspected(): void
     {
         $sales = $this->mkUser('sales');
