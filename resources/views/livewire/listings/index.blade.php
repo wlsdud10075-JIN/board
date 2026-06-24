@@ -1036,7 +1036,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                                         <span class="text-lg">📄</span><span class="line-clamp-2 break-all">{{ $p->original_name }}</span>
                                     </a>
                                 @else
-                                    <a href="{{ $p->shareUrl() }}" target="_blank"><img src="{{ $p->shareUrl() }}" class="aspect-square w-full object-cover" alt=""></a>
+                                    @php $u = $p->shareUrl(); @endphp
+                                    <img src="{{ $u }}" @click="$dispatch('open-lightbox', { src: '{{ $u }}' })" class="aspect-square w-full cursor-zoom-in object-cover" alt="">
                                 @endif
                                 @if ($canEdit)
                                     <button type="button" wire:click="deleteSalesAttachment({{ $p->id }})" wire:confirm="{{ __('listings.attach.delete_confirm') }}"

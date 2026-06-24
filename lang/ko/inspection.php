@@ -51,6 +51,7 @@ return [
     'share_to_buyer_on' => '✓ 바이어공개',
     'photo_share_hint' => '바이어에게 보낼 :exterior "바이어공개" 켜기 (서류·번호판 제외). 전달 시 USD 금액과 함께 자동 전송.',
     'photo_share_hint_exterior' => '외관 사진/영상만',
+    'photo_delete_confirm' => '이 사진을 삭제할까요?',
 
     // 검사지역
     'inspection_region_section' => '검사지역',

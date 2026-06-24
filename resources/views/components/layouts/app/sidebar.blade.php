@@ -236,6 +236,10 @@
                 window.removeEventListener('pointerdown', once);
             }, { once: true });
             window.__boardBeep = function () {
+                // 중복 억제: wire:navigate 가 .window 리스너를 누적시켜 두 번 울리는 것 방지(정상 비프는 폴링당 ≤1회).
+                const now = Date.now();
+                if (window.__boardBeepLast && now - window.__boardBeepLast < 1000) return;
+                window.__boardBeepLast = now;
                 const c = ensure(); if (!c) return;
                 if (c.state === 'suspended') c.resume();
                 const o = c.createOscillator(), g = c.createGain();
@@ -249,6 +253,17 @@
         })();
     </script>
 @endif
+
+{{-- 사진 확대 라이트박스 (전역) — 어떤 화면이든 이미지 클릭 시 open-lightbox 이벤트로 전체화면 확대 --}}
+<div x-data="{ open: false, src: '' }"
+     @open-lightbox.window="src = $event.detail.src; open = true"
+     @keydown.escape.window="open = false"
+     x-show="open" style="display:none; z-index:9999"
+     class="fixed inset-0 flex items-center justify-center bg-black/80 p-4"
+     @click="open = false">
+    <img :src="src" @click.stop class="max-h-full max-w-full rounded object-contain shadow-2xl" alt="">
+    <button type="button" @click="open = false" class="absolute right-4 top-4 rounded-full bg-white/15 px-3 py-1 text-lg font-bold text-white hover:bg-white/30">✕</button>
+</div>
 
 @fluxScripts
 </body>

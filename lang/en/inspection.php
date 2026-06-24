@@ -51,6 +51,7 @@ return [
     'share_to_buyer_on' => '✓ Shared to buyer',
     'photo_share_hint' => 'Turn on "Share to buyer" for :exterior to send to the buyer (excl. documents/plate). Sent automatically with the USD amount on forward.',
     'photo_share_hint_exterior' => 'exterior photos/videos only',
+    'photo_delete_confirm' => 'Delete this photo?',
 
     // Inspection region
     'inspection_region_section' => 'Inspection region',

@@ -548,6 +548,25 @@ class BoardTest extends TestCase
         Bus::assertDispatched(SendOfferToBuyer::class);
     }
 
+    public function test_forwarding_photo_zip_downloads(): void
+    {
+        Storage::fake('public');
+        config(['board.photo_disk' => 'public']);
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'inspected', 'final_price' => 9000000]);
+        // 바이어 공개분(share_to_buyer) + 서류(false) — zip 은 공개분만(§28, SendOfferToBuyer 와 동일 필터)
+        $l->photos()->create(['s3_path' => 'p/ext.jpg', 'original_name' => 'ext.jpg', 'sort' => 1, 'share_to_buyer' => true]);
+        $l->photos()->create(['s3_path' => 'p/doc.jpg', 'original_name' => 'doc.jpg', 'sort' => 2, 'share_to_buyer' => false]);
+        Storage::disk('public')->put('p/ext.jpg', 'EXTERIOR');
+        Storage::disk('public')->put('p/doc.jpg', 'DOCUMENT');
+
+        $this->actingAs($sales);
+        Volt::test('forwarding.index')
+            ->call('openDetail', $l->id)
+            ->call('downloadPhotos')
+            ->assertFileDownloaded($l->vehicle_number.'_photos.zip');
+    }
+
     public function test_region_assignment_role_limit_and_inspector_filter(): void
     {
         $mgr = $this->mkUser('manager');
@@ -1508,6 +1527,24 @@ class BoardTest extends TestCase
         $l->refresh();
         $this->assertSame('EUR', $l->offer_currency);
         $this->assertGreaterThan(0, $l->offer_rate);   // 확정 시점 EUR 환율 스냅샷
+    }
+
+    public function test_inspection_can_delete_photo(): void
+    {
+        Storage::fake('public');
+        config(['board.photo_disk' => 'public']);
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft']);
+        $p = $l->photos()->create(['s3_path' => 'i/x.jpg', 'original_name' => 'x.jpg', 'sort' => 1, 'kind' => InspectionPhoto::KIND_INSPECTION]);
+        Storage::disk('public')->put('i/x.jpg', 'X');
+        $this->actingAs($this->mkUser('inspection'));
+
+        Volt::test('inspection.index')
+            ->call('openDrawer', $l->id)
+            ->call('deletePhoto', $p->id)
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseMissing('inspection_photos', ['id' => $p->id]);
+        Storage::disk('public')->assertMissing('i/x.jpg');
     }
 
     public function test_send_offer_uses_chosen_currency(): void

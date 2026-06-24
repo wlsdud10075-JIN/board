@@ -368,6 +368,15 @@ new #[Layout('components.layouts.app')] class extends Component {
         unset($this->editing);
     }
 
+    /** 잘못 올린 검차사진 삭제 — 편집 중인 차의 사진만(파일+행). */
+    public function deletePhoto(int $photoId): void
+    {
+        $p = \App\Models\InspectionPhoto::where('purchase_listing_id', $this->editingId)->findOrFail($photoId);
+        Storage::disk(config('board.photo_disk'))->delete($p->s3_path);
+        $p->delete();
+        unset($this->editing);
+    }
+
 
     public function photoUrl(string $path): string
     {
@@ -532,12 +541,15 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @if ($e->photos->count())
                     <div class="mt-2 grid grid-cols-4 gap-2">
                         @foreach ($e->photos as $p)
-                            <div class="relative overflow-hidden rounded-md">
+                            @php $u = $this->photoUrl($p->s3_path); @endphp
+                            <div class="relative overflow-hidden rounded-md" wire:key="insp-photo-{{ $p->id }}">
                                 @if ($p->isVideo())
-                                    <video src="{{ $this->photoUrl($p->s3_path) }}" class="aspect-square w-full object-cover" controls preload="metadata"></video>
+                                    <video src="{{ $u }}" class="aspect-square w-full object-cover" controls preload="metadata"></video>
                                 @else
-                                    <img src="{{ $this->photoUrl($p->s3_path) }}" class="aspect-square w-full object-cover" alt="">
+                                    <img src="{{ $u }}" @click="$dispatch('open-lightbox', { src: '{{ $u }}' })" class="aspect-square w-full cursor-zoom-in object-cover" alt="">
                                 @endif
+                                <button type="button" wire:click="deletePhoto({{ $p->id }})" wire:confirm="{{ __('inspection.photo_delete_confirm') }}"
+                                    class="absolute right-0.5 top-0.5 rounded bg-black/55 px-1 text-[10px] font-semibold text-white hover:bg-red-600">✕</button>
                                 <button type="button" wire:click="toggleShare({{ $p->id }})"
                                     class="absolute inset-x-0 bottom-0 py-0.5 text-[10px] font-semibold {{ $p->share_to_buyer ? 'bg-green-600 text-white' : 'bg-black/55 text-white' }}">
                                     {{ $p->share_to_buyer ? __('inspection.share_to_buyer_on') : __('inspection.share_to_buyer') }}

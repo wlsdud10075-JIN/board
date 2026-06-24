@@ -27,6 +27,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function items()
     {
         return PurchaseListing::with('creator')
+            ->withCount(['photos as share_photos_count' => fn ($q) => $q->where('share_to_buyer', true)])
             ->where('status', 'inspected')
             ->orderBy('updated_at')
             ->get();
@@ -69,6 +70,30 @@ new #[Layout('components.layouts.app')] class extends Component {
             now()->addMinutes(20),
             fn () => Storage::disk('s3')->temporaryUrl($path, now()->addMinutes(30)),
         );
+    }
+
+    /** 검차 사진 일괄 다운로드(zip) — 바이어 공개분(share_to_buyer)만(§28, SendOfferToBuyer 와 동일 필터). 영업이 외부 메신저로 전달. */
+    public function downloadPhotos()
+    {
+        // SalesmanScope + status 가드 → 본인 검차완료 글만(IDOR 차단).
+        $l = PurchaseListing::with('photos')->where('status', 'inspected')->findOrFail($this->detailId);
+        $photos = $l->photos->where('share_to_buyer', true)->values();
+        abort_if($photos->isEmpty(), 404);
+
+        $disk = config('board.photo_disk');
+        $tmp = tempnam(sys_get_temp_dir(), 'fwd');
+        $zip = new \ZipArchive;
+        $zip->open($tmp, \ZipArchive::OVERWRITE);
+        foreach ($photos as $i => $p) {
+            $name = ($i + 1).'_'.($p->original_name ?: basename($p->s3_path));
+            $zip->addFromString($name, Storage::disk($disk)->get($p->s3_path));   // 디스크 무관(s3 도 동작)
+        }
+        $zip->close();
+
+        return response()->streamDownload(function () use ($tmp) {
+            readfile($tmp);
+            @unlink($tmp);
+        }, $l->vehicle_number.'_photos.zip', ['Content-Type' => 'application/zip']);
     }
 
     /** 바이어 전달 → awaiting_buyer. buyer_name 필수(누구에게). 충돌 시 보류 + 수동 옵션. */
@@ -132,6 +157,14 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <td class="whitespace-nowrap align-middle">
                                 <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
                                 <div class="text-xs text-gray-400">{{ $l->owner_name ?: '—' }}</div>
+                                <div class="mt-1 flex gap-1">
+                                    <span class="badge badge-green">{{ __('forwarding.badge_inspected') }}</span>
+                                    @if ($l->share_photos_count > 0)
+                                        <span class="badge badge-blue">📷 {{ $l->share_photos_count }}</span>
+                                    @else
+                                        <span class="badge badge-amber">{{ __('forwarding.badge_no_photos') }}</span>
+                                    @endif
+                                </div>
                             </td>
                             <td class="align-middle"><span class="badge {{ $l->originBadge() }}">{{ $l->originLabel() }}</span></td>
                             <td class="align-middle font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).__('common.won_currency') : '—' }}</td>
@@ -153,6 +186,14 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <div class="min-w-0">
                             <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
                             <div class="text-xs text-gray-400">{{ $l->owner_name ?: '—' }}</div>
+                            <div class="mt-1 flex gap-1">
+                                <span class="badge badge-green">{{ __('forwarding.badge_inspected') }}</span>
+                                @if ($l->share_photos_count > 0)
+                                    <span class="badge badge-blue">📷 {{ $l->share_photos_count }}</span>
+                                @else
+                                    <span class="badge badge-amber">{{ __('forwarding.badge_no_photos') }}</span>
+                                @endif
+                            </div>
                         </div>
                         <div class="shrink-0 text-right">
                             <span class="badge {{ $l->originBadge() }}">{{ $l->originLabel() }}</span>
@@ -207,10 +248,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @if ($d->photos->count())
                     <div class="grid grid-cols-4 gap-2">
                         @foreach ($d->photos as $p)
+                            @php $u = $this->photoUrl($p->s3_path); @endphp
                             @if ($p->isVideo())
-                                <video src="{{ $this->photoUrl($p->s3_path) }}" class="aspect-square w-full rounded-md object-cover" controls preload="metadata"></video>
+                                <video src="{{ $u }}" class="aspect-square w-full rounded-md object-cover" controls preload="metadata"></video>
                             @else
-                                <img src="{{ $this->photoUrl($p->s3_path) }}" class="aspect-square w-full rounded-md object-cover" alt="">
+                                <img src="{{ $u }}" @click="$dispatch('open-lightbox', { src: '{{ $u }}' })" class="aspect-square w-full cursor-zoom-in rounded-md object-cover" alt="">
                             @endif
                         @endforeach
                     </div>
@@ -218,7 +260,26 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <p class="text-xs text-gray-400">—</p>
                 @endif
 
-                {{-- 바이어 + 전달 --}}
+                {{-- 사진 확보: 일괄 다운로드(PC) / 네이티브 공유(모바일) — 바이어 공개 외관분만(§28) --}}
+                @php
+                    $sharePhotos = $d->photos->where('share_to_buyer', true)->values()
+                        ->map(fn ($p) => ['url' => $this->photoUrl($p->s3_path), 'name' => $p->original_name ?: 'photo.jpg'])->all();
+                @endphp
+                @if (count($sharePhotos))
+                    <div class="mt-3 flex flex-col gap-2 sm:flex-row" x-data="{ busy: false }">
+                        <button type="button" class="btn-ghost btn-sm flex-1 justify-center" wire:click="downloadPhotos">
+                            ⬇️ {{ __('forwarding.download_button') }}
+                        </button>
+                        <button type="button" class="btn-ghost btn-sm flex-1 justify-center sm:hidden" :disabled="busy"
+                            @click="busy = true; window.fwdShare(@js($sharePhotos), $wire).finally(() => busy = false)">
+                            <span x-show="!busy">📤 {{ __('forwarding.share_button') }}</span>
+                            <span x-show="busy" style="display:none">…</span>
+                        </button>
+                    </div>
+                    <p class="mt-1 text-xs text-gray-400">{{ __('forwarding.share_hint') }}</p>
+                @endif
+
+                {{-- 바이어 + 전달완료 체크 --}}
                 <div class="section-title-sm">{{ __('forwarding.forward_section') }}</div>
                 <input class="input-base" wire:model="buyer_name" placeholder="{{ __('forwarding.buyer_placeholder') }}" maxlength="100">
                 @error('buyer_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
@@ -230,10 +291,33 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <button type="button" class="btn-primary btn-sm mt-2 w-full justify-center" wire:click="forwardManual">{{ __('forwarding.conflict_manual') }}</button>
                     </div>
                 @else
-                    <button class="btn-primary mt-2 w-full justify-center" wire:click="forward">📤 {{ __('forwarding.forward_button') }}</button>
+                    <button class="btn-primary mt-2 w-full justify-center" wire:click="forward">✅ {{ __('forwarding.forward_button') }}</button>
                     <p class="mt-1 text-xs text-gray-400">{{ __('forwarding.forward_hint') }}</p>
                 @endif
             </div>
         </div>
     @endif
+
+    {{-- 네이티브 공유: 사진 파일을 OS 공유시트(카톡/왓츠앱)로. 실패(미지원·CORS·취소 외)면 zip 다운로드 폴백. --}}
+    <script>
+        window.fwdShare = async function (photos, wire) {
+            try {
+                const files = [];
+                for (const p of photos) {
+                    const r = await fetch(p.url);
+                    if (!r.ok) throw new Error('fetch_failed');
+                    const b = await r.blob();
+                    files.push(new File([b], p.name, { type: b.type || 'image/jpeg' }));
+                }
+                if (navigator.canShare && navigator.canShare({ files })) {
+                    await navigator.share({ files });
+                    return;
+                }
+                throw new Error('cannot_share');
+            } catch (e) {
+                if (e && e.name === 'AbortError') return;   // 사용자가 공유 취소
+                wire.downloadPhotos();                       // 폴백: zip 다운로드
+            }
+        };
+    </script>
 </div>

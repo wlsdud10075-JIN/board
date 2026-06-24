@@ -4,7 +4,7 @@
 
 return [
     'title' => 'Awaiting forward',
-    'subtitle' => '🔍 Review photos of inspected vehicles, then forward to the buyer. Forwarding moves it to "Buyer Reply".',
+    'subtitle' => '🔍 Get the inspected vehicle\'s photos (download/share), send them to the buyer, then tap "Mark as sent" to move it to "Buyer Reply".',
     'panel_title' => 'Inspected · awaiting forward',
     'count' => ':count waiting',
     'empty' => 'No vehicles awaiting forward. (Inspected vehicles appear here.)',
@@ -14,11 +14,20 @@ return [
     'th_final_price' => 'Total',
     'th_inspection_note' => 'Extra notes',
 
+    // Progress badges (inspected → photos ready)
+    'badge_inspected' => 'Inspected',
+    'badge_no_photos' => 'No photos',
+
+    // Photos — send via your own messenger
+    'download_button' => 'Download all photos',
+    'share_button' => 'Share photos',
+    'share_hint' => 'Desktop: download. Mobile: share directly to KakaoTalk/WhatsApp. (Buyer-facing exterior photos only.)',
+
     'forward_section' => 'Forward to buyer',
     'buyer_placeholder' => 'Buyer name (respond.io contact)',
     'attr_buyer_name' => 'buyer name',
-    'forward_button' => 'Forward to buyer',
-    'forward_hint' => 'Forwarding sends photos + total to the buyer (auto channel) and moves it to the "Buyer Reply" screen.',
+    'forward_button' => 'Mark as sent',
+    'forward_hint' => 'Tap once you have sent the photos to the buyer. (Auto channel also sends photos + total) → moves to "Buyer Reply".',
     'flash_forwarded' => 'Forwarded :vehicle to the buyer. (Handle accept/reject on the Buyer Reply screen.)',
 
     // In-app notification (inspected vehicle arrived)
