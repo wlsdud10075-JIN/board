@@ -2127,6 +2127,26 @@ class BoardTest extends TestCase
             ->assertSee('월별 실적')->assertSee('2026-05')->assertSee('700,000');   // 5월 판매2·정산70만
     }
 
+    public function test_portal_monthly_settlement_buckets_by_paid_at(): void
+    {
+        // 실지급일(paid_at)이 확정일(confirmed_at)과 다르면 월별은 paid_at 기준으로 갈려야 함.
+        // (car-erp 가 엑셀 업로드로 5월/6월 실지급을 paid_at 에 담아 보내는 케이스 — handoff-car-erp-settlement-paid-at.md)
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 0], 200),
+            '*/api/internal/board/settlements*' => Http::response(['count' => 2, 'data' => [
+                ['vehicle_number' => 'A', 'paid_at' => '2026-05-31', 'confirmed_at' => '2026-06-23', 'actual_payout' => 500000, 'status' => 'paid'],
+                ['vehicle_number' => 'B', 'paid_at' => '2026-06-10', 'confirmed_at' => '2026-06-23', 'actual_payout' => 300000, 'status' => 'paid'],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')
+            ->assertSee('2026-05')->assertSee('500,000')   // 확정은 6월이나 실지급 5월 → 5월로
+            ->assertSee('2026-06')->assertSee('300,000');
+    }
+
     public function test_portal_receivables_hides_paid_and_sorts(): void
     {
         $this->carErpReadConfig();
