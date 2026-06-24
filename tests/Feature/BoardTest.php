@@ -548,23 +548,19 @@ class BoardTest extends TestCase
         Bus::assertDispatched(SendOfferToBuyer::class);
     }
 
-    public function test_forwarding_photo_zip_downloads(): void
+    public function test_photo_proxy_streams_for_owner_and_blocks_other_salesman(): void
     {
         Storage::fake('public');
         config(['board.photo_disk' => 'public']);
-        $sales = $this->mkUser('sales');
-        $l = $this->mkListing($sales, ['status' => 'inspected', 'final_price' => 9000000]);
-        // 바이어 공개분(share_to_buyer) + 서류(false) — zip 은 공개분만(§28, SendOfferToBuyer 와 동일 필터)
-        $l->photos()->create(['s3_path' => 'p/ext.jpg', 'original_name' => 'ext.jpg', 'sort' => 1, 'share_to_buyer' => true]);
-        $l->photos()->create(['s3_path' => 'p/doc.jpg', 'original_name' => 'doc.jpg', 'sort' => 2, 'share_to_buyer' => false]);
-        Storage::disk('public')->put('p/ext.jpg', 'EXTERIOR');
-        Storage::disk('public')->put('p/doc.jpg', 'DOCUMENT');
+        $owner = $this->mkUser('sales');
+        $l = $this->mkListing($owner, ['status' => 'inspected']);
+        $p = $l->photos()->create(['s3_path' => 'i/x.jpg', 'original_name' => 'x.jpg', 'sort' => 1, 'kind' => InspectionPhoto::KIND_INSPECTION]);
+        Storage::disk('public')->put('i/x.jpg', 'IMG');
 
-        $this->actingAs($sales);
-        Volt::test('forwarding.index')
-            ->call('openDetail', $l->id)
-            ->call('downloadPhotos')
-            ->assertFileDownloaded($l->vehicle_number.'_photos.zip');
+        // 소유 영업 = 스트리밍 OK (모바일 다중 공유 fetch 의 같은출처 소스)
+        $this->actingAs($owner)->get(route('photos.show', $p->id))->assertOk();
+        // 다른 영업 = SalesmanScope 로 403 (IDOR 차단)
+        $this->actingAs($this->mkUser('sales'))->get(route('photos.show', $p->id))->assertForbidden();
     }
 
     public function test_region_assignment_role_limit_and_inspector_filter(): void

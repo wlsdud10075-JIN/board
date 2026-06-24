@@ -72,30 +72,6 @@ new #[Layout('components.layouts.app')] class extends Component {
         );
     }
 
-    /** 검차 사진 일괄 다운로드(zip) — 바이어 공개분(share_to_buyer)만(§28, SendOfferToBuyer 와 동일 필터). 영업이 외부 메신저로 전달. */
-    public function downloadPhotos()
-    {
-        // SalesmanScope + status 가드 → 본인 검차완료 글만(IDOR 차단).
-        $l = PurchaseListing::with('photos')->where('status', 'inspected')->findOrFail($this->detailId);
-        $photos = $l->photos->where('share_to_buyer', true)->values();
-        abort_if($photos->isEmpty(), 404);
-
-        $disk = config('board.photo_disk');
-        $tmp = tempnam(sys_get_temp_dir(), 'fwd');
-        $zip = new \ZipArchive;
-        $zip->open($tmp, \ZipArchive::OVERWRITE);
-        foreach ($photos as $i => $p) {
-            $name = ($i + 1).'_'.($p->original_name ?: basename($p->s3_path));
-            $zip->addFromString($name, Storage::disk($disk)->get($p->s3_path));   // 디스크 무관(s3 도 동작)
-        }
-        $zip->close();
-
-        return response()->streamDownload(function () use ($tmp) {
-            readfile($tmp);
-            @unlink($tmp);
-        }, $l->vehicle_number.'_photos.zip', ['Content-Type' => 'application/zip']);
-    }
-
     /** 바이어 전달 → awaiting_buyer. buyer_name 필수(누구에게). 충돌 시 보류 + 수동 옵션. */
     public function forward(): void
     {
@@ -260,22 +236,17 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <p class="text-xs text-gray-400">—</p>
                 @endif
 
-                {{-- 사진 확보: 일괄 다운로드(PC) / 네이티브 공유(모바일) — 바이어 공개 외관분만(§28) --}}
+                {{-- 검차사진 전체를 한 번에 공유(OS 공유시트→카톡 등). 같은출처 프록시 fetch 라 운영 S3 CORS 무관. --}}
                 @php
-                    $sharePhotos = $d->photos->where('share_to_buyer', true)->values()
-                        ->map(fn ($p) => ['url' => $this->photoUrl($p->s3_path), 'name' => $p->original_name ?: 'photo.jpg'])->all();
+                    $sharePhotos = $d->photos
+                        ->map(fn ($p) => ['url' => route('photos.show', $p->id), 'name' => $p->original_name ?: 'photo.jpg'])->all();
                 @endphp
                 @if (count($sharePhotos))
-                    <div class="mt-3 flex flex-col gap-2 sm:flex-row" x-data="{ busy: false }">
-                        <button type="button" class="btn-ghost btn-sm flex-1 justify-center" wire:click="downloadPhotos">
-                            ⬇️ {{ __('forwarding.download_button') }}
-                        </button>
-                        <button type="button" class="btn-ghost btn-sm flex-1 justify-center sm:hidden" :disabled="busy"
-                            @click="busy = true; window.fwdShare(@js($sharePhotos), $wire).finally(() => busy = false)">
-                            <span x-show="!busy">📤 {{ __('forwarding.share_button') }}</span>
-                            <span x-show="busy" style="display:none">…</span>
-                        </button>
-                    </div>
+                    <button type="button" class="btn-primary mt-3 w-full justify-center" x-data="{ busy: false }" :disabled="busy"
+                        @click="busy = true; window.fwdShare(@js($sharePhotos)).finally(() => busy = false)">
+                        <span x-show="!busy">📤 {{ __('forwarding.share_button', ['count' => count($sharePhotos)]) }}</span>
+                        <span x-show="busy" style="display:none">…</span>
+                    </button>
                     <p class="mt-1 text-xs text-gray-400">{{ __('forwarding.share_hint') }}</p>
                 @endif
 
@@ -298,9 +269,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         </div>
     @endif
 
-    {{-- 네이티브 공유: 사진 파일을 OS 공유시트(카톡/왓츠앱)로. 실패(미지원·CORS·취소 외)면 zip 다운로드 폴백. --}}
+    {{-- 다중 사진을 OS 공유시트(카톡/왓츠앱)로 한 번에. URL=같은출처 프록시(photos.show)라 운영 S3 CORS 무관. --}}
     <script>
-        window.fwdShare = async function (photos, wire) {
+        window.fwdShare = async function (photos) {
             try {
                 const files = [];
                 for (const p of photos) {
@@ -313,10 +284,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                     await navigator.share({ files });
                     return;
                 }
-                throw new Error('cannot_share');
+                alert('이 브라우저는 다중 사진 공유를 지원하지 않습니다. 사진을 길게 눌러 하나씩 공유해 주세요.');
             } catch (e) {
                 if (e && e.name === 'AbortError') return;   // 사용자가 공유 취소
-                wire.downloadPhotos();                       // 폴백: zip 다운로드
+                alert('공유에 실패했습니다. 사진을 길게 눌러 하나씩 공유해 주세요.');
             }
         };
     </script>
