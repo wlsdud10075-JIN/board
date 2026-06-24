@@ -77,6 +77,20 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->apply($id, 'rejected');
     }
 
+    /** 재견적 — 거절이 아니라 전달대기(inspected)로 되돌림. 영업이 통화/가격 조정 후 재발송. */
+    public function requote(int $id): void
+    {
+        // findOrFail 이 SalesmanScope 안 → 영업은 본인 글만(IDOR 차단).
+        $l = PurchaseListing::where('status', 'awaiting_buyer')->findOrFail($id);
+        $ok = app(\App\Services\VerdictService::class)->requote($l->id);
+
+        $this->reset('detailId');
+        unset($this->groups, $this->detail);
+        session()->flash('ok', $ok
+            ? __('verdicts.flash_requoted', ['vehicle' => $l->vehicle_number])
+            : __('verdicts.flash_already', ['vehicle' => $l->vehicle_number]));
+    }
+
     /** 차 1대에 verdict 적용. SalesmanScope(본인 것만=IDOR 차단) + VerdictService(race-safe 적용). */
     private function apply(int $id, string $verdict): void
     {
@@ -220,12 +234,16 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 {{-- 회신 (사진 확인 후 결정) --}}
                 <div class="section-title-sm">{{ __('verdicts.th_process') }}</div>
-                <div class="flex gap-2">
-                    <button class="btn-green flex-1 justify-center" wire:click="accept({{ $d->id }})"
-                            wire:confirm="{{ __('verdicts.confirm_accept', ['vehicle' => $d->vehicle_number]) }}">{{ __('verdicts.accept') }}</button>
+                <button class="btn-green w-full justify-center" wire:click="accept({{ $d->id }})"
+                        wire:confirm="{{ __('verdicts.confirm_accept', ['vehicle' => $d->vehicle_number]) }}">{{ __('verdicts.accept') }}</button>
+                {{-- 바이어가 안 산다고 하면: 재견적(전달대기로 복귀) 또는 거절(딜 종료) 중 선택 --}}
+                <div class="mt-2 flex gap-2">
+                    <button class="btn-outline flex-1 justify-center" wire:click="requote({{ $d->id }})"
+                            wire:confirm="{{ __('verdicts.confirm_requote', ['vehicle' => $d->vehicle_number]) }}">{{ __('verdicts.requote') }}</button>
                     <button class="btn-red flex-1 justify-center" wire:click="reject({{ $d->id }})"
-                            wire:confirm="{{ __('verdicts.confirm_reject', ['vehicle' => $d->vehicle_number]) }}">{{ __('verdicts.reject') }}</button>
+                            wire:confirm="{{ __('verdicts.confirm_reject', ['vehicle' => $d->vehicle_number]) }}">{{ __('verdicts.reject_final') }}</button>
                 </div>
+                <p class="mt-1 text-xs text-gray-400">{{ __('verdicts.requote_hint') }}</p>
             </div>
         </div>
     @endif
