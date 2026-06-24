@@ -143,7 +143,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $shipping = $car === null ? null : $total - $car;   // 잔차 흡수
 
         return [
-            'vehicle' => $d->vehicle_number,
+            'vehicle' => $this->vehicleRoman($d->vehicle_number),
             'currency' => $cur,
             'car' => $this->fmtCur($car, $cur),
             'shipping' => $this->fmtCur($shipping, $cur),
@@ -160,6 +160,32 @@ new #[Layout('components.layouts.app')] class extends Component {
         $sym = ['KRW' => '₩', 'USD' => '$', 'EUR' => '€'][$cur] ?? '';
 
         return $sym.number_format($amount);
+    }
+
+    /**
+     * 차량번호의 한글(번호판 문자)만 로마자로 — 바이어용 카드 표기. (375러1924 → 375 REO 1924)
+     * 실제 vehicle_number(식별·연동B 매칭키)는 불변 — 표시용 변환만. 번호판에 안 쓰는 한글은 원문 유지.
+     */
+    private function vehicleRoman(string $no): string
+    {
+        static $map = [
+            '가' => 'ga', '거' => 'geo', '고' => 'go', '구' => 'gu',
+            '나' => 'na', '너' => 'neo', '노' => 'no', '누' => 'nu',
+            '다' => 'da', '더' => 'deo', '도' => 'do', '두' => 'du',
+            '라' => 'ra', '러' => 'reo', '로' => 'ro', '루' => 'ru',
+            '마' => 'ma', '머' => 'meo', '모' => 'mo', '무' => 'mu',
+            '바' => 'ba', '버' => 'beo', '보' => 'bo', '부' => 'bu',
+            '사' => 'sa', '서' => 'seo', '소' => 'so', '수' => 'su',
+            '아' => 'a', '어' => 'eo', '오' => 'o', '우' => 'u',
+            '자' => 'ja', '저' => 'jeo', '조' => 'jo', '주' => 'ju',
+            '하' => 'ha', '허' => 'heo', '호' => 'ho', '배' => 'bae',
+        ];
+        $out = '';
+        foreach (preg_split('//u', $no, -1, PREG_SPLIT_NO_EMPTY) as $ch) {
+            $out .= isset($map[$ch]) ? ' '.strtoupper($map[$ch]).' ' : $ch;
+        }
+
+        return trim(preg_replace('/\s+/', ' ', $out));
     }
 
     public function photoUrl(string $path): string
@@ -395,7 +421,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     {{-- 견적 카드(캔버스) + 검차사진을 OS 공유시트(카톡/왓츠앱)로 한 번에.
          사진 URL=같은출처 프록시(photos.show)라 운영 S3 CORS 무관. 카드는 클라에서 그려 맨 앞에 붙임. --}}
     <script>
-        // 견적 카드 한 장(PNG) — 헤더 SSANCAR + 차량 + 차값/배송/최종 3줄(영업이 고른 통화, EN 라벨).
+        // 견적 카드 한 장(PNG) — 헤더 QUOTATION(견적서) + 차량(로마자) + 차값/배송/최종 3줄(영업이 고른 통화, EN 라벨).
         async function buildQuoteCard(q) {
             const W = 1000, H = 620, s = 2;
             const c = document.createElement('canvas');
@@ -407,12 +433,12 @@ new #[Layout('components.layouts.app')] class extends Component {
             ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H);
             ctx.fillStyle = '#7c6fcd'; ctx.fillRect(0, 0, W, 110);
             ctx.fillStyle = '#ffffff'; ctx.font = 'bold 52px sans-serif';
-            ctx.fillText('SSANCAR', 48, 58);
+            ctx.fillText('QUOTATION', 48, 58);
 
-            ctx.fillStyle = '#111827'; ctx.font = 'bold 42px sans-serif';
-            ctx.fillText(q.vehicle, 48, 190);
             ctx.fillStyle = '#6b7280'; ctx.font = '26px sans-serif';
-            ctx.fillText('Quotation', 48, 240);
+            ctx.fillText('Vehicle', 48, 180);
+            ctx.fillStyle = '#111827'; ctx.font = 'bold 44px sans-serif';
+            ctx.fillText(q.vehicle, 48, 230);
 
             ctx.font = '34px sans-serif';
             let y = 330;
