@@ -223,6 +223,33 @@
     </div>
 </div>
 
+{{-- 전달 대기 인앱 알림 (영업·관리만) — 검차완료 새 도착 시 소리+토스트 --}}
+@if ($user->isSuper() || $user->isSales() || $user->isManager())
+    <livewire:notify.poll />
+    <script>
+        (function () {
+            let ctx;
+            function ensure() { if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } return ctx; }
+            // 브라우저 자동재생 정책: 첫 사용자 제스처에서 오디오 컨텍스트 활성화
+            window.addEventListener('pointerdown', function once() {
+                const c = ensure(); if (c && c.state === 'suspended') c.resume();
+                window.removeEventListener('pointerdown', once);
+            }, { once: true });
+            window.__boardBeep = function () {
+                const c = ensure(); if (!c) return;
+                if (c.state === 'suspended') c.resume();
+                const o = c.createOscillator(), g = c.createGain();
+                o.connect(g); g.connect(c.destination);
+                o.type = 'sine'; o.frequency.value = 880;
+                g.gain.setValueAtTime(0.0001, c.currentTime);
+                g.gain.exponentialRampToValueAtTime(0.2, c.currentTime + 0.02);
+                g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.35);
+                o.start(); o.stop(c.currentTime + 0.36);
+            };
+        })();
+    </script>
+@endif
+
 @fluxScripts
 </body>
 </html>

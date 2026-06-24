@@ -21,6 +21,9 @@ return [
     'forward_hint' => 'Forwarding sends photos + total to the buyer (auto channel) and moves it to the "Buyer Reply" screen.',
     'flash_forwarded' => 'Forwarded :vehicle to the buyer. (Handle accept/reject on the Buyer Reply screen.)',
 
+    // In-app notification (inspected vehicle arrived)
+    'notify' => '🔔 :count inspected — awaiting forward',
+
     'conflict_title' => 'This buyer already has an auto awaiting-reply vehicle (:vehicle).',
     'conflict_desc' => 'Auto replies are handled one vehicle per buyer at a time. You can forward this one manually.',
     'conflict_manual' => 'Forward manually',

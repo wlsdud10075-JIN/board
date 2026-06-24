@@ -1480,6 +1480,20 @@ class BoardTest extends TestCase
         Bus::assertDispatched(SendOfferToBuyer::class, fn ($j) => $j->listingId === $l->id);
     }
 
+    public function test_forwarding_notify_fires_on_new_inspected(): void
+    {
+        $sales = $this->mkUser('sales');
+        $this->actingAs($sales);
+
+        $c = Volt::test('notify.poll');   // mount: lastCount=0 (아직 검차완료 없음)
+        $this->mkListing($sales, ['status' => 'inspected', 'final_price' => 9000000]);
+
+        // 새 검차완료 도착 → 알림 이벤트 발화
+        $c->call('check')->assertDispatched('forward-arrived');
+        // 변화 없으면 재발화 안 함
+        $c->call('check')->assertNotDispatched('forward-arrived');
+    }
+
     public function test_inspection_finalizes_offer_currency(): void
     {
         $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft', 'car_cost' => 9000000]);
