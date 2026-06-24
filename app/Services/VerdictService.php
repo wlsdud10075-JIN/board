@@ -45,6 +45,32 @@ class VerdictService
         });
     }
 
+    /**
+     * 재견적 — 회신대기(awaiting_buyer) 차를 전달대기(inspected)로 되돌림 (race-safe).
+     * 거절 아님: buyer_verdict 는 pending 유지. 영업이 통화/가격 조정 후 다시 견적 발송.
+     *
+     * @return bool 되돌림 여부 (이미 처리됐으면 false)
+     */
+    public function requote(int $listingId): bool
+    {
+        return DB::transaction(function () use ($listingId) {
+            $l = PurchaseListing::withoutGlobalScope(SalesmanScope::class)
+                ->where('id', $listingId)
+                ->where('status', 'awaiting_buyer')
+                ->lockForUpdate()
+                ->first();
+
+            if (! $l) {
+                return false;   // 이미 처리됨/대상 아님
+            }
+
+            $l->status = 'inspected';   // 가드: awaiting_buyer→inspected (verdict 은 pending 유지)
+            $l->save();
+
+            return true;
+        });
+    }
+
     /** respond.io 컨택트(스파인=contact id) 로 회신대기 차 단일이면 적용. (C 폴링) */
     public function applyByContact(string $contactId, string $verdict, ?string $channel = null): array
     {

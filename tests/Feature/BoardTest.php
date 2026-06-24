@@ -1603,6 +1603,137 @@ class BoardTest extends TestCase
         $this->assertGreaterThan(0, $l->offer_rate);   // 확정 시점 EUR 환율 스냅샷
     }
 
+    // ─────────────────────── 견적 카드 + 전달대기 통화 + 재견적 ───────────────────────
+
+    public function test_forwarding_open_detail_does_not_overwrite_offer_currency(): void
+    {
+        Bus::fake();
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, [
+            'status' => 'inspected', 'final_price' => 15000000,
+            'offer_currency' => 'EUR', 'offer_rate' => 1500,
+        ]);
+        $this->actingAs($sales);
+
+        // 드로어 열기 = 표시만 EUR, 저장 ❌ (EUR 딜 보존 — 연동 B 판매통화 안 깨짐)
+        Volt::test('forwarding.index')
+            ->call('openDetail', $l->id)
+            ->assertSet('quoteCurrency', 'EUR');
+
+        $l->refresh();
+        $this->assertSame('EUR', $l->offer_currency);
+        $this->assertSame(1500, $l->offer_rate);
+    }
+
+    public function test_forwarding_set_quote_currency_saves_only_on_click(): void
+    {
+        Bus::fake();
+        $sales = $this->mkUser('sales');
+        // 차값 13.8M KRW, 할인 0, 배송 1000 USD → car=14,240,000 / ship=1,380,000 / total=15,620,000
+        $l = $this->mkListing($sales, [
+            'status' => 'inspected',
+            'car_cost' => 13800000, 'expected_price_currency' => 'KRW',
+            'discount_rate' => 0, 'shipping_usd' => 1000,
+            'offer_currency' => 'KRW', 'offer_rate' => 1, 'final_price' => 15620000,
+        ]);
+        $this->actingAs($sales);
+
+        Volt::test('forwarding.index')
+            ->call('openDetail', $l->id)
+            ->call('setQuoteCurrency', 'USD')
+            ->assertSet('quoteCurrency', 'USD');
+
+        $l->refresh();
+        $this->assertSame('USD', $l->offer_currency);
+        $this->assertSame(1380, $l->offer_rate);          // 라이브(폴백) 환율 스냅샷
+        $this->assertSame(15620000, $l->final_price);      // totalKrw 재스냅샷(동일)
+    }
+
+    public function test_forwarding_quote_card_amounts_are_consistent(): void
+    {
+        Bus::fake();
+        $sales = $this->mkUser('sales');
+        $attr = [
+            'status' => 'inspected', 'car_cost' => 13800000, 'expected_price_currency' => 'KRW',
+            'discount_rate' => 0, 'shipping_usd' => 1000, 'final_price' => 15620000,
+        ];
+        $eur = $this->mkListing($sales, $attr + ['offer_currency' => 'EUR', 'offer_rate' => 1500]);
+        $krw = $this->mkListing($sales, $attr + ['offer_currency' => 'KRW', 'offer_rate' => 1]);
+        $this->actingAs($sales);
+
+        foreach ([$eur, $krw] as $l) {
+            $c = Volt::test('forwarding.index')->call('openDetail', $l->id);
+            $q = $c->instance()->quoteData();
+            $strip = fn ($s) => (int) preg_replace('/[^0-9]/', '', $s);
+            $car = $strip($q['car']);
+            $ship = $strip($q['shipping']);
+            $total = $strip($q['total']);
+            // 합 == 최종 == offerAmount (KRW/EUR 각각) — 잔차 흡수로 어긋남 없음
+            $this->assertSame($total, $car + $ship, "{$q['currency']} 분해 합 불일치");
+            $this->assertSame($l->offerAmount(1380, 1500)['amount'], $total, "{$q['currency']} total≠offerAmount");
+        }
+    }
+
+    public function test_quote_card_absent_when_final_price_null(): void
+    {
+        Bus::fake();
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'inspected', 'final_price' => null]);
+        $this->actingAs($sales);
+
+        $c = Volt::test('forwarding.index')->call('openDetail', $l->id);
+        $this->assertNull($c->instance()->quoteData());   // 금액 미설정 → 카드 없이 사진만
+    }
+
+    public function test_verdicts_requote_returns_to_inspected(): void
+    {
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending']);
+        $this->actingAs($sales);
+
+        Volt::test('verdicts.index')
+            ->call('openDetail', $l->id)
+            ->call('requote', $l->id)
+            ->assertHasNoErrors();
+
+        $l->refresh();
+        $this->assertSame('inspected', $l->status);     // 전달대기로 복귀
+        $this->assertSame('pending', $l->buyer_verdict); // 거절 아님 — verdict 유지
+    }
+
+    public function test_requote_then_reforward_works(): void
+    {
+        Bus::fake();
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending']);
+        $this->actingAs($sales);
+
+        // 재견적 → inspected → 다시 전달 → awaiting_buyer (manual, 충돌 없음)
+        app(VerdictService::class)->requote($l->id);
+        $this->assertSame('inspected', $l->fresh()->status);
+
+        Volt::test('forwarding.index')
+            ->call('openDetail', $l->id)
+            ->call('forward')
+            ->assertHasNoErrors();
+
+        $this->assertSame('awaiting_buyer', $l->fresh()->status);
+    }
+
+    public function test_reject_remains_terminal(): void
+    {
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending']);
+        $this->actingAs($sales);
+
+        Volt::test('verdicts.index')->call('openDetail', $l->id)->call('reject', $l->id)->assertHasNoErrors();
+
+        $l->refresh();
+        $this->assertSame('rejected', $l->status);
+        $this->assertSame('rejected', $l->buyer_verdict);
+        $this->assertSame([], PurchaseListing::TRANSITIONS['rejected']);   // 터미널 유지
+    }
+
     public function test_inspection_can_delete_photo(): void
     {
         Storage::fake('public');

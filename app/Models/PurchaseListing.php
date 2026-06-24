@@ -187,7 +187,7 @@ class PurchaseListing extends Model
     public const TRANSITIONS = [
         'draft' => ['inspected'],
         'inspected' => ['awaiting_buyer'],
-        'awaiting_buyer' => ['accepted', 'rejected'],
+        'awaiting_buyer' => ['accepted', 'rejected', 'inspected'],   // inspected = 재견적(전달대기로 복귀)
         'accepted' => ['won', 'failed'],
         'won' => ['synced'],
         'rejected' => [],

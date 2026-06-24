@@ -18,9 +18,17 @@ return [
     'badge_inspected' => '검차완료',
     'badge_no_photos' => '사진 없음',
 
+    // 견적 카드 — 바이어에게 보낼 통화/금액
+    'quote_section' => '견적 통화',
+    'quote_car' => '차량금액',
+    'quote_shipping' => '배송',
+    'quote_total' => '최종',
+    'quote_unset' => '금액 미설정 — 가격 협의 중(카드 없이 사진만 전송).',
+
     // 사진 확보 — 외부 메신저로 보내기
     'share_button' => '사진 전체 공유 :count장',
     'share_hint' => '검차사진 전체를 한 번에 카톡/왓츠앱 등으로 보냅니다. 한 장만 보내려면 사진을 탭 → 길게 누르세요.',
+    'share_hint_quote' => '견적 카드 1장 + 검차사진을 한 번에 카톡/왓츠앱 등으로 보냅니다. 통화는 위 토글에서 바꾸세요.',
 
     'forward_section' => '바이어 전달',
     'buyer_placeholder' => '바이어명 (선택)',

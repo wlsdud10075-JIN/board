@@ -18,9 +18,17 @@ return [
     'badge_inspected' => 'Inspected',
     'badge_no_photos' => 'No photos',
 
+    // Quote card — currency/amounts to send to the buyer
+    'quote_section' => 'Quote currency',
+    'quote_car' => 'Car Price',
+    'quote_shipping' => 'Shipping',
+    'quote_total' => 'Total',
+    'quote_unset' => 'Amount not set — price under negotiation (photos only, no card).',
+
     // Photos — send via your own messenger
     'share_button' => 'Share all :count photos',
     'share_hint' => 'Send all inspection photos at once to KakaoTalk/WhatsApp etc. For a single photo, tap it then long-press.',
+    'share_hint_quote' => 'Sends one quote card + all inspection photos at once to KakaoTalk/WhatsApp etc. Change currency with the toggle above.',
 
     'forward_section' => 'Forward to buyer',
     'buyer_placeholder' => 'Buyer name (optional)',
