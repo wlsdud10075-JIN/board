@@ -622,8 +622,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="card-sm mb-3 border-green-200 bg-green-50 text-[13px] text-green-700">✓ {{ session('ok') }}</div>
     @endif
 
-    {{-- 승격 대기 (연동 A · respond.io 에서 바이어가 board 처리 의사 표시 → 담당 영업에게 라우팅) --}}
-    @if ($this->promotions->isNotEmpty())
+    {{-- 승격 대기 (연동 A · respond.io 에서 바이어가 board 처리 의사 표시 → 담당 영업에게 라우팅). respond.io 미설정이면 숨김 --}}
+    @if (config('services.respond_io.api_token') && $this->promotions->isNotEmpty())
         <div class="card mb-4" style="border-color:#fde68a;background:#fffbeb">
             <h2 class="mb-2 font-bold text-amber-800">{{ __('listings.promo.heading') }} <span class="text-amber-500">· {{ __('listings.promo.count', ['count' => $this->promotions->count()]) }}</span></h2>
             <p class="mb-3 text-[11px] text-amber-700/80">{{ __('listings.promo.intro') }}</p>
@@ -710,9 +710,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <p class="mt-1 text-[11px] text-gray-400">{{ __('listings.links.price_help') }}</p>
                     @endif
                     @error('expected_price') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                    <label class="label-base mt-2">{{ __('listings.links.contact_label') }} <span class="text-gray-400">{{ __('listings.links.contact_hint') }}</span></label>
-                    <input class="input-base" wire:model="respond_contact_id" placeholder="{{ __('listings.links.contact_ph') }}">
-                    @error('respond_contact_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    @if (config('services.respond_io.api_token'))
+                        <label class="label-base mt-2">{{ __('listings.links.contact_label') }} <span class="text-gray-400">{{ __('listings.links.contact_hint') }}</span></label>
+                        <input class="input-base" wire:model="respond_contact_id" placeholder="{{ __('listings.links.contact_ph') }}">
+                        @error('respond_contact_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    @endif
                 </div>
 
                 {{-- 차량번호 · 차값 · 할인율 · 지역 (한 행) --}}
@@ -1000,9 +1002,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <input class="input-base" wire:model="e_owner_name" placeholder="{{ __('listings.add_form.owner_ph') }}" maxlength="60" @unless ($canEdit) disabled @endunless>
                 @error('e_owner_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                <label class="label-base mt-3">{{ __('listings.drawer.contact_label') }} <span class="text-gray-400">{{ __('listings.drawer.contact_hint') }}</span></label>
-                <input class="input-base" wire:model="e_respond_contact_id" placeholder="{{ __('listings.drawer.contact_ph') }}" @unless ($canEdit) disabled @endunless>
-                @error('e_respond_contact_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                @if (config('services.respond_io.api_token'))
+                    <label class="label-base mt-3">{{ __('listings.drawer.contact_label') }} <span class="text-gray-400">{{ __('listings.drawer.contact_hint') }}</span></label>
+                    <input class="input-base" wire:model="e_respond_contact_id" placeholder="{{ __('listings.drawer.contact_ph') }}" @unless ($canEdit) disabled @endunless>
+                    @error('e_respond_contact_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                @endif
                 @if ($e->encar_id || $e->c_no || $e->ssancar_ref)
                     <div class="mt-1 flex flex-wrap gap-1.5 text-[11px]">
                         <span class="text-gray-400">{{ __('listings.drawer.origin_prefix') }}</span>
