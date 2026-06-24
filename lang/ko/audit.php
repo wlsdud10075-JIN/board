@@ -51,5 +51,6 @@ return [
         'encar_dealer' => '엔카딜러',
         'auction_venue' => '경매장',
         'lot_number' => '출품번호',
+        'deleted' => '삭제',
     ],
 ];

@@ -329,6 +329,71 @@ class BoardTest extends TestCase
         $this->assertSame(55, $l->fresh()->car_erp_buyer_id);
     }
 
+    /** 바이어 조회 신원 = 운영자(대행 관리자)가 아니라 '딜 작성자(영업)' — car-erp 본인격리 + 연동B salesman 일관성. */
+    public function test_auction_buyer_dropdown_uses_listing_creator_identity(): void
+    {
+        Bus::fake();
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        Http::fake([
+            '*/api/internal/board/buyers*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*/api/internal/board/consignees*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        // 작성자(영업) — car-erp 오버라이드 이메일 보유
+        $creator = $this->mkUser('sales');
+        $creator->car_erp_salesman_email = 'creator@erp.test';
+        $creator->save();
+        $l = $this->mkListing($creator, ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000]);
+
+        // 운영자 = 다른 관리자(대행). 조회는 운영자 신원이 아니라 작성자 신원으로 가야 함.
+        $this->actingAs($this->mkUser('manager'));
+        Volt::test('auction.index')->call('openDetail', $l->id);
+
+        Http::assertSent(fn ($req) => str_contains($req->url(), '/buyers')
+            && str_contains($req->url(), 'salesman_email=creator%40erp.test'));
+    }
+
+    /** 영업이 집행화면(구매확정/경매) 접근 + SalesmanScope 로 본인 딜만 보이고 won 까지 집행. */
+    public function test_sales_can_conclude_own_deal_and_is_scoped(): void
+    {
+        Bus::fake();
+        $mine = $this->mkUser('sales');
+        $other = $this->mkUser('sales');
+        $lMine = $this->mkListing($mine, ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'final_price' => 9000000]);
+        $lOther = $this->mkListing($other, ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'final_price' => 9000000]);
+
+        $this->actingAs($mine);
+        $this->get('/auction')->assertOk();   // 영업 접근 허용(역할 확장)
+
+        Volt::test('auction.index')
+            ->assertSee($lMine->vehicle_number)        // 본인 딜 노출
+            ->assertDontSee($lOther->vehicle_number)   // 타 영업 딜 격리(SalesmanScope)
+            ->call('conclude', $lMine->id, 'won')->assertHasNoErrors();
+
+        $this->assertSame('won', $lMine->fresh()->status);
+        Bus::assertDispatched(SyncWonListingToCarErp::class);   // won → 연동B 발화(모델 훅)
+    }
+
+    /** verdicts 회신 드로어 — 검차 산출물 읽기로 열고, 드로어에서 수락 시 적용 + 드로어 닫힘. */
+    public function test_verdicts_drawer_opens_and_accepts(): void
+    {
+        Bus::fake();
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending',
+            'buyer_name' => 'Buyer A', 'final_price' => 9000000,
+        ]);
+
+        $this->actingAs($sales);
+        Volt::test('verdicts.index')
+            ->call('openDetail', $l->id)
+            ->assertSet('detailId', $l->id)
+            ->call('accept', $l->id)
+            ->assertSet('detailId', null);   // 회신 후 드로어 닫힘
+
+        $this->assertSame('accepted', $l->fresh()->status);
+    }
+
     public function test_edit_drawer_appends_attachments_and_cap_counts_existing(): void
     {
         Storage::fake('public');
@@ -423,24 +488,83 @@ class BoardTest extends TestCase
         $this->assertSame('accepted', $l->fresh()->status);
     }
 
-    public function test_inspection_send_to_buyer_transitions_to_awaiting(): void
+    public function test_inspection_complete_transitions_to_inspected(): void
     {
         $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft']);
         $this->actingAs($this->mkUser('inspection'));
 
-        // 수동씬: 전달 선택 → 저장 눌러야 반영
+        // 수동씬: 검차완료 선택 → 저장 눌러야 반영. 바이어 전달(awaiting_buyer)은 영업이 따로.
         Volt::test('inspection.index')
             ->call('openDrawer', $l->id)
             ->set('final_price', '13200000')
-            ->set('buyer_name', '드라간')
             ->set('sendSelected', true)
             ->call('save')
             ->assertHasNoErrors();
 
         $l->refresh();
-        $this->assertSame('awaiting_buyer', $l->status);
-        $this->assertSame('pending', $l->buyer_verdict);
+        $this->assertSame('inspected', $l->status);
         $this->assertSame(13200000, $l->final_price);
+        $this->assertSame('none', $l->buyer_verdict);   // 검차완료는 회신 단계 아님
+    }
+
+    public function test_state_machine_inspected_path(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft']);
+
+        // draft → awaiting_buyer 직접은 막힘(이제 inspected 경유 필수)
+        $this->assertItThrows(fn () => $l->update(['status' => 'awaiting_buyer']));
+
+        // draft → inspected → awaiting_buyer 는 허용
+        $l->update(['status' => 'inspected']);
+        $this->assertSame('inspected', $l->fresh()->status);
+        $l->update(['status' => 'awaiting_buyer']);
+        $this->assertSame('awaiting_buyer', $l->fresh()->status);
+    }
+
+    public function test_forwarding_screen_forwards_inspected_to_awaiting(): void
+    {
+        Bus::fake();
+        $sales = $this->mkUser('sales');
+        $other = $this->mkUser('sales');
+        $mine = $this->mkListing($sales, ['status' => 'inspected', 'final_price' => 13200000]);
+        $theirs = $this->mkListing($other, ['status' => 'inspected', 'final_price' => 9000000]);
+
+        $this->actingAs($sales);
+        $this->get('/forwarding')->assertOk();
+
+        Volt::test('forwarding.index')
+            ->assertSee($mine->vehicle_number)         // 본인 검차완료 차 노출
+            ->assertDontSee($theirs->vehicle_number)   // 타 영업 격리(SalesmanScope)
+            ->call('openDetail', $mine->id)
+            ->set('buyer_name', '드라간')
+            ->call('forward')
+            ->assertHasNoErrors()
+            ->assertSet('detailId', null);             // 전달 후 드로어 닫힘
+
+        $mine->refresh();
+        $this->assertSame('awaiting_buyer', $mine->status);
+        $this->assertSame('pending', $mine->buyer_verdict);
+        $this->assertSame('드라간', $mine->buyer_name);
+        Bus::assertDispatched(SendOfferToBuyer::class);
+    }
+
+    public function test_forwarding_photo_zip_downloads(): void
+    {
+        Storage::fake('public');
+        config(['board.photo_disk' => 'public']);
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'inspected', 'final_price' => 9000000]);
+        // 바이어 공개분(share_to_buyer) + 서류(false) — zip 은 공개분만(§28, SendOfferToBuyer 와 동일 필터)
+        $l->photos()->create(['s3_path' => 'p/ext.jpg', 'original_name' => 'ext.jpg', 'sort' => 1, 'share_to_buyer' => true]);
+        $l->photos()->create(['s3_path' => 'p/doc.jpg', 'original_name' => 'doc.jpg', 'sort' => 2, 'share_to_buyer' => false]);
+        Storage::disk('public')->put('p/ext.jpg', 'EXTERIOR');
+        Storage::disk('public')->put('p/doc.jpg', 'DOCUMENT');
+
+        $this->actingAs($sales);
+        Volt::test('forwarding.index')
+            ->call('openDetail', $l->id)
+            ->call('downloadPhotos')
+            ->assertFileDownloaded($l->vehicle_number.'_photos.zip');
     }
 
     public function test_region_assignment_role_limit_and_inspector_filter(): void
@@ -612,6 +736,54 @@ class BoardTest extends TestCase
         $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'field' => 'status', 'action' => 'status_change']);
         // 계좌번호는 감사로그에 마스킹(***)으로만
         $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'field' => 'payee_account', 'new_value' => '***']);
+    }
+
+    public function test_super_can_delete_listing_with_audit(): void
+    {
+        $super = $this->mkUser('manager', null, 'super');
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'awaiting_buyer']);
+        $this->actingAs($super);
+
+        Volt::test('manage.index')
+            ->call('openEdit', $l->id)
+            ->call('deleteListing')
+            ->assertHasNoErrors();
+
+        $this->assertSoftDeleted('purchase_listings', ['id' => $l->id]);
+        $this->assertDatabaseHas('board_audit_logs', [
+            'purchase_listing_id' => $l->id, 'action' => 'delete', 'field' => 'deleted', 'user_id' => $super->id,
+        ]);
+    }
+
+    public function test_manager_cannot_delete_listing(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'));
+        $this->actingAs($this->mkUser('manager'));   // super 아님
+
+        Volt::test('manage.index')
+            ->call('openEdit', $l->id)
+            ->call('deleteListing')
+            ->assertForbidden();
+
+        $this->assertNotSoftDeleted('purchase_listings', ['id' => $l->id]);
+    }
+
+    public function test_super_can_resync_synced_listing_to_car_erp(): void
+    {
+        Bus::fake();
+        $super = $this->mkUser('manager', null, 'super');
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'synced', 'car_erp_vehicle_id' => 188]);
+        $this->actingAs($super);
+
+        Volt::test('manage.index')
+            ->call('openEdit', $l->id)
+            ->call('resyncToCarErp')
+            ->assertHasNoErrors();
+
+        $l->refresh();
+        $this->assertNull($l->car_erp_vehicle_id);   // 멱등 포인터 비움 → 재전송 가드 통과
+        $this->assertSame('won', $l->status);         // synced→won 되돌림(Job 가드용)
+        Bus::assertDispatched(SyncWonListingToCarErp::class);
     }
 
     public function test_sales_can_edit_own_listing(): void
@@ -1211,50 +1383,50 @@ class BoardTest extends TestCase
         $this->assertSame('accepted', $l->fresh()->status);     // 안 덮어씀
     }
 
-    public function test_inspection_send_defaults_auto_when_conversation_linked(): void
+    public function test_forwarding_defaults_auto_when_contact_linked(): void
     {
-        $l = $this->mkListing($this->mkUser('sales'), [
-            'status' => 'draft', 'region' => '서울', 'respond_contact_id' => 'ct_auto', 'car_cost' => 9000000,
-        ]);
-        $this->actingAs($this->mkUser('inspection'));
+        Bus::fake();
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'inspected', 'respond_contact_id' => 'ct_auto', 'final_price' => 9000000]);
+        $this->actingAs($sales);
 
-        Volt::test('inspection.index')
-            ->call('openDrawer', $l->id)->set('buyer_name', 'D')->set('car_cost', '9000000')
-            ->set('sendSelected', true)->call('save')->assertHasNoErrors();
+        Volt::test('forwarding.index')
+            ->call('openDetail', $l->id)->set('buyer_name', 'D')->call('forward')->assertHasNoErrors();
 
         $l->refresh();
         $this->assertSame('awaiting_buyer', $l->status);
         $this->assertSame('auto', $l->verdict_channel);
     }
 
-    public function test_inspection_send_without_conversation_is_manual(): void
+    public function test_forwarding_without_contact_is_manual(): void
     {
-        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft', 'car_cost' => 9000000]);  // 대화 미연결
-        $this->actingAs($this->mkUser('inspection'));
+        Bus::fake();
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'inspected', 'final_price' => 9000000]);  // 대화 미연결
+        $this->actingAs($sales);
 
-        Volt::test('inspection.index')
-            ->call('openDrawer', $l->id)->set('buyer_name', 'D')->set('car_cost', '9000000')
-            ->set('sendSelected', true)->call('save')->assertHasNoErrors();
+        Volt::test('forwarding.index')
+            ->call('openDetail', $l->id)->set('buyer_name', 'D')->call('forward')->assertHasNoErrors();
 
         $this->assertSame('manual', $l->fresh()->verdict_channel);   // 자동 불가 → 수동
     }
 
-    public function test_inspection_second_auto_car_blocked_then_manual(): void
+    public function test_forwarding_second_auto_car_blocked_then_manual(): void
     {
+        Bus::fake();
         $sales = $this->mkUser('sales');
         $a = $this->mkListing($sales, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_contact_id' => 'ct_g', 'verdict_channel' => 'auto']);
-        $b = $this->mkListing($sales, ['status' => 'draft', 'respond_contact_id' => 'ct_g', 'car_cost' => 9000000]);
-        $this->actingAs($this->mkUser('inspection'));
+        $b = $this->mkListing($sales, ['status' => 'inspected', 'respond_contact_id' => 'ct_g', 'final_price' => 9000000]);
+        $this->actingAs($sales);
 
         // 2번째 자동 차 전달 시도 → (가) 보류 + 알림
-        $c = Volt::test('inspection.index')
-            ->call('openDrawer', $b->id)->set('buyer_name', 'D')->set('car_cost', '9000000')
-            ->set('sendSelected', true)->call('save');
-        $c->assertSet('sendConflictWith', $a->vehicle_number);
-        $this->assertSame('draft', $b->fresh()->status);   // 전달 보류
+        $c = Volt::test('forwarding.index')
+            ->call('openDetail', $b->id)->set('buyer_name', 'D')->call('forward');
+        $c->assertSet('conflictVehicle', $a->vehicle_number);
+        $this->assertSame('inspected', $b->fresh()->status);   // 전달 보류
 
         // 수동으로 전환해 전달
-        $c->call('sendAsManual')->assertHasNoErrors();
+        $c->call('forwardManual')->assertHasNoErrors();
         $b->refresh();
         $this->assertSame('awaiting_buyer', $b->status);
         $this->assertSame('manual', $b->verdict_channel);
@@ -1362,17 +1534,31 @@ class BoardTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_inspection_send_dispatches_offer_to_buyer(): void
+    public function test_forwarding_dispatches_offer_to_buyer(): void
     {
         Bus::fake();
-        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft', 'respond_contact_id' => 'ct_s', 'car_cost' => 9000000]);
-        $this->actingAs($this->mkUser('inspection'));
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'inspected', 'respond_contact_id' => 'ct_s', 'final_price' => 9000000]);
+        $this->actingAs($sales);
 
-        Volt::test('inspection.index')
-            ->call('openDrawer', $l->id)->set('buyer_name', 'D')->set('car_cost', '9000000')
-            ->set('sendSelected', true)->call('save')->assertHasNoErrors();
+        Volt::test('forwarding.index')
+            ->call('openDetail', $l->id)->set('buyer_name', 'D')->call('forward')->assertHasNoErrors();
 
         Bus::assertDispatched(SendOfferToBuyer::class, fn ($j) => $j->listingId === $l->id);
+    }
+
+    public function test_forwarding_notify_fires_on_new_inspected(): void
+    {
+        $sales = $this->mkUser('sales');
+        $this->actingAs($sales);
+
+        $c = Volt::test('notify.poll');   // mount: lastCount=0 (아직 검차완료 없음)
+        $this->mkListing($sales, ['status' => 'inspected', 'final_price' => 9000000]);
+
+        // 새 검차완료 도착 → 알림 이벤트 발화
+        $c->call('check')->assertDispatched('forward-arrived');
+        // 변화 없으면 재발화 안 함
+        $c->call('check')->assertNotDispatched('forward-arrived');
     }
 
     public function test_inspection_finalizes_offer_currency(): void
@@ -1389,6 +1575,24 @@ class BoardTest extends TestCase
         $l->refresh();
         $this->assertSame('EUR', $l->offer_currency);
         $this->assertGreaterThan(0, $l->offer_rate);   // 확정 시점 EUR 환율 스냅샷
+    }
+
+    public function test_inspection_can_delete_photo(): void
+    {
+        Storage::fake('public');
+        config(['board.photo_disk' => 'public']);
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft']);
+        $p = $l->photos()->create(['s3_path' => 'i/x.jpg', 'original_name' => 'x.jpg', 'sort' => 1, 'kind' => InspectionPhoto::KIND_INSPECTION]);
+        Storage::disk('public')->put('i/x.jpg', 'X');
+        $this->actingAs($this->mkUser('inspection'));
+
+        Volt::test('inspection.index')
+            ->call('openDrawer', $l->id)
+            ->call('deletePhoto', $p->id)
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseMissing('inspection_photos', ['id' => $p->id]);
+        Storage::disk('public')->assertMissing('i/x.jpg');
     }
 
     public function test_send_offer_uses_chosen_currency(): void
@@ -2006,6 +2210,26 @@ class BoardTest extends TestCase
 
         Volt::test('portal.index')
             ->assertSee('월별 실적')->assertSee('2026-05')->assertSee('700,000');   // 5월 판매2·정산70만
+    }
+
+    public function test_portal_monthly_settlement_buckets_by_paid_at(): void
+    {
+        // 실지급일(paid_at)이 확정일(confirmed_at)과 다르면 월별은 paid_at 기준으로 갈려야 함.
+        // (car-erp 가 엑셀 업로드로 5월/6월 실지급을 paid_at 에 담아 보내는 케이스 — handoff-car-erp-settlement-paid-at.md)
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 0], 200),
+            '*/api/internal/board/settlements*' => Http::response(['count' => 2, 'data' => [
+                ['vehicle_number' => 'A', 'paid_at' => '2026-05-31', 'confirmed_at' => '2026-06-23', 'actual_payout' => 500000, 'status' => 'paid'],
+                ['vehicle_number' => 'B', 'paid_at' => '2026-06-10', 'confirmed_at' => '2026-06-23', 'actual_payout' => 300000, 'status' => 'paid'],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')
+            ->assertSee('2026-05')->assertSee('500,000')   // 확정은 6월이나 실지급 5월 → 5월로
+            ->assertSee('2026-06')->assertSee('300,000');
     }
 
     public function test_portal_receivables_hides_paid_and_sorts(): void

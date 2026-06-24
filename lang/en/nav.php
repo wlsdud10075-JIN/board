@@ -9,6 +9,7 @@ return [
 
     'menu' => [
         'listings' => 'Purchases (Sales)',
+        'forwarding' => 'Awaiting forward',
         'verdicts' => 'Buyer Replies',
         'portal' => 'My Finance (Portal)',
         'inspection' => 'Inspection',
@@ -22,6 +23,7 @@ return [
     'crumb' => [
         'dashboard' => 'Dashboard',
         'listings' => 'Purchases',
+        'forwarding' => 'Awaiting forward',
         'verdicts' => 'Buyer Replies',
         'portal' => 'Finance · Receivables · Shipping',
         'inspection' => 'Inspection',

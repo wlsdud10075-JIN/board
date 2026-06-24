@@ -2,7 +2,6 @@
 
 use App\Models\InspectionAssignment;
 use App\Models\PurchaseListing;
-use App\Models\Scopes\SalesmanScope;
 use App\Models\User;
 use App\Services\ExchangeRateService;
 use Illuminate\Support\Facades\Auth;
@@ -24,9 +23,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     // 드로어 내 "선택 → 저장" 스테이징 (클릭=선택만, 저장 눌러야 커밋).
     // 회신(수락/거절)은 "바이어 회신" 화면으로 일원화 → 현지확인은 전달까지만.
-    public bool $sendSelected = false;        // draft: 바이어 전달 예정 선택
-    public bool $forceManualSend = false;     // (가) 가드: 수동 채널로 강제 전달
-    public ?string $sendConflictWith = null;  // 같은 바이어 자동 회신대기 차(차량번호) — 알림용
+    public bool $sendSelected = false;        // draft: "검차완료" 선택 → inspected(전달대기)
 
     // ── 지역 배정 (§6c) ──
     public string $assignDate = '';
@@ -130,7 +127,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function regionGroups()
     {
         $listings = PurchaseListing::with(['creator', 'photos'])
-            ->whereIn('status', ['draft', 'awaiting_buyer', 'accepted'])
+            ->whereIn('status', ['draft', 'inspected', 'awaiting_buyer', 'accepted'])
             ->latest()
             ->get();
 
@@ -250,10 +247,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         // 이전에 확정한 판매통화가 있으면 그대로 보여줌(없으면 KRW). 처음 정한 통화가 이어짐.
         $this->displayCurrency = $l->offer_currency ?: 'KRW';
         $this->photos = [];
-        // 스테이징 선택 초기화 (전달은 draft 에서만 / 회신은 바이어 회신 화면)
+        // 검차완료 선택 초기화 (검차완료는 draft 에서만; 전달/회신은 영업 화면)
         $this->sendSelected = false;
-        $this->forceManualSend = false;
-        $this->sendConflictWith = null;
         $this->resetErrorBag();
     }
 
@@ -261,7 +256,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $this->reset(['editingId', 'final_price', 'inspection_memo', 'buyer_name', 'photos',
             'region', 'inspection_note', 'car_cost', 'discount_rate', 'shipping_usd',
-            'sendSelected', 'forceManualSend', 'sendConflictWith']);
+            'sendSelected']);
         unset($this->editing, $this->regionGroups);
     }
 
@@ -332,16 +327,14 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function save(): void
     {
         $l = PurchaseListing::findOrFail($this->editingId);
-        $sending = $l->status === 'draft' && $this->sendSelected;
+        // 검차완료 = draft 차에 사진/금액 입력 마치고 "검차완료" 선택 → inspected(전달대기).
+        // 바이어 전달(awaiting_buyer)은 영업이 /forwarding 에서 사진 확인 후 누른다.
+        $completing = $l->status === 'draft' && $this->sendSelected;
 
-        $rules = $this->pricingRules();
-        if ($sending) {
-            $rules['buyer_name'] = 'required|string|max:100';
-        }
-        $this->validate($rules, attributes: ['buyer_name' => __('inspection.attr_buyer_name')]);
+        $this->validate($this->pricingRules());
 
-        // 전달하려면 최종금액(공식 차값 또는 수동 final_price) 중 하나는 있어야 함.
-        if ($sending && $this->carPricePreview() === null && ($this->final_price === null || $this->final_price === '')) {
+        // 검차완료하려면 최종금액(공식 차값 또는 수동 final_price) 중 하나는 있어야 함(영업이 전달할 금액).
+        if ($completing && $this->carPricePreview() === null && ($this->final_price === null || $this->final_price === '')) {
             $this->addError('car_cost', __('inspection.need_amount_to_forward'));
 
             return;
@@ -354,44 +347,13 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->applyInspectionFields($l);
 
         $msg = __('inspection.saved_ok');
-        if ($sending) {
-            // 회신 채널 결정: 컨택트 미연결이면 자동 불가→수동. 강제수동(=수동 전환 선택) 시 수동.
-            $channel = 'auto';
-            if (empty($l->respond_contact_id) || $this->forceManualSend) {
-                $channel = 'manual';
-            } else {
-                // (가) 가드: 같은 바이어(컨택트)에 이미 '자동' 회신대기 차가 있으면 전달 보류 + 선택지 알림.
-                // (자동은 한 바이어당 1대 직렬화 — respond.io 폴링이 '어느 차'인지 명확하도록)
-                $conflict = PurchaseListing::withoutGlobalScope(SalesmanScope::class)
-                    ->where('respond_contact_id', $l->respond_contact_id)
-                    ->where('status', 'awaiting_buyer')
-                    ->where('verdict_channel', 'auto')
-                    ->where('id', '!=', $l->id)
-                    ->first();
-                if ($conflict) {
-                    // 입력값(금액·메모)은 저장하되 '전달'만 보류 → 사용자가 대기/수동 선택
-                    $l->save();
-                    $this->persistPhotos($l);
-                    $this->sendConflictWith = $conflict->vehicle_number;
-
-                    return;
-                }
-            }
-            $l->status = 'awaiting_buyer';
-            $l->buyer_verdict = 'pending';
-            $l->verdict_channel = $channel;
-            $msg = $channel === 'manual'
-                ? __('inspection.forwarded_manual')
-                : __('inspection.forwarded_auto');
+        if ($completing) {
+            $l->status = 'inspected';   // draft→inspected (전이 가드)
+            $msg = __('inspection.inspected_ok');
         }
 
         $l->save();
         $this->persistPhotos($l);
-
-        // outbound — 전달 시 바이어에게 최종금액(USD)+공개사진 자동 전송 (Job 가드: 컨택트/설정)
-        if ($sending) {
-            \App\Jobs\SendOfferToBuyer::dispatch($l->id)->afterCommit();
-        }
 
         session()->flash('ok', $msg);
         $this->closeDrawer();
@@ -406,23 +368,15 @@ new #[Layout('components.layouts.app')] class extends Component {
         unset($this->editing);
     }
 
-    /** (가) 선택지 ① 수동으로 전환해 전달 — 자동 1대 제한을 우회, 이 차는 수동 트랙으로. */
-    public function sendAsManual(): void
+    /** 잘못 올린 검차사진 삭제 — 편집 중인 차의 사진만(파일+행). */
+    public function deletePhoto(int $photoId): void
     {
-        $this->forceManualSend = true;
-        $this->sendSelected = true;
-        $this->sendConflictWith = null;
-        $this->save();
+        $p = \App\Models\InspectionPhoto::where('purchase_listing_id', $this->editingId)->findOrFail($photoId);
+        Storage::disk(config('board.photo_disk'))->delete($p->s3_path);
+        $p->delete();
+        unset($this->editing);
     }
 
-    /** (가) 선택지 ② 앞 차 처리 후 진행 — 지금은 전달 안 함(금액은 저장됨). */
-    public function cancelSend(): void
-    {
-        $this->sendSelected = false;
-        $this->sendConflictWith = null;
-        session()->flash('ok', __('inspection.forward_held'));
-        $this->closeDrawer();
-    }
 
     public function photoUrl(string $path): string
     {
@@ -587,12 +541,15 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @if ($e->photos->count())
                     <div class="mt-2 grid grid-cols-4 gap-2">
                         @foreach ($e->photos as $p)
-                            <div class="relative overflow-hidden rounded-md">
+                            @php $u = $this->photoUrl($p->s3_path); @endphp
+                            <div class="relative overflow-hidden rounded-md" wire:key="insp-photo-{{ $p->id }}">
                                 @if ($p->isVideo())
-                                    <video src="{{ $this->photoUrl($p->s3_path) }}" class="aspect-square w-full object-cover" controls preload="metadata"></video>
+                                    <video src="{{ $u }}" class="aspect-square w-full object-cover" controls preload="metadata"></video>
                                 @else
-                                    <img src="{{ $this->photoUrl($p->s3_path) }}" class="aspect-square w-full object-cover" alt="">
+                                    <img src="{{ $u }}" @click="$dispatch('open-lightbox', { src: '{{ $u }}' })" class="aspect-square w-full cursor-zoom-in object-cover" alt="">
                                 @endif
+                                <button type="button" wire:click="deletePhoto({{ $p->id }})" wire:confirm="{{ __('inspection.photo_delete_confirm') }}"
+                                    class="absolute right-0.5 top-0.5 rounded bg-black/55 px-1 text-[10px] font-semibold text-white hover:bg-red-600">✕</button>
                                 <button type="button" wire:click="toggleShare({{ $p->id }})"
                                     class="absolute inset-x-0 bottom-0 py-0.5 text-[10px] font-semibold {{ $p->share_to_buyer ? 'bg-green-600 text-white' : 'bg-black/55 text-white' }}">
                                     {{ $p->share_to_buyer ? __('inspection.share_to_buyer_on') : __('inspection.share_to_buyer') }}
@@ -673,33 +630,20 @@ new #[Layout('components.layouts.app')] class extends Component {
                 </div>
                 <p class="mt-1 text-[11px] text-gray-400">{{ __('inspection.shipping_rate_note', ['usd' => number_format((int) $shipping_usd), 'rate' => number_format($rate)]) }}</p>
 
-                {{-- 바이어 전달 --}}
-                <div class="section-title-sm">{{ __('inspection.forward_section') }}</div>
-                <input class="input-base" wire:model="buyer_name" placeholder="{{ __('inspection.buyer_name_placeholder') }}">
-                @error('buyer_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                {{-- 검차완료 --}}
+                <div class="section-title-sm">{{ __('inspection.complete_section') }}</div>
 
-                {{-- 전달 (draft 단계) — 클릭=선택만, 저장 눌러야 전달 --}}
+                {{-- 검차완료 (draft 단계) — 클릭=선택만, 저장 눌러야 inspected 전환. 바이어 전달은 영업이. --}}
                 @if ($e->status === 'draft')
                     <button type="button" wire:click="$toggle('sendSelected')" class="btn-outline btn-sm mt-2 w-full justify-center"
                             @style(['background-color:var(--color-primary);border-color:var(--color-primary);color:#fff;font-weight:700' => $sendSelected])>
-                        📤 {{ __('inspection.forward_button') }} {{ $sendSelected ? __('inspection.forward_button_selected') : '' }}
+                        ✅ {{ __('inspection.complete_button') }} {{ $sendSelected ? __('inspection.complete_button_selected') : '' }}
                     </button>
-                    <p class="mt-1 text-xs text-gray-400">{!! __('inspection.forward_hint', ['save' => '<b>'.__('inspection.forward_hint_save').'</b>', 'verdicts' => '<b>'.__('inspection.forward_hint_verdicts').'</b>']) !!}</p>
-
-                    {{-- (가) 가드: 같은 바이어 자동 회신대기 1대 초과 시 선택지 --}}
-                    @if ($sendConflictWith)
-                        <div class="card-sm mt-2 border-amber-300 bg-amber-50 text-amber-800">
-                            <p class="text-[13px] font-semibold">⚠️ {!! __('inspection.conflict_title', ['vehicle' => '<b>'.__('inspection.conflict_auto_word', ['vehicle' => e($sendConflictWith)]).'</b>']) !!}</p>
-                            <p class="mt-0.5 text-xs">{{ __('inspection.conflict_desc') }}</p>
-                            <div class="mt-2 flex flex-col gap-2 sm:flex-row">
-                                <button type="button" class="btn-outline btn-sm flex-1 justify-center" wire:click="cancelSend">{{ __('inspection.conflict_wait') }}</button>
-                                <button type="button" class="btn-primary btn-sm flex-1 justify-center" wire:click="sendAsManual">{{ __('inspection.conflict_manual') }}</button>
-                            </div>
-                            <p class="mt-1 text-[11px] text-amber-600">{{ __('inspection.conflict_manual_note') }}</p>
-                        </div>
-                    @endif
-                @elseif ($e->status === 'awaiting_buyer')
-                    <p class="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">⏳ {!! __('inspection.already_forwarded', ['verdicts' => '<b>'.__('inspection.already_forwarded_verdicts').'</b>']) !!}</p>
+                    <p class="mt-1 text-xs text-gray-400">{{ __('inspection.complete_hint') }}</p>
+                @elseif ($e->status === 'inspected')
+                    <p class="mt-2 rounded-md bg-teal-50 px-3 py-2 text-xs text-teal-700">✅ {{ __('inspection.already_inspected') }}</p>
+                @else
+                    <p class="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">⏳ {{ __('inspection.already_forwarded_simple') }}</p>
                 @endif
 
                 <div class="mt-5 flex gap-2">

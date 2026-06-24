@@ -83,7 +83,13 @@ return [
 
     // 액션
     'save' => '저장 (감사로그 기록)',
+    'delete' => '이 건 삭제 (시스템관리자)',
+    'delete_confirm' => '이 매입 건을 삭제할까요? 잘못 등록된 건 정리용입니다. (감사로그에 기록)',
+    'resync' => 'car-erp 재전송 (시스템관리자)',
+    'resync_confirm' => 'car-erp 로 다시 전송할까요? 중복은 안 생깁니다(차량번호로 매칭 — 있으면 재연결, 지웠으면 새로 생성).',
 
     // flash
     'saved' => ':vehicle 수정 완료 — 변경 내역이 감사로그에 기록됐습니다.',
+    'deleted' => ':vehicle 삭제 완료 — 감사로그에 기록됐습니다.',
+    'resynced' => ':vehicle car-erp 재전송 요청 — 처리되면 ERP전환완료(synced)로 바뀝니다.',
 ];

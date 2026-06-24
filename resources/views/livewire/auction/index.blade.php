@@ -26,9 +26,12 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     private function salesmanEmail(): string
     {
-        $u = auth()->user();
+        // 바이어/컨사이니는 '딜 작성자(영업)'의 car-erp 스코프로 조회 — 운영자(관리자 대행)가 아닌 작성자 기준.
+        // car-erp /buyers 는 본인격리(IDOR)라, 작성자 기준이어야 그 영업의 바이어가 뜬다.
+        // 또 연동 B 송신의 salesman_email(작성자 기준)과 일치 → 교차-FK 오배정 차단.
+        $creator = $this->detail?->creator;
 
-        return $u?->car_erp_salesman_email ?: ($u?->email ?? '');
+        return $creator?->car_erp_salesman_email ?: ($creator?->email ?? '');
     }
 
     private function loadBuyers(): void

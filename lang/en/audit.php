@@ -51,5 +51,6 @@ return [
         'encar_dealer' => 'Encar dealer',
         'auction_venue' => 'Auction venue',
         'lot_number' => 'Lot number',
+        'deleted' => 'Deleted',
     ],
 ];

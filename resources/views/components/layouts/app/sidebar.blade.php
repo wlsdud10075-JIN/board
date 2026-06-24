@@ -26,10 +26,17 @@
         $pendingPromo = $pq->count();
     }
 
+    // 전달 대기 뱃지 — 검차완료(inspected) 차 수. SalesmanScope 가 영업은 본인 것만 자동집계.
+    $pendingForward = 0;
+    if ($user->isSuper() || $user->isSales() || $user->isManager()) {
+        $pendingForward = \App\Models\PurchaseListing::where('status', 'inspected')->count();
+    }
+
     $routeName = request()->route()?->getName();
     $breadcrumb = match ($routeName) {
         'dashboard' => __('nav.crumb.dashboard'),
         'listings' => __('nav.crumb.listings'),
+        'forwarding' => __('nav.crumb.forwarding'),
         'verdicts' => __('nav.crumb.verdicts'),
         'portal' => __('nav.crumb.portal'),
         'inspection' => __('nav.crumb.inspection'),
@@ -46,12 +53,14 @@
 
     $can = fn ($roles) => $user->isSuper() || in_array($user->role, (array) $roles, true);
     $menuGroups = [
+        // 업무 흐름 순서대로 (등록 → 검차 → 전달 → 회신 → 구매확정 → 포털). 영업은 본인 역할 항목만 보여 순서 유지.
         ['key' => 'work', 'label' => __('nav.group.work'), 'items' => [
             ['label' => __('nav.menu.listings'), 'href' => route('listings'), 'icon' => 'clipboard', 'active' => request()->routeIs('listings'), 'show' => $can(['sales', 'manager']), 'badge' => $pendingPromo ?: null],
-            ['label' => __('nav.menu.verdicts'), 'href' => route('verdicts'), 'icon' => 'chat', 'active' => request()->routeIs('verdicts'), 'show' => $can(['sales', 'manager'])],
-            ['label' => __('nav.menu.portal'), 'href' => route('portal'), 'icon' => 'wallet', 'active' => request()->routeIs('portal'), 'show' => $can(['sales', 'manager'])],
             ['label' => __('nav.menu.inspection'), 'href' => route('inspection'), 'icon' => 'camera', 'active' => request()->routeIs('inspection'), 'show' => $can(['inspection', 'manager'])],
-            ['label' => __('nav.menu.auction'), 'href' => route('auction'), 'icon' => 'banknotes', 'active' => request()->routeIs('auction'), 'show' => $can(['auction', 'manager'])],
+            ['label' => __('nav.menu.forwarding'), 'href' => route('forwarding'), 'icon' => 'paper-airplane', 'active' => request()->routeIs('forwarding'), 'show' => $can(['sales', 'manager']), 'badge' => $pendingForward ?: null],
+            ['label' => __('nav.menu.verdicts'), 'href' => route('verdicts'), 'icon' => 'chat', 'active' => request()->routeIs('verdicts'), 'show' => $can(['sales', 'manager'])],
+            ['label' => __('nav.menu.auction'), 'href' => route('auction'), 'icon' => 'banknotes', 'active' => request()->routeIs('auction'), 'show' => $can(['sales', 'auction', 'manager'])],
+            ['label' => __('nav.menu.portal'), 'href' => route('portal'), 'icon' => 'wallet', 'active' => request()->routeIs('portal'), 'show' => $can(['sales', 'manager'])],
         ]],
         ['key' => 'manage', 'label' => __('nav.group.manage'), 'items' => [
             ['label' => __('nav.menu.manage'), 'href' => route('manage'), 'icon' => 'shield', 'active' => request()->routeIs('manage'), 'show' => $can(['manager'])],
@@ -69,6 +78,7 @@
         'wallet' => '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M21 12V7H5a2 2 0 010-4h14v4M3 5v14a2 2 0 002 2h16v-5M18 12a2 2 0 000 4h4v-4h-4z"/>',
         'camera' => '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>',
         'banknotes' => '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 8h18v8H3V8zm9 4a2 2 0 11-4 0 2 2 0 014 0zm-9 0h.01M21 12h.01"/>',
+        'paper-airplane' => '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6 12L3.27 4.36a.6.6 0 01.83-.73l16.5 7.82a.6.6 0 010 1.08l-16.5 7.82a.6.6 0 01-.83-.73L6 12zm0 0h7"/>',
         'shield' => '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>',
         'user-group' => '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>',
         'document' => '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>',
@@ -211,6 +221,48 @@
             {{ $slot }}
         </main>
     </div>
+</div>
+
+{{-- 전달 대기 인앱 알림 (영업·관리만) — 검차완료 새 도착 시 소리+토스트 --}}
+@if ($user->isSuper() || $user->isSales() || $user->isManager())
+    <livewire:notify.poll />
+    <script>
+        (function () {
+            let ctx;
+            function ensure() { if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } return ctx; }
+            // 브라우저 자동재생 정책: 첫 사용자 제스처에서 오디오 컨텍스트 활성화
+            window.addEventListener('pointerdown', function once() {
+                const c = ensure(); if (c && c.state === 'suspended') c.resume();
+                window.removeEventListener('pointerdown', once);
+            }, { once: true });
+            window.__boardBeep = function () {
+                // 중복 억제: wire:navigate 가 .window 리스너를 누적시켜 두 번 울리는 것 방지(정상 비프는 폴링당 ≤1회).
+                const now = Date.now();
+                if (window.__boardBeepLast && now - window.__boardBeepLast < 1000) return;
+                window.__boardBeepLast = now;
+                const c = ensure(); if (!c) return;
+                if (c.state === 'suspended') c.resume();
+                const o = c.createOscillator(), g = c.createGain();
+                o.connect(g); g.connect(c.destination);
+                o.type = 'sine'; o.frequency.value = 880;
+                g.gain.setValueAtTime(0.0001, c.currentTime);
+                g.gain.exponentialRampToValueAtTime(0.2, c.currentTime + 0.02);
+                g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.35);
+                o.start(); o.stop(c.currentTime + 0.36);
+            };
+        })();
+    </script>
+@endif
+
+{{-- 사진 확대 라이트박스 (전역) — 어떤 화면이든 이미지 클릭 시 open-lightbox 이벤트로 전체화면 확대 --}}
+<div x-data="{ open: false, src: '' }"
+     @open-lightbox.window="src = $event.detail.src; open = true"
+     @keydown.escape.window="open = false"
+     x-show="open" style="display:none; z-index:9999"
+     class="fixed inset-0 flex items-center justify-center bg-black/80 p-4"
+     @click="open = false">
+    <img :src="src" @click.stop class="max-h-full max-w-full rounded object-contain shadow-2xl" alt="">
+    <button type="button" @click="open = false" class="absolute right-4 top-4 rounded-full bg-white/15 px-3 py-1 text-lg font-bold text-white hover:bg-white/30">✕</button>
 </div>
 
 @fluxScripts

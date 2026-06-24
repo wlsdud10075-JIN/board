@@ -53,12 +53,18 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $svc = $this->svc();
         $m = [];
-        $bump = function (array $env, string $dateKey, ?string $amtKey, string $cnt, ?string $sum) use (&$m) {
+        // $dateKeys = 문자열 1개 또는 폴백 배열(앞에서부터 처음 채워진 값 사용).
+        $bump = function (array $env, string|array $dateKeys, ?string $amtKey, string $cnt, ?string $sum) use (&$m) {
             if (! ($env['ok'] ?? false)) {
                 return;
             }
             foreach ((array) data_get($env['data'], 'data', []) as $r) {
-                $d = data_get($r, $dateKey);
+                $d = null;
+                foreach ((array) $dateKeys as $dk) {
+                    if ($d = data_get($r, $dk)) {
+                        break;
+                    }
+                }
                 if (! $d) {
                     continue;
                 }
@@ -70,7 +76,9 @@ new #[Layout('components.layouts.app')] class extends Component {
             }
         };
         $bump($svc->sales($email), 'sale_date', null, 'sales_cnt', null);
-        $bump($svc->settlements($email), 'confirmed_at', 'actual_payout', 'settle_cnt', 'settle_sum');
+        // 정산 월별 = 실지급일(paid_at) 우선, car-erp 가 아직 안 보내면 confirmed_at 폴백.
+        // (handoff-car-erp-settlement-paid-at.md — car-erp 가 paid_at 노출하면 5월/6월 자동 분리)
+        $bump($svc->settlements($email), ['paid_at', 'confirmed_at'], 'actual_payout', 'settle_cnt', 'settle_sum');
         $bump($svc->purchases($email), 'purchase_date', 'purchase_price', 'purch_cnt', 'purch_sum');
         krsort($m);   // 최근 월 먼저
 

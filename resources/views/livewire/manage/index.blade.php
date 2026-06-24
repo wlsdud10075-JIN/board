@@ -1,6 +1,9 @@
 <?php
 
+use App\Jobs\SyncWonListingToCarErp;
+use App\Models\BoardAuditLog;
 use App\Models\PurchaseListing;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
@@ -221,6 +224,52 @@ new #[Layout('components.layouts.app')] class extends Component {
         session()->flash('ok', __('manage.saved', ['vehicle' => $l->vehicle_number]));
         $this->closeEdit();
     }
+
+    /** 잘못 등록된 건 삭제 — 시스템관리자(super) 전용. soft delete(복구 가능) + 감사기록. */
+    public function deleteListing(): void
+    {
+        abort_unless(Auth::user()?->isSuper(), 403);
+
+        $l = PurchaseListing::findOrFail($this->editingId);
+
+        // soft delete 는 update 이벤트를 안 거쳐 옵저버 감사가 안 잡힘 → 여기서 직접 기록.
+        BoardAuditLog::create([
+            'user_id' => Auth::id(),
+            'purchase_listing_id' => $l->id,
+            'action' => 'delete',
+            'field' => 'deleted',
+            'old_value' => $l->statusLabel(),
+            'new_value' => null,
+        ]);
+
+        $vehicle = $l->vehicle_number;
+        $l->delete();
+
+        session()->flash('ok', __('manage.deleted', ['vehicle' => $vehicle]));
+        $this->closeEdit();
+    }
+
+    /**
+     * car-erp 재전송 — 시스템관리자(super) 전용. won/synced 차량만.
+     * 멱등 포인터(car_erp_vehicle_id)를 비우고 status 를 won 으로 되돌려 Sync Job 재발사.
+     * 중복 안 생김: car-erp 가 vehicle_number 로 매칭 → 기존 차면 재연결, 지웠으면 새로 생성.
+     */
+    public function resyncToCarErp(): void
+    {
+        abort_unless(Auth::user()?->isSuper(), 403);
+
+        $l = PurchaseListing::findOrFail($this->editingId);
+        abort_unless(in_array($l->status, ['won', 'synced'], true), 422);
+
+        $l->car_erp_vehicle_id = null;
+        $l->status = 'won';      // Job 가드가 won 요구 (synced 였으면 되돌림)
+        $l->saveQuietly();       // 전이가드·won-트리거 우회 → 아래서 단일 명시 발사
+
+        SyncWonListingToCarErp::dispatch($l->id);
+
+        session()->flash('ok', __('manage.resynced', ['vehicle' => $l->vehicle_number]));
+        $this->closeEdit();
+    }
 }; ?>
 
 <div class="p-3 md:p-6">
@@ -439,6 +488,16 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <button class="btn-primary flex-1 justify-center" wire:click="save">{{ __('manage.save') }}</button>
                     <button class="btn-ghost" wire:click="closeEdit">{{ __('common.cancel') }}</button>
                 </div>
+
+                {{-- 시스템관리자(super) 전용 액션 --}}
+                @if (auth()->user()->isSuper())
+                    @if (in_array($e->status, ['won', 'synced'], true))
+                        <button class="btn-ghost mt-2 w-full justify-center text-[var(--color-primary-text)] hover:bg-[#f5f8ff]"
+                            wire:click="resyncToCarErp" wire:confirm="{{ __('manage.resync_confirm') }}">🔄 {{ __('manage.resync') }}</button>
+                    @endif
+                    <button class="btn-ghost mt-2 w-full justify-center text-red-600 hover:bg-red-50"
+                        wire:click="deleteListing" wire:confirm="{{ __('manage.delete_confirm') }}">🗑️ {{ __('manage.delete') }}</button>
+                @endif
             </div>
         </div>
     @endif

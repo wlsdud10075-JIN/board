@@ -125,12 +125,13 @@ class PurchaseListing extends Model
     // ─────────────────────── 상태머신 ───────────────────────
 
     public const STATUSES = [
-        'draft', 'awaiting_buyer', 'accepted', 'rejected', 'won', 'failed', 'synced',
+        'draft', 'inspected', 'awaiting_buyer', 'accepted', 'rejected', 'won', 'failed', 'synced',
     ];
 
     /** 드롭다운/필터용 정적 라벨(출처 무관 통합). 출처별 표기는 statusLabel() 사용. */
     public const STATUS_LABELS = [
         'draft' => '현지확인 대기',
+        'inspected' => '검차완료 (전달대기)',
         'awaiting_buyer' => '회신대기',
         'accepted' => '수락 (구매/경매대기)',
         'rejected' => '거절',
@@ -184,7 +185,8 @@ class PurchaseListing extends Model
 
     /** 허용 전이: from => [to, ...] (manager override 는 우회) */
     public const TRANSITIONS = [
-        'draft' => ['awaiting_buyer'],
+        'draft' => ['inspected'],
+        'inspected' => ['awaiting_buyer'],
         'awaiting_buyer' => ['accepted', 'rejected'],
         'accepted' => ['won', 'failed'],
         'won' => ['synced'],
@@ -315,6 +317,7 @@ class PurchaseListing extends Model
     {
         return match ($this->status) {
             'draft' => __('domain.status_live.draft'),
+            'inspected' => __('domain.status_live.inspected'),
             'awaiting_buyer' => __('domain.status_live.awaiting_buyer'),
             'accepted' => $this->isAuction() ? __('domain.status_live.accepted_auction') : __('domain.status_live.accepted_encar'),
             'rejected' => __('domain.status_live.rejected'),
@@ -351,6 +354,7 @@ class PurchaseListing extends Model
     {
         return match ($this->status) {
             'draft' => 'badge-blue',
+            'inspected' => 'badge-teal',
             'awaiting_buyer' => 'badge-amber',
             'accepted' => $this->isAuction() ? 'badge-purple' : 'badge-teal',
             'rejected' => 'badge-red',
