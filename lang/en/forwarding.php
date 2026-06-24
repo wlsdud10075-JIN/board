@@ -32,6 +32,7 @@ return [
 
     // In-app notification (inspected vehicle arrived)
     'notify' => '🔔 :count inspected — awaiting forward',
+    'notify_synced' => ':count synced to car-erp — ERP transfer complete',
 
     'conflict_title' => 'This buyer already has an auto awaiting-reply vehicle (:vehicle).',
     'conflict_desc' => 'Auto replies are handled one vehicle per buyer at a time. You can forward this one manually.',

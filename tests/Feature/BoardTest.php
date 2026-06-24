@@ -1561,6 +1561,20 @@ class BoardTest extends TestCase
         $c->call('check')->assertNotDispatched('forward-arrived');
     }
 
+    public function test_notify_fires_carerp_synced_toast(): void
+    {
+        $sales = $this->mkUser('sales');
+        $this->actingAs($sales);
+
+        $c = Volt::test('notify.poll');   // mount: lastSynced=0
+        $this->mkListing($sales, ['status' => 'synced', 'car_erp_vehicle_id' => 190]);
+
+        // car-erp 전송완료(synced) → type=synced 토스트 발화
+        $c->call('check')->assertDispatched('forward-arrived', type: 'synced');
+        // 변화 없으면 재발화 안 함
+        $c->call('check')->assertNotDispatched('forward-arrived');
+    }
+
     public function test_inspection_finalizes_offer_currency(): void
     {
         $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft', 'car_cost' => 9000000]);
