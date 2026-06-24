@@ -738,6 +738,54 @@ class BoardTest extends TestCase
         $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'field' => 'payee_account', 'new_value' => '***']);
     }
 
+    public function test_super_can_delete_listing_with_audit(): void
+    {
+        $super = $this->mkUser('manager', null, 'super');
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'awaiting_buyer']);
+        $this->actingAs($super);
+
+        Volt::test('manage.index')
+            ->call('openEdit', $l->id)
+            ->call('deleteListing')
+            ->assertHasNoErrors();
+
+        $this->assertSoftDeleted('purchase_listings', ['id' => $l->id]);
+        $this->assertDatabaseHas('board_audit_logs', [
+            'purchase_listing_id' => $l->id, 'action' => 'delete', 'field' => 'deleted', 'user_id' => $super->id,
+        ]);
+    }
+
+    public function test_manager_cannot_delete_listing(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'));
+        $this->actingAs($this->mkUser('manager'));   // super 아님
+
+        Volt::test('manage.index')
+            ->call('openEdit', $l->id)
+            ->call('deleteListing')
+            ->assertForbidden();
+
+        $this->assertNotSoftDeleted('purchase_listings', ['id' => $l->id]);
+    }
+
+    public function test_super_can_resync_synced_listing_to_car_erp(): void
+    {
+        Bus::fake();
+        $super = $this->mkUser('manager', null, 'super');
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'synced', 'car_erp_vehicle_id' => 188]);
+        $this->actingAs($super);
+
+        Volt::test('manage.index')
+            ->call('openEdit', $l->id)
+            ->call('resyncToCarErp')
+            ->assertHasNoErrors();
+
+        $l->refresh();
+        $this->assertNull($l->car_erp_vehicle_id);   // 멱등 포인터 비움 → 재전송 가드 통과
+        $this->assertSame('won', $l->status);         // synced→won 되돌림(Job 가드용)
+        Bus::assertDispatched(SyncWonListingToCarErp::class);
+    }
+
     public function test_sales_can_edit_own_listing(): void
     {
         $kim = $this->mkUser('sales');
