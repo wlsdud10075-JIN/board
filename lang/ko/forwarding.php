@@ -23,7 +23,7 @@ return [
     'share_hint' => '검차사진 전체를 한 번에 카톡/왓츠앱 등으로 보냅니다. 한 장만 보내려면 사진을 탭 → 길게 누르세요.',
 
     'forward_section' => '바이어 전달',
-    'buyer_placeholder' => '바이어명 (respond.io 연락처)',
+    'buyer_placeholder' => '바이어명 (선택)',
     'attr_buyer_name' => '바이어명',
     'forward_button' => '전달 완료',
     'forward_hint' => '바이어에게 보냈으면 누르세요. (자동채널 연결 시 사진+최종금액도 함께 발송) → "바이어 회신" 화면으로.',
