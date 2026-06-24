@@ -19,9 +19,8 @@ return [
     'badge_no_photos' => 'No photos',
 
     // Photos — send via your own messenger
-    'download_button' => 'Download all photos',
-    'share_button' => 'Share photos',
-    'share_hint' => 'Desktop: download. Mobile: share directly to KakaoTalk/WhatsApp. (Buyer-facing exterior photos only.)',
+    'share_button' => 'Share all :count photos',
+    'share_hint' => 'Send all inspection photos at once to KakaoTalk/WhatsApp etc. For a single photo, tap it then long-press.',
 
     'forward_section' => 'Forward to buyer',
     'buyer_placeholder' => 'Buyer name (respond.io contact)',

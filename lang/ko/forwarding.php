@@ -19,9 +19,8 @@ return [
     'badge_no_photos' => '사진 없음',
 
     // 사진 확보 — 외부 메신저로 보내기
-    'download_button' => '사진 일괄 다운로드',
-    'share_button' => '사진 공유',
-    'share_hint' => 'PC는 다운로드, 모바일은 공유로 카톡/왓츠앱에 바로 보냅니다. (바이어 공개 외관사진만)',
+    'share_button' => '사진 전체 공유 :count장',
+    'share_hint' => '검차사진 전체를 한 번에 카톡/왓츠앱 등으로 보냅니다. 한 장만 보내려면 사진을 탭 → 길게 누르세요.',
 
     'forward_section' => '바이어 전달',
     'buyer_placeholder' => '바이어명 (respond.io 연락처)',
