@@ -6,6 +6,7 @@ return [
     // 정적 라벨(출처 무관 통합) — 드롭다운/필터/감사로그
     'status' => [
         'draft' => '현지확인 대기',
+        'inspected' => '검차완료 (전달대기)',
         'awaiting_buyer' => '회신대기',
         'accepted' => '수락 (구매/경매대기)',
         'rejected' => '거절',
@@ -17,6 +18,7 @@ return [
     // 표시용 라벨 — statusLabel() 의 출처(경매/엔카)별 분기
     'status_live' => [
         'draft' => '현지확인 대기',
+        'inspected' => '검차완료 (전달대기)',
         'awaiting_buyer' => '회신대기',
         'accepted_auction' => '경매대기',
         'accepted_encar' => '구매대기',

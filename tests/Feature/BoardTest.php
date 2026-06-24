@@ -488,24 +488,64 @@ class BoardTest extends TestCase
         $this->assertSame('accepted', $l->fresh()->status);
     }
 
-    public function test_inspection_send_to_buyer_transitions_to_awaiting(): void
+    public function test_inspection_complete_transitions_to_inspected(): void
     {
         $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft']);
         $this->actingAs($this->mkUser('inspection'));
 
-        // 수동씬: 전달 선택 → 저장 눌러야 반영
+        // 수동씬: 검차완료 선택 → 저장 눌러야 반영. 바이어 전달(awaiting_buyer)은 영업이 따로.
         Volt::test('inspection.index')
             ->call('openDrawer', $l->id)
             ->set('final_price', '13200000')
-            ->set('buyer_name', '드라간')
             ->set('sendSelected', true)
             ->call('save')
             ->assertHasNoErrors();
 
         $l->refresh();
-        $this->assertSame('awaiting_buyer', $l->status);
-        $this->assertSame('pending', $l->buyer_verdict);
+        $this->assertSame('inspected', $l->status);
         $this->assertSame(13200000, $l->final_price);
+        $this->assertSame('none', $l->buyer_verdict);   // 검차완료는 회신 단계 아님
+    }
+
+    public function test_state_machine_inspected_path(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft']);
+
+        // draft → awaiting_buyer 직접은 막힘(이제 inspected 경유 필수)
+        $this->assertItThrows(fn () => $l->update(['status' => 'awaiting_buyer']));
+
+        // draft → inspected → awaiting_buyer 는 허용
+        $l->update(['status' => 'inspected']);
+        $this->assertSame('inspected', $l->fresh()->status);
+        $l->update(['status' => 'awaiting_buyer']);
+        $this->assertSame('awaiting_buyer', $l->fresh()->status);
+    }
+
+    public function test_forwarding_screen_forwards_inspected_to_awaiting(): void
+    {
+        Bus::fake();
+        $sales = $this->mkUser('sales');
+        $other = $this->mkUser('sales');
+        $mine = $this->mkListing($sales, ['status' => 'inspected', 'final_price' => 13200000]);
+        $theirs = $this->mkListing($other, ['status' => 'inspected', 'final_price' => 9000000]);
+
+        $this->actingAs($sales);
+        $this->get('/forwarding')->assertOk();
+
+        Volt::test('forwarding.index')
+            ->assertSee($mine->vehicle_number)         // 본인 검차완료 차 노출
+            ->assertDontSee($theirs->vehicle_number)   // 타 영업 격리(SalesmanScope)
+            ->call('openDetail', $mine->id)
+            ->set('buyer_name', '드라간')
+            ->call('forward')
+            ->assertHasNoErrors()
+            ->assertSet('detailId', null);             // 전달 후 드로어 닫힘
+
+        $mine->refresh();
+        $this->assertSame('awaiting_buyer', $mine->status);
+        $this->assertSame('pending', $mine->buyer_verdict);
+        $this->assertSame('드라간', $mine->buyer_name);
+        Bus::assertDispatched(SendOfferToBuyer::class);
     }
 
     public function test_region_assignment_role_limit_and_inspector_filter(): void
@@ -1276,50 +1316,50 @@ class BoardTest extends TestCase
         $this->assertSame('accepted', $l->fresh()->status);     // 안 덮어씀
     }
 
-    public function test_inspection_send_defaults_auto_when_conversation_linked(): void
+    public function test_forwarding_defaults_auto_when_contact_linked(): void
     {
-        $l = $this->mkListing($this->mkUser('sales'), [
-            'status' => 'draft', 'region' => '서울', 'respond_contact_id' => 'ct_auto', 'car_cost' => 9000000,
-        ]);
-        $this->actingAs($this->mkUser('inspection'));
+        Bus::fake();
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'inspected', 'respond_contact_id' => 'ct_auto', 'final_price' => 9000000]);
+        $this->actingAs($sales);
 
-        Volt::test('inspection.index')
-            ->call('openDrawer', $l->id)->set('buyer_name', 'D')->set('car_cost', '9000000')
-            ->set('sendSelected', true)->call('save')->assertHasNoErrors();
+        Volt::test('forwarding.index')
+            ->call('openDetail', $l->id)->set('buyer_name', 'D')->call('forward')->assertHasNoErrors();
 
         $l->refresh();
         $this->assertSame('awaiting_buyer', $l->status);
         $this->assertSame('auto', $l->verdict_channel);
     }
 
-    public function test_inspection_send_without_conversation_is_manual(): void
+    public function test_forwarding_without_contact_is_manual(): void
     {
-        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft', 'car_cost' => 9000000]);  // 대화 미연결
-        $this->actingAs($this->mkUser('inspection'));
+        Bus::fake();
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'inspected', 'final_price' => 9000000]);  // 대화 미연결
+        $this->actingAs($sales);
 
-        Volt::test('inspection.index')
-            ->call('openDrawer', $l->id)->set('buyer_name', 'D')->set('car_cost', '9000000')
-            ->set('sendSelected', true)->call('save')->assertHasNoErrors();
+        Volt::test('forwarding.index')
+            ->call('openDetail', $l->id)->set('buyer_name', 'D')->call('forward')->assertHasNoErrors();
 
         $this->assertSame('manual', $l->fresh()->verdict_channel);   // 자동 불가 → 수동
     }
 
-    public function test_inspection_second_auto_car_blocked_then_manual(): void
+    public function test_forwarding_second_auto_car_blocked_then_manual(): void
     {
+        Bus::fake();
         $sales = $this->mkUser('sales');
         $a = $this->mkListing($sales, ['status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'respond_contact_id' => 'ct_g', 'verdict_channel' => 'auto']);
-        $b = $this->mkListing($sales, ['status' => 'draft', 'respond_contact_id' => 'ct_g', 'car_cost' => 9000000]);
-        $this->actingAs($this->mkUser('inspection'));
+        $b = $this->mkListing($sales, ['status' => 'inspected', 'respond_contact_id' => 'ct_g', 'final_price' => 9000000]);
+        $this->actingAs($sales);
 
         // 2번째 자동 차 전달 시도 → (가) 보류 + 알림
-        $c = Volt::test('inspection.index')
-            ->call('openDrawer', $b->id)->set('buyer_name', 'D')->set('car_cost', '9000000')
-            ->set('sendSelected', true)->call('save');
-        $c->assertSet('sendConflictWith', $a->vehicle_number);
-        $this->assertSame('draft', $b->fresh()->status);   // 전달 보류
+        $c = Volt::test('forwarding.index')
+            ->call('openDetail', $b->id)->set('buyer_name', 'D')->call('forward');
+        $c->assertSet('conflictVehicle', $a->vehicle_number);
+        $this->assertSame('inspected', $b->fresh()->status);   // 전달 보류
 
         // 수동으로 전환해 전달
-        $c->call('sendAsManual')->assertHasNoErrors();
+        $c->call('forwardManual')->assertHasNoErrors();
         $b->refresh();
         $this->assertSame('awaiting_buyer', $b->status);
         $this->assertSame('manual', $b->verdict_channel);
@@ -1427,15 +1467,15 @@ class BoardTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_inspection_send_dispatches_offer_to_buyer(): void
+    public function test_forwarding_dispatches_offer_to_buyer(): void
     {
         Bus::fake();
-        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft', 'respond_contact_id' => 'ct_s', 'car_cost' => 9000000]);
-        $this->actingAs($this->mkUser('inspection'));
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'inspected', 'respond_contact_id' => 'ct_s', 'final_price' => 9000000]);
+        $this->actingAs($sales);
 
-        Volt::test('inspection.index')
-            ->call('openDrawer', $l->id)->set('buyer_name', 'D')->set('car_cost', '9000000')
-            ->set('sendSelected', true)->call('save')->assertHasNoErrors();
+        Volt::test('forwarding.index')
+            ->call('openDetail', $l->id)->set('buyer_name', 'D')->call('forward')->assertHasNoErrors();
 
         Bus::assertDispatched(SendOfferToBuyer::class, fn ($j) => $j->listingId === $l->id);
     }

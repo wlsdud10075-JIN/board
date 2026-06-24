@@ -5,6 +5,7 @@
 return [
     'status' => [
         'draft' => 'Awaiting inspection',
+        'inspected' => 'Inspected (awaiting forward)',
         'awaiting_buyer' => 'Awaiting reply',
         'accepted' => 'Accepted (purchase/auction)',
         'rejected' => 'Rejected',
@@ -15,6 +16,7 @@ return [
 
     'status_live' => [
         'draft' => 'Awaiting inspection',
+        'inspected' => 'Inspected (awaiting forward)',
         'awaiting_buyer' => 'Awaiting reply',
         'accepted_auction' => 'Auction pending',
         'accepted_encar' => 'Purchase pending',

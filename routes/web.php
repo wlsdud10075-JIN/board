@@ -26,6 +26,8 @@ Route::middleware(['auth'])->group(function () {
 
     // ── board 4뷰 ──
     Volt::route('listings', 'listings.index')->middleware('role:sales,manager')->name('listings');
+    // 전달 대기 — 검차완료(inspected) 차를 영업이 바이어에게 전달(→awaiting_buyer). SalesmanScope 자동격리.
+    Volt::route('forwarding', 'forwarding.index')->middleware('role:sales,manager')->name('forwarding');
     Volt::route('verdicts', 'verdicts.index')->middleware('role:sales,manager')->name('verdicts');
     // 영업 포털 — car-erp 읽기 미러(재무) [연동: board-portal-api.md]
     Volt::route('portal', 'portal.index')->middleware('role:sales,manager')->name('portal');
