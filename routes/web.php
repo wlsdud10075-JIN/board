@@ -30,7 +30,9 @@ Route::middleware(['auth'])->group(function () {
     // 영업 포털 — car-erp 읽기 미러(재무) [연동: board-portal-api.md]
     Volt::route('portal', 'portal.index')->middleware('role:sales,manager')->name('portal');
     Volt::route('inspection', 'inspection.index')->middleware('role:inspection,manager')->name('inspection');
-    Volt::route('auction', 'auction.index')->middleware('role:auction,manager')->name('auction');
+    // 구매확정/경매 집행 — 영업이 딜을 끝까지(accepted→won) 소유. SalesmanScope 가 영업은 본인 글만 자동격리.
+    // auction role 은 데이터 호환용으로 잔존(경매역할 사실상 폐지, 2026-06-24 Jin).
+    Volt::route('auction', 'auction.index')->middleware('role:sales,auction,manager')->name('auction');
     Volt::route('manage', 'manage.index')->middleware('role:manager')->name('manage');
     Volt::route('users', 'users.index')->middleware('super')->name('users');
     Volt::route('audit', 'audit.index')->middleware('super')->name('audit');

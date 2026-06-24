@@ -51,7 +51,7 @@
             ['label' => __('nav.menu.verdicts'), 'href' => route('verdicts'), 'icon' => 'chat', 'active' => request()->routeIs('verdicts'), 'show' => $can(['sales', 'manager'])],
             ['label' => __('nav.menu.portal'), 'href' => route('portal'), 'icon' => 'wallet', 'active' => request()->routeIs('portal'), 'show' => $can(['sales', 'manager'])],
             ['label' => __('nav.menu.inspection'), 'href' => route('inspection'), 'icon' => 'camera', 'active' => request()->routeIs('inspection'), 'show' => $can(['inspection', 'manager'])],
-            ['label' => __('nav.menu.auction'), 'href' => route('auction'), 'icon' => 'banknotes', 'active' => request()->routeIs('auction'), 'show' => $can(['auction', 'manager'])],
+            ['label' => __('nav.menu.auction'), 'href' => route('auction'), 'icon' => 'banknotes', 'active' => request()->routeIs('auction'), 'show' => $can(['sales', 'auction', 'manager'])],
         ]],
         ['key' => 'manage', 'label' => __('nav.group.manage'), 'items' => [
             ['label' => __('nav.menu.manage'), 'href' => route('manage'), 'icon' => 'shield', 'active' => request()->routeIs('manage'), 'show' => $can(['manager'])],

@@ -329,6 +329,71 @@ class BoardTest extends TestCase
         $this->assertSame(55, $l->fresh()->car_erp_buyer_id);
     }
 
+    /** 바이어 조회 신원 = 운영자(대행 관리자)가 아니라 '딜 작성자(영업)' — car-erp 본인격리 + 연동B salesman 일관성. */
+    public function test_auction_buyer_dropdown_uses_listing_creator_identity(): void
+    {
+        Bus::fake();
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        Http::fake([
+            '*/api/internal/board/buyers*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*/api/internal/board/consignees*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        // 작성자(영업) — car-erp 오버라이드 이메일 보유
+        $creator = $this->mkUser('sales');
+        $creator->car_erp_salesman_email = 'creator@erp.test';
+        $creator->save();
+        $l = $this->mkListing($creator, ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000]);
+
+        // 운영자 = 다른 관리자(대행). 조회는 운영자 신원이 아니라 작성자 신원으로 가야 함.
+        $this->actingAs($this->mkUser('manager'));
+        Volt::test('auction.index')->call('openDetail', $l->id);
+
+        Http::assertSent(fn ($req) => str_contains($req->url(), '/buyers')
+            && str_contains($req->url(), 'salesman_email=creator%40erp.test'));
+    }
+
+    /** 영업이 집행화면(구매확정/경매) 접근 + SalesmanScope 로 본인 딜만 보이고 won 까지 집행. */
+    public function test_sales_can_conclude_own_deal_and_is_scoped(): void
+    {
+        Bus::fake();
+        $mine = $this->mkUser('sales');
+        $other = $this->mkUser('sales');
+        $lMine = $this->mkListing($mine, ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'final_price' => 9000000]);
+        $lOther = $this->mkListing($other, ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'final_price' => 9000000]);
+
+        $this->actingAs($mine);
+        $this->get('/auction')->assertOk();   // 영업 접근 허용(역할 확장)
+
+        Volt::test('auction.index')
+            ->assertSee($lMine->vehicle_number)        // 본인 딜 노출
+            ->assertDontSee($lOther->vehicle_number)   // 타 영업 딜 격리(SalesmanScope)
+            ->call('conclude', $lMine->id, 'won')->assertHasNoErrors();
+
+        $this->assertSame('won', $lMine->fresh()->status);
+        Bus::assertDispatched(SyncWonListingToCarErp::class);   // won → 연동B 발화(모델 훅)
+    }
+
+    /** verdicts 회신 드로어 — 검차 산출물 읽기로 열고, 드로어에서 수락 시 적용 + 드로어 닫힘. */
+    public function test_verdicts_drawer_opens_and_accepts(): void
+    {
+        Bus::fake();
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, [
+            'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending',
+            'buyer_name' => 'Buyer A', 'final_price' => 9000000,
+        ]);
+
+        $this->actingAs($sales);
+        Volt::test('verdicts.index')
+            ->call('openDetail', $l->id)
+            ->assertSet('detailId', $l->id)
+            ->call('accept', $l->id)
+            ->assertSet('detailId', null);   // 회신 후 드로어 닫힘
+
+        $this->assertSame('accepted', $l->fresh()->status);
+    }
+
     public function test_edit_drawer_appends_attachments_and_cap_counts_existing(): void
     {
         Storage::fake('public');
