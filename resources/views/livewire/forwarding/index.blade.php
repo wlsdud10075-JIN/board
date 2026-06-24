@@ -72,15 +72,16 @@ new #[Layout('components.layouts.app')] class extends Component {
         );
     }
 
-    /** 바이어 전달 → awaiting_buyer. buyer_name 필수(누구에게). 충돌 시 보류 + 수동 옵션. */
+    /** 바이어 전달 → awaiting_buyer. buyer_name 선택(respond.io 미사용 — 영업이 카톡으로 직접 보내고 전달완료만 체크). 충돌 시 보류 + 수동 옵션. */
     public function forward(): void
     {
-        $this->validate(['buyer_name' => 'required|string|max:100'], attributes: ['buyer_name' => __('forwarding.attr_buyer_name')]);
+        $this->validate(['buyer_name' => 'nullable|string|max:100'], attributes: ['buyer_name' => __('forwarding.attr_buyer_name')]);
 
         // findOrFail 이 SalesmanScope 안 → 본인 글만(IDOR)
         $l = PurchaseListing::where('status', 'inspected')->findOrFail($this->detailId);
-        if ($l->buyer_name !== $this->buyer_name) {
-            $l->buyer_name = $this->buyer_name;
+        $newName = $this->buyer_name ?: null;
+        if ($l->buyer_name !== $newName) {
+            $l->buyer_name = $newName;
             $l->save();
         }
 

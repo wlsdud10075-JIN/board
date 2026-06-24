@@ -23,7 +23,7 @@ return [
     'share_hint' => 'Send all inspection photos at once to KakaoTalk/WhatsApp etc. For a single photo, tap it then long-press.',
 
     'forward_section' => 'Forward to buyer',
-    'buyer_placeholder' => 'Buyer name (respond.io contact)',
+    'buyer_placeholder' => 'Buyer name (optional)',
     'attr_buyer_name' => 'buyer name',
     'forward_button' => 'Mark as sent',
     'forward_hint' => 'Tap once you have sent the photos to the buyer. (Auto channel also sends photos + total) → moves to "Buyer Reply".',

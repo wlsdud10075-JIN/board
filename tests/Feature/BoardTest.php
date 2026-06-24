@@ -548,6 +548,22 @@ class BoardTest extends TestCase
         Bus::assertDispatched(SendOfferToBuyer::class);
     }
 
+    public function test_forwarding_works_without_buyer_name(): void
+    {
+        Bus::fake();
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'inspected']);
+        $this->actingAs($sales);
+
+        // respond.io 미사용 — 바이어명 미입력해도 전달 완료(에러 없음)
+        Volt::test('forwarding.index')
+            ->call('openDetail', $l->id)
+            ->call('forward')
+            ->assertHasNoErrors();
+
+        $this->assertSame('awaiting_buyer', $l->fresh()->status);
+    }
+
     public function test_photo_proxy_streams_for_owner_and_blocks_other_salesman(): void
     {
         Storage::fake('public');
