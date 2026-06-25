@@ -54,15 +54,20 @@ php artisan config:cache && php artisan route:cache && php artisan view:cache
 sudo chown -R www-data:www-data storage bootstrap/cache
 ```
 
-### B-3b. php.ini 업로드 한도 (검차 영상 대비)
+### B-3b. 업로드 한도 (검차 영상/다중사진 대비) — ⚠️ board 전용 `.user.ini` (글로벌 php.ini 금지)
+> php-fpm php.ini 는 **board·car-erp 공유** → 글로벌 수정하면 car-erp 도 영향. board 경로 전용 `.user.ini`(PHP perdir 설정)로 분리한다.
+> **2026-06-25 운영 적용 완료** (원래 서버 php.ini 는 기본 40M라 30초~2분 영상·다중사진이 막혔음. CLI php 2M/8M 은 웹과 무관.)
 ```ini
-# /etc/php/8.4/fpm/php.ini  (영상 업로드용 — Livewire 한도 200MB·nginx 100M 와 맞춤)
+# /var/www/board/public/.user.ini  ← car-erp(/var/www/car-erp/public)엔 영향 0
 upload_max_filesize = 100M
-post_max_size = 100M
+post_max_size = 110M
 ```
 ```bash
-sudo systemctl reload php8.4-fpm
+sudo systemctl reload php8.4-fpm   # .user.ini 즉시 반영(아니면 user_ini.cache_ttl 300s 후)
 ```
+- 웹 실효값 확인: 임시 `public/_x.php`(`<?php echo ini_get('upload_max_filesize');`) → `curl --resolve board.heysellcar.com:443:127.0.0.1 https://board.heysellcar.com/_x.php` → `100M` 확인 후 삭제. (CLI `php -i` 는 .user.ini 안 읽으니 확인용으로 쓰지 말 것.)
+- ⚠️ `.user.ini` 는 git untracked → 배포(`git reset --hard`, `git clean` 없음)가 **보존**. 향후 deploy.yml 에 `git clean` 추가하면 그때 `.user.ini` 를 repo 에 커밋해 박제.
+- 한도 더 키울 땐: `.user.ini`(upload/post) + nginx `client_max_body_size`(post 보다 크게) 둘 다 올림. 단 LTE 업로드 시간은 한도로 안 줄음 → on-device 압축은 `video-upload-strategy.md` 참조.
 
 ### B-4. nginx vhost (`/etc/nginx/sites-available/board`)
 ```nginx
@@ -71,7 +76,7 @@ server {
     server_name board.heysellcar.com;
     root /var/www/board/public;
     index index.php;
-    client_max_body_size 100M;   # 검차 영상 업로드 대비
+    client_max_body_size 120M;   # 검차 영상 대비 — post_max_size(110M)보다 크게. (2026-06-25 100M→120M)
 
     location / { try_files $uri $uri/ /index.php?$query_string; }
     location ~ \.php$ {
@@ -99,6 +104,8 @@ command=php /var/www/board/artisan queue:work --sleep=3 --tries=3 --max-time=360
 directory=/var/www/board
 autostart=true
 autorestart=true
+startretries=20      ; ⚠️ DB 블립에도 포기 안 하고 재시도(기본 3 → FATAL 위험). 2026-06-25 추가
+startsecs=5          ; 5초 살아있어야 정상기동 인정. 2026-06-25 추가
 user=www-data
 numprocs=1
 redirect_stderr=true
@@ -108,6 +115,8 @@ stopwaitsecs=3600
 ```bash
 sudo supervisorctl reread && sudo supervisorctl update && sudo supervisorctl start board-worker:*
 ```
+> ⚠️ **운영 장애 실발생(2026-06-25)**: MySQL 일시 다운 때 워커가 `Connection refused`로 연쇄 크래시 → 기본 `startretries=3` 초과로 **FATAL 방치** → 연동B push·synced 토스트 전부 멈춤(`integration_events`=0이면 워커 의심). 복구=`sudo supervisorctl restart board-worker`. 재발방지로 위 `startretries=20`+`startsecs=5` 적용함. (상세 진단절차는 메모리 board-queue-worker-ops.)
+> 참고: `SyncWonListingToCarErp` 는 SoftDelete된 차는 설계상 no-op(이벤트 없음). won인데 안 가면 ① 워커상태 ② 삭제여부 순으로 확인.
 
 ### B-7. 스케줄러 cron (환율 매시 + 백업 03:00 자동)
 ```bash
