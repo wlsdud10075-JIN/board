@@ -18,7 +18,8 @@
         header { background: var(--p); color: #fff; padding: 20px 20px 18px; }
         header h1 { font-size: 22px; letter-spacing: .5px; }
         header .veh { margin-top: 6px; font-size: 15px; opacity: .92; }
-        .card { background: #fff; margin: 16px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow: hidden; }
+        /* overflow:hidden 제거 — iOS 사파리는 상위 overflow:hidden 시 영상 전체화면이 즉시 튕김 */
+        .card { background: #fff; margin: 16px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
         .quote { padding: 16px 18px; }
         .quote .row { display: flex; justify-content: space-between; padding: 7px 0; font-size: 15px; }
         .quote .row span:first-child { color: #6b7280; }
@@ -53,7 +54,8 @@
                 <div class="media">
                     @foreach ($media as $m)
                         @if ($m['video'])
-                            <video src="{{ $m['url'] }}" controls preload="metadata" playsinline></video>
+                            {{-- playsinline 제거 — iOS 는 탭 재생 시 네이티브 전체화면(인라인 전체화면 버튼 즉시 튕김 회피). 안드로이드/PC 무영향. --}}
+                            <video src="{{ $m['url'] }}" controls preload="metadata"></video>
                         @else
                             <img src="{{ $m['url'] }}" loading="lazy" alt="">
                         @endif
