@@ -31,6 +31,13 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** 견적 카드/표시 통화. 드로어 열 때 offer_currency 로 표시만(저장 ❌) — 버튼 누를 때만 저장. */
     public string $quoteCurrency = 'KRW';
 
+    // ── 금액 수정 (재견적·조정) — listings 편집 미러. 드로어 안에서 차값/할인율/배송 고침. ──
+    public ?string $e_car_cost = null;
+
+    public ?string $e_discount_rate = null;
+
+    public ?int $e_shipping_usd = null;
+
     public function mount(ExchangeRateService $rates): void
     {
         $rates->refreshIfStale();   // 오래됐을 때만 갱신(lazy)
@@ -77,13 +84,47 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->conflictVehicle = null;
         // 이미 통화 정한 딜(예: EUR 바이어)은 그 통화로 표시, 안 정했으면 KRW. 표시만 — 저장 ❌.
         $this->quoteCurrency = $l->offer_currency ?: 'KRW';
+        // 금액 수정칸 채우기(재견적·조정용)
+        $this->e_car_cost = $l->car_cost !== null ? (string) $l->car_cost : null;
+        $this->e_discount_rate = $l->discount_rate !== null ? (string) $l->discount_rate : null;
+        $this->e_shipping_usd = $l->shipping_usd;
         $this->resetErrorBag();
     }
 
     public function closeDetail(): void
     {
-        $this->reset(['detailId', 'buyer_name', 'forceManual', 'conflictVehicle', 'quoteCurrency']);
+        $this->reset(['detailId', 'buyer_name', 'forceManual', 'conflictVehicle', 'quoteCurrency', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd']);
         unset($this->detail);
+    }
+
+    /**
+     * 금액 수정(재견적·조정) — 차값·할인율·배송을 고치고 최종금액(final_price)만 재스냅.
+     * listings update() 미러: offer_currency/offer_rate 는 건드리지 않음(통화 선택 보존 = EUR 딜 안전).
+     * 통화별 환산 재스냅이 필요하면 영업이 위 통화 버튼을 다시 누르면 됨.
+     */
+    public function saveAmount(): void
+    {
+        $this->validate([
+            'e_car_cost' => 'nullable|numeric|min:0',
+            'e_discount_rate' => 'nullable|numeric|min:0|max:100',
+            'e_shipping_usd' => 'nullable|integer|in:'.implode(',', config('board.shipping_options')),
+        ], attributes: [
+            'e_car_cost' => __('auction.car_cost'),
+            'e_discount_rate' => __('auction.discount_rate'),
+            'e_shipping_usd' => __('auction.shipping'),
+        ]);
+
+        // findOrFail 이 SalesmanScope 안 → 본인 글만(IDOR). inspected 한정.
+        $l = PurchaseListing::where('status', 'inspected')->findOrFail($this->detailId);
+        $l->car_cost = ($this->e_car_cost === null || $this->e_car_cost === '') ? null : (int) $this->e_car_cost;
+        $l->discount_rate = ($this->e_discount_rate === null || $this->e_discount_rate === '') ? null : (float) $this->e_discount_rate;
+        $l->shipping_usd = $this->e_shipping_usd ?: null;
+        // 최종금액(KRW) 재스냅 — 공식 입력 있을 때만(없으면 기존 final_price 유지).
+        $l->final_price = $l->totalKrw($this->usdRate(), $this->eurRate()) ?? $l->final_price;
+        $l->save();
+
+        unset($this->detail, $this->items);   // 금액/견적 카드 재렌더
+        session()->flash('ok_amount', __('forwarding.amount_saved'));
     }
 
     /**
@@ -334,13 +375,40 @@ new #[Layout('components.layouts.app')] class extends Component {
                     · {{ __('auction.salesman_label') }} <b>{{ $d->creator->name }}</b>
                 </div>
 
-                {{-- 금액 --}}
-                <div class="grid grid-cols-2 gap-2 text-xs text-gray-500">
-                    <div>{{ __('auction.car_cost') }}<br><b class="text-sm text-gray-800">{{ $d->carCostDisplay() }}</b></div>
-                    <div>{{ __('auction.discount_rate') }}<br><b class="text-sm text-gray-800">{{ $d->discount_rate !== null ? $d->discount_rate.'%' : '—' }}</b></div>
-                    <div>{{ __('auction.shipping') }}<br><b class="text-sm text-gray-800">{{ $d->shipping_usd ? '$'.number_format($d->shipping_usd) : '—' }}</b></div>
-                    <div>{{ __('forwarding.th_inspection_note') }}<br><b class="text-sm text-gray-800">{{ $d->inspection_note ?: '—' }}</b></div>
+                {{-- 금액 (재견적·조정 가능) — 저장하면 최종금액·견적 카드 재계산. 통화 선택(offer_currency)은 보존. --}}
+                <div class="section-title-sm">{{ __('forwarding.amount_section') }}</div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.car_cost') }} <span class="text-gray-400">({{ $d->expected_price_currency }})</span></label>
+                        <input type="number" min="0" class="input-base" wire:model="e_car_cost">
+                        @error('e_car_cost') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
+                    <div>
+                        <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.discount_rate') }} (%)</label>
+                        <input type="number" min="0" max="100" step="0.1" class="input-base" wire:model="e_discount_rate">
+                        @error('e_discount_rate') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
+                    <div>
+                        <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.shipping') }} (USD)</label>
+                        <select class="input-base" wire:model="e_shipping_usd">
+                            <option value="">—</option>
+                            @foreach (config('board.shipping_options') as $opt)
+                                <option value="{{ $opt }}">${{ number_format($opt) }}</option>
+                            @endforeach
+                        </select>
+                        @error('e_shipping_usd') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
+                    <div>
+                        <label class="mb-0.5 block text-xs text-gray-500">{{ __('forwarding.th_inspection_note') }}</label>
+                        <div class="text-sm text-gray-800">{{ $d->inspection_note ?: '—' }}</div>
+                    </div>
                 </div>
+                <button type="button" wire:click="saveAmount" class="btn-outline btn-sm mt-2 w-full justify-center">💾 {{ __('forwarding.amount_save') }}</button>
+                @if (session('ok_amount'))
+                    <p class="mt-1 text-xs text-green-600">✓ {{ session('ok_amount') }}</p>
+                @endif
+                <p class="mt-1 text-xs text-gray-400">{{ __('forwarding.amount_hint') }}</p>
+
                 <div class="mt-3 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
                     <span class="font-semibold text-gray-700">{{ __('auction.final_price') }}</span>
                     <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $d->final_price ? number_format($d->final_price).__('common.won_currency') : '—' }}</span>

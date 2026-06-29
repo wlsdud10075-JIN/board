@@ -564,6 +564,42 @@ class BoardTest extends TestCase
         $this->assertSame('awaiting_buyer', $l->fresh()->status);
     }
 
+    public function test_forwarding_save_amount_recomputes_total_and_preserves_currency(): void
+    {
+        $sales = $this->mkUser('sales');
+        // EUR 딜(통화 보존 검증) + 배송 없음(환율 무관 순수 KRW 계산)
+        $l = $this->mkListing($sales, [
+            'status' => 'inspected',
+            'expected_price_currency' => 'KRW',
+            'car_cost' => 8000000,
+            'discount_rate' => 5,
+            'final_price' => 7600000,
+            'offer_currency' => 'EUR',
+            'offer_rate' => 1500,
+        ]);
+        $this->actingAs($sales);
+
+        // 드로어에서 차값·할인율 조정 후 저장(재견적)
+        Volt::test('forwarding.index')
+            ->call('openDetail', $l->id)
+            ->set('e_car_cost', '10000000')
+            ->set('e_discount_rate', '10')
+            ->set('e_shipping_usd', null)
+            ->call('saveAmount')
+            ->assertHasNoErrors();
+
+        $l->refresh();
+        // 10,000,000 − 10% + 440,000(매도비 고정) = 9,440,000, 배송 없음
+        $this->assertSame(9440000, $l->final_price);
+        $this->assertSame(10000000, $l->car_cost);
+        $this->assertSame(10.0, (float) $l->discount_rate);
+        // 통화 선택(offer_currency/offer_rate)은 건드리지 않음 — listings 미러(EUR 딜 보존)
+        $this->assertSame('EUR', $l->offer_currency);
+        $this->assertSame(1500, (int) $l->offer_rate);
+        // status 불변(전이는 forward 가 담당)
+        $this->assertSame('inspected', $l->status);
+    }
+
     public function test_photo_proxy_streams_for_owner_and_blocks_other_salesman(): void
     {
         Storage::fake('public');

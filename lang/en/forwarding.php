@@ -18,6 +18,12 @@ return [
     'badge_inspected' => 'Inspected',
     'badge_no_photos' => 'No photos',
 
+    // Amount editing (re-quote / adjust) — recalculates total & quote on save
+    'amount_section' => 'Amount (edit & save → recalculate)',
+    'amount_save' => 'Save amount · update quote',
+    'amount_saved' => 'Amount updated — total & quote recalculated.',
+    'amount_hint' => 'If the buyer asks for a discount, edit car price / discount / shipping and save. The total and quote card recalculate.',
+
     // Quote card — currency/amounts to send to the buyer
     'quote_section' => 'Quote currency',
     'quote_car' => 'Car Price',
