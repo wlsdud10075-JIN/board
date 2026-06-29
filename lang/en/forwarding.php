@@ -35,10 +35,9 @@ return [
     'share_hint' => 'Send all inspection photos at once to KakaoTalk/WhatsApp etc. For a single photo, tap it then long-press.',
     'share_hint_quote' => 'Sends one quote card + all inspection photos at once to KakaoTalk/WhatsApp etc. Change currency with the toggle above.',
 
-    // Videos — too large for the share sheet, so sent separately as a presigned link
-    'video_section' => 'Videos (send as link)',
-    'video_send' => 'Send',
-    'video_hint' => 'Videos are too large to share like photos. Tap to put the video link on the share sheet/clipboard, then paste it into KakaoTalk etc. (Link valid 60 min.)',
+    // Send all — photos, videos and quote in one link (public page)
+    'send_all' => 'Send all (photos·videos·quote link)',
+    'send_all_hint' => 'Photos, videos and the quote go in one link — no matter how many videos. Paste it into KakaoTalk etc. (Valid 30 days; if you add media later, just reopen the same link.)',
 
     'forward_section' => 'Forward to buyer',
     'buyer_placeholder' => 'Buyer name (optional)',

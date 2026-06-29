@@ -46,6 +46,7 @@ return [
     'photos_section' => '차량 사진·영상 (외관만 · 서류/번호판 제외)',
     'photo_upload_label' => '후면카메라 촬영 / 사진·영상 업로드',
     'uploading' => '업로드 중…',
+    'upload_sec_left' => '초 남음',
     'new_files_count' => '새 파일 :count개 — 저장 시 반영',
     'share_to_buyer' => '바이어공개',
     'share_to_buyer_on' => '✓ 바이어공개',

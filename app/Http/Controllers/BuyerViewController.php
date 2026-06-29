@@ -1,0 +1,37 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\PurchaseListing;
+use App\Models\Scopes\SalesmanScope;
+use App\Services\ExchangeRateService;
+
+/**
+ * 바이어 공개 차량 페이지 — 서명된(만료) 링크로만 접근(signed 미들웨어).
+ * 영업이 "전체 보내기" 로 만든 한 링크에 그 차의 사진·영상·견적이 모인다(영상 N개여도 링크 1개).
+ * 노출 최소화(§28): 차량번호·견적·공유허용(share_to_buyer) 검차 사진/영상만. 서류·소유자·정산정보 제외.
+ * SalesmanScope 우회: 서명이 곧 인가(비인증 바이어). 소프트삭제 차는 findOrFail 로 404.
+ */
+class BuyerViewController extends Controller
+{
+    public function show(int $listing, ExchangeRateService $rates)
+    {
+        $l = PurchaseListing::withoutGlobalScope(SalesmanScope::class)->findOrFail($listing);
+
+        $rates->refreshIfStale();
+        $usd = $rates->krwPerUsd() ?: (int) config('board.default_krw_per_usd');
+        $eur = $rates->krwPerEur() ?: (int) config('board.default_krw_per_eur');
+        $breakdown = $l->offerBreakdown($usd, $eur);   // 전달드로어 견적 카드와 동일 계산(가격 일치)
+
+        // 공유 허용(share_to_buyer) 검차 사진/영상만. photos() 가 이미 kind=inspection → 서류 제외(§28).
+        $media = $l->photos()->where('share_to_buyer', true)->get()
+            ->map(fn ($p) => ['url' => $p->shareUrl(), 'video' => $p->isVideo()])
+            ->values();
+
+        return view('buyer.view', [
+            'listing' => $l,
+            'breakdown' => $breakdown,
+            'media' => $media,
+        ]);
+    }
+}

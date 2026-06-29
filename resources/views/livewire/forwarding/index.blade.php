@@ -173,9 +173,8 @@ new #[Layout('components.layouts.app')] class extends Component {
     }
 
     /**
-     * 견적 카드/드로어 3줄 금액 — 선택통화로 환산한 일관된 분해.
-     * Total = offerAmount()(final_price 스냅샷 기반, 불변) / Car = carPriceKrw÷rate / Shipping = Total−Car(잔차 흡수).
-     * 나눗셈 두 번 금지(센트 어긋남 방지) → 합 == Total 보장. final_price 없으면 null(카드 없이 사진만).
+     * 견적 카드/드로어 3줄 금액 — 모델 offerBreakdown() 공유(바이어 공개페이지와 동일 계산 = 가격 불일치 방지).
+     * 여기선 표시 포맷만(통화기호 + 차량번호 로마자). final_price 없으면 null(카드 없이 사진만).
      */
     public function quoteData(): ?array
     {
@@ -184,26 +183,30 @@ new #[Layout('components.layouts.app')] class extends Component {
             return null;
         }
 
-        $offer = $d->offerAmount($this->usdRate(), $this->eurRate());
-        if ($offer === null) {
+        $b = $d->offerBreakdown($this->usdRate(), $this->eurRate());
+        if ($b === null) {
             return null;   // final_price 미설정 → 가격 협의중
         }
 
-        $cur = $offer['currency'];
-        $rate = max(1, (int) $offer['rate']);
-        $total = (int) $offer['amount'];
-
-        $carKrw = $d->carPriceKrw($this->usdRate(), $this->eurRate());
-        $car = $carKrw === null ? null : (int) round($carKrw / $rate);
-        $shipping = $car === null ? null : $total - $car;   // 잔차 흡수
+        $cur = $b['currency'];
 
         return [
             'vehicle' => $this->vehicleRoman($d->vehicle_number),
             'currency' => $cur,
-            'car' => $this->fmtCur($car, $cur),
-            'shipping' => $this->fmtCur($shipping, $cur),
-            'total' => $this->fmtCur($total, $cur),
+            'car' => $this->fmtCur($b['car'], $cur),
+            'shipping' => $this->fmtCur($b['shipping'], $cur),
+            'total' => $this->fmtCur($b['total'], $cur),
         ];
+    }
+
+    /** 바이어 공개 페이지(사진·영상·견적 한곳) 서명 링크 — 30일 만료. 영상 N개여도 링크 1개. 재발급=재호출. */
+    public function buyerLink(): ?string
+    {
+        $d = $this->detail;
+
+        return $d
+            ? \Illuminate\Support\Facades\URL::temporarySignedRoute('buyer.view', now()->addDays(30), ['listing' => $d->id])
+            : null;
     }
 
     /** 금액 → 통화기호 포맷(₩/$/€ 접두, 바이어용). null=—. */
@@ -463,34 +466,26 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <p class="text-xs text-gray-400">—</p>
                 @endif
 
-                {{-- 사진 일괄 공유(OS 공유시트→카톡 등). 이미지만 — 영상은 Web Share 가 큰 파일을 못 받아 아래 링크로 따로. --}}
+                {{-- 전체 보내기 — 사진·영상·견적을 한 링크(공개 페이지)로. 영상 N개여도 링크 1개. 30일 유효, 미디어 추가 시 같은 링크 재열람. --}}
                 @php
                     $sharePhotos = $d->photos->reject(fn ($p) => $p->isVideo())
                         ->map(fn ($p) => ['url' => route('photos.show', $p->id), 'name' => $p->original_name ?: 'photo.jpg'])->values()->all();
-                    $videos = $d->photos->filter(fn ($p) => $p->isVideo())->values();
                 @endphp
+                @if ($d->photos->count() || $q)
+                    <button type="button" class="btn-primary mt-3 w-full justify-center"
+                        @click="window.videoShare(@js($this->buyerLink()))">
+                        🔗 {{ __('forwarding.send_all') }}
+                    </button>
+                    <p class="mt-1 text-xs text-gray-400">{{ __('forwarding.send_all_hint') }}</p>
+                @endif
+
+                {{-- (보조) 사진만 카톡에 파일로 바로 — 이미지 한정. 영상은 위 전체 링크로. --}}
                 @if (count($sharePhotos) || $q)
-                    <button type="button" class="btn-primary mt-3 w-full justify-center" x-data="{ busy: false }" :disabled="busy"
+                    <button type="button" class="btn-outline btn-sm mt-2 w-full justify-center" x-data="{ busy: false }" :disabled="busy"
                         @click="busy = true; window.fwdShare(@js($q), @js($sharePhotos)).finally(() => busy = false)">
                         <span x-show="!busy">📤 {{ count($sharePhotos) ? __('forwarding.share_button', ['count' => count($sharePhotos)]) : __('forwarding.share_card_only') }}</span>
                         <span x-show="busy" style="display:none">…</span>
                     </button>
-                    <p class="mt-1 text-xs text-gray-400">{{ $q ? __('forwarding.share_hint_quote') : __('forwarding.share_hint') }}</p>
-                @endif
-
-                {{-- 영상: 파일이 커서 공유시트로 못 보냄 → presigned 링크(60분)를 카톡에 붙여넣기. 영상마다 1개. --}}
-                @if ($videos->count())
-                    <div class="section-title-sm">{{ __('forwarding.video_section') }}</div>
-                    <div class="space-y-1">
-                        @foreach ($videos as $v)
-                            <button type="button" class="btn-outline btn-sm w-full justify-between"
-                                @click="window.videoShare(@js($v->shareUrl()))">
-                                <span class="truncate">🎬 {{ $v->original_name ?: 'video' }}</span>
-                                <span class="shrink-0">📤 {{ __('forwarding.video_send') }}</span>
-                            </button>
-                        @endforeach
-                    </div>
-                    <p class="mt-1 text-xs text-gray-400">{{ __('forwarding.video_hint') }}</p>
                 @endif
 
                 {{-- 바이어 + 전달완료 체크 --}}

@@ -122,6 +122,27 @@ class PurchaseListing extends Model
         return ['currency' => $cur, 'amount' => (int) round($this->final_price / max(1, $rate)), 'rate' => (int) $rate];
     }
 
+    /**
+     * 바이어 견적 3줄 분해(숫자) — 견적 카드/전달드로어/바이어 공개페이지 공용(단일 출처, drift 방지).
+     * Total = offerAmount(final_price 스냅샷, 불변) / Car = carPriceKrw ÷ rate / Shipping = Total−Car(잔차 흡수).
+     * 나눗셈 두 번 금지 → 합 == Total 보장. final_price 없으면 null(가격 협의중).
+     * 반환: ['currency'=>str, 'car'=>?int, 'shipping'=>?int, 'total'=>int] | null.
+     */
+    public function offerBreakdown(?int $krwPerUsd = null, ?int $krwPerEur = null): ?array
+    {
+        $offer = $this->offerAmount($krwPerUsd, $krwPerEur);
+        if ($offer === null) {
+            return null;
+        }
+        $rate = max(1, (int) $offer['rate']);
+        $total = (int) $offer['amount'];
+        $carKrw = $this->carPriceKrw($krwPerUsd, $krwPerEur);
+        $car = $carKrw === null ? null : (int) round($carKrw / $rate);
+        $shipping = $car === null ? null : $total - $car;
+
+        return ['currency' => $offer['currency'], 'car' => $car, 'shipping' => $shipping, 'total' => $total];
+    }
+
     // ─────────────────────── 상태머신 ───────────────────────
 
     public const STATUSES = [

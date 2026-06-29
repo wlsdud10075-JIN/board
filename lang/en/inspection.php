@@ -46,6 +46,7 @@ return [
     'photos_section' => 'Vehicle photos/video (exterior only · excl. documents/plate)',
     'photo_upload_label' => 'Take with rear camera / upload photo·video',
     'uploading' => 'Uploading…',
+    'upload_sec_left' => 's left',
     'new_files_count' => ':count new file(s) — applied on save',
     'share_to_buyer' => 'Share to buyer',
     'share_to_buyer_on' => '✓ Shared to buyer',
