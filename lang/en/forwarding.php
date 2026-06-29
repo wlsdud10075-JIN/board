@@ -18,6 +18,10 @@ return [
     'badge_inspected' => 'Inspected',
     'badge_no_photos' => 'No photos',
 
+    // Amount editing (re-quote / adjust) — auto-saves & recalculates on edit
+    'amount_section' => 'Amount (auto-applies on edit)',
+    'amount_hint' => 'If the buyer asks for a discount, just edit car price / discount / shipping. Leaving a field auto-saves and recalculates the total & quote card. (For foreign-currency deals, re-tap the currency button above to re-fix the conversion.)',
+
     // Quote card — currency/amounts to send to the buyer
     'quote_section' => 'Quote currency',
     'quote_car' => 'Car Price',
