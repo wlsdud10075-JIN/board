@@ -463,18 +463,34 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <p class="text-xs text-gray-400">—</p>
                 @endif
 
-                {{-- 검차사진 전체를 한 번에 공유(OS 공유시트→카톡 등). 같은출처 프록시 fetch 라 운영 S3 CORS 무관. --}}
+                {{-- 사진 일괄 공유(OS 공유시트→카톡 등). 이미지만 — 영상은 Web Share 가 큰 파일을 못 받아 아래 링크로 따로. --}}
                 @php
-                    $sharePhotos = $d->photos
-                        ->map(fn ($p) => ['url' => route('photos.show', $p->id), 'name' => $p->original_name ?: 'photo.jpg'])->all();
+                    $sharePhotos = $d->photos->reject(fn ($p) => $p->isVideo())
+                        ->map(fn ($p) => ['url' => route('photos.show', $p->id), 'name' => $p->original_name ?: 'photo.jpg'])->values()->all();
+                    $videos = $d->photos->filter(fn ($p) => $p->isVideo())->values();
                 @endphp
-                @if (count($sharePhotos))
+                @if (count($sharePhotos) || $q)
                     <button type="button" class="btn-primary mt-3 w-full justify-center" x-data="{ busy: false }" :disabled="busy"
                         @click="busy = true; window.fwdShare(@js($q), @js($sharePhotos)).finally(() => busy = false)">
-                        <span x-show="!busy">📤 {{ __('forwarding.share_button', ['count' => count($sharePhotos)]) }}</span>
+                        <span x-show="!busy">📤 {{ count($sharePhotos) ? __('forwarding.share_button', ['count' => count($sharePhotos)]) : __('forwarding.share_card_only') }}</span>
                         <span x-show="busy" style="display:none">…</span>
                     </button>
                     <p class="mt-1 text-xs text-gray-400">{{ $q ? __('forwarding.share_hint_quote') : __('forwarding.share_hint') }}</p>
+                @endif
+
+                {{-- 영상: 파일이 커서 공유시트로 못 보냄 → presigned 링크(60분)를 카톡에 붙여넣기. 영상마다 1개. --}}
+                @if ($videos->count())
+                    <div class="section-title-sm">{{ __('forwarding.video_section') }}</div>
+                    <div class="space-y-1">
+                        @foreach ($videos as $v)
+                            <button type="button" class="btn-outline btn-sm w-full justify-between"
+                                @click="window.videoShare(@js($v->shareUrl()))">
+                                <span class="truncate">🎬 {{ $v->original_name ?: 'video' }}</span>
+                                <span class="shrink-0">📤 {{ __('forwarding.video_send') }}</span>
+                            </button>
+                        @endforeach
+                    </div>
+                    <p class="mt-1 text-xs text-gray-400">{{ __('forwarding.video_hint') }}</p>
                 @endif
 
                 {{-- 바이어 + 전달완료 체크 --}}
@@ -556,6 +572,25 @@ new #[Layout('components.layouts.app')] class extends Component {
             } catch (e) {
                 if (e && e.name === 'AbortError') return;   // 사용자가 공유 취소
                 alert('공유에 실패했습니다. 사진을 길게 눌러 하나씩 공유해 주세요.');
+            }
+        };
+
+        // 영상 = 파일 대신 presigned 링크 공유(OS 공유시트→카톡). 미지원/실패 시 클립보드 복사.
+        window.videoShare = async function (url) {
+            try {
+                if (navigator.share) {
+                    await navigator.share({ url });
+                    return;
+                }
+            } catch (e) {
+                if (e && e.name === 'AbortError') return;   // 사용자가 공유 취소
+                // 그 외 공유 실패 → 클립보드 폴백
+            }
+            try {
+                await navigator.clipboard.writeText(url);
+                alert('영상 링크가 복사되었습니다. 카톡 등에 붙여넣어 보내세요.');
+            } catch (e) {
+                prompt('영상 링크 — 길게 눌러 복사하세요:', url);
             }
         };
     </script>

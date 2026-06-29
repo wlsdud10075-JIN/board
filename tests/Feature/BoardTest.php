@@ -626,6 +626,23 @@ class BoardTest extends TestCase
         $this->assertSame('awaiting_buyer', $l->status);
     }
 
+    public function test_forwarding_separates_video_from_photo_share(): void
+    {
+        config(['board.photo_disk' => 'public']);
+        Storage::fake('public');
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'inspected', 'final_price' => 9000000]);
+        $l->photos()->create(['s3_path' => 'i/a.jpg', 'original_name' => 'a.jpg', 'sort' => 1, 'kind' => InspectionPhoto::KIND_INSPECTION, 'share_to_buyer' => true]);
+        $l->photos()->create(['s3_path' => 'i/clip.mp4', 'original_name' => 'clip.mp4', 'sort' => 2, 'kind' => InspectionPhoto::KIND_INSPECTION, 'share_to_buyer' => true]);
+        $this->actingAs($sales);
+
+        Volt::test('forwarding.index')
+            ->call('openDetail', $l->id)
+            ->assertSee('clip.mp4')                                     // 영상 = 별도 링크 섹션 노출
+            ->assertSee(__('forwarding.video_send'))                    // 영상 보내기 버튼
+            ->assertSee(__('forwarding.share_button', ['count' => 1])); // 일괄 공유 = 이미지 1장만(영상 제외)
+    }
+
     public function test_photo_proxy_streams_for_owner_and_blocks_other_salesman(): void
     {
         Storage::fake('public');
