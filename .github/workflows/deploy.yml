@@ -37,7 +37,7 @@ jobs:
           # ⚠️ .env 는 gitignore → git reset 가 안 건드림 → APP_KEY(payee 암호화 키) 보존.
           script: |
             set -e
-            cd ${{ secrets.DEPLOY_PATH }}
+            cd "${{ secrets.DEPLOY_PATH }}"   # 따옴표 = 경로 secret 공백/오타에도 안전
             git fetch origin master
             git reset --hard origin/master
             composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev
