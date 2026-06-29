@@ -2,6 +2,7 @@
     $cur = $breakdown['currency'] ?? 'USD';
     $sym = ['KRW' => '₩', 'USD' => '$', 'EUR' => '€'][$cur] ?? '';
     $fmt = fn ($n) => $n === null ? '—' : $sym.number_format($n);
+    $hasVideo = $media->contains(fn ($m) => $m['video']);
 @endphp
 <!DOCTYPE html>
 <html lang="en">
@@ -29,6 +30,7 @@
         .media { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px 16px 16px; }
         .media img, .media video { width: 100%; border-radius: 8px; background: #000; display: block; aspect-ratio: 4/3; object-fit: cover; }
         .empty { padding: 24px; text-align: center; color: #9ca3af; font-size: 14px; }
+        .hint { padding: 0 18px 14px; font-size: 12px; color: #9ca3af; line-height: 1.5; }
         footer { text-align: center; color: #9ca3af; font-size: 12px; margin-top: 18px; }
         @media (max-width: 420px) { .media { grid-template-columns: 1fr; } }
     </style>
@@ -63,6 +65,9 @@
                 </div>
             @else
                 <div class="empty">No media available.</div>
+            @endif
+            @if ($hasVideo)
+                <p class="hint">▶ If a video won't play in fullscreen, open this page in your browser (Chrome / Safari). Some in-app chat browsers block video fullscreen.</p>
             @endif
         </div>
 

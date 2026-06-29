@@ -94,17 +94,13 @@
         open: localStorage.getItem('sidebar-open') !== 'false',
         mobileOpen: false,
         isMobile: window.innerWidth < 768,
-        init() {
-            const mq = window.matchMedia('(max-width: 767px)');
-            this.isMobile = mq.matches;
-            mq.addEventListener('change', e => { this.isMobile = e.matches; if (!e.matches) this.mobileOpen = false; });
-        },
         toggle() {
             if (this.isMobile) { this.mobileOpen = !this.mobileOpen; }
             else { this.open = !this.open; localStorage.setItem('sidebar-open', this.open); }
         },
         closeMobile() { this.mobileOpen = false; }
-     }">
+     }"
+     x-on:resize.window.debounce.200ms="isMobile = window.innerWidth < 768">
 
     <div x-show="isMobile && mobileOpen" x-transition.opacity @click="closeMobile()" class="sidebar-backdrop" style="display:none;"></div>
 
