@@ -303,6 +303,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 'original_name' => $file->getClientOriginalName(),
                 'sort' => $start + $i + 1,
                 'kind' => \App\Models\InspectionPhoto::KIND_INSPECTION,
+                'share_to_buyer' => true,   // 기본 공유(opt-out) — 민감한 사진은 인스펙터가 토글로 해제(§28). 2026-06-29 Jin.
             ]);
         }
         $this->photos = [];
