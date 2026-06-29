@@ -1,22 +1,33 @@
 name: deploy
 
-# master 푸시 시 운영 서버(car-erp 와 같은 Lightsail)에 SSH 배포.
+# master 푸시 시 운영 서버(들)에 SSH 배포.
 # dev → master 머지(.md 제외)가 트리거. (CLAUDE.md: master = 프로덕션)
+#
+# 다중 인스턴스: 아래 matrix.environment 각각이 동명의 GitHub Environment(+secrets)를 가리킨다.
+# 새 인스턴스(karaba 등) 추가 = ① matrix 에 한 줄 ② 같은 이름 GitHub Environment 생성
+#   + secrets(DEPLOY_HOST/USER/SSH_KEY/PORT/PATH) 입력. (코드 수정은 이 한 줄뿐.)
 on:
   push:
     branches:
       - master
 
-concurrency:
-  group: board-production-deploy
-  cancel-in-progress: false
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: Production
+    strategy:
+      fail-fast: false        # 한 인스턴스 실패가 다른 인스턴스 배포를 막지 않음
+      matrix:
+        environment:
+          - Production           # heymanboard  (52.79.200.151, /var/www/board)
+          - Production-ssancar   # ssancarboard (54.116.7.83,  /var/www/board-ssancar)
+          # - Production-karaba  # karababoard  (추후 — 박스/경로 정하면 주석 해제 + 환경/secrets 생성)
+    environment: ${{ matrix.environment }}
+    concurrency:
+      # 인스턴스별 직렬화 — 같은 박스 연속배포는 큐, 다른 박스는 병렬.
+      group: board-deploy-${{ matrix.environment }}
+      cancel-in-progress: false
     steps:
-      - name: Deploy over SSH
+      - name: Deploy over SSH (${{ matrix.environment }})
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.DEPLOY_HOST }}
