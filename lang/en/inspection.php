@@ -50,7 +50,7 @@ return [
     'new_files_count' => ':count new file(s) — applied on save',
     'share_to_buyer' => 'Share to buyer',
     'share_to_buyer_on' => '✓ Shared to buyer',
-    'photo_share_hint' => 'Turn on "Share to buyer" for :exterior to send to the buyer (excl. documents/plate). Sent automatically with the USD amount on forward.',
+    'photo_share_hint' => 'Inspection photos/videos are shared with the buyer by default. Turn off "Share to buyer" for sensitive shots (close-up plates etc.). Documents are auto-excluded.',
     'photo_share_hint_exterior' => 'exterior photos/videos only',
     'photo_delete_confirm' => 'Delete this photo?',
 

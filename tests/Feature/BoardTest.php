@@ -669,6 +669,25 @@ class BoardTest extends TestCase
             ->assertSee(number_format(10440000)); // Total
     }
 
+    public function test_inspection_upload_defaults_to_shared(): void
+    {
+        config(['board.photo_disk' => 'public']);
+        Storage::fake('public');
+        $insp = $this->mkUser('inspection');
+        $l = $this->mkListing($insp, ['status' => 'draft']);
+        $this->actingAs($insp);
+
+        Volt::test('inspection.index')
+            ->call('openDrawer', $l->id)
+            ->set('photos', [UploadedFile::fake()->image('front.jpg')])
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $p = $l->photos()->first();
+        $this->assertNotNull($p);
+        $this->assertTrue((bool) $p->share_to_buyer);   // 기본 공유(opt-out) — 바이어 페이지에 바로 노출
+    }
+
     public function test_photo_proxy_streams_for_owner_and_blocks_other_salesman(): void
     {
         Storage::fake('public');
