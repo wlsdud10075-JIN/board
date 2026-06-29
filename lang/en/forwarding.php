@@ -31,8 +31,14 @@ return [
 
     // Photos — send via your own messenger
     'share_button' => 'Share all :count photos',
+    'share_card_only' => 'Share quote card',
     'share_hint' => 'Send all inspection photos at once to KakaoTalk/WhatsApp etc. For a single photo, tap it then long-press.',
     'share_hint_quote' => 'Sends one quote card + all inspection photos at once to KakaoTalk/WhatsApp etc. Change currency with the toggle above.',
+
+    // Videos — too large for the share sheet, so sent separately as a presigned link
+    'video_section' => 'Videos (send as link)',
+    'video_send' => 'Send',
+    'video_hint' => 'Videos are too large to share like photos. Tap to put the video link on the share sheet/clipboard, then paste it into KakaoTalk etc. (Link valid 60 min.)',
 
     'forward_section' => 'Forward to buyer',
     'buyer_placeholder' => 'Buyer name (optional)',
