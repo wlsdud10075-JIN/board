@@ -527,12 +527,34 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 {{-- 사진/영상 --}}
                 <div class="section-title-sm">{{ __('inspection.photos_section') }}</div>
-                <label class="flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-gray-300 py-5 text-sm text-gray-500 hover:border-[var(--color-primary)]">
-                    📷 {{ __('inspection.photo_upload_label') }}
-                    <input type="file" accept="image/*,video/*" capture="environment" multiple wire:model="photos" class="hidden">
-                </label>
-                <div wire:loading wire:target="photos" class="mt-1 text-xs text-gray-400">{{ __('inspection.uploading') }}</div>
-                @error('photos.*') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                <div x-data="{
+                        uploading: false, progress: 0, startedAt: 0, etaText: '',
+                        start() { this.uploading = true; this.progress = 0; this.startedAt = Date.now(); this.etaText = ''; },
+                        prog(p) { this.progress = p; const el = (Date.now() - this.startedAt) / 1000; if (p > 0 && p < 100 && el > 0.5) { this.etaText = Math.ceil(el * (100 - p) / p) + '{{ __('inspection.upload_sec_left') }}'; } },
+                        finish() { this.progress = 100; this.etaText = ''; setTimeout(() => { this.uploading = false; }, 500); },
+                        fail() { this.uploading = false; this.etaText = ''; }
+                     }"
+                     x-on:livewire-upload-start.window="start()"
+                     x-on:livewire-upload-progress.window="prog($event.detail.progress)"
+                     x-on:livewire-upload-finish.window="finish()"
+                     x-on:livewire-upload-error.window="fail()">
+                    <label class="flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-gray-300 py-5 text-sm text-gray-500 hover:border-[var(--color-primary)]">
+                        📷 {{ __('inspection.photo_upload_label') }}
+                        <input type="file" accept="image/*,video/*" capture="environment" multiple wire:model="photos" class="hidden">
+                    </label>
+                    {{-- 업로드 진행률 게이지 (Livewire 업로드 이벤트 → %·대략 남은 초). 영상 등 큰 파일 LTE 업로드 체감용. --}}
+                    <div x-show="uploading" x-cloak class="mt-2">
+                        <div class="h-2 w-full overflow-hidden rounded-full bg-gray-200">
+                            <div class="h-full rounded-full bg-[var(--color-primary)] transition-all duration-150" :style="`width:${progress}%`"></div>
+                        </div>
+                        <div class="mt-1 flex justify-between text-[11px] text-gray-500">
+                            <span x-text="progress + '%'"></span>
+                            <span x-text="etaText"></span>
+                        </div>
+                    </div>
+                    <div wire:loading wire:target="photos" class="mt-1 text-xs text-gray-400">{{ __('inspection.uploading') }}</div>
+                    @error('photos.*') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                </div>
 
                 @if (count($photos))
                     <p class="mt-2 text-xs text-gray-500">{{ __('inspection.new_files_count', ['count' => count($photos)]) }}</p>
