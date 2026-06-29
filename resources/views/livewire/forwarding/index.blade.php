@@ -98,12 +98,27 @@ new #[Layout('components.layouts.app')] class extends Component {
     }
 
     /**
+     * 금액 입력 변경 시 자동 저장(blur). 통화 토글이 클릭 즉시 저장하는 패턴 미러 — 별도 저장 버튼 없음.
+     * 핵심: 저장 안 한 채 전달/공유하면 옛 금액이 바이어에게 나가는 footgun 차단.
+     */
+    public function updated($name): void
+    {
+        if (in_array($name, ['e_car_cost', 'e_discount_rate', 'e_shipping_usd'], true)) {
+            $this->saveAmount();
+        }
+    }
+
+    /**
      * 금액 수정(재견적·조정) — 차값·할인율·배송을 고치고 최종금액(final_price)만 재스냅.
      * listings update() 미러: offer_currency/offer_rate 는 건드리지 않음(통화 선택 보존 = EUR 딜 안전).
      * 통화별 환산 재스냅이 필요하면 영업이 위 통화 버튼을 다시 누르면 됨.
      */
     public function saveAmount(): void
     {
+        if (! $this->detailId) {
+            return;
+        }
+
         $this->validate([
             'e_car_cost' => 'nullable|numeric|min:0',
             'e_discount_rate' => 'nullable|numeric|min:0|max:100',
@@ -124,7 +139,6 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->save();
 
         unset($this->detail, $this->items);   // 금액/견적 카드 재렌더
-        session()->flash('ok_amount', __('forwarding.amount_saved'));
     }
 
     /**
@@ -380,17 +394,17 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <div class="grid grid-cols-2 gap-2">
                     <div>
                         <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.car_cost') }} <span class="text-gray-400">({{ $d->expected_price_currency }})</span></label>
-                        <input type="number" min="0" class="input-base" wire:model="e_car_cost">
+                        <input type="number" min="0" class="input-base" wire:model.blur="e_car_cost">
                         @error('e_car_cost') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                     <div>
                         <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.discount_rate') }} (%)</label>
-                        <input type="number" min="0" max="100" step="0.1" class="input-base" wire:model="e_discount_rate">
+                        <input type="number" min="0" max="100" step="0.1" class="input-base" wire:model.blur="e_discount_rate">
                         @error('e_discount_rate') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                     <div>
                         <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.shipping') }} (USD)</label>
-                        <select class="input-base" wire:model="e_shipping_usd">
+                        <select class="input-base" wire:model.blur="e_shipping_usd">
                             <option value="">—</option>
                             @foreach (config('board.shipping_options') as $opt)
                                 <option value="{{ $opt }}">${{ number_format($opt) }}</option>
@@ -403,10 +417,6 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <div class="text-sm text-gray-800">{{ $d->inspection_note ?: '—' }}</div>
                     </div>
                 </div>
-                <button type="button" wire:click="saveAmount" class="btn-outline btn-sm mt-2 w-full justify-center">💾 {{ __('forwarding.amount_save') }}</button>
-                @if (session('ok_amount'))
-                    <p class="mt-1 text-xs text-green-600">✓ {{ session('ok_amount') }}</p>
-                @endif
                 <p class="mt-1 text-xs text-gray-400">{{ __('forwarding.amount_hint') }}</p>
 
                 <div class="mt-3 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">

@@ -600,6 +600,32 @@ class BoardTest extends TestCase
         $this->assertSame('inspected', $l->status);
     }
 
+    public function test_forwarding_unsaved_amount_edit_is_persisted_before_forward(): void
+    {
+        Bus::fake();
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, [
+            'status' => 'inspected',
+            'expected_price_currency' => 'KRW',
+            'car_cost' => 10000000,
+            'discount_rate' => 0,
+            'final_price' => 10440000,
+        ]);
+        $this->actingAs($sales);
+
+        // 별도 저장 없이 할인율만 바꾸고 바로 전달 — blur 자동 저장(updated 훅)으로 새 금액 반영돼야 함
+        Volt::test('forwarding.index')
+            ->call('openDetail', $l->id)
+            ->set('e_discount_rate', '20')   // 입력 변경 = 자동 저장
+            ->call('forward')
+            ->assertHasNoErrors();
+
+        $l->refresh();
+        // 10,000,000 − 20% + 440,000(매도비) = 8,440,000 (옛 10,440,000 이 나가면 안 됨)
+        $this->assertSame(8440000, $l->final_price);
+        $this->assertSame('awaiting_buyer', $l->status);
+    }
+
     public function test_photo_proxy_streams_for_owner_and_blocks_other_salesman(): void
     {
         Storage::fake('public');
