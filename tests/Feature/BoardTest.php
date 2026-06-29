@@ -29,6 +29,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Livewire\Volt\Volt;
 use Tests\TestCase;
 
@@ -626,7 +627,7 @@ class BoardTest extends TestCase
         $this->assertSame('awaiting_buyer', $l->status);
     }
 
-    public function test_forwarding_separates_video_from_photo_share(): void
+    public function test_forwarding_shows_send_all_link_and_excludes_video_from_photo_sheet(): void
     {
         config(['board.photo_disk' => 'public']);
         Storage::fake('public');
@@ -638,9 +639,34 @@ class BoardTest extends TestCase
 
         Volt::test('forwarding.index')
             ->call('openDetail', $l->id)
-            ->assertSee('clip.mp4')                                     // 영상 = 별도 링크 섹션 노출
-            ->assertSee(__('forwarding.video_send'))                    // 영상 보내기 버튼
-            ->assertSee(__('forwarding.share_button', ['count' => 1])); // 일괄 공유 = 이미지 1장만(영상 제외)
+            ->assertSee(__('forwarding.send_all'))                       // 전체 보내기(사진·영상·견적 한 링크)
+            ->assertSee(__('forwarding.share_button', ['count' => 1])); // 사진 시트 = 이미지 1장만(영상 제외)
+    }
+
+    public function test_buyer_view_requires_signature_and_shows_only_shared_media(): void
+    {
+        config(['board.photo_disk' => 'public']);
+        Storage::fake('public');
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, [
+            'status' => 'inspected', 'expected_price_currency' => 'KRW',
+            'car_cost' => 10000000, 'discount_rate' => 0, 'final_price' => 10440000, 'offer_currency' => 'KRW',
+        ]);
+        $l->photos()->create(['s3_path' => 'i/shared.jpg', 'original_name' => 'shared.jpg', 'sort' => 1, 'kind' => InspectionPhoto::KIND_INSPECTION, 'share_to_buyer' => true]);
+        $l->photos()->create(['s3_path' => 'i/hidden.jpg', 'original_name' => 'hidden.jpg', 'sort' => 2, 'kind' => InspectionPhoto::KIND_INSPECTION, 'share_to_buyer' => false]);
+        $l->photos()->create(['s3_path' => 's/doc.pdf', 'original_name' => 'doc.pdf', 'sort' => 3, 'kind' => InspectionPhoto::KIND_SALES_DOCUMENT, 'share_to_buyer' => true]);
+
+        // 서명 없는 접근 → 403
+        $this->get('/v/'.$l->id)->assertForbidden();
+
+        // 유효 서명 → 200: 공유사진만, 비공유·서류 제외, 총액 표시(견적카드와 동일 계산)
+        $url = URL::temporarySignedRoute('buyer.view', now()->addDays(30), ['listing' => $l->id]);
+        $this->get($url)
+            ->assertOk()
+            ->assertSee('shared.jpg')
+            ->assertDontSee('hidden.jpg')         // share_to_buyer=false 제외
+            ->assertDontSee('doc.pdf')            // 서류(kind) 제외 §28
+            ->assertSee(number_format(10440000)); // Total
     }
 
     public function test_photo_proxy_streams_for_owner_and_blocks_other_salesman(): void

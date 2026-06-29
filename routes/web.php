@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\BuyerViewController;
+use App\Http\Controllers\PhotoController;
 use App\Models\Setting;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -7,6 +9,11 @@ use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
 
 Route::get('/', fn () => redirect()->route('dashboard'))->name('home');
+
+// 바이어 공개 차량 페이지 — 서명된(만료) 링크만(signed). 비인증. 영업이 "전체 보내기" 로 생성.
+Route::get('v/{listing}', [BuyerViewController::class, 'show'])
+    ->middleware('signed')
+    ->name('buyer.view');
 
 Route::middleware(['auth'])->group(function () {
     // 로그인 후 role 별 홈으로 분기
@@ -41,7 +48,7 @@ Route::middleware(['auth'])->group(function () {
     Volt::route('admin/settings', 'admin.settings')->middleware('super')->name('admin.settings');
 
     // 사진 같은출처 스트리밍 (모바일 다중 공유 fetch 의 CORS 우회) — 스코프는 컨트롤러에서
-    Route::get('photos/{photo}', [\App\Http\Controllers\PhotoController::class, 'show'])->name('photos.show');
+    Route::get('photos/{photo}', [PhotoController::class, 'show'])->name('photos.show');
 
     // 설정
     Route::redirect('settings', 'settings/profile');
