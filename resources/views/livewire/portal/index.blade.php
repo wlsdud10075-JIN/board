@@ -20,16 +20,20 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public array $result = ['ok' => false, 'reason' => 'init', 'data' => null, 'status' => 0];
 
-    // ③ 선적요청 빌더 상태
-    public array $selectedIds = [];            // 체크한 vehicle_id
+    // ③ v2 선적·B/L 묶음 (영속 묶음 + 선언형 sync). 권위 = car-erp board-portal-api.md §5.
+    public string $shipSubtab = 'bundles';     // bundles(내 선적묶음·모니터) | plan(선적 계획·편집)
 
-    public array $consigneeByBuyer = [];       // [buyer_id => consignee_id]
+    public array $bundles = [];                // GET /bundles — 영속 묶음(표시전용, 재계산 금지)
 
-    public array $methodByBuyer = [];          // [buyer_id => 'RORO'|'CONTAINER']
+    public array $shippablePool = [];          // GET /shippable — 새로 묶을 차 후보
 
-    public ?array $shipDone = null;    // 선적요청 성공(접수/건너뜀 건수) — 큰 배너
+    public array $desired = [];                // 선적 계획 편집상태: list of [key,buyer_id,buyer_name,consignee_id,consignees[],shipping_method,bl_type,vehicle_ids[]]
 
-    public ?string $shipNote = null;   // 선적/서류 경고·오류 — 작은 안내
+    public ?array $syncResult = null;          // 동기화 응답 {created,updated,cancelled,skipped,locked}
+
+    public ?string $shipNote = null;           // 선적/서류 경고·오류 — 작은 안내
+
+    public array $changeNote = [];             // [vehicle_id => note] 변경요청 메모 입력
 
     // 미수금 정렬/필터
     public string $recvSort = 'unpaid_krw';   // 기본 = 미수금 많은 순
@@ -107,7 +111,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
         $this->tab = $tab;
-        $this->shipDone = null;
+        $this->syncResult = null;
         $this->shipNote = null;
         $this->load();
     }
@@ -176,8 +180,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
         $this->viewUserId = ($id !== null && $this->portalUsers->contains('id', $id)) ? $id : null;
-        // 대상이 바뀌면 선적 빌더 상태(이전 사용자 차량 id)를 초기화.
-        $this->reset(['selectedIds', 'consigneeByBuyer', 'methodByBuyer', 'shipDone', 'shipNote']);
+        // 대상이 바뀌면 선적 편집상태(이전 사용자 차량 id)를 초기화.
+        $this->reset(['bundles', 'shippablePool', 'desired', 'syncResult', 'shipNote', 'changeNote']);
         $this->load();
     }
 
@@ -190,7 +194,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'purchases' => $svc->purchases($email),
             // 판매·정산 = 바이어별 집계(통화별 판매합 / 정산 payout). 같은 by-buyer 엔드포인트.
             'sales', 'settlements' => $svc->byBuyer($email),
-            'shipping' => $svc->shippable($email),
+            'shipping' => $this->loadShipping($email, $svc),
             default => $svc->finance($email),
         };
         // 판매내역 = by-buyer(헤더) + per-vehicle 상세(펼침용 차량 리스트).
@@ -203,48 +207,285 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->monthly = $this->tab === 'finance' ? $this->buildMonthly($email) : [];
     }
 
-    /** 선적요청 — 한 바이어 묶음(선택 차 + 컨사이니 + RORO/CONTAINER). */
-    public function submitShipping(int $buyerId, array $vehicleIds): void
+    /**
+     * 선적 로딩 — /bundles(영속 묶음) + /shippable(새 차) → 편집상태(desired) 시드.
+     * desired = **requested(미착수) 묶음만** 편집 가능(in_progress/done/issued=잠금). 반환 = /bundles degrade 봉투.
+     */
+    private function loadShipping(string $email, CarErpReadService $svc): array
     {
-        // 조회 전용 — super 가 타인 포털 열람 중엔 쓰기 차단(본인 계정에서만 요청). 서버 게이트.
+        $env = $svc->bundles($email);
+        $this->bundles = ($env['ok'] ?? false) ? (array) data_get($env['data'], 'data', []) : [];
+
+        $shipEnv = $svc->shippable($email);
+        $this->shippablePool = ($shipEnv['ok'] ?? false) ? (array) data_get($shipEnv['data'], 'data', []) : [];
+
+        // car-erp /bundles 선적단계 키 = ship_status (status 폴백). requested 만 편집(desired) 대상.
+        $this->desired = collect($this->bundles)
+            ->filter(fn ($b) => ($b['ship_status'] ?? $b['status'] ?? '') === 'requested')
+            ->map(fn ($b) => [
+                'key' => 'b:'.($b['batch_id'] ?? uniqid()),
+                'batch_id' => $b['batch_id'] ?? null,
+                // buyer/consignee 는 객체{id,name} 기대. car-erp 가 이름 문자열이면 id=null → 아래 sync 가드가 차단.
+                'buyer_id' => data_get($b, 'buyer.id'),
+                'buyer_name' => is_array($b['buyer'] ?? null) ? data_get($b, 'buyer.name') : ($b['buyer'] ?? null),
+                'consignee_id' => data_get($b, 'consignee.id'),
+                'consignees' => (array) data_get($b, 'consignees', []),
+                'shipping_method' => $b['shipping_method'] ?? 'RORO',
+                'bl_type' => $b['bl_type'] ?? null,
+                'vehicle_ids' => collect(data_get($b, 'vehicles', []))->pluck('vehicle_id')->map(fn ($i) => (int) $i)->values()->all(),
+            ])->values()->all();
+
+        // 바이어별 펼침 UI 용 — shippable 만 있고 아직 묶음 없는 바이어는 빈 묶음 1개 시드(차 안 담으면 sync 에서 제외).
+        $seeded = collect($this->desired)->pluck('buyer_id')->filter()->map(fn ($i) => (int) $i)->all();
+        foreach (collect($this->shippablePool)->groupBy(fn ($v) => (int) data_get($v, 'buyer.id')) as $bid => $cars) {
+            $bid = (int) $bid;
+            if ($bid === 0 || in_array($bid, $seeded, true)) {
+                continue;
+            }
+            $first = $cars->first();
+            $this->desired[] = [
+                'key' => 'n:'.$bid,
+                'batch_id' => null,
+                'buyer_id' => $bid,
+                'buyer_name' => data_get($first, 'buyer.name'),
+                'consignee_id' => null,
+                'consignees' => (array) data_get($first, 'consignees', []),
+                'shipping_method' => 'RORO',
+                'bl_type' => null,
+                'vehicle_ids' => [],
+            ];
+            $seeded[] = $bid;
+        }
+
+        return $env;
+    }
+
+    public function setShipSubtab(string $sub): void
+    {
+        $this->shipSubtab = in_array($sub, ['bundles', 'plan'], true) ? $sub : 'bundles';
+        $this->syncResult = null;
+        $this->shipNote = null;
+    }
+
+    /** 차 한 대를 어느 묶음에도 안 든 상태로(=pool) 만들기 위해 모든 desired 묶음에서 제거. */
+    private function detach(int $vehicleId): void
+    {
+        foreach ($this->desired as $i => $bd) {
+            $this->desired[$i]['vehicle_ids'] = array_values(array_filter($bd['vehicle_ids'], fn ($v) => (int) $v !== $vehicleId));
+        }
+    }
+
+    /** 차를 특정 묶음으로 이동/배정(다른 묶음에서 빼고 그 묶음에 추가). 빈 묶음이면 그 차의 바이어 채택. */
+    public function assignVehicle(string $key, int $vehicleId): void
+    {
+        $this->detach($vehicleId);
+        foreach ($this->desired as $i => $bd) {
+            if ($bd['key'] === $key) {
+                $this->desired[$i]['vehicle_ids'][] = $vehicleId;
+                // 바이어 미정 묶음이면 배정 차의 바이어/컨사이니 후보로 채택(묶음=1바이어).
+                if (empty($this->desired[$i]['buyer_id'])) {
+                    foreach ($this->shippablePool as $car) {
+                        if ((int) data_get($car, 'vehicle_id') === $vehicleId) {
+                            $this->desired[$i]['buyer_id'] = data_get($car, 'buyer.id');
+                            $this->desired[$i]['buyer_name'] = data_get($car, 'buyer.name');
+                            $this->desired[$i]['consignees'] = (array) data_get($car, 'consignees', []);
+                            break;
+                        }
+                    }
+                }
+
+                return;
+            }
+        }
+    }
+
+    /** 차를 묶음에서 빼기 → pool 로(미배정). */
+    public function unassignVehicle(int $vehicleId): void
+    {
+        $this->detach($vehicleId);
+    }
+
+    /** 바이어에게 선적(묶음) 한 건 추가. 이름·컨사이니는 shippable/기존 묶음에서 자동 도출. */
+    public function addBundle(?int $buyerId = null): void
+    {
+        $buyerName = null;
+        $consignees = [];
+        if ($buyerId) {
+            foreach ($this->shippablePool as $car) {
+                if ((int) data_get($car, 'buyer.id') === $buyerId) {
+                    $buyerName = data_get($car, 'buyer.name');
+                    $consignees = (array) data_get($car, 'consignees', []);
+                    break;
+                }
+            }
+            if ($buyerName === null) {   // shippable 에 없으면 기존 묶음에서
+                foreach ($this->desired as $bd) {
+                    if ((int) ($bd['buyer_id'] ?? 0) === $buyerId) {
+                        $buyerName = $bd['buyer_name'];
+                        $consignees = (array) $bd['consignees'];
+                        break;
+                    }
+                }
+            }
+        }
+        $this->desired[] = [
+            'key' => 'n:'.uniqid(),
+            'batch_id' => null,
+            'buyer_id' => $buyerId,
+            'buyer_name' => $buyerName,
+            'consignee_id' => null,
+            'consignees' => $consignees,
+            'shipping_method' => 'RORO',
+            'bl_type' => null,
+            'vehicle_ids' => [],
+        ];
+    }
+
+    public function removeBundle(string $key): void
+    {
+        $this->desired = array_values(array_filter($this->desired, fn ($b) => $b['key'] !== $key));
+    }
+
+    public function setBundleField(string $key, string $field, $value): void
+    {
+        if (! in_array($field, ['consignee_id', 'shipping_method', 'bl_type'], true)) {
+            return;
+        }
+        foreach ($this->desired as $i => $bd) {
+            if ($bd['key'] === $key) {
+                $this->desired[$i][$field] = $value ?: null;
+
+                return;
+            }
+        }
+    }
+
+    /**
+     * 동기화 — 영업의 desired 묶음 **전체** 전송(선언형). car-erp 가 현재 open 행과 diff.
+     * ⚠️ 전체 전송이라 빠진 requested 차는 car-erp 에서 자동취소(스펙 §5-2). 그래서 desired 를 통째로 보냄.
+     */
+    public function syncBundles(): void
+    {
         if ($this->isViewingOther()) {
             $this->shipNote = __('portal.flash_view_only_ship');
 
             return;
         }
-        $this->shipDone = null;
-        $ids = array_values(array_intersect(array_map('intval', $this->selectedIds), $vehicleIds));
-        if ($ids === []) {
-            $this->shipNote = __('portal.flash_select_vehicle');
+        // 안전 가드 — /bundles 조회가 degrade 면 desired 가 비어 전체 desired=빈 전송이 됨
+        // → car-erp 가 모든 requested 를 자동취소(스펙 §5-2). 로딩 실패 시 절대 sync 금지.
+        if (! ($this->result['ok'] ?? false)) {
+            $this->shipNote = __('portal.flash_sync_blocked_degraded');
+
+            return;
+        }
+        // ⚠️ 안전가드 — 기존 묶음(batch_id 보유)인데 buyer_id 가 없으면(car-erp /bundles 가 buyer_id 미제공)
+        // 그 묶음을 sync payload 에 못 담아 → 전체전송 시 누락 → car-erp 가 통째 자동취소(footgun).
+        // 이 경우 sync 자체를 차단(데이터 보호). car-erp /bundles 가 buyer:{id} 줄 때까지.
+        $incomplete = collect($this->desired)->contains(fn ($b) => ! empty($b['batch_id']) && empty($b['buyer_id']));
+        if ($incomplete) {
+            $this->shipNote = __('portal.flash_sync_incomplete_buyer');
 
             return;
         }
 
-        $res = $this->svc()->shippingRequest($this->salesmanEmail(), [
-            'vehicle_ids' => $ids,
-            'buyer_id' => $buyerId,
-            'consignee_id' => $this->consigneeByBuyer[$buyerId] ?? null,
-            'shipping_method' => $this->methodByBuyer[$buyerId] ?? 'RORO',
-            'requested_at' => now()->toIso8601String(),
-        ]);
+        // 차 1대 이상 + 바이어 지정된 묶음만 전송(빈 묶음·바이어 미정 제외).
+        $payload = collect($this->desired)
+            ->filter(fn ($b) => ! empty($b['buyer_id']) && ! empty($b['vehicle_ids']))
+            ->map(fn ($b) => [
+                'buyer_id' => (int) $b['buyer_id'],
+                'consignee_id' => $b['consignee_id'] ? (int) $b['consignee_id'] : null,
+                'shipping_method' => in_array($b['shipping_method'] ?? '', ['RORO', 'CONTAINER'], true) ? $b['shipping_method'] : 'RORO',
+                'bl_type' => in_array($b['bl_type'] ?? '', ['original', 'surrender'], true) ? $b['bl_type'] : null,
+                'vehicle_ids' => array_values(array_map('intval', $b['vehicle_ids'])),
+            ])->values()->all();
 
+        $res = $this->svc()->syncShippingRequests($this->salesmanEmail(), $payload);
         if (! ($res['ok'] ?? false)) {
             $this->shipNote = __('portal.flash_ship_failed');
 
             return;
         }
-
         $this->shipNote = null;
-        $this->shipDone = [
+        $this->syncResult = [
             'created' => count($res['data']['created'] ?? []),
-            'skipped' => count($res['data']['skipped'] ?? []),
+            'updated' => count($res['data']['updated'] ?? []),
+            'cancelled' => count($res['data']['cancelled'] ?? []),
+            'locked' => count($res['data']['locked'] ?? []),
         ];
-        $this->selectedIds = [];
-        $this->load();   // shippable 갱신(요청된 차는 목록서 빠짐)
+        $this->load();
     }
 
-    /** ①② 서류 — 선택 차량의 선적서류(method별 4종 중 2종). xlsx 스트림 다운로드. */
-    public function downloadDocs(int $buyerId, array $vehicleIds, string $kind)
+    /** 미착수(requested) 선적 취소 — 그 묶음을 desired 에서 빼고 전체 재동기화 → car-erp 자동취소. */
+    public function cancelBundle(string $batchId): void
+    {
+        if ($batchId === '') {
+            return;
+        }
+        // 문자열 캐스트 비교(batch_id 타입 안전).
+        $this->desired = array_values(array_filter($this->desired, fn ($b) => (string) ($b['batch_id'] ?? '') !== $batchId));
+        $this->syncBundles();   // isViewingOther·degrade·불완전응답 가드는 syncBundles 가 처리
+    }
+
+    /** 기존 묶음 B/L요청 — bl_type 확정(original/surrender) → car-erp 관리 알람. */
+    public function requestBl(string $batchId, string $blType): void
+    {
+        if ($this->isViewingOther()) {
+            $this->shipNote = __('portal.flash_view_only_ship');
+
+            return;
+        }
+        if (! in_array($blType, ['original', 'surrender'], true) || $batchId === '') {
+            return;
+        }
+        $res = $this->svc()->blRequest($this->salesmanEmail(), $batchId, $blType);
+        $this->shipNote = ($res['ok'] ?? false) ? __('portal.flash_bl_requested') : __('portal.flash_ship_failed');
+        $this->load();
+    }
+
+    /** B/L요청 무름(오발송 취소) — bl_status requested→none. 이미 issued(409)면 무름 불가 안내. */
+    public function cancelBl(string $batchId): void
+    {
+        if ($this->isViewingOther()) {
+            $this->shipNote = __('portal.flash_view_only_ship');
+
+            return;
+        }
+        if ($batchId === '') {
+            return;
+        }
+        $res = $this->svc()->blCancel($this->salesmanEmail(), $batchId);
+        if (($res['status'] ?? 0) === 409) {
+            $this->shipNote = __('portal.flash_bl_already_issued');   // 관리 발급완료 — 무름 불가
+        } elseif ($res['ok'] ?? false) {
+            $this->shipNote = __('portal.flash_bl_cancelled');
+        } else {
+            $this->shipNote = __('portal.flash_ship_failed');
+        }
+        $this->load();
+    }
+
+    /** in_progress(관리 착수) 차 변경/취소 요청 — 관리가 수락거절(자동적용 X). */
+    public function requestChange(int $vehicleId): void
+    {
+        if ($this->isViewingOther()) {
+            $this->shipNote = __('portal.flash_view_only_ship');
+
+            return;
+        }
+        $note = trim((string) ($this->changeNote[$vehicleId] ?? ''));
+        if ($note === '') {
+            $this->shipNote = __('portal.flash_change_note_required');
+
+            return;
+        }
+        $res = $this->svc()->changeRequest($this->salesmanEmail(), $vehicleId, $note);
+        $this->shipNote = ($res['ok'] ?? false) ? __('portal.flash_change_requested') : __('portal.flash_ship_failed');
+        $this->changeNote[$vehicleId] = '';
+        $this->load();
+    }
+
+    /** ①② 서류 — 묶음 차량의 선적서류(method별 4종 중 2종). xlsx 스트림 다운로드. */
+    public function downloadDocs(array $vehicleIds, string $method, string $kind)
     {
         // 조회 전용 — 타인 포털 열람 중엔 서류(타인 PII) 다운로드 차단. 서버 게이트.
         if ($this->isViewingOther()) {
@@ -252,13 +493,13 @@ new #[Layout('components.layouts.app')] class extends Component {
 
             return null;
         }
-        $ids = array_values(array_intersect(array_map('intval', $this->selectedIds), $vehicleIds));
+        $ids = array_values(array_map('intval', $vehicleIds));
         if ($ids === []) {
             $this->shipNote = __('portal.flash_select_vehicle_docs');
 
             return null;
         }
-        $method = strtolower($this->methodByBuyer[$buyerId] ?? 'RORO');   // roro|container
+        $method = strtolower($method) === 'container' ? 'container' : 'roro';   // roro|container
         $type = $method.'_'.$kind;   // roro_contract / container_invoice_packing ...
 
         $res = $this->svc()->document($type, $ids, $this->salesmanEmail());
@@ -348,17 +589,19 @@ new #[Layout('components.layouts.app')] class extends Component {
         <button wire:click="reload" class="ml-auto rounded-md border border-gray-300 bg-white px-3 py-1.5 text-[13px] text-blue-600" title="{{ __('portal.reload_title') }}">↻ {{ __('portal.reload') }}</button>
     </div>
 
-    {{-- 선적요청 성공 — 크게, 확실하게 --}}
-    @if ($shipDone)
-        <div wire:key="shipdone-{{ $shipDone['created'] }}-{{ $shipDone['skipped'] }}"
+    {{-- 동기화 결과 — 생성/갱신/취소/처리중 건수 (크게, 확실하게) --}}
+    @if ($syncResult)
+        <div wire:key="syncres-{{ $syncResult['created'] }}-{{ $syncResult['cancelled'] }}-{{ $syncResult['locked'] }}"
              x-data="{ show: true }" x-show="show" x-transition.scale.origin.top
              class="mb-4 flex items-center gap-4 rounded-xl border-2 border-green-400 bg-green-50 px-5 py-4 shadow-md">
             <div class="text-4xl">✅</div>
             <div class="flex-1">
-                <div class="text-lg font-bold text-green-800">{{ __('portal.ship_done_title') }}</div>
-                <div class="mt-0.5 text-[15px] text-green-700">
-                    {!! __('portal.ship_done_body', ['count' => '<b class="text-xl text-green-800">'.e($shipDone['created']).'</b>']) !!}
-                    @if ($shipDone['skipped']) <span class="text-amber-600">{{ __('portal.ship_done_skipped', ['count' => $shipDone['skipped']]) }}</span> @endif
+                <div class="text-lg font-bold text-green-800">{{ __('portal.sync_done_title') }}</div>
+                <div class="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[14px] text-green-700">
+                    <span>{{ __('portal.sync_created', ['count' => $syncResult['created']]) }}</span>
+                    <span>{{ __('portal.sync_updated', ['count' => $syncResult['updated']]) }}</span>
+                    @if ($syncResult['cancelled']) <span class="text-amber-600">{{ __('portal.sync_cancelled', ['count' => $syncResult['cancelled']]) }}</span> @endif
+                    @if ($syncResult['locked']) <span class="text-blue-600">{{ __('portal.sync_locked', ['count' => $syncResult['locked']]) }}</span> @endif
                 </div>
                 <div class="mt-1 text-[12px] text-green-600">📨 {{ __('portal.ship_done_alarm') }}</div>
             </div>
@@ -428,113 +671,225 @@ new #[Layout('components.layouts.app')] class extends Component {
             </div>
 
         @elseif ($tab === 'shipping')
-            {{-- ③ 선적요청 + ①② 서류 --}}
+            {{-- ③ v2 선적·B/L 묶음 — 내 묶음(모니터) + 선적 계획(편집/동기화). 권위 = car-erp board-portal-api.md §5 --}}
             @php
-                $vehicles = collect(data_get($result['data'], 'data', []));
-                $statusOf = fn ($v) => data_get($v, 'shipping_status', 'none');
-                $inProgress = $vehicles->filter(fn ($v) => in_array($statusOf($v), ['requested', 'in_progress'], true))->values();
-                $available = $vehicles->reject(fn ($v) => in_array($statusOf($v), ['requested', 'in_progress'], true));
+                $stBadge = ['requested' => 'bg-amber-500 text-white', 'in_progress' => 'bg-blue-600 text-white', 'done' => 'bg-gray-500 text-white', 'cancelled' => 'bg-gray-300 text-gray-600'];
+                $stLabel = ['requested' => __('portal.ship_status_requested'), 'in_progress' => __('portal.ship_status_in_progress'), 'done' => __('portal.ship_status_done'), 'cancelled' => __('portal.ship_status_cancelled')];
+                $blLabel = ['requested' => __('portal.bl_status_requested'), 'issued' => __('portal.bl_status_issued')];
+                $blTypeLabel = ['original' => __('portal.bl_original'), 'surrender' => __('portal.bl_surrender')];
             @endphp
 
-            {{-- 진행 중인 선적요청 — 맨 위 묶음 카드(바이어+방식+상태). car-erp shipping_status 응답으로 표시. --}}
-            @if ($inProgress->isNotEmpty())
-                @php
-                    $batches = $inProgress->groupBy(fn ($v) => (data_get($v, 'buyer.id') ?? 0).'|'.(data_get($v, 'requested_method') ?? '').'|'.$statusOf($v));
-                @endphp
-                <div class="mb-4">
-                    <h3 class="mb-2 flex items-center gap-2 text-[14px] font-bold text-gray-800">🚚 {{ __('portal.ship_inprogress_title') }} <span class="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-500">{{ __('portal.unit_vehicles', ['count' => $inProgress->count()]) }}</span></h3>
-                    <div class="grid gap-2.5 lg:grid-cols-2">
-                        @foreach ($batches as $batch)
-                            @php
-                                $b0 = $batch->first();
-                                $st = $statusOf($b0);
-                                $busy = $st === 'in_progress';
-                                $method = data_get($b0, 'requested_method');
-                            @endphp
-                            <div class="overflow-hidden rounded-xl border bg-white shadow-sm {{ $busy ? 'border-blue-200' : 'border-amber-200' }}">
-                                <div class="flex items-center justify-between gap-2 px-3.5 py-2.5 {{ $busy ? 'bg-blue-50' : 'bg-amber-50' }}">
-                                    <div class="flex min-w-0 items-center gap-2">
-                                        <span class="text-base">{{ $method === 'CONTAINER' ? '📦' : '🚢' }}</span>
-                                        <div class="min-w-0">
-                                            <div class="truncate text-[13px] font-bold text-gray-800">{{ data_get($b0, 'buyer.name') ?: __('portal.buyer_unassigned') }}</div>
-                                            <div class="text-[11px] text-gray-500">{{ $method ?: __('portal.ship_method_undefined') }} · {{ __('portal.unit_vehicles', ['count' => $batch->count()]) }}</div>
-                                        </div>
+            {{-- 서브탭 --}}
+            <div class="mb-4 inline-flex overflow-hidden rounded-lg border border-gray-300">
+                @foreach (['bundles' => '📦 '.__('portal.ship_sub_bundles'), 'plan' => '🗂️ '.__('portal.ship_sub_plan')] as $sub => $label)
+                    <button type="button" wire:click="setShipSubtab('{{ $sub }}')"
+                        class="px-4 py-1.5 text-[13px] font-semibold {{ $shipSubtab === $sub ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }}">{{ $label }}</button>
+                @endforeach
+            </div>
+
+            @if ($shipSubtab === 'bundles')
+                {{-- ── 내 선적묶음 (영속 뷰·모니터) — car-erp 값 그대로 표시(재계산·완납 coerce 금지 §5-4) ── --}}
+                @forelse ($bundles as $bd)
+                    @php
+                        $st = $bd['ship_status'] ?? $bd['status'] ?? 'requested';   // car-erp 키 = ship_status
+                        $buyerName = is_array($bd['buyer'] ?? null) ? data_get($bd, 'buyer.name') : ($bd['buyer'] ?? null);
+                        $blStatus = $bd['bl_status'] ?? 'none';
+                        $blType = $bd['bl_type'] ?? null;
+                        $method = $bd['shipping_method'] ?? null;
+                        $bvehicles = (array) data_get($bd, 'vehicles', []);
+                        $unpaidKrw = $bd['unpaid_total_krw'] ?? null;
+                        $fxMissing = (int) ($bd['fx_missing_count'] ?? 0);
+                        $fullyPaid = (bool) ($bd['fully_paid'] ?? false);
+                        $ratio = $bd['unpaid_ratio'] ?? null;   // 0~1 또는 null
+                        $busy = $st === 'in_progress';
+                        $batchId = $bd['batch_id'] ?? null;
+                        $vIds = collect($bvehicles)->pluck('vehicle_id')->map(fn ($i) => (int) $i)->all();
+                    @endphp
+                    <div class="card-sm mb-3" wire:key="bundle-{{ $batchId }}">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <div class="flex min-w-0 items-center gap-2">
+                                <span class="text-base">{{ $method === 'CONTAINER' ? '📦' : '🚢' }}</span>
+                                <span class="truncate text-[14px] font-bold text-gray-800">{{ $buyerName ?: __('portal.buyer_unassigned') }}</span>
+                                <span class="text-[12px] text-gray-400">{{ $method ?: __('portal.ship_method_undefined') }} · {{ __('portal.unit_vehicles', ['count' => count($bvehicles)]) }}</span>
+                            </div>
+                            <div class="flex shrink-0 items-center gap-1.5">
+                                <span class="rounded-full px-2.5 py-1 text-[11px] font-bold {{ $stBadge[$st] ?? 'bg-gray-300 text-gray-600' }}">{{ $stLabel[$st] ?? $st }}</span>
+                                @if ($blStatus !== 'none')
+                                    <span class="rounded-full bg-indigo-100 px-2.5 py-1 text-[11px] font-bold text-indigo-700">B/L: {{ $blLabel[$blStatus] ?? $blStatus }}{{ $blType ? ' · '.($blTypeLabel[$blType] ?? $blType) : '' }}</span>
+                                @endif
+                            </div>
+                        </div>
+
+                        <div class="mt-2 flex flex-wrap gap-1.5">
+                            @foreach ($bvehicles as $v)
+                                <span class="rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-[12px] font-semibold text-gray-700">{{ data_get($v, 'vehicle_number') }}</span>
+                            @endforeach
+                        </div>
+
+                        {{-- 미수 게이지 — car-erp 계산값 그대로(완납판정·0 coerce 금지) --}}
+                        <div class="mt-2.5">
+                            @if ($fxMissing > 0)
+                                <div class="mb-1 text-[12px] font-semibold text-red-600">⚠ {{ __('portal.ship_fx_missing', ['count' => $fxMissing]) }}</div>
+                            @endif
+                            @if ($fullyPaid)
+                                <span class="inline-block rounded-full bg-green-100 px-2.5 py-1 text-[12px] font-bold text-green-700">✅ {{ __('portal.ship_fully_paid') }}</span>
+                            @else
+                                <div class="flex items-center gap-2">
+                                    <div class="h-2.5 flex-1 overflow-hidden rounded-full bg-gray-200">
+                                        @php $fill = $ratio === null ? 0 : max(0, min(100, (float) $ratio * 100)); @endphp
+                                        <div class="h-full rounded-full bg-amber-500" style="width: {{ $fill }}%"></div>
                                     </div>
-                                    <span class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold {{ $busy ? 'bg-blue-600 text-white' : 'bg-amber-500 text-white' }}">{{ $busy ? __('portal.ship_status_in_progress') : __('portal.ship_status_requested') }}</span>
+                                    <span class="shrink-0 text-[12px] font-semibold text-gray-600">
+                                        {{ __('portal.ship_unpaid') }}: {{ $unpaidKrw === null ? __('portal.fx_missing_short') : $this->abbrevKrw($unpaidKrw) }}
+                                    </span>
                                 </div>
-                                <div class="flex flex-wrap gap-1.5 px-3.5 py-2.5">
-                                    @foreach ($batch as $v)
-                                        <span class="rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-[12px] font-semibold text-gray-700">{{ data_get($v, 'vehicle_number') }}</span>
+                            @endif
+                        </div>
+
+                        @unless ($this->isViewingOther())
+                            {{-- 미착수(요청됨) 선적 취소 — 관리 착수 전이면 영업이 바로 취소 가능 --}}
+                            @if ($st === 'requested' && $batchId)
+                                <div class="mt-2.5 border-t border-gray-200 pt-2">
+                                    <button wire:click="cancelBundle('{{ $batchId }}')" wire:confirm="{{ __('portal.cancel_bundle_confirm') }}"
+                                        class="rounded-md border border-red-300 px-2.5 py-1 text-[12px] font-semibold text-red-600 hover:bg-red-50">✕ {{ __('portal.cancel_bundle_btn') }}</button>
+                                </div>
+                            @endif
+                            {{-- B/L요청 (같은 묶음 상태전이) — issued 전까지 --}}
+                            @if ($batchId && $blStatus !== 'issued')
+                                <div class="mt-2.5 flex flex-wrap items-center gap-2 border-t border-gray-200 pt-2 text-[12px]">
+                                    <span class="text-gray-400">{{ __('portal.bl_request_label') }}</span>
+                                    <button wire:click="requestBl('{{ $batchId }}','original')" wire:confirm="{{ __('portal.bl_confirm', ['type' => __('portal.bl_original')]) }}" class="btn-ghost btn-sm">{{ __('portal.bl_original') }}</button>
+                                    <button wire:click="requestBl('{{ $batchId }}','surrender')" wire:confirm="{{ __('portal.bl_confirm', ['type' => __('portal.bl_surrender')]) }}" class="btn-ghost btn-sm">{{ __('portal.bl_surrender') }}</button>
+                                    @if ($blStatus === 'requested')
+                                        <span class="text-[11px] text-blue-600">({{ __('portal.bl_requested_already', ['type' => $blTypeLabel[$blType] ?? '—']) }})</span>
+                                        <button wire:click="cancelBl('{{ $batchId }}')" wire:confirm="{{ __('portal.bl_cancel_confirm') }}"
+                                            class="rounded-md border border-red-300 px-2 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-50">↩ {{ __('portal.bl_cancel_btn') }}</button>
+                                    @endif
+                                </div>
+                            @endif
+                            {{-- 서류 (4종 중 method별 2종) --}}
+                            <div class="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
+                                <span class="text-gray-400">{{ __('portal.docs_label', ['method' => $method ?: 'RORO']) }}</span>
+                                <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'contract')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_contract') }}</button>
+                                <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'invoice_packing')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_invoice_packing') }}</button>
+                            </div>
+                            {{-- 변경요청 (in_progress = 관리 착수 → 자동변경 불가, 명시 요청만) --}}
+                            @if ($busy)
+                                <div class="mt-2 border-t border-gray-200 pt-2">
+                                    <p class="mb-1 text-[11px] text-gray-400">🔒 {{ __('portal.change_request_hint') }}</p>
+                                    @foreach ($bvehicles as $v)
+                                        @php $vid = (int) data_get($v, 'vehicle_id'); @endphp
+                                        <div class="mt-1 flex items-center gap-2" wire:key="chg-{{ $vid }}">
+                                            <span class="shrink-0 text-[12px] font-semibold text-gray-700">{{ data_get($v, 'vehicle_number') }}</span>
+                                            <input wire:model="changeNote.{{ $vid }}" class="input-base flex-1 text-[12px]" placeholder="{{ __('portal.change_request_ph') }}">
+                                            <button wire:click="requestChange({{ $vid }})" class="btn-ghost btn-sm shrink-0">{{ __('portal.change_request_btn') }}</button>
+                                        </div>
                                     @endforeach
                                 </div>
-                            </div>
-                        @endforeach
+                            @endif
+                        @endunless
                     </div>
-                    <p class="mt-1.5 text-[11px] text-gray-400">💡 {!! __('portal.ship_inprogress_note') !!}</p>
-                </div>
-            @endif
+                @empty
+                    <p class="py-8 text-center text-gray-400">{{ __('portal.bundles_empty') }}</p>
+                @endforelse
 
-            <p class="mb-3 text-[13px] text-gray-500">{!! __('portal.ship_intro') !!}</p>
-            @php $byBuyer = $available->groupBy(fn ($v) => data_get($v, 'buyer.id') ?? 0); @endphp
-            @forelse ($byBuyer as $buyerId => $group)
-                @php
-                    $buyerName = data_get($group->first(), 'buyer.name') ?? __('portal.buyer_unassigned_paren');
-                    $consignees = data_get($group->first(), 'consignees', []);
-                    $vIds = $group->pluck('vehicle_id')->map(fn ($i) => (int) $i)->all();
-                    $method = $methodByBuyer[$buyerId] ?? 'RORO';
-                @endphp
-                <div class="card-sm mb-3" style="background:#f8f9fb" wire:key="ship-{{ $buyerId }}" x-data="{ open: false }">
-                    <button type="button" class="flex w-full items-center gap-2 text-left font-bold text-gray-800" @click="open = !open">
-                        <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span>
-                        🧑 {{ $buyerName }} <span class="text-xs font-normal text-gray-400">· {{ __('portal.ship_available_count', ['count' => count($vIds)]) }}</span>
-                    </button>
-                    <div x-show="open" x-cloak class="mt-2">
-                    @if ($this->isViewingOther())
-                        {{-- super 조회 전용 — 선적가능 차량 목록만 표시, 쓰기 액션(선적요청·서류) 숨김 --}}
-                        <div class="mb-1 flex flex-wrap gap-1.5">
-                            @foreach ($group as $v)
-                                <span class="rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[12px] font-semibold text-gray-700">{{ data_get($v, 'vehicle_number') }}</span>
-                            @endforeach
+            @else
+                {{-- ── 선적 계획 (바이어별 펼침 + 체크박스) ── --}}
+                @if ($this->isViewingOther())
+                    <p class="py-8 text-center text-gray-400">👁️ {{ __('portal.ship_view_only_note', ['name' => $this->viewingName()]) }}</p>
+                @else
+                    <p class="mb-3 text-[13px] text-gray-500">{!! __('portal.plan_intro') !!}</p>
+                    @php
+                        // 차번호 맵 (shippable + 기존 묶음 차)
+                        $vnoMap = [];
+                        foreach ($shippablePool as $vv) { $vnoMap[(int) data_get($vv, 'vehicle_id')] = data_get($vv, 'vehicle_number'); }
+                        foreach ($bundles as $bb) { foreach ((array) data_get($bb, 'vehicles', []) as $vv) { $vnoMap[(int) data_get($vv, 'vehicle_id')] = data_get($vv, 'vehicle_number'); } }
+                        // 바이어 목록 = desired 바이어 ∪ shippable 바이어
+                        $buyerNames = [];
+                        foreach ($desired as $bd) { if ($bd['buyer_id']) { $buyerNames[(int) $bd['buyer_id']] = $bd['buyer_name']; } }
+                        foreach ($shippablePool as $vv) { $bid = (int) data_get($vv, 'buyer.id'); if ($bid) { $buyerNames[$bid] = data_get($vv, 'buyer.name'); } }
+                        // 바이어별 미배정(shippable) 차 + 바이어별 묶음
+                        $assignedAll = collect($desired)->flatMap(fn ($b) => $b['vehicle_ids'])->map(fn ($i) => (int) $i)->all();
+                        $poolByBuyer = collect($shippablePool)->reject(fn ($v) => in_array((int) data_get($v, 'vehicle_id'), $assignedAll, true))->groupBy(fn ($v) => (int) data_get($v, 'buyer.id'));
+                        $bundlesByBuyer = collect($desired)->groupBy(fn ($b) => (int) ($b['buyer_id'] ?? 0));
+                    @endphp
+
+                    {{-- 동기화 = 상단 고정바(스크롤해도 위에 붙어 항상 보임) --}}
+                    <div class="sticky top-0 z-10 mb-3 rounded-lg border border-gray-200 bg-white px-3 py-2.5 shadow-md">
+                        <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <button wire:click="syncBundles" wire:loading.attr="disabled" wire:target="syncBundles" class="btn-primary">🔄 {{ __('portal.plan_sync_btn') }}</button>
+                            <span wire:loading wire:target="syncBundles" class="text-[12px] text-gray-400">…</span>
+                            <span class="text-[11px] text-amber-600">⚠️ {{ __('portal.plan_sync_warn') }}</span>
                         </div>
-                        <p class="text-[11px] text-gray-400">👁️ {{ __('portal.ship_view_only_note', ['name' => $this->viewingName()]) }}</p>
-                    @else
-                    <div class="mb-2 space-y-1">
-                        @foreach ($group as $v)
-                            <label class="flex items-center gap-2 text-[13px]">
-                                <input type="checkbox" wire:model.live="selectedIds" value="{{ data_get($v, 'vehicle_id') }}">
-                                <span class="font-semibold text-gray-700">{{ data_get($v, 'vehicle_number') }}</span>
-                            </label>
-                        @endforeach
                     </div>
-                    <div class="flex flex-wrap items-center gap-2">
-                        {{-- 컨사이니 (기존 선택만) --}}
-                        <select wire:model="consigneeByBuyer.{{ $buyerId }}" class="input-base w-auto text-[13px]">
-                            <option value="">{{ __('portal.consignee_select') }}</option>
-                            @foreach ($consignees as $c)
-                                <option value="{{ data_get($c, 'id') }}">{{ data_get($c, 'name') }}</option>
-                            @endforeach
-                        </select>
-                        {{-- RORO / CONTAINER --}}
-                        <div class="inline-flex overflow-hidden rounded-md border border-gray-300">
-                            @foreach (['RORO', 'CONTAINER'] as $m)
-                                <button type="button" wire:click="$set('methodByBuyer.{{ $buyerId }}', '{{ $m }}')"
-                                    class="px-3 py-1.5 text-[13px] font-semibold {{ $method === $m ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }}">{{ $m }}</button>
-                            @endforeach
+
+                    @forelse ($buyerNames as $bid => $bname)
+                        <div class="card-sm mb-2" style="background:#f8f9fb" wire:key="planbuyer-{{ $bid }}" x-data="{ open: false }">
+                            <button type="button" class="flex w-full items-center gap-2 text-left" @click="open = !open">
+                                <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span>
+                                <span class="text-[13px] font-bold text-gray-800">🤝 {{ $bname }}</span>
+                            </button>
+                            <div x-show="open" x-cloak class="mt-2 space-y-2">
+                                @foreach (($bundlesByBuyer[$bid] ?? collect()) as $idx => $bd)
+                                    @php
+                                        $method = $bd['shipping_method'] ?? 'RORO'; $blType = $bd['bl_type'] ?? null;
+                                        $inThis = collect($bd['vehicle_ids'])->map(fn ($i) => (int) $i)->all();
+                                        $poolCars = ($poolByBuyer[$bid] ?? collect())->map(fn ($v) => (int) data_get($v, 'vehicle_id'))->all();
+                                        $checkCars = array_values(array_unique(array_merge($inThis, $poolCars)));
+                                        $multi = ($bundlesByBuyer[$bid] ?? collect())->count() > 1;
+                                    @endphp
+                                    <div class="rounded-md border border-gray-200 bg-white p-2.5" wire:key="planb-{{ $bd['key'] }}">
+                                        <div class="mb-1.5 flex items-center justify-between gap-2">
+                                            <span class="text-[12px] font-semibold text-gray-500">{{ $multi ? __('portal.plan_shipment_n', ['n' => $idx + 1]) : __('portal.plan_shipment') }}</span>
+                                            <button wire:click="removeBundle('{{ $bd['key'] }}')" class="text-[11px] text-gray-400 hover:text-red-600" title="{{ __('portal.plan_remove_bundle') }}">✕</button>
+                                        </div>
+                                        {{-- 차량 체크박스 (이 묶음에 든 차 + 이 바이어 미배정 차) --}}
+                                        <div class="flex flex-wrap gap-1.5">
+                                            @forelse ($checkCars as $vid)
+                                                @php $on = in_array($vid, $inThis, true); @endphp
+                                                <label wire:key="chk-{{ $bd['key'] }}-{{ $vid }}"
+                                                    wire:click="{{ $on ? 'unassignVehicle('.$vid.')' : "assignVehicle('".$bd['key']."', ".$vid.')' }}"
+                                                    class="inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] font-semibold {{ $on ? 'border-violet-400 bg-violet-100 text-gray-800' : 'border-gray-300 bg-white text-gray-600' }}">
+                                                    <input type="checkbox" @checked($on) class="pointer-events-none">
+                                                    {{ $vnoMap[$vid] ?? '#'.$vid }}
+                                                </label>
+                                            @empty
+                                                <span class="text-[11px] text-gray-400">{{ __('portal.plan_no_cars') }}</span>
+                                            @endforelse
+                                        </div>
+                                        {{-- 컨사이니 · 방식 · B/L유형 --}}
+                                        <div class="mt-2 flex flex-wrap items-center gap-2">
+                                            <select wire:change="setBundleField('{{ $bd['key'] }}','consignee_id', $event.target.value)" class="input-base w-auto text-[12px]">
+                                                <option value="">{{ __('portal.consignee_select') }}</option>
+                                                @foreach ((array) $bd['consignees'] as $c)
+                                                    <option value="{{ data_get($c, 'id') }}" @selected((int) ($bd['consignee_id'] ?? 0) === (int) data_get($c, 'id'))>{{ data_get($c, 'name') }}</option>
+                                                @endforeach
+                                            </select>
+                                            <div class="inline-flex overflow-hidden rounded-md border border-gray-300">
+                                                @foreach (['RORO', 'CONTAINER'] as $m)
+                                                    <button type="button" wire:click="setBundleField('{{ $bd['key'] }}','shipping_method','{{ $m }}')"
+                                                        class="px-3 py-1 text-[12px] font-semibold {{ $method === $m ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }}">{{ $m }}</button>
+                                                @endforeach
+                                            </div>
+                                            <div class="inline-flex overflow-hidden rounded-md border border-gray-300">
+                                                @foreach (['' => __('portal.bl_undecided'), 'original' => __('portal.bl_original'), 'surrender' => __('portal.bl_surrender')] as $bt => $btLabel)
+                                                    <button type="button" wire:click="setBundleField('{{ $bd['key'] }}','bl_type','{{ $bt }}')"
+                                                        class="px-2.5 py-1 text-[12px] font-semibold {{ ($blType ?? '') === $bt ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600' }}">{{ $btLabel }}</button>
+                                                @endforeach
+                                            </div>
+                                        </div>
+                                    </div>
+                                @endforeach
+                                {{-- 같은 바이어 추가 선적(가끔 바이어당 여러 건) --}}
+                                <button wire:click="addBundle({{ $bid }})"
+                                    class="rounded-md border border-[var(--color-primary)] px-3 py-1 text-[12px] font-semibold text-[var(--color-primary)] hover:bg-violet-50">+ {{ __('portal.plan_add_shipment') }}</button>
+                            </div>
                         </div>
-                        <button wire:click="submitShipping({{ $buyerId }}, {{ json_encode($vIds) }})" class="btn-primary btn-sm">🚢 {{ __('portal.ship_request_btn') }}</button>
-                    </div>
-                    {{-- ①② 서류 (선택 차량, method별 2종) --}}
-                    <div class="mt-2 flex flex-wrap items-center gap-2 border-t border-gray-200 pt-2 text-[12px]">
-                        <span class="text-gray-400">{{ __('portal.docs_label', ['method' => $method]) }}</span>
-                        <button wire:click="downloadDocs({{ $buyerId }}, {{ json_encode($vIds) }}, 'contract')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_contract') }}</button>
-                        <button wire:click="downloadDocs({{ $buyerId }}, {{ json_encode($vIds) }}, 'invoice_packing')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_invoice_packing') }}</button>
-                    </div>
-                    @endif
-                    </div>
-                </div>
-            @empty
-                <p class="py-8 text-center text-gray-400">{{ __('portal.ship_empty') }}</p>
-            @endforelse
+                    @empty
+                        <p class="py-8 text-center text-gray-400">{{ __('portal.plan_no_buyers') }}</p>
+                    @endforelse
+                @endif
+            @endif
 
         @elseif ($tab === 'receivables')
             {{-- 미수금 — 바이어별 접기 + 완납(0원) 숨김 + 컬럼 정렬 --}}

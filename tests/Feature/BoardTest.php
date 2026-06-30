@@ -354,6 +354,54 @@ class BoardTest extends TestCase
             && str_contains($req->url(), 'salesman_email=creator%40erp.test'));
     }
 
+    /** §5 v2 선적·B/L 묶음 client — 4 신규 엔드포인트 서명/경로/바디 + degrade 봉투. */
+    public function test_car_erp_read_service_v2_bundle_endpoints(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        Http::fake([
+            '*/api/internal/board/bundles/B1/bl-request*' => Http::response(['ok' => true], 200),
+            '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [['batch_id' => 'B1', 'unpaid_total_krw' => null, 'fx_missing_count' => 1, 'fully_paid' => false]]], 200),
+            '*/api/internal/board/shipping-requests/sync*' => Http::response(['created' => [1], 'updated' => [], 'cancelled' => [2], 'skipped' => [], 'locked' => [3]], 200),
+            '*/api/internal/board/shipping-requests/change-request*' => Http::response(['ok' => true], 200),
+        ]);
+        $svc = app(CarErpReadService::class);
+
+        // GET /bundles — 값 그대로 보존(null/false coerce 금지)
+        $b = $svc->bundles('s@erp.test');
+        $this->assertTrue($b['ok']);
+        $this->assertNull($b['data']['data'][0]['unpaid_total_krw']);   // 환율 미입력 → null 보존
+        $this->assertFalse($b['data']['data'][0]['fully_paid']);
+
+        // POST /sync — desired 묶음 전체
+        $sync = $svc->syncShippingRequests('s@erp.test', [
+            ['buyer_id' => 5, 'consignee_id' => 9, 'shipping_method' => 'RORO', 'bl_type' => 'original', 'vehicle_ids' => [1, 2]],
+        ]);
+        $this->assertTrue($sync['ok']);
+        $this->assertSame([2], $sync['data']['cancelled']);
+        $this->assertSame([3], $sync['data']['locked']);
+
+        $svc->blRequest('s@erp.test', 'B1', 'surrender');
+        $svc->changeRequest('s@erp.test', 7, '바이어 변경');
+
+        // sync: 서명 헤더 + 전체 desired 바디
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/api/internal/board/shipping-requests/sync')
+            && str_starts_with($r->header('X-Board-Signature')[0], 'sha256=')
+            && $r->hasHeader('X-Timestamp') && $r->hasHeader('X-Nonce')
+            && str_contains($r->body(), '"bl_type":"original"')
+            && str_contains($r->body(), '"vehicle_ids":[1,2]'));
+        // bl-request: 경로에 batch + bl_type 바디
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/api/internal/board/bundles/B1/bl-request')
+            && str_contains($r->body(), '"bl_type":"surrender"'));
+        // change-request: vehicle_id + note
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/api/internal/board/shipping-requests/change-request')
+            && str_contains($r->body(), '"vehicle_id":7'));
+
+        // canonical 바이트 형태 핀(§1 — METHOD\nPATH?sorted_query\nTS\nBODY)
+        [, $canon] = $svc->sign('POST', '/api/internal/board/shipping-requests/sync', ['salesman_email' => 's@erp.test'], '{"x":1}');
+        $this->assertStringStartsWith("POST\n/api/internal/board/shipping-requests/sync?salesman_email=s%40erp.test\n", $canon);
+        $this->assertStringEndsWith("\n".'{"x":1}', $canon);
+    }
+
     /** 영업이 집행화면(구매확정/경매) 접근 + SalesmanScope 로 본인 딜만 보이고 won 까지 집행. */
     public function test_sales_can_conclude_own_deal_and_is_scoped(): void
     {
@@ -2469,7 +2517,7 @@ class BoardTest extends TestCase
     {
         $this->carErpReadConfig();
         Http::fake([
-            '*/api/internal/board/shipping-request*' => Http::response(['created' => [1], 'skipped' => []], 201),
+            '*/api/internal/board/shipping-requests/sync*' => Http::response(['created' => [1]], 200),
             '*' => Http::response(['count' => 0, 'data' => []], 200),
         ]);
         $target = $this->mkUser('sales');
@@ -2478,13 +2526,13 @@ class BoardTest extends TestCase
 
         Volt::test('portal.index')
             ->call('viewUser', $target->id)              // super 가 타인 열람
-            ->set('selectedIds', [1])
-            ->call('submitShipping', 1, [1])             // 쓰기 시도 → 차단
-            ->assertSet('shipDone', null)
+            ->call('setTab', 'shipping')
+            ->call('syncBundles')                        // 쓰기 시도 → 차단
+            ->assertSet('syncResult', null)
             ->assertSee('조회 전용');
 
-        // 선적요청이 car-erp 로 전송되지 않음(타인 대행 쓰기 차단).
-        Http::assertNotSent(fn ($req) => str_contains($req->url(), 'shipping-request'));
+        // 동기화가 car-erp 로 전송되지 않음(타인 대행 쓰기 차단).
+        Http::assertNotSent(fn ($req) => str_contains($req->url(), 'shipping-requests/sync'));
     }
 
     public function test_portal_degrades_when_not_configured(): void
@@ -2567,22 +2615,52 @@ class BoardTest extends TestCase
             ->call('setTab', 'settlements')->assertSee('7,000,000')->assertSee('지급 완료');
     }
 
-    public function test_portal_shipping_shows_in_progress_cards(): void
+    /** v2 「내 선적묶음」 모니터 — /bundles 값 그대로 표시(상태·미수·환율미입력 경고). */
+    public function test_portal_shipping_v2_bundles_monitor(): void
     {
         $this->carErpReadConfig();
         Http::fake([
-            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 0], 200),
-            '*/api/internal/board/shippable*' => Http::response(['count' => 2, 'data' => [
-                ['vehicle_id' => 1, 'vehicle_number' => 'REQ001', 'buyer' => ['id' => 5, 'name' => 'BuyerZ'], 'consignees' => [], 'shipping_status' => 'requested', 'shipping_method' => 'RORO'],
-                ['vehicle_id' => 2, 'vehicle_number' => 'AVAIL2', 'buyer' => ['id' => 6, 'name' => 'BuyerW'], 'consignees' => []],   // 요청전(none)
-            ]], 200),
+            '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
+                'batch_id' => 'B1', 'ship_status' => 'requested', 'bl_status' => 'none', 'bl_type' => null,
+                'shipping_method' => 'RORO', 'buyer' => ['id' => 5, 'name' => 'BuyerZ'],
+                'vehicles' => [['vehicle_id' => 1, 'vehicle_number' => 'CAR001']],
+                'unpaid_total_krw' => 3000000, 'fx_missing_count' => 1, 'fully_paid' => false, 'unpaid_ratio' => 0.4,
+            ]]], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 0, 'data' => []], 200),
             '*' => Http::response(['count' => 0, 'data' => []], 200),
         ]);
         $this->actingAs($this->mkUser('sales'));
 
         Volt::test('portal.index')->call('setTab', 'shipping')
-            ->assertSee('진행 중인 선적요청')->assertSee('REQ001')->assertSee('요청됨')   // 맨 위 카드
-            ->assertSee('BuyerW');   // 요청전 = 아래 선택그룹
+            ->assertSee('BuyerZ')->assertSee('CAR001')
+            ->assertSee('요청됨')              // 선적단계 뱃지
+            ->assertSee('환율 미입력');        // fx_missing 경고(완납판정 불가)
+    }
+
+    /** v2 「선적 계획」 동기화 — desired(requested 묶음에서 차 제거) 전체를 /sync 로 전송. */
+    public function test_portal_shipping_v2_sync_sends_full_desired(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
+                'batch_id' => 'B1', 'ship_status' => 'requested', 'shipping_method' => 'RORO', 'bl_type' => null,
+                'buyer' => ['id' => 5, 'name' => 'BuyerZ'], 'consignee' => ['id' => 9], 'consignees' => [],
+                'vehicles' => [['vehicle_id' => 1, 'vehicle_number' => 'CAR001'], ['vehicle_id' => 2, 'vehicle_number' => 'CAR002']],
+            ]]], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*/api/internal/board/shipping-requests/sync*' => Http::response(['created' => [], 'updated' => [1], 'cancelled' => [], 'skipped' => [], 'locked' => []], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        // desired 는 requested 묶음(차 2대)으로 시드 → 한 대 빼고 동기화 → vehicle_ids=[1] 전체 전송
+        Volt::test('portal.index')->call('setTab', 'shipping')
+            ->call('unassignVehicle', 2)
+            ->call('syncBundles')->assertHasNoErrors();
+
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/api/internal/board/shipping-requests/sync')
+            && str_contains($r->body(), '"buyer_id":5')
+            && str_contains($r->body(), '"vehicle_ids":[1]'));   // 뺀 차(2) 제외, 전체 desired
     }
 
     public function test_portal_finance_abbreviates_amounts(): void
@@ -2660,29 +2738,131 @@ class BoardTest extends TestCase
         $this->assertSame('asc', $c->get('recvDir'));
     }
 
-    public function test_portal_shipping_lists_and_submits(): void
+    /** v2 미착수 선적 취소 — cancelBundle 이 그 묶음 빼고 전체 desired 재전송(car-erp 자동취소). */
+    public function test_portal_shipping_v2_cancel_requested_bundle(): void
     {
         $this->carErpReadConfig();
         Http::fake([
-            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 0], 200),
-            '*/api/internal/board/shippable*' => Http::response(['count' => 1, 'data' => [
-                ['vehicle_id' => 10, 'vehicle_number' => '11가1111', 'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignees' => [['id' => 3, 'name' => 'ConsX']]],
-            ]], 200),
-            '*/api/internal/board/shipping-request*' => Http::response(['created' => [10], 'skipped' => []], 201),
+            // batch_id 를 숫자로 — wire:click 은 문자열로 넘기므로 strict 비교면 안 빠지는 버그 회귀 방지
+            '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
+                'batch_id' => 77, 'ship_status' => 'requested', 'shipping_method' => 'RORO',
+                'buyer' => ['id' => 5, 'name' => 'BuyerZ'], 'vehicles' => [['vehicle_id' => 1, 'vehicle_number' => 'CAR001']],
+            ]]], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*/api/internal/board/shipping-requests/sync*' => Http::response(['created' => [], 'updated' => [], 'cancelled' => [1], 'skipped' => [], 'locked' => []], 200),
             '*' => Http::response(['count' => 0, 'data' => []], 200),
         ]);
         $this->actingAs($this->mkUser('sales'));
 
-        Volt::test('portal.index')
-            ->call('setTab', 'shipping')
-            ->assertSee('BuyerX')->assertSee('11가1111')
-            ->set('selectedIds', [10])
-            ->set('consigneeByBuyer.2', 3)
-            ->call('submitShipping', 2, [10])
-            ->assertSee('선적요청 접수 완료')->assertSee('1대');   // 큰 성공 배너
+        Volt::test('portal.index')->call('setTab', 'shipping')
+            ->call('cancelBundle', '77')->assertHasNoErrors();   // 문자열 인자(blade 와 동일)
 
-        Http::assertSent(fn ($req) => str_contains($req->url(), 'shipping-request')
-            && str_contains($req->body(), '"vehicle_ids":[10]') && str_contains($req->body(), '"consignee_id":3'));
+        // B1 빠진 전체 desired 전송 → B1만 있었으므로 bundles:[] (car-erp 가 B1 자동취소)
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/shipping-requests/sync')
+            && str_contains($r->body(), '"bundles":[]'));
+    }
+
+    /** v2 B/L요청 무름 — bl_status='requested' 묶음에서 bl-cancel 전송(서명). */
+    public function test_portal_shipping_v2_bl_cancel(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles/B1/bl-cancel*' => Http::response(['ok' => true, 'bl_status' => 'none'], 200),
+            '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
+                'batch_id' => 'B1', 'ship_status' => 'requested', 'bl_status' => 'requested', 'bl_type' => 'original',
+                'shipping_method' => 'RORO', 'buyer' => ['id' => 5, 'name' => 'BuyerZ'],
+                'vehicles' => [['vehicle_id' => 1, 'vehicle_number' => 'CAR001']],
+            ]]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'shipping')
+            ->call('cancelBl', 'B1')->assertHasNoErrors();
+
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/api/internal/board/bundles/B1/bl-cancel')
+            && str_starts_with($r->header('X-Board-Signature')[0], 'sha256='));
+    }
+
+    /** v2 B/L 무름 — 이미 발급(409)이면 "발급완료 무름 불가" 안내. */
+    public function test_portal_shipping_v2_bl_cancel_already_issued(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles/B1/bl-cancel*' => Http::response(['ok' => false, 'reason' => 'already_issued'], 409),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'shipping')
+            ->call('cancelBl', 'B1')
+            ->assertSee('발급');   // "관리가 이미 B/L을 발급해 무를 수 없습니다"
+    }
+
+    /** v2 안전가드 — 기존 묶음에 buyer_id 없으면(car-erp /bundles 가 buyer 문자열만) sync 차단(전체 자동취소 방지). */
+    public function test_portal_shipping_v2_blocks_sync_when_bundle_missing_buyer_id(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
+                'batch_id' => 'B1', 'ship_status' => 'requested', 'shipping_method' => 'RORO',
+                'buyer' => 'BuyerName',   // 문자열(buyer_id 없음) = car-erp 현재 형태 → 재전송 불가
+                'vehicles' => [['vehicle_id' => 1, 'vehicle_number' => 'CAR001']],
+            ]]], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*/api/internal/board/shipping-requests/sync*' => Http::response(['created' => []], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'shipping')->call('syncBundles');
+
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), '/shipping-requests/sync'));
+    }
+
+    /** v2 안전가드 — /bundles 조회 degrade(5xx) 시 동기화 차단(빈 desired 전송 → 전체 자동취소 방지). */
+    public function test_portal_shipping_v2_sync_blocked_when_bundles_degraded(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['error' => 'boom'], 500),   // 조회 실패
+            '*/api/internal/board/shippable*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*/api/internal/board/shipping-requests/sync*' => Http::response(['created' => []], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'shipping')->call('syncBundles')
+            ->assertSet('syncResult', null);
+
+        // 절대 sync 전송 안 됨 — degrade 시 전체취소 방지.
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), '/shipping-requests/sync'));
+    }
+
+    /** v2 「선적 계획」 — shippable pool 의 새 차를 새 묶음에 담고(빈 묶음=그 차 바이어 채택) 동기화. */
+    public function test_portal_shipping_v2_plan_pool_assign_and_sync(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 0, 'data' => []], 200),   // 기존 묶음 없음
+            '*/api/internal/board/shippable*' => Http::response(['count' => 1, 'data' => [
+                ['vehicle_id' => 10, 'vehicle_number' => '11가1111', 'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignees' => [['id' => 3, 'name' => 'ConsX']]],
+            ]], 200),
+            '*/api/internal/board/shipping-requests/sync*' => Http::response(['created' => [10], 'updated' => [], 'cancelled' => [], 'skipped' => [], 'locked' => []], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('portal.index')->call('setTab', 'shipping')->call('setShipSubtab', 'plan')
+            ->assertSee('BuyerX')->assertSee('11가1111');   // 바이어별 펼침 — BuyerX 빈 묶음 자동 시드 + 차 체크박스
+
+        $key = $c->get('desired')[0]['key'];               // 자동 시드된 BuyerX 묶음(shippable 전용 바이어)
+        $c->call('assignVehicle', $key, 10)                 // 체크 = 묶음에 담기
+            ->call('syncBundles')->assertHasNoErrors();
+
+        Http::assertSent(fn ($req) => str_contains($req->url(), '/api/internal/board/shipping-requests/sync')
+            && str_contains($req->body(), '"buyer_id":2')
+            && str_contains($req->body(), '"vehicle_ids":[10]'));
     }
 
     // ─────────────────────── 내 설정 / 기능설정 ───────────────────────
