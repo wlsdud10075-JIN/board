@@ -2743,8 +2743,9 @@ class BoardTest extends TestCase
     {
         $this->carErpReadConfig();
         Http::fake([
+            // batch_id 를 숫자로 — wire:click 은 문자열로 넘기므로 strict 비교면 안 빠지는 버그 회귀 방지
             '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
-                'batch_id' => 'B1', 'status' => 'requested', 'shipping_method' => 'RORO',
+                'batch_id' => 77, 'status' => 'requested', 'shipping_method' => 'RORO',
                 'buyer' => ['id' => 5, 'name' => 'BuyerZ'], 'vehicles' => [['vehicle_id' => 1, 'vehicle_number' => 'CAR001']],
             ]]], 200),
             '*/api/internal/board/shippable*' => Http::response(['count' => 0, 'data' => []], 200),
@@ -2754,7 +2755,7 @@ class BoardTest extends TestCase
         $this->actingAs($this->mkUser('sales'));
 
         Volt::test('portal.index')->call('setTab', 'shipping')
-            ->call('cancelBundle', 'B1')->assertHasNoErrors();
+            ->call('cancelBundle', '77')->assertHasNoErrors();   // 문자열 인자(blade 와 동일)
 
         // B1 빠진 전체 desired 전송 → B1만 있었으므로 bundles:[] (car-erp 가 B1 자동취소)
         Http::assertSent(fn ($r) => str_contains($r->url(), '/shipping-requests/sync')

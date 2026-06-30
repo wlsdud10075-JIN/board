@@ -409,7 +409,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         if ($batchId === '') {
             return;
         }
-        $this->desired = array_values(array_filter($this->desired, fn ($b) => ($b['batch_id'] ?? null) !== $batchId));
+        // ⚠️ 문자열 캐스트 비교 — car-erp batch_id 가 숫자여도 wire:click 인자는 문자열이라 strict(!==) 면 안 빠짐.
+        $this->desired = array_values(array_filter($this->desired, fn ($b) => (string) ($b['batch_id'] ?? '') !== $batchId));
         $this->syncBundles();   // isViewingOther·degrade 가드는 syncBundles 가 처리
     }
 
