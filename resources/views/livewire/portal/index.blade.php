@@ -219,13 +219,15 @@ new #[Layout('components.layouts.app')] class extends Component {
         $shipEnv = $svc->shippable($email);
         $this->shippablePool = ($shipEnv['ok'] ?? false) ? (array) data_get($shipEnv['data'], 'data', []) : [];
 
+        // car-erp /bundles 선적단계 키 = ship_status (status 폴백). requested 만 편집(desired) 대상.
         $this->desired = collect($this->bundles)
-            ->filter(fn ($b) => ($b['status'] ?? '') === 'requested')
+            ->filter(fn ($b) => ($b['ship_status'] ?? $b['status'] ?? '') === 'requested')
             ->map(fn ($b) => [
                 'key' => 'b:'.($b['batch_id'] ?? uniqid()),
                 'batch_id' => $b['batch_id'] ?? null,
+                // buyer/consignee 는 객체{id,name} 기대. car-erp 가 이름 문자열이면 id=null → 아래 sync 가드가 차단.
                 'buyer_id' => data_get($b, 'buyer.id'),
-                'buyer_name' => data_get($b, 'buyer.name'),
+                'buyer_name' => is_array($b['buyer'] ?? null) ? data_get($b, 'buyer.name') : ($b['buyer'] ?? null),
                 'consignee_id' => data_get($b, 'consignee.id'),
                 'consignees' => (array) data_get($b, 'consignees', []),
                 'shipping_method' => $b['shipping_method'] ?? 'RORO',
@@ -376,6 +378,16 @@ new #[Layout('components.layouts.app')] class extends Component {
 
             return;
         }
+        // ⚠️ 안전가드 — 기존 묶음(batch_id 보유)인데 buyer_id 가 없으면(car-erp /bundles 가 buyer_id 미제공)
+        // 그 묶음을 sync payload 에 못 담아 → 전체전송 시 누락 → car-erp 가 통째 자동취소(footgun).
+        // 이 경우 sync 자체를 차단(데이터 보호). car-erp /bundles 가 buyer:{id} 줄 때까지.
+        $incomplete = collect($this->desired)->contains(fn ($b) => ! empty($b['batch_id']) && empty($b['buyer_id']));
+        if ($incomplete) {
+            $this->shipNote = __('portal.flash_sync_incomplete_buyer');
+
+            return;
+        }
+
         // 차 1대 이상 + 바이어 지정된 묶음만 전송(빈 묶음·바이어 미정 제외).
         $payload = collect($this->desired)
             ->filter(fn ($b) => ! empty($b['buyer_id']) && ! empty($b['vehicle_ids']))
@@ -409,9 +421,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         if ($batchId === '') {
             return;
         }
-        // ⚠️ 문자열 캐스트 비교 — car-erp batch_id 가 숫자여도 wire:click 인자는 문자열이라 strict(!==) 면 안 빠짐.
+        // 문자열 캐스트 비교(batch_id 타입 안전).
         $this->desired = array_values(array_filter($this->desired, fn ($b) => (string) ($b['batch_id'] ?? '') !== $batchId));
-        $this->syncBundles();   // isViewingOther·degrade 가드는 syncBundles 가 처리
+        $this->syncBundles();   // isViewingOther·degrade·불완전응답 가드는 syncBundles 가 처리
     }
 
     /** 기존 묶음 B/L요청 — bl_type 확정(original/surrender) → car-erp 관리 알람. */
@@ -657,7 +669,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                 {{-- ── 내 선적묶음 (영속 뷰·모니터) — car-erp 값 그대로 표시(재계산·완납 coerce 금지 §5-4) ── --}}
                 @forelse ($bundles as $bd)
                     @php
-                        $st = $bd['status'] ?? 'requested';
+                        $st = $bd['ship_status'] ?? $bd['status'] ?? 'requested';   // car-erp 키 = ship_status
+                        $buyerName = is_array($bd['buyer'] ?? null) ? data_get($bd, 'buyer.name') : ($bd['buyer'] ?? null);
                         $blStatus = $bd['bl_status'] ?? 'none';
                         $blType = $bd['bl_type'] ?? null;
                         $method = $bd['shipping_method'] ?? null;
@@ -674,7 +687,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <div class="flex flex-wrap items-center justify-between gap-2">
                             <div class="flex min-w-0 items-center gap-2">
                                 <span class="text-base">{{ $method === 'CONTAINER' ? '📦' : '🚢' }}</span>
-                                <span class="truncate text-[14px] font-bold text-gray-800">{{ data_get($bd, 'buyer.name') ?: __('portal.buyer_unassigned') }}</span>
+                                <span class="truncate text-[14px] font-bold text-gray-800">{{ $buyerName ?: __('portal.buyer_unassigned') }}</span>
                                 <span class="text-[12px] text-gray-400">{{ $method ?: __('portal.ship_method_undefined') }} · {{ __('portal.unit_vehicles', ['count' => count($bvehicles)]) }}</span>
                             </div>
                             <div class="flex shrink-0 items-center gap-1.5">

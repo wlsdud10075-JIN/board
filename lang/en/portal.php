@@ -131,6 +131,7 @@ return [
     'flash_change_requested' => 'Change request sent. Management will review and handle it.',
     'flash_change_note_required' => 'Please enter a reason for the change/cancel.',
     'flash_sync_blocked_degraded' => 'Bundles could not be loaded, so sync was blocked (prevents mass cancel). Refresh and retry.',
+    'flash_sync_incomplete_buyer' => 'An existing bundle is missing buyer_id in the response, so sync was blocked (prevents mass cancel). Check car-erp integration.',
 
     // Receivables tab
     'hide_paid' => 'Hide fully paid (0)',

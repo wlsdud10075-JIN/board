@@ -131,6 +131,7 @@ return [
     'flash_change_requested' => '변경요청이 전송됐습니다. 관리가 확인 후 처리합니다.',
     'flash_change_note_required' => '변경/취소 사유를 입력하세요.',
     'flash_sync_blocked_degraded' => '선적묶음을 불러오지 못해 동기화를 막았습니다(전체취소 방지). 새로고침 후 다시 시도하세요.',
+    'flash_sync_incomplete_buyer' => '기존 묶음의 바이어 정보(buyer_id)가 응답에 없어 동기화를 막았습니다(전체취소 방지). car-erp 연동 점검 필요.',
 
     // 미수금 탭
     'hide_paid' => '완납(0원) 숨기기',

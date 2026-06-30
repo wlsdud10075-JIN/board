@@ -93,3 +93,10 @@ car-erp 가 **이미 생성**(`DocumentFiller`, 4종: roro_contract·roro_invoic
 
 **🔴 car-erp 에 요청할 열린 항목 (board 에서 발견)**:
 1. **B/L요청 취소 경로** — board 영업이 `bl-request`(original/surrender)를 **잘못 눌렀을 때 되돌릴** 방법이 없음. 현재 board 는 (a) 다른 유형 재요청으로 유형정정 (b) confirm 창으로 오발송 방지만 함. 영업이 **B/L요청 자체를 취소/무름**하려면 car-erp 측 처리 필요 — ① `bl_status='requested'`→`none` 되돌리는 엔드포인트(예: `POST /bundles/{batch}/bl-cancel`) 또는 ② 관리가 화면에서 거절 시 board `bl_status` 동기화로 표시. car-erp 결정 요청. (board UI 는 결정 오면 버튼 추가.)
+
+2. **🔴 `GET /bundles` 응답에 `buyer_id`/`consignee_id` 없음 = 취소·동기화 불능 (2026-06-30 로컬 e2e 에서 발견, 차단 이슈)**
+   - 현 `ShippingRequestController::bundles()` 가 `'buyer' => $f->buyer?->name`(문자열), `'consignee' => $f->consignee?->name`(문자열)로 **이름만** 내려줌. **`buyer_id` 가 없음.**
+   - board 선언형 sync 는 **각 묶음을 `buyer_id` 와 함께 전체 재전송**해야 하는데, 기존 묶음의 buyer_id 를 모르면 payload 에 못 담음 → 그 묶음이 누락 → car-erp 가 **requested 차 전부 자동취소**(footgun). 그래서 **board 는 buyer_id 없는 기존 묶음이 있으면 sync 를 차단**(데이터 보호) — 즉 현재 형태로는 **취소·재구성이 아예 안 됨**(영업이 "취소 눌러도 0/0"으로 보였던 실제 원인).
+   - **요청(car-erp `/bundles` 응답 보강)**: `buyer => {id, name}` · `consignee => {id, name}` (객체) + **`consignees => [{id,name}]`**(그 바이어 컨사이니 옵션, 편집용). board 는 이미 `buyer.id`/`consignee.id` 객체를 기대하므로 이거면 동작.
+   - **선적단계 키**: car-erp 는 `ship_status` 로 내려줌(스펙 텍스트의 `status` 와 다름) — **board 가 `ship_status` 로 맞춤**(이건 board 가 처리, car-erp 변경 불필요. 단 스펙 §5-1 텍스트가 `status` 라 혼동 → 권위는 구현=`ship_status`).
+   - 보강되면 board 가드 자동 통과 → 취소·동기화 정상.

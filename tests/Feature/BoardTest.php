@@ -2621,7 +2621,7 @@ class BoardTest extends TestCase
         $this->carErpReadConfig();
         Http::fake([
             '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
-                'batch_id' => 'B1', 'status' => 'requested', 'bl_status' => 'none', 'bl_type' => null,
+                'batch_id' => 'B1', 'ship_status' => 'requested', 'bl_status' => 'none', 'bl_type' => null,
                 'shipping_method' => 'RORO', 'buyer' => ['id' => 5, 'name' => 'BuyerZ'],
                 'vehicles' => [['vehicle_id' => 1, 'vehicle_number' => 'CAR001']],
                 'unpaid_total_krw' => 3000000, 'fx_missing_count' => 1, 'fully_paid' => false, 'unpaid_ratio' => 0.4,
@@ -2643,7 +2643,7 @@ class BoardTest extends TestCase
         $this->carErpReadConfig();
         Http::fake([
             '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
-                'batch_id' => 'B1', 'status' => 'requested', 'shipping_method' => 'RORO', 'bl_type' => null,
+                'batch_id' => 'B1', 'ship_status' => 'requested', 'shipping_method' => 'RORO', 'bl_type' => null,
                 'buyer' => ['id' => 5, 'name' => 'BuyerZ'], 'consignee' => ['id' => 9], 'consignees' => [],
                 'vehicles' => [['vehicle_id' => 1, 'vehicle_number' => 'CAR001'], ['vehicle_id' => 2, 'vehicle_number' => 'CAR002']],
             ]]], 200),
@@ -2745,7 +2745,7 @@ class BoardTest extends TestCase
         Http::fake([
             // batch_id 를 숫자로 — wire:click 은 문자열로 넘기므로 strict 비교면 안 빠지는 버그 회귀 방지
             '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
-                'batch_id' => 77, 'status' => 'requested', 'shipping_method' => 'RORO',
+                'batch_id' => 77, 'ship_status' => 'requested', 'shipping_method' => 'RORO',
                 'buyer' => ['id' => 5, 'name' => 'BuyerZ'], 'vehicles' => [['vehicle_id' => 1, 'vehicle_number' => 'CAR001']],
             ]]], 200),
             '*/api/internal/board/shippable*' => Http::response(['count' => 0, 'data' => []], 200),
@@ -2760,6 +2760,27 @@ class BoardTest extends TestCase
         // B1 빠진 전체 desired 전송 → B1만 있었으므로 bundles:[] (car-erp 가 B1 자동취소)
         Http::assertSent(fn ($r) => str_contains($r->url(), '/shipping-requests/sync')
             && str_contains($r->body(), '"bundles":[]'));
+    }
+
+    /** v2 안전가드 — 기존 묶음에 buyer_id 없으면(car-erp /bundles 가 buyer 문자열만) sync 차단(전체 자동취소 방지). */
+    public function test_portal_shipping_v2_blocks_sync_when_bundle_missing_buyer_id(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
+                'batch_id' => 'B1', 'ship_status' => 'requested', 'shipping_method' => 'RORO',
+                'buyer' => 'BuyerName',   // 문자열(buyer_id 없음) = car-erp 현재 형태 → 재전송 불가
+                'vehicles' => [['vehicle_id' => 1, 'vehicle_number' => 'CAR001']],
+            ]]], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*/api/internal/board/shipping-requests/sync*' => Http::response(['created' => []], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'shipping')->call('syncBundles');
+
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), '/shipping-requests/sync'));
     }
 
     /** v2 안전가드 — /bundles 조회 degrade(5xx) 시 동기화 차단(빈 desired 전송 → 전체 자동취소 방지). */
