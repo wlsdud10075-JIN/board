@@ -318,6 +318,32 @@ class PurchaseListing extends Model
         return $this->source === 'auction';
     }
 
+    /**
+     * ssancar 미디어 API 호출용 (type,id) — 저장된 식별자에서 도출. 없으면 null.
+     *  - ssancar_ref "wr_id:N" → inspected(영상+사진) / "car_no:N" → auction(사진)
+     *  - c_no → stock(사진)
+     */
+    public function ssancarMediaParams(): ?array
+    {
+        if ($this->ssancar_ref && str_contains($this->ssancar_ref, ':')) {
+            [$kind, $id] = explode(':', $this->ssancar_ref, 2);
+            $id = trim($id);
+            if ($id !== '') {
+                if ($kind === 'wr_id') {
+                    return ['type' => 'inspected', 'id' => $id];
+                }
+                if ($kind === 'car_no') {
+                    return ['type' => 'auction', 'id' => $id];
+                }
+            }
+        }
+        if ($this->c_no) {
+            return ['type' => 'stock', 'id' => (string) $this->c_no];
+        }
+
+        return null;
+    }
+
     /** 자동(C, respond.io 폴링) 회신 채널인지. false=수동(A, /verdicts 화면). */
     public function isAutoVerdict(): bool
     {

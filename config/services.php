@@ -41,6 +41,14 @@ return [
         'base_url' => env('ENCAR_BASE_URL', 'https://api.encar.com'),
     ],
 
+    // ssancar.com 차량 미디어 API (api_car_media.php) — 검차 영상(Bunny embed/hls)·사진을
+    // 다운로드/재업로드 없이 링크로 받아 바이어 페이지에 첨부(용량문제 해결). X-Api-Key 헤더.
+    // 매칭: board 저장 id(c_no / ssancar_ref car_no·wr_id) 또는 vin. 미설정 시 no-op.
+    'ssancar_media' => [
+        'base_url' => env('SSANCAR_MEDIA_BASE_URL'),
+        'api_key' => env('SSANCAR_MEDIA_API_KEY'),
+    ],
+
     'car_erp' => [
         'base_url' => env('CAR_ERP_BASE_URL'),
         'hmac_secret' => env('CAR_ERP_HMAC_SECRET'),

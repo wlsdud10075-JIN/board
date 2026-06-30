@@ -669,6 +669,50 @@ class BoardTest extends TestCase
             ->assertSee(number_format(10440000)); // Total
     }
 
+    public function test_buyer_view_embeds_ssancar_media(): void
+    {
+        config([
+            'board.photo_disk' => 'public',
+            'services.ssancar_media.base_url' => 'https://www.ssancar.com/page/api_car_media.php',
+            'services.ssancar_media.api_key' => 'testkey',
+        ]);
+        Storage::fake('public');
+        Cache::flush();
+
+        Http::fake([
+            '*api_car_media.php*' => Http::response([
+                'ok' => 1,
+                'mode' => 'link',
+                'sources' => ['inspected' => ['matched' => 1]],
+                'videos' => [[
+                    'id' => 981, 'source' => 'bunny', 'guid' => 'abc',
+                    'embed_url' => 'https://iframe.mediadelivery.net/embed/685063/abc',
+                    'hls_url' => 'https://vz.b-cdn.net/abc/playlist.m3u8',
+                    'thumbnail' => 'https://vz.b-cdn.net/abc/thumbnail.jpg',
+                ]],
+                'photos' => ['https://cdn.ssancar.com/inspected/p1.jpg'],
+            ], 200),
+        ]);
+
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, [
+            'status' => 'inspected', 'ssancar_ref' => 'wr_id:920',
+            'expected_price_currency' => 'KRW', 'car_cost' => 10000000,
+            'discount_rate' => 0, 'final_price' => 10440000, 'offer_currency' => 'KRW',
+        ]);
+
+        $url = URL::temporarySignedRoute('buyer.view', now()->addDays(30), ['listing' => $l->id]);
+        $this->get($url)
+            ->assertOk()
+            ->assertSee('iframe.mediadelivery.net/embed/685063/abc')   // Bunny 임베드
+            ->assertSee('cdn.ssancar.com/inspected/p1.jpg');           // ssancar 사진
+
+        // X-Api-Key 헤더 + type/id 직접모드(wr_id:920 → inspected/920) 로 호출했는지
+        Http::assertSent(fn ($req) => $req->hasHeader('X-Api-Key', 'testkey')
+            && str_contains($req->url(), 'type=inspected')
+            && str_contains($req->url(), 'id=920'));
+    }
+
     public function test_inspection_upload_defaults_to_shared(): void
     {
         config(['board.photo_disk' => 'public']);

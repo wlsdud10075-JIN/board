@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\PurchaseListing;
 use App\Models\Scopes\SalesmanScope;
 use App\Services\ExchangeRateService;
+use App\Services\SsancarMediaService;
 
 /**
  * 바이어 공개 차량 페이지 — 서명된(만료) 링크로만 접근(signed 미들웨어).
@@ -14,7 +15,7 @@ use App\Services\ExchangeRateService;
  */
 class BuyerViewController extends Controller
 {
-    public function show(int $listing, ExchangeRateService $rates)
+    public function show(int $listing, ExchangeRateService $rates, SsancarMediaService $ssancar)
     {
         $l = PurchaseListing::withoutGlobalScope(SalesmanScope::class)->findOrFail($listing);
 
@@ -28,10 +29,17 @@ class BuyerViewController extends Controller
             ->map(fn ($p) => ['url' => $p->shareUrl(), 'video' => $p->isVideo()])
             ->values();
 
+        // ssancar CDN 미디어 — 검차팀이 ssancar 에 올린 영상(Bunny embed)·사진을 링크째 첨부(용량문제 회피).
+        // 미설정/미매칭/실패 = 빈 배열(가용성 우선). §28 토글 없이 그대로 전송(2026-06-30 Jin).
+        $ssancarMedia = ($params = $l->ssancarMediaParams())
+            ? $ssancar->fetch($params['type'], $params['id'])
+            : ['videos' => [], 'photos' => []];
+
         return view('buyer.view', [
             'listing' => $l,
             'breakdown' => $breakdown,
             'media' => $media,
+            'ssancarMedia' => $ssancarMedia,
         ]);
     }
 }
