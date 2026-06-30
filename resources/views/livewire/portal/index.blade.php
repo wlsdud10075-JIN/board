@@ -233,6 +233,28 @@ new #[Layout('components.layouts.app')] class extends Component {
                 'vehicle_ids' => collect(data_get($b, 'vehicles', []))->pluck('vehicle_id')->map(fn ($i) => (int) $i)->values()->all(),
             ])->values()->all();
 
+        // 바이어별 펼침 UI 용 — shippable 만 있고 아직 묶음 없는 바이어는 빈 묶음 1개 시드(차 안 담으면 sync 에서 제외).
+        $seeded = collect($this->desired)->pluck('buyer_id')->filter()->map(fn ($i) => (int) $i)->all();
+        foreach (collect($this->shippablePool)->groupBy(fn ($v) => (int) data_get($v, 'buyer.id')) as $bid => $cars) {
+            $bid = (int) $bid;
+            if ($bid === 0 || in_array($bid, $seeded, true)) {
+                continue;
+            }
+            $first = $cars->first();
+            $this->desired[] = [
+                'key' => 'n:'.$bid,
+                'batch_id' => null,
+                'buyer_id' => $bid,
+                'buyer_name' => data_get($first, 'buyer.name'),
+                'consignee_id' => null,
+                'consignees' => (array) data_get($first, 'consignees', []),
+                'shipping_method' => 'RORO',
+                'bl_type' => null,
+                'vehicle_ids' => [],
+            ];
+            $seeded[] = $bid;
+        }
+
         return $env;
     }
 
@@ -281,9 +303,29 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->detach($vehicleId);
     }
 
-    /** 새 빈 묶음 추가(영업이 새 차를 담아 새 선적 구성). buyer 는 첫 배정 차의 바이어로 자동. */
-    public function addBundle(?int $buyerId = null, ?string $buyerName = null, array $consignees = []): void
+    /** 바이어에게 선적(묶음) 한 건 추가. 이름·컨사이니는 shippable/기존 묶음에서 자동 도출. */
+    public function addBundle(?int $buyerId = null): void
     {
+        $buyerName = null;
+        $consignees = [];
+        if ($buyerId) {
+            foreach ($this->shippablePool as $car) {
+                if ((int) data_get($car, 'buyer.id') === $buyerId) {
+                    $buyerName = data_get($car, 'buyer.name');
+                    $consignees = (array) data_get($car, 'consignees', []);
+                    break;
+                }
+            }
+            if ($buyerName === null) {   // shippable 에 없으면 기존 묶음에서
+                foreach ($this->desired as $bd) {
+                    if ((int) ($bd['buyer_id'] ?? 0) === $buyerId) {
+                        $buyerName = $bd['buyer_name'];
+                        $consignees = (array) $bd['consignees'];
+                        break;
+                    }
+                }
+            }
+        }
         $this->desired[] = [
             'key' => 'n:'.uniqid(),
             'batch_id' => null,
@@ -663,8 +705,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                             @if ($batchId && $blStatus !== 'issued')
                                 <div class="mt-2.5 flex flex-wrap items-center gap-2 border-t border-gray-200 pt-2 text-[12px]">
                                     <span class="text-gray-400">{{ __('portal.bl_request_label') }}</span>
-                                    <button wire:click="requestBl('{{ $batchId }}','original')" class="btn-ghost btn-sm">{{ __('portal.bl_original') }}</button>
-                                    <button wire:click="requestBl('{{ $batchId }}','surrender')" class="btn-ghost btn-sm">{{ __('portal.bl_surrender') }}</button>
+                                    <button wire:click="requestBl('{{ $batchId }}','original')" wire:confirm="{{ __('portal.bl_confirm', ['type' => __('portal.bl_original')]) }}" class="btn-ghost btn-sm">{{ __('portal.bl_original') }}</button>
+                                    <button wire:click="requestBl('{{ $batchId }}','surrender')" wire:confirm="{{ __('portal.bl_confirm', ['type' => __('portal.bl_surrender')]) }}" class="btn-ghost btn-sm">{{ __('portal.bl_surrender') }}</button>
                                     @if ($blStatus === 'requested')
                                         <span class="text-[11px] text-blue-600">({{ __('portal.bl_requested_already', ['type' => $blTypeLabel[$blType] ?? '—']) }})</span>
                                     @endif
@@ -697,82 +739,90 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @endforelse
 
             @else
-                {{-- ── 선적 계획 (재구성·동기화) ── --}}
+                {{-- ── 선적 계획 (바이어별 펼침 + 체크박스) ── --}}
                 @if ($this->isViewingOther())
                     <p class="py-8 text-center text-gray-400">👁️ {{ __('portal.ship_view_only_note', ['name' => $this->viewingName()]) }}</p>
                 @else
                     <p class="mb-3 text-[13px] text-gray-500">{!! __('portal.plan_intro') !!}</p>
+                    @php
+                        // 차번호 맵 (shippable + 기존 묶음 차)
+                        $vnoMap = [];
+                        foreach ($shippablePool as $vv) { $vnoMap[(int) data_get($vv, 'vehicle_id')] = data_get($vv, 'vehicle_number'); }
+                        foreach ($bundles as $bb) { foreach ((array) data_get($bb, 'vehicles', []) as $vv) { $vnoMap[(int) data_get($vv, 'vehicle_id')] = data_get($vv, 'vehicle_number'); } }
+                        // 바이어 목록 = desired 바이어 ∪ shippable 바이어
+                        $buyerNames = [];
+                        foreach ($desired as $bd) { if ($bd['buyer_id']) { $buyerNames[(int) $bd['buyer_id']] = $bd['buyer_name']; } }
+                        foreach ($shippablePool as $vv) { $bid = (int) data_get($vv, 'buyer.id'); if ($bid) { $buyerNames[$bid] = data_get($vv, 'buyer.name'); } }
+                        // 바이어별 미배정(shippable) 차 + 바이어별 묶음
+                        $assignedAll = collect($desired)->flatMap(fn ($b) => $b['vehicle_ids'])->map(fn ($i) => (int) $i)->all();
+                        $poolByBuyer = collect($shippablePool)->reject(fn ($v) => in_array((int) data_get($v, 'vehicle_id'), $assignedAll, true))->groupBy(fn ($v) => (int) data_get($v, 'buyer.id'));
+                        $bundlesByBuyer = collect($desired)->groupBy(fn ($b) => (int) ($b['buyer_id'] ?? 0));
+                    @endphp
 
-                    {{-- 편집 가능한 묶음 (requested 단계만) --}}
-                    @foreach ($desired as $bd)
-                        @php $method = $bd['shipping_method'] ?? 'RORO'; $blType = $bd['bl_type'] ?? null; @endphp
-                        <div class="card-sm mb-2" style="background:#f8f9fb" wire:key="desired-{{ $bd['key'] }}">
-                            <div class="flex items-center justify-between gap-2">
-                                <span class="text-[13px] font-bold text-gray-800">🧑 {{ $bd['buyer_name'] ?: __('portal.buyer_unassigned_paren') }}</span>
-                                <button wire:click="removeBundle('{{ $bd['key'] }}')" class="text-[11px] text-gray-400 hover:text-red-600">✕ {{ __('portal.plan_remove_bundle') }}</button>
-                            </div>
-                            {{-- 차량 칩(각 ✕ = 묶음서 빼기 → pool) --}}
-                            <div class="mt-2 flex flex-wrap gap-1.5">
-                                @forelse ($bd['vehicle_ids'] as $vid)
-                                    @php $vno = data_get(collect($shippablePool)->firstWhere('vehicle_id', $vid), 'vehicle_number') ?? data_get(collect($bundles)->pluck('vehicles')->flatten(1)->firstWhere('vehicle_id', $vid), 'vehicle_number') ?? ('#'.$vid); @endphp
-                                    <span class="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-2 py-0.5 text-[12px] font-semibold text-gray-700">
-                                        {{ $vno }}
-                                        <button wire:click="unassignVehicle({{ $vid }})" class="text-gray-400 hover:text-red-600">✕</button>
-                                    </span>
-                                @empty
-                                    <span class="text-[11px] text-gray-400">{{ __('portal.plan_bundle_empty') }}</span>
-                                @endforelse
-                            </div>
-                            {{-- 컨사이니 · 방식 · B/L유형 --}}
-                            <div class="mt-2 flex flex-wrap items-center gap-2">
-                                <select wire:change="setBundleField('{{ $bd['key'] }}','consignee_id', $event.target.value)" class="input-base w-auto text-[12px]">
-                                    <option value="">{{ __('portal.consignee_select') }}</option>
-                                    @foreach ((array) $bd['consignees'] as $c)
-                                        <option value="{{ data_get($c, 'id') }}" @selected((int) ($bd['consignee_id'] ?? 0) === (int) data_get($c, 'id'))>{{ data_get($c, 'name') }}</option>
-                                    @endforeach
-                                </select>
-                                <div class="inline-flex overflow-hidden rounded-md border border-gray-300">
-                                    @foreach (['RORO', 'CONTAINER'] as $m)
-                                        <button type="button" wire:click="setBundleField('{{ $bd['key'] }}','shipping_method','{{ $m }}')"
-                                            class="px-3 py-1 text-[12px] font-semibold {{ $method === $m ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }}">{{ $m }}</button>
-                                    @endforeach
-                                </div>
-                                {{-- 오리지널/써랜더(미정 가능) --}}
-                                <div class="inline-flex overflow-hidden rounded-md border border-gray-300">
-                                    @foreach (['' => __('portal.bl_undecided'), 'original' => __('portal.bl_original'), 'surrender' => __('portal.bl_surrender')] as $bt => $btLabel)
-                                        <button type="button" wire:click="setBundleField('{{ $bd['key'] }}','bl_type','{{ $bt }}')"
-                                            class="px-2.5 py-1 text-[12px] font-semibold {{ ($blType ?? '') === $bt ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600' }}">{{ $btLabel }}</button>
-                                    @endforeach
-                                </div>
+                    @forelse ($buyerNames as $bid => $bname)
+                        <div class="card-sm mb-2" style="background:#f8f9fb" wire:key="planbuyer-{{ $bid }}" x-data="{ open: true }">
+                            <button type="button" class="flex w-full items-center gap-2 text-left" @click="open = !open">
+                                <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span>
+                                <span class="text-[13px] font-bold text-gray-800">🤝 {{ $bname }}</span>
+                            </button>
+                            <div x-show="open" x-cloak class="mt-2 space-y-2">
+                                @foreach (($bundlesByBuyer[$bid] ?? collect()) as $idx => $bd)
+                                    @php
+                                        $method = $bd['shipping_method'] ?? 'RORO'; $blType = $bd['bl_type'] ?? null;
+                                        $inThis = collect($bd['vehicle_ids'])->map(fn ($i) => (int) $i)->all();
+                                        $poolCars = ($poolByBuyer[$bid] ?? collect())->map(fn ($v) => (int) data_get($v, 'vehicle_id'))->all();
+                                        $checkCars = array_values(array_unique(array_merge($inThis, $poolCars)));
+                                        $multi = ($bundlesByBuyer[$bid] ?? collect())->count() > 1;
+                                    @endphp
+                                    <div class="rounded-md border border-gray-200 bg-white p-2.5" wire:key="planb-{{ $bd['key'] }}">
+                                        <div class="mb-1.5 flex items-center justify-between gap-2">
+                                            <span class="text-[12px] font-semibold text-gray-500">{{ $multi ? __('portal.plan_shipment_n', ['n' => $idx + 1]) : __('portal.plan_shipment') }}</span>
+                                            <button wire:click="removeBundle('{{ $bd['key'] }}')" class="text-[11px] text-gray-400 hover:text-red-600" title="{{ __('portal.plan_remove_bundle') }}">✕</button>
+                                        </div>
+                                        {{-- 차량 체크박스 (이 묶음에 든 차 + 이 바이어 미배정 차) --}}
+                                        <div class="flex flex-wrap gap-1.5">
+                                            @forelse ($checkCars as $vid)
+                                                @php $on = in_array($vid, $inThis, true); @endphp
+                                                <label wire:key="chk-{{ $bd['key'] }}-{{ $vid }}"
+                                                    wire:click="{{ $on ? 'unassignVehicle('.$vid.')' : "assignVehicle('".$bd['key']."', ".$vid.')' }}"
+                                                    class="inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] font-semibold {{ $on ? 'border-violet-400 bg-violet-100 text-gray-800' : 'border-gray-300 bg-white text-gray-600' }}">
+                                                    <input type="checkbox" @checked($on) class="pointer-events-none">
+                                                    {{ $vnoMap[$vid] ?? '#'.$vid }}
+                                                </label>
+                                            @empty
+                                                <span class="text-[11px] text-gray-400">{{ __('portal.plan_no_cars') }}</span>
+                                            @endforelse
+                                        </div>
+                                        {{-- 컨사이니 · 방식 · B/L유형 --}}
+                                        <div class="mt-2 flex flex-wrap items-center gap-2">
+                                            <select wire:change="setBundleField('{{ $bd['key'] }}','consignee_id', $event.target.value)" class="input-base w-auto text-[12px]">
+                                                <option value="">{{ __('portal.consignee_select') }}</option>
+                                                @foreach ((array) $bd['consignees'] as $c)
+                                                    <option value="{{ data_get($c, 'id') }}" @selected((int) ($bd['consignee_id'] ?? 0) === (int) data_get($c, 'id'))>{{ data_get($c, 'name') }}</option>
+                                                @endforeach
+                                            </select>
+                                            <div class="inline-flex overflow-hidden rounded-md border border-gray-300">
+                                                @foreach (['RORO', 'CONTAINER'] as $m)
+                                                    <button type="button" wire:click="setBundleField('{{ $bd['key'] }}','shipping_method','{{ $m }}')"
+                                                        class="px-3 py-1 text-[12px] font-semibold {{ $method === $m ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }}">{{ $m }}</button>
+                                                @endforeach
+                                            </div>
+                                            <div class="inline-flex overflow-hidden rounded-md border border-gray-300">
+                                                @foreach (['' => __('portal.bl_undecided'), 'original' => __('portal.bl_original'), 'surrender' => __('portal.bl_surrender')] as $bt => $btLabel)
+                                                    <button type="button" wire:click="setBundleField('{{ $bd['key'] }}','bl_type','{{ $bt }}')"
+                                                        class="px-2.5 py-1 text-[12px] font-semibold {{ ($blType ?? '') === $bt ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600' }}">{{ $btLabel }}</button>
+                                                @endforeach
+                                            </div>
+                                        </div>
+                                    </div>
+                                @endforeach
+                                {{-- 같은 바이어 추가 선적(가끔 바이어당 여러 건) --}}
+                                <button wire:click="addBundle({{ $bid }})" class="btn-ghost btn-sm">+ {{ __('portal.plan_add_shipment') }}</button>
                             </div>
                         </div>
-                    @endforeach
-
-                    <button wire:click="addBundle" class="btn-ghost btn-sm mb-3">+ {{ __('portal.plan_add_bundle') }}</button>
-
-                    {{-- 새로 묶을 차 (shippable, 아직 미배정) --}}
-                    @php
-                        $assigned = collect($desired)->flatMap(fn ($b) => $b['vehicle_ids'])->map(fn ($i) => (int) $i)->all();
-                        $pool = collect($shippablePool)->reject(fn ($v) => in_array((int) data_get($v, 'vehicle_id'), $assigned, true));
-                    @endphp
-                    <div class="rounded-lg border border-dashed border-gray-300 p-3">
-                        <h4 class="mb-2 text-[13px] font-bold text-gray-700">🆕 {{ __('portal.plan_pool_title') }} <span class="text-[11px] font-normal text-gray-400">({{ __('portal.unit_vehicles', ['count' => $pool->count()]) }})</span></h4>
-                        @forelse ($pool as $v)
-                            @php $vid = (int) data_get($v, 'vehicle_id'); @endphp
-                            <div class="mb-1 flex flex-wrap items-center gap-2" wire:key="pool-{{ $vid }}">
-                                <span class="text-[12px] font-semibold text-gray-700">{{ data_get($v, 'vehicle_number') }}</span>
-                                <span class="text-[11px] text-gray-400">🧑 {{ data_get($v, 'buyer.name') ?: __('portal.buyer_unassigned') }}</span>
-                                <select @change="if($event.target.value){ $wire.assignVehicle($event.target.value, {{ $vid }}); $event.target.value=''; }" class="input-base w-auto text-[12px]">
-                                    <option value="">{{ __('portal.plan_assign_to') }}</option>
-                                    @foreach ($desired as $bd)
-                                        <option value="{{ $bd['key'] }}">{{ $bd['buyer_name'] ?: __('portal.plan_new_bundle_opt') }} ({{ count($bd['vehicle_ids']) }})</option>
-                                    @endforeach
-                                </select>
-                            </div>
-                        @empty
-                            <p class="text-[12px] text-gray-400">{{ __('portal.plan_pool_empty') }}</p>
-                        @endforelse
-                    </div>
+                    @empty
+                        <p class="py-8 text-center text-gray-400">{{ __('portal.plan_no_buyers') }}</p>
+                    @endforelse
 
                     <div class="mt-4 flex items-center gap-3">
                         <button wire:click="syncBundles" wire:loading.attr="disabled" class="btn-primary">🔄 {{ __('portal.plan_sync_btn') }}</button>

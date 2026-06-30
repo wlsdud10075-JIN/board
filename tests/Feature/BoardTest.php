@@ -2772,11 +2772,10 @@ class BoardTest extends TestCase
         $this->actingAs($this->mkUser('sales'));
 
         $c = Volt::test('portal.index')->call('setTab', 'shipping')->call('setShipSubtab', 'plan')
-            ->assertSee('BuyerX')->assertSee('11가1111');   // 새로 묶을 차 pool 노출
+            ->assertSee('BuyerX')->assertSee('11가1111');   // 바이어별 펼침 — BuyerX 빈 묶음 자동 시드 + 차 체크박스
 
-        $c->call('addBundle');
-        $key = $c->get('desired')[0]['key'];               // 새 빈 묶음 키
-        $c->call('assignVehicle', $key, 10)                 // 차 배정 → 빈 묶음이 BuyerX 채택
+        $key = $c->get('desired')[0]['key'];               // 자동 시드된 BuyerX 묶음(shippable 전용 바이어)
+        $c->call('assignVehicle', $key, 10)                 // 체크 = 묶음에 담기
             ->call('syncBundles')->assertHasNoErrors();
 
         Http::assertSent(fn ($req) => str_contains($req->url(), '/api/internal/board/shipping-requests/sync')
