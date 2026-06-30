@@ -64,3 +64,29 @@ car-erp 가 **이미 생성**(`DocumentFiller`, 4종: roro_contract·roro_invoic
 - 영업 화면 신설: 재무 미러(④) → 선적요청(③) → 서류(①②). 전부 본인(`car_erp_salesman_email ?: email`) 스코프.
 - car-erp 응답 캐싱(짧게) 여부는 board 측 결정(실시간 우선).
 - **확정(기존 결정)**: 배송금액=운임비, 매입가 통화=바이어전송 외화·계약금 한화, car-erp 단일게이트·건당승인·한콜, respond.io Advanced 추후.
+
+---
+
+## 7. v2 「선적·B/L 묶음」 (2026-06-30 수신) — board client 구현 진행중
+> ⚠️ **권위 스펙 = car-erp `docs/integration/board-portal-api.md` §5 + §8-1** (경로로 읽기, 복사 금지=drift). 아래는 board 측 진행상태만.
+
+**핵심 모델**: 구 단발 선적요청(1 POST=1 batch, 자연소멸)을 **영속 묶음**으로 확장. **1 묶음 = 1 선적 = 1 B/L = 1 오리지널/써랜더.** 묶음은 선적→B/L 단계까지 살아있고 board 에서 안 사라짐. car-erp 권위·계산, **board 표시만**(완납판정·미수 재계산 절대 금지 = drift).
+
+**신규 엔드포인트 4 (prefix `/api/internal/board`, base `https://heysellcar.com`, HMAC §1)**:
+| 경로 | board client 메서드 | 비고 |
+|---|---|---|
+| `GET /bundles?salesman_email=` | `bundles($email)` | 영속 묶음 전체 + 묶음별 재무집계(unpaid_total_krw·fx_missing_count·fully_paid·unpaid_ratio·sales_by_currency·change_requested) |
+| `POST /shipping-requests/sync` | `syncShippingRequests($email,$bundles)` | 선언형 — **전체 desired 묶음** 전송(⚠️부분=빠진 requested 자동취소). 응답 {created,updated,cancelled,skipped,locked} |
+| `POST /bundles/{batch}/bl-request` | `blRequest($email,$batch,$blType)` | 기존 묶음 B/L요청(original/surrender) → 관리 알람 |
+| `POST /shipping-requests/change-request` | `changeRequest($email,$vehicleId,$note)` | in_progress 차 명시적 변경/취소 요청(자동적용 X, 관리 수락거절) |
+| `GET /shippable` (의미축소) | `shippable($email)` (기존) | **새로 묶을 차 후보만**(판매완료+export+open묶음 없음) |
+
+**board 진행상태**:
+- ✅ **client (`CarErpReadService`) — 구현·테스트 완료** (dev 커밋 `70bc9a6`). v1 `shippingRequest`=DEPRECATED(UI rework 시 제거). HMAC §1 canonical 바이트 일치 재사용.
+- 🔜 **포털 UI rework (`portal/index.blade.php` shipping 탭)**:
+  1. 「내 선적묶음」 영속 뷰(`/bundles`): 카드=차목록·status/bl_status·bl_type + 미수게이지(unpaid_ratio)·완납뱃지·"환율 미입력 N대" 경고. **값 그대로**(0/완납 coerce 금지).
+  2. 「선적 계획」 재구성 뷰: `/shippable`+`/bundles` → 체크/이동/빼기 → 「동기화」=`/sync`(전체 desired). in_progress=취소/이동 비활성+「변경요청」만.
+  3. 오리지널/써랜더 선택기(sync bundle별 bl_type) + 묶음 「B/L요청」.
+  4. 구 v1 단발 선적요청 UI 제거(병존 X, board 미가동이라 안전).
+  5. 401/5xx/미설정 → "조회 불가" degrade.
+- ⚠️ **e2e 불가(현재)**: car-erp v2 = car-erp **dev 만**, prod(heysellcar.com) 미배포 → board 는 HTTP fake 검증, car-erp v2 prod 배포 후 실연동.
