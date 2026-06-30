@@ -90,12 +90,68 @@ class CarErpReadService
         return $this->get('/consignees', ['salesman_email' => $email, 'buyer_id' => $buyerId]);
     }
 
-    /** ③ 선적요청 — salesman_email 은 쿼리(=스코프 미들웨어)+바디(§5) 양쪽. */
+    /**
+     * ③ 선적요청 (v1 단발) — DEPRECATED: v2 syncShippingRequests 로 교체 예정.
+     * board 미가동이라 병존 없이 제거 대상(UI rework 시 삭제).
+     */
     public function shippingRequest(string $email, array $payload): array
     {
         $payload['salesman_email'] = $email;
 
         return $this->post('/shipping-request', ['salesman_email' => $email], $payload);
+    }
+
+    // ── §5 v2 선적·B/L 묶음 (영속 묶음 + 선언형 sync + B/L요청 + 변경요청) ──
+
+    /**
+     * GET /bundles — 영업 본인 묶음 전체(전 상태, 안 사라짐) + 묶음별 재무집계.
+     * 묶음: batch_id·buyer·consignee·shipping_method·bl_type·status·bl_status·vehicles[]
+     *       + unpaid_total_krw·fx_missing_count·fully_paid·unpaid_ratio·sales_by_currency·change_requested.
+     * ⚠️ 값 그대로 표시 — 0/완납 coerce·재계산 금지(§5-4).
+     */
+    public function bundles(string $email): array
+    {
+        return $this->get('/bundles', ['salesman_email' => $email]);
+    }
+
+    /**
+     * POST /shipping-requests/sync — 선언형 재동기화. body = 영업의 "지금 원하는 묶음 전체(desired)".
+     * ⚠️ 반드시 전체 묶음 전송 — 일부만 보내면 빠진 requested 차가 자동취소됨(§5-2).
+     * 응답 {created,updated,cancelled,skipped,locked}.
+     *
+     * @param  list<array{buyer_id:int,consignee_id:?int,shipping_method:string,bl_type:?string,vehicle_ids:list<int>}>  $bundles
+     */
+    public function syncShippingRequests(string $email, array $bundles): array
+    {
+        return $this->post('/shipping-requests/sync', ['salesman_email' => $email], [
+            'salesman_email' => $email,
+            'bundles' => $bundles,
+        ]);
+    }
+
+    /**
+     * POST /bundles/{batch}/bl-request — 기존 묶음의 B/L요청(같은 묶음 상태전이). bl_type=original|surrender.
+     * → bl_type 확정 + bl_status='requested' + 관리 알람.
+     */
+    public function blRequest(string $email, string $batchId, string $blType): array
+    {
+        return $this->post('/bundles/'.$batchId.'/bl-request', ['salesman_email' => $email], [
+            'salesman_email' => $email,
+            'bl_type' => $blType,
+        ]);
+    }
+
+    /**
+     * POST /shipping-requests/change-request — in_progress(관리 착수) 차의 명시적 변경/취소 요청.
+     * 자동적용 안 함 — 관리가 화면에서 수락/거절(§5-2). omission 으로 취소 추론 금지.
+     */
+    public function changeRequest(string $email, int $vehicleId, string $note): array
+    {
+        return $this->post('/shipping-requests/change-request', ['salesman_email' => $email], [
+            'salesman_email' => $email,
+            'vehicle_id' => $vehicleId,
+            'note' => $note,
+        ]);
     }
 
     /**

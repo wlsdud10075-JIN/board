@@ -354,6 +354,54 @@ class BoardTest extends TestCase
             && str_contains($req->url(), 'salesman_email=creator%40erp.test'));
     }
 
+    /** §5 v2 선적·B/L 묶음 client — 4 신규 엔드포인트 서명/경로/바디 + degrade 봉투. */
+    public function test_car_erp_read_service_v2_bundle_endpoints(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        Http::fake([
+            '*/api/internal/board/bundles/B1/bl-request*' => Http::response(['ok' => true], 200),
+            '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [['batch_id' => 'B1', 'unpaid_total_krw' => null, 'fx_missing_count' => 1, 'fully_paid' => false]]], 200),
+            '*/api/internal/board/shipping-requests/sync*' => Http::response(['created' => [1], 'updated' => [], 'cancelled' => [2], 'skipped' => [], 'locked' => [3]], 200),
+            '*/api/internal/board/shipping-requests/change-request*' => Http::response(['ok' => true], 200),
+        ]);
+        $svc = app(CarErpReadService::class);
+
+        // GET /bundles — 값 그대로 보존(null/false coerce 금지)
+        $b = $svc->bundles('s@erp.test');
+        $this->assertTrue($b['ok']);
+        $this->assertNull($b['data']['data'][0]['unpaid_total_krw']);   // 환율 미입력 → null 보존
+        $this->assertFalse($b['data']['data'][0]['fully_paid']);
+
+        // POST /sync — desired 묶음 전체
+        $sync = $svc->syncShippingRequests('s@erp.test', [
+            ['buyer_id' => 5, 'consignee_id' => 9, 'shipping_method' => 'RORO', 'bl_type' => 'original', 'vehicle_ids' => [1, 2]],
+        ]);
+        $this->assertTrue($sync['ok']);
+        $this->assertSame([2], $sync['data']['cancelled']);
+        $this->assertSame([3], $sync['data']['locked']);
+
+        $svc->blRequest('s@erp.test', 'B1', 'surrender');
+        $svc->changeRequest('s@erp.test', 7, '바이어 변경');
+
+        // sync: 서명 헤더 + 전체 desired 바디
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/api/internal/board/shipping-requests/sync')
+            && str_starts_with($r->header('X-Board-Signature')[0], 'sha256=')
+            && $r->hasHeader('X-Timestamp') && $r->hasHeader('X-Nonce')
+            && str_contains($r->body(), '"bl_type":"original"')
+            && str_contains($r->body(), '"vehicle_ids":[1,2]'));
+        // bl-request: 경로에 batch + bl_type 바디
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/api/internal/board/bundles/B1/bl-request')
+            && str_contains($r->body(), '"bl_type":"surrender"'));
+        // change-request: vehicle_id + note
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/api/internal/board/shipping-requests/change-request')
+            && str_contains($r->body(), '"vehicle_id":7'));
+
+        // canonical 바이트 형태 핀(§1 — METHOD\nPATH?sorted_query\nTS\nBODY)
+        [, $canon] = $svc->sign('POST', '/api/internal/board/shipping-requests/sync', ['salesman_email' => 's@erp.test'], '{"x":1}');
+        $this->assertStringStartsWith("POST\n/api/internal/board/shipping-requests/sync?salesman_email=s%40erp.test\n", $canon);
+        $this->assertStringEndsWith("\n".'{"x":1}', $canon);
+    }
+
     /** 영업이 집행화면(구매확정/경매) 접근 + SalesmanScope 로 본인 딜만 보이고 won 까지 집행. */
     public function test_sales_can_conclude_own_deal_and_is_scoped(): void
     {
