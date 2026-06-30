@@ -30,10 +30,11 @@ class BuyerViewController extends Controller
             ->values();
 
         // ssancar CDN 미디어 — 검차팀이 ssancar 에 올린 영상(Bunny embed)·사진을 링크째 첨부(용량문제 회피).
+        // (A) ssancar id 보유 시 직접매칭 / (B) 없으면(엔카 등) vin·번호판 교차매칭 폴백.
         // 미설정/미매칭/실패 = 빈 배열(가용성 우선). §28 토글 없이 그대로 전송(2026-06-30 Jin).
         $ssancarMedia = ($params = $l->ssancarMediaParams())
             ? $ssancar->fetch($params['type'], $params['id'])
-            : ['videos' => [], 'photos' => []];
+            : $ssancar->fetchByVehicle($l->vin, $l->vehicle_number);
 
         return view('buyer.view', [
             'listing' => $l,

@@ -713,6 +713,45 @@ class BoardTest extends TestCase
             && str_contains($req->url(), 'id=920'));
     }
 
+    public function test_buyer_view_falls_back_to_vin_crossmatch_for_encar_origin(): void
+    {
+        config([
+            'board.photo_disk' => 'public',
+            'services.ssancar_media.base_url' => 'https://www.ssancar.com/page/api_car_media.php',
+            'services.ssancar_media.api_key' => 'testkey',
+        ]);
+        Storage::fake('public');
+        Cache::flush();
+
+        Http::fake([
+            '*api_car_media.php*' => Http::response([
+                'ok' => 1, 'mode' => 'plate',
+                'videos' => [['embed_url' => 'https://iframe.mediadelivery.net/embed/685063/xyz']],
+                'photos' => ['https://cdn.ssancar.com/inspected/v1.jpg'],
+            ], 200),
+        ]);
+
+        $sales = $this->mkUser('sales');
+        // 엔카 출처 — ssancar_ref/c_no 없음. vin·차량번호는 항상 보유(IDENTITY_LOCKED).
+        $l = $this->mkListing($sales, [
+            'source' => 'encar', 'status' => 'inspected',
+            'expected_price_currency' => 'KRW', 'car_cost' => 10000000,
+            'discount_rate' => 0, 'final_price' => 10440000, 'offer_currency' => 'KRW',
+        ]);
+        $this->assertNull($l->ssancarMediaParams());   // id 모드 불가 → (B) 폴백 경로
+
+        $url = URL::temporarySignedRoute('buyer.view', now()->addDays(30), ['listing' => $l->id]);
+        $this->get($url)->assertOk()
+            ->assertSee('iframe.mediadelivery.net/embed/685063/xyz')
+            ->assertSee('cdn.ssancar.com/inspected/v1.jpg');
+
+        // vin+car_no 둘 다(OR 매칭) 전송, type 파라미터 없음
+        Http::assertSent(fn ($req) => $req->hasHeader('X-Api-Key', 'testkey')
+            && str_contains($req->url(), 'vin='.$l->vin)
+            && str_contains($req->url(), 'car_no=')
+            && ! str_contains($req->url(), 'type='));
+    }
+
     public function test_inspection_upload_defaults_to_shared(): void
     {
         config(['board.photo_disk' => 'public']);
