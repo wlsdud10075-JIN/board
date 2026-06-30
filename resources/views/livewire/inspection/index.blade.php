@@ -529,11 +529,20 @@ new #[Layout('components.layouts.app')] class extends Component {
                 {{-- 사진/영상 --}}
                 <div class="section-title-sm">{{ __('inspection.photos_section') }}</div>
                 <div x-data="{
-                        uploading: false, progress: 0, startedAt: 0, etaText: '',
-                        start() { this.uploading = true; this.progress = 0; this.startedAt = Date.now(); this.etaText = ''; },
+                        uploading: false, progress: 0, startedAt: 0, etaText: '', wakeLock: null,
+                        start() { this.uploading = true; this.progress = 0; this.startedAt = Date.now(); this.etaText = ''; this.lockScreen(); },
                         prog(p) { this.progress = p; const el = (Date.now() - this.startedAt) / 1000; if (p > 0 && p < 100 && el > 0.5) { this.etaText = Math.ceil(el * (100 - p) / p) + '{{ __('inspection.upload_sec_left') }}'; } },
-                        finish() { this.progress = 100; this.etaText = ''; setTimeout(() => { this.uploading = false; }, 500); },
-                        fail() { this.uploading = false; this.etaText = ''; }
+                        finish() { this.progress = 100; this.etaText = ''; this.unlockScreen(); setTimeout(() => { this.uploading = false; }, 500); },
+                        fail() { this.uploading = false; this.etaText = ''; this.unlockScreen(); },
+                        /* 업로드 동안만 화면 켜둠(자동 절전 방지). 지원 안 하면 조용히 무시(iOS<16.4 등). 화면 끄거나 앱 전환 시 OS가 자동 해제 → visibility 복귀 때 재획득. */
+                        async lockScreen() {
+                            try { if ('wakeLock' in navigator) { this.wakeLock = await navigator.wakeLock.request('screen'); } } catch (e) {}
+                            if (!this._visHandler) { this._visHandler = () => { if (document.visibilityState === 'visible' && this.uploading && !this.wakeLock) this.lockScreen(); }; document.addEventListener('visibilitychange', this._visHandler); }
+                        },
+                        async unlockScreen() {
+                            if (this._visHandler) { document.removeEventListener('visibilitychange', this._visHandler); this._visHandler = null; }
+                            if (this.wakeLock) { try { await this.wakeLock.release(); } catch (e) {} this.wakeLock = null; }
+                        }
                      }"
                      x-on:livewire-upload-start.window="start()"
                      x-on:livewire-upload-progress.window="prog($event.detail.progress)"
