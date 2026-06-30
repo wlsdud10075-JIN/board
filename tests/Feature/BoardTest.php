@@ -2762,6 +2762,43 @@ class BoardTest extends TestCase
             && str_contains($r->body(), '"bundles":[]'));
     }
 
+    /** v2 B/L요청 무름 — bl_status='requested' 묶음에서 bl-cancel 전송(서명). */
+    public function test_portal_shipping_v2_bl_cancel(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles/B1/bl-cancel*' => Http::response(['ok' => true, 'bl_status' => 'none'], 200),
+            '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
+                'batch_id' => 'B1', 'ship_status' => 'requested', 'bl_status' => 'requested', 'bl_type' => 'original',
+                'shipping_method' => 'RORO', 'buyer' => ['id' => 5, 'name' => 'BuyerZ'],
+                'vehicles' => [['vehicle_id' => 1, 'vehicle_number' => 'CAR001']],
+            ]]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'shipping')
+            ->call('cancelBl', 'B1')->assertHasNoErrors();
+
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/api/internal/board/bundles/B1/bl-cancel')
+            && str_starts_with($r->header('X-Board-Signature')[0], 'sha256='));
+    }
+
+    /** v2 B/L 무름 — 이미 발급(409)이면 "발급완료 무름 불가" 안내. */
+    public function test_portal_shipping_v2_bl_cancel_already_issued(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles/B1/bl-cancel*' => Http::response(['ok' => false, 'reason' => 'already_issued'], 409),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'shipping')
+            ->call('cancelBl', 'B1')
+            ->assertSee('발급');   // "관리가 이미 B/L을 발급해 무를 수 없습니다"
+    }
+
     /** v2 안전가드 — 기존 묶음에 buyer_id 없으면(car-erp /bundles 가 buyer 문자열만) sync 차단(전체 자동취소 방지). */
     public function test_portal_shipping_v2_blocks_sync_when_bundle_missing_buyer_id(): void
     {

@@ -442,6 +442,28 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->load();
     }
 
+    /** B/L요청 무름(오발송 취소) — bl_status requested→none. 이미 issued(409)면 무름 불가 안내. */
+    public function cancelBl(string $batchId): void
+    {
+        if ($this->isViewingOther()) {
+            $this->shipNote = __('portal.flash_view_only_ship');
+
+            return;
+        }
+        if ($batchId === '') {
+            return;
+        }
+        $res = $this->svc()->blCancel($this->salesmanEmail(), $batchId);
+        if (($res['status'] ?? 0) === 409) {
+            $this->shipNote = __('portal.flash_bl_already_issued');   // 관리 발급완료 — 무름 불가
+        } elseif ($res['ok'] ?? false) {
+            $this->shipNote = __('portal.flash_bl_cancelled');
+        } else {
+            $this->shipNote = __('portal.flash_ship_failed');
+        }
+        $this->load();
+    }
+
     /** in_progress(관리 착수) 차 변경/취소 요청 — 관리가 수락거절(자동적용 X). */
     public function requestChange(int $vehicleId): void
     {
@@ -740,6 +762,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     <button wire:click="requestBl('{{ $batchId }}','surrender')" wire:confirm="{{ __('portal.bl_confirm', ['type' => __('portal.bl_surrender')]) }}" class="btn-ghost btn-sm">{{ __('portal.bl_surrender') }}</button>
                                     @if ($blStatus === 'requested')
                                         <span class="text-[11px] text-blue-600">({{ __('portal.bl_requested_already', ['type' => $blTypeLabel[$blType] ?? '—']) }})</span>
+                                        <button wire:click="cancelBl('{{ $batchId }}')" wire:confirm="{{ __('portal.bl_cancel_confirm') }}"
+                                            class="rounded-md border border-red-300 px-2 py-1 text-[11px] font-semibold text-red-600 hover:bg-red-50">↩ {{ __('portal.bl_cancel_btn') }}</button>
                                     @endif
                                 </div>
                             @endif

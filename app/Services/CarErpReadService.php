@@ -142,6 +142,17 @@ class CarErpReadService
     }
 
     /**
+     * POST /bundles/{batch}/bl-request — 기존 묶음의 B/L요청 무름(오발송 취소). bl_status requested→none.
+     * 이미 issued 면 car-erp 409 {ok:false, reason:"already_issued"} → 봉투 status=409 로 board 가 분기.
+     */
+    public function blCancel(string $email, string $batchId): array
+    {
+        return $this->post('/bundles/'.$batchId.'/bl-cancel', ['salesman_email' => $email], [
+            'salesman_email' => $email,
+        ]);
+    }
+
+    /**
      * POST /shipping-requests/change-request — in_progress(관리 착수) 차의 명시적 변경/취소 요청.
      * 자동적용 안 함 — 관리가 화면에서 수락/거절(§5-2). omission 으로 취소 추론 금지.
      */
