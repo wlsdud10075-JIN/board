@@ -90,3 +90,6 @@ car-erp 가 **이미 생성**(`DocumentFiller`, 4종: roro_contract·roro_invoic
   4. 구 v1 단발 선적요청 UI 제거(병존 X, board 미가동이라 안전).
   5. 401/5xx/미설정 → "조회 불가" degrade.
 - ⚠️ **e2e 불가(현재)**: car-erp v2 = car-erp **dev 만**, prod(heysellcar.com) 미배포 → board 는 HTTP fake 검증, car-erp v2 prod 배포 후 실연동.
+
+**🔴 car-erp 에 요청할 열린 항목 (board 에서 발견)**:
+1. **B/L요청 취소 경로** — board 영업이 `bl-request`(original/surrender)를 **잘못 눌렀을 때 되돌릴** 방법이 없음. 현재 board 는 (a) 다른 유형 재요청으로 유형정정 (b) confirm 창으로 오발송 방지만 함. 영업이 **B/L요청 자체를 취소/무름**하려면 car-erp 측 처리 필요 — ① `bl_status='requested'`→`none` 되돌리는 엔드포인트(예: `POST /bundles/{batch}/bl-cancel`) 또는 ② 관리가 화면에서 거절 시 board `bl_status` 동기화로 표시. car-erp 결정 요청. (board UI 는 결정 오면 버튼 추가.)
