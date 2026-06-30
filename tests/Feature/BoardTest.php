@@ -2738,6 +2738,29 @@ class BoardTest extends TestCase
         $this->assertSame('asc', $c->get('recvDir'));
     }
 
+    /** v2 미착수 선적 취소 — cancelBundle 이 그 묶음 빼고 전체 desired 재전송(car-erp 자동취소). */
+    public function test_portal_shipping_v2_cancel_requested_bundle(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
+                'batch_id' => 'B1', 'status' => 'requested', 'shipping_method' => 'RORO',
+                'buyer' => ['id' => 5, 'name' => 'BuyerZ'], 'vehicles' => [['vehicle_id' => 1, 'vehicle_number' => 'CAR001']],
+            ]]], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*/api/internal/board/shipping-requests/sync*' => Http::response(['created' => [], 'updated' => [], 'cancelled' => [1], 'skipped' => [], 'locked' => []], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'shipping')
+            ->call('cancelBundle', 'B1')->assertHasNoErrors();
+
+        // B1 빠진 전체 desired 전송 → B1만 있었으므로 bundles:[] (car-erp 가 B1 자동취소)
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/shipping-requests/sync')
+            && str_contains($r->body(), '"bundles":[]'));
+    }
+
     /** v2 안전가드 — /bundles 조회 degrade(5xx) 시 동기화 차단(빈 desired 전송 → 전체 자동취소 방지). */
     public function test_portal_shipping_v2_sync_blocked_when_bundles_degraded(): void
     {

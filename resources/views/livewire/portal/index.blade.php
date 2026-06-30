@@ -403,6 +403,16 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->load();
     }
 
+    /** 미착수(requested) 선적 취소 — 그 묶음을 desired 에서 빼고 전체 재동기화 → car-erp 자동취소. */
+    public function cancelBundle(string $batchId): void
+    {
+        if ($batchId === '') {
+            return;
+        }
+        $this->desired = array_values(array_filter($this->desired, fn ($b) => ($b['batch_id'] ?? null) !== $batchId));
+        $this->syncBundles();   // isViewingOther·degrade 가드는 syncBundles 가 처리
+    }
+
     /** 기존 묶음 B/L요청 — bl_type 확정(original/surrender) → car-erp 관리 알람. */
     public function requestBl(string $batchId, string $blType): void
     {
@@ -701,6 +711,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                         </div>
 
                         @unless ($this->isViewingOther())
+                            {{-- 미착수(요청됨) 선적 취소 — 관리 착수 전이면 영업이 바로 취소 가능 --}}
+                            @if ($st === 'requested' && $batchId)
+                                <div class="mt-2.5 border-t border-gray-200 pt-2">
+                                    <button wire:click="cancelBundle('{{ $batchId }}')" wire:confirm="{{ __('portal.cancel_bundle_confirm') }}"
+                                        class="rounded-md border border-red-300 px-2.5 py-1 text-[12px] font-semibold text-red-600 hover:bg-red-50">✕ {{ __('portal.cancel_bundle_btn') }}</button>
+                                </div>
+                            @endif
                             {{-- B/L요청 (같은 묶음 상태전이) — issued 전까지 --}}
                             @if ($batchId && $blStatus !== 'issued')
                                 <div class="mt-2.5 flex flex-wrap items-center gap-2 border-t border-gray-200 pt-2 text-[12px]">
@@ -817,18 +834,22 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     </div>
                                 @endforeach
                                 {{-- 같은 바이어 추가 선적(가끔 바이어당 여러 건) --}}
-                                <button wire:click="addBundle({{ $bid }})" class="btn-ghost btn-sm">+ {{ __('portal.plan_add_shipment') }}</button>
+                                <button wire:click="addBundle({{ $bid }})"
+                                    class="rounded-md border border-[var(--color-primary)] px-3 py-1 text-[12px] font-semibold text-[var(--color-primary)] hover:bg-violet-50">+ {{ __('portal.plan_add_shipment') }}</button>
                             </div>
                         </div>
                     @empty
                         <p class="py-8 text-center text-gray-400">{{ __('portal.plan_no_buyers') }}</p>
                     @endforelse
 
-                    <div class="mt-4 flex items-center gap-3">
-                        <button wire:click="syncBundles" wire:loading.attr="disabled" class="btn-primary">🔄 {{ __('portal.plan_sync_btn') }}</button>
-                        <span wire:loading wire:target="syncBundles" class="text-[12px] text-gray-400">…</span>
+                    {{-- 동기화 = 하단 고정바(스크롤해도 항상 보임) --}}
+                    <div class="sticky bottom-0 z-10 mt-4 rounded-lg border border-gray-200 bg-white px-3 py-2.5 shadow-lg">
+                        <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <button wire:click="syncBundles" wire:loading.attr="disabled" wire:target="syncBundles" class="btn-primary">🔄 {{ __('portal.plan_sync_btn') }}</button>
+                            <span wire:loading wire:target="syncBundles" class="text-[12px] text-gray-400">…</span>
+                            <span class="text-[11px] text-amber-600">⚠️ {{ __('portal.plan_sync_warn') }}</span>
+                        </div>
                     </div>
-                    <p class="mt-1.5 text-[11px] text-amber-600">⚠️ {{ __('portal.plan_sync_warn') }}</p>
                 @endif
             @endif
 
