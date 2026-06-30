@@ -776,8 +776,17 @@ new #[Layout('components.layouts.app')] class extends Component {
                         $bundlesByBuyer = collect($desired)->groupBy(fn ($b) => (int) ($b['buyer_id'] ?? 0));
                     @endphp
 
+                    {{-- 동기화 = 상단 고정바(스크롤해도 위에 붙어 항상 보임) --}}
+                    <div class="sticky top-0 z-10 mb-3 rounded-lg border border-gray-200 bg-white px-3 py-2.5 shadow-md">
+                        <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <button wire:click="syncBundles" wire:loading.attr="disabled" wire:target="syncBundles" class="btn-primary">🔄 {{ __('portal.plan_sync_btn') }}</button>
+                            <span wire:loading wire:target="syncBundles" class="text-[12px] text-gray-400">…</span>
+                            <span class="text-[11px] text-amber-600">⚠️ {{ __('portal.plan_sync_warn') }}</span>
+                        </div>
+                    </div>
+
                     @forelse ($buyerNames as $bid => $bname)
-                        <div class="card-sm mb-2" style="background:#f8f9fb" wire:key="planbuyer-{{ $bid }}" x-data="{ open: true }">
+                        <div class="card-sm mb-2" style="background:#f8f9fb" wire:key="planbuyer-{{ $bid }}" x-data="{ open: false }">
                             <button type="button" class="flex w-full items-center gap-2 text-left" @click="open = !open">
                                 <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span>
                                 <span class="text-[13px] font-bold text-gray-800">🤝 {{ $bname }}</span>
@@ -841,15 +850,6 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @empty
                         <p class="py-8 text-center text-gray-400">{{ __('portal.plan_no_buyers') }}</p>
                     @endforelse
-
-                    {{-- 동기화 = 하단 고정바(스크롤해도 항상 보임) --}}
-                    <div class="sticky bottom-0 z-10 mt-4 rounded-lg border border-gray-200 bg-white px-3 py-2.5 shadow-lg">
-                        <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-                            <button wire:click="syncBundles" wire:loading.attr="disabled" wire:target="syncBundles" class="btn-primary">🔄 {{ __('portal.plan_sync_btn') }}</button>
-                            <span wire:loading wire:target="syncBundles" class="text-[12px] text-gray-400">…</span>
-                            <span class="text-[11px] text-amber-600">⚠️ {{ __('portal.plan_sync_warn') }}</span>
-                        </div>
-                    </div>
                 @endif
             @endif
 
