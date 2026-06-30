@@ -713,6 +713,31 @@ class BoardTest extends TestCase
             && str_contains($req->url(), 'id=920'));
     }
 
+    public function test_buyer_view_renders_og_tags_and_quote_card(): void
+    {
+        config(['board.photo_disk' => 'public']);
+        Storage::fake('public');
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, [
+            'status' => 'inspected', 'expected_price_currency' => 'KRW',
+            'car_cost' => 10000000, 'discount_rate' => 0, 'final_price' => 10440000, 'offer_currency' => 'KRW',
+        ]);
+
+        // 페이지 head 에 OG 태그 + 견적카드 이미지 링크(서명)
+        $page = URL::temporarySignedRoute('buyer.view', now()->addDays(30), ['listing' => $l->id]);
+        $this->get($page)->assertOk()
+            ->assertSee('og:image', false)
+            ->assertSee('card.png')
+            ->assertSee('SSANCAR Quotation');
+
+        // 견적카드 PNG — 서명 필수(없으면 403), image/png 반환
+        $this->get('/v/'.$l->id.'/card.png')->assertForbidden();
+        $res = $this->get(URL::signedRoute('buyer.card', ['listing' => $l->id]));
+        $res->assertOk();
+        $this->assertSame('image/png', $res->headers->get('Content-Type'));
+        $this->assertStringStartsWith("\x89PNG", $res->getContent());   // PNG 매직넘버
+    }
+
     public function test_buyer_view_falls_back_to_vin_crossmatch_for_encar_origin(): void
     {
         config([

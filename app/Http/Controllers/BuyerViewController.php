@@ -6,6 +6,8 @@ use App\Models\PurchaseListing;
 use App\Models\Scopes\SalesmanScope;
 use App\Services\ExchangeRateService;
 use App\Services\SsancarMediaService;
+use App\Support\QuoteCardImage;
+use Illuminate\Support\Facades\URL;
 
 /**
  * 바이어 공개 차량 페이지 — 서명된(만료) 링크로만 접근(signed 미들웨어).
@@ -41,6 +43,35 @@ class BuyerViewController extends Controller
             'breakdown' => $breakdown,
             'media' => $media,
             'ssancarMedia' => $ssancarMedia,
+            // OG 미리보기 — 카톡/왓츠앱 링크 unfurl 시 견적카드 이미지. 만료없는 서명(재크롤 안 깨짐).
+            'cardUrl' => URL::signedRoute('buyer.card', ['listing' => $l->id]),
         ]);
+    }
+
+    /** 견적 카드 PNG (OG 미리보기 이미지). 만료없는 서명 링크로만 접근. */
+    public function card(int $listing, ExchangeRateService $rates, QuoteCardImage $card)
+    {
+        $l = PurchaseListing::withoutGlobalScope(SalesmanScope::class)->findOrFail($listing);
+
+        $rates->refreshIfStale();
+        $usd = $rates->krwPerUsd() ?: (int) config('board.default_krw_per_usd');
+        $eur = $rates->krwPerEur() ?: (int) config('board.default_krw_per_eur');
+        [$carStr, $shipStr, $totalStr] = $this->quoteStrings($l->offerBreakdown($usd, $eur));
+
+        $png = $card->render($carStr, $shipStr, $totalStr);
+
+        return response($png, 200, [
+            'Content-Type' => 'image/png',
+            'Cache-Control' => 'public, max-age=3600',   // 재견적 반영 위해 짧게(카톡은 URL 단위 자체캐시)
+        ]);
+    }
+
+    /** breakdown → [Car, Shipping, Total] 통화기호 포함 문자열(바이어페이지 표시와 동일 규칙). */
+    private function quoteStrings(?array $b): array
+    {
+        $sym = ['KRW' => '₩', 'USD' => '$', 'EUR' => '€'][$b['currency'] ?? 'USD'] ?? '';
+        $fmt = fn ($n) => $n === null ? '—' : $sym.number_format($n);
+
+        return [$fmt($b['car'] ?? null), $fmt($b['shipping'] ?? null), $fmt($b['total'] ?? null)];
     }
 }

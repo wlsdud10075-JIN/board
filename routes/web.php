@@ -15,6 +15,11 @@ Route::get('v/{listing}', [BuyerViewController::class, 'show'])
     ->middleware('signed')
     ->name('buyer.view');
 
+// 견적 카드 PNG (OG 미리보기 이미지) — 만료없는 서명(카톡 재크롤에도 안 깨짐) + 비인증.
+Route::get('v/{listing}/card.png', [BuyerViewController::class, 'card'])
+    ->middleware('signed')
+    ->name('buyer.card');
+
 Route::middleware(['auth'])->group(function () {
     // 로그인 후 role 별 홈으로 분기
     Route::get('dashboard', function () {

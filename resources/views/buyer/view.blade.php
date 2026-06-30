@@ -18,6 +18,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="robots" content="noindex, nofollow">
     <title>SSANCAR · {{ $listing->vehicle_number }}</title>
+
+    {{-- OG 미리보기 — 카톡/왓츠앱에 링크 붙으면 견적카드 이미지 + 차량/총액이 펼쳐 보임. --}}
+    @php
+        $ogDesc = trim(sprintf('Car %s · Shipping %s · Total %s', $fmt($breakdown['car'] ?? null), $fmt($breakdown['shipping'] ?? null), $fmt($breakdown['total'] ?? null)));
+    @endphp
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="SSANCAR">
+    <meta property="og:title" content="SSANCAR Quotation · {{ $listing->vehicle_number }}">
+    <meta property="og:description" content="{{ $ogDesc }}">
+    <meta property="og:image" content="{{ $cardUrl }}">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:url" content="{{ url()->full() }}">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="SSANCAR Quotation · {{ $listing->vehicle_number }}">
+    <meta name="twitter:description" content="{{ $ogDesc }}">
+    <meta name="twitter:image" content="{{ $cardUrl }}">
     <style>
         :root { --p: #7c6fcd; }
         * { box-sizing: border-box; margin: 0; padding: 0; }
