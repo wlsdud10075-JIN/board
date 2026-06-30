@@ -122,6 +122,7 @@ return [
     'flash_bl_requested' => 'B/L 요청이 전송됐습니다. car-erp 관리에게 알람이 갑니다.',
     'flash_change_requested' => '변경요청이 전송됐습니다. 관리가 확인 후 처리합니다.',
     'flash_change_note_required' => '변경/취소 사유를 입력하세요.',
+    'flash_sync_blocked_degraded' => '선적묶음을 불러오지 못해 동기화를 막았습니다(전체취소 방지). 새로고침 후 다시 시도하세요.',
 
     // 미수금 탭
     'hide_paid' => '완납(0원) 숨기기',

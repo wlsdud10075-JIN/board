@@ -2738,6 +2738,25 @@ class BoardTest extends TestCase
         $this->assertSame('asc', $c->get('recvDir'));
     }
 
+    /** v2 안전가드 — /bundles 조회 degrade(5xx) 시 동기화 차단(빈 desired 전송 → 전체 자동취소 방지). */
+    public function test_portal_shipping_v2_sync_blocked_when_bundles_degraded(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['error' => 'boom'], 500),   // 조회 실패
+            '*/api/internal/board/shippable*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*/api/internal/board/shipping-requests/sync*' => Http::response(['created' => []], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'shipping')->call('syncBundles')
+            ->assertSet('syncResult', null);
+
+        // 절대 sync 전송 안 됨 — degrade 시 전체취소 방지.
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), '/shipping-requests/sync'));
+    }
+
     /** v2 「선적 계획」 — shippable pool 의 새 차를 새 묶음에 담고(빈 묶음=그 차 바이어 채택) 동기화. */
     public function test_portal_shipping_v2_plan_pool_assign_and_sync(): void
     {

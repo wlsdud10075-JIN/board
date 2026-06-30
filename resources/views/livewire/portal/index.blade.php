@@ -327,6 +327,13 @@ new #[Layout('components.layouts.app')] class extends Component {
 
             return;
         }
+        // 안전 가드 — /bundles 조회가 degrade 면 desired 가 비어 전체 desired=빈 전송이 됨
+        // → car-erp 가 모든 requested 를 자동취소(스펙 §5-2). 로딩 실패 시 절대 sync 금지.
+        if (! ($this->result['ok'] ?? false)) {
+            $this->shipNote = __('portal.flash_sync_blocked_degraded');
+
+            return;
+        }
         // 차 1대 이상 + 바이어 지정된 묶음만 전송(빈 묶음·바이어 미정 제외).
         $payload = collect($this->desired)
             ->filter(fn ($b) => ! empty($b['buyer_id']) && ! empty($b['vehicle_ids']))
