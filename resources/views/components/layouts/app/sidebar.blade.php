@@ -94,11 +94,20 @@
         open: localStorage.getItem('sidebar-open') !== 'false',
         mobileOpen: false,
         isMobile: window.innerWidth < 768,
+        openedAt: 0,
         toggle() {
-            if (this.isMobile) { this.mobileOpen = !this.mobileOpen; }
+            if (this.isMobile) {
+                this.mobileOpen = !this.mobileOpen;
+                if (this.mobileOpen) { this.openedAt = Date.now(); }
+            }
             else { this.open = !this.open; localStorage.setItem('sidebar-open', this.open); }
         },
-        closeMobile() { this.mobileOpen = false; }
+        // 여는 탭의 잔여 합성클릭(ghost click)이 백드롭/링크에 떨어져 즉시 닫히는 것 방지(안드 크롬).
+        // 실제 메뉴 탭은 연 뒤 한참 후라 영향 없음.
+        closeMobile() {
+            if (this.isMobile && Date.now() - this.openedAt < 400) { return; }
+            this.mobileOpen = false;
+        }
      }"
      x-on:resize.window.debounce.200ms="isMobile = window.innerWidth < 768">
 
