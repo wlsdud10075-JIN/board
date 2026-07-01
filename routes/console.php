@@ -27,3 +27,6 @@ Schedule::command('board:poll-verdicts')->everyTwoMinutes()->withoutOverlapping(
 
 // 연동 A — 승격 플래그 폴링 → 승격 대기 캡처(+7일 만료 정리). 미설정이면 만료 정리만 하고 no-op.
 Schedule::command('board:poll-promotions')->everyTwoMinutes()->withoutOverlapping();
+
+// ssancar 검차영상 감지 → draft 매물 자동 전달대기(inspected). 미설정이면 no-op. 인계=handoff-ssancar-media-poll.md.
+Schedule::command('board:poll-ssancar-media')->everyTwoMinutes()->withoutOverlapping();
