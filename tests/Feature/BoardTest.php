@@ -162,6 +162,60 @@ class BoardTest extends TestCase
         $this->assertSame(13440000 + 1640 * (int) config('board.default_krw_per_usd'), $l->final_price);
     }
 
+    public function test_listings_blocks_active_duplicate_vin(): void
+    {
+        $kim = $this->mkUser('sales');
+        $this->mkListing($kim, ['vin' => 'DUPVIN00001', 'vehicle_number' => '11가1111']);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')
+            ->set('source', 'encar')
+            ->set('vehicle_number', '22나2222')   // 다른 번호판, 같은 VIN
+            ->set('vin', 'DUPVIN00001')
+            ->set('car_cost', '10000000')->set('discount_rate', '0')->set('shipping_usd', 1640)
+            ->call('save')
+            ->assertHasErrors('vin');   // 친절한 중복 에러(raw 500 아님)
+
+        $this->assertSame(1, PurchaseListing::where('vin', 'DUPVIN00001')->count());
+    }
+
+    public function test_listings_allows_reregister_after_soft_delete(): void
+    {
+        $kim = $this->mkUser('sales');
+        $old = $this->mkListing($kim, ['vin' => 'REVIVE00001', 'vehicle_number' => '33다3333']);
+        $old->delete();   // 소프트삭제 — VIN 을 계속 쥐고 있음(예전엔 재등록 시 raw 500)
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')
+            ->set('source', 'encar')
+            ->set('vehicle_number', '33다3333')   // 같은 차 재등록
+            ->set('vin', 'REVIVE00001')
+            ->set('car_cost', '10000000')->set('discount_rate', '0')->set('shipping_usd', 1640)
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $active = PurchaseListing::where('vin', 'REVIVE00001')->first();   // 삭제행 제외 → 새 활성행
+        $this->assertNotNull($active);
+        $this->assertNotSame($old->id, $active->id);   // 복원 아님, 새 레코드
+        $this->assertSame('draft', $active->status);
+    }
+
+    public function test_listings_blocks_active_duplicate_auction_lot(): void
+    {
+        $mgr = $this->mkUser('manager');   // isManager → TimeGate 우회
+        $this->mkListing($mgr, ['source' => 'auction', 'vehicle_number' => '44라4444', 'vin' => 'AUCVIN00001', 'auction_venue' => '현대오토', 'lot_number' => 'L-100']);
+        $this->actingAs($mgr);
+
+        Volt::test('listings.index')
+            ->set('origin', 'auction')
+            ->set('vehicle_number', '55마5555')   // 다른 차, 같은 출품번호
+            ->set('auction_venue', '현대오토')
+            ->set('lot_number', 'L-100')
+            ->set('car_cost', '10000000')->set('discount_rate', '0')->set('shipping_usd', 1640)
+            ->call('save')
+            ->assertHasErrors('lot_number');
+    }
+
     // ─────────────────────── 차량 첨부 (영업 업로드 → 연동 B car-erp) ───────────────────────
 
     public function test_sales_attachments_separate_from_inspection_photos(): void

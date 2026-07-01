@@ -426,13 +426,35 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
 
-        // 중복 차량 차단 (차량번호 = 식별값). 본인격리 무시하고 전역 조회(타 영업 중복도 차단).
+        // 중복 차량 차단 (차량번호·VIN = 식별값, 활성만 — 삭제된 행은 재등록 허용). 본인격리 무시 전역 조회.
+        // first() 는 소프트삭제 제외 → 지웠던 차 재등록 시 안 막힘(DB vin unique 제거분을 여기서 대체).
         $dup = PurchaseListing::withoutGlobalScope(\App\Models\Scopes\SalesmanScope::class)
-            ->where('vehicle_number', $this->vehicle_number)->first();
+            ->where(function ($q) {
+                $q->where('vehicle_number', $this->vehicle_number);
+                if ($this->vin) {
+                    $q->orWhere('vin', $this->vin);
+                }
+            })
+            ->first();
         if ($dup) {
-            $this->addError('vehicle_number', __('listings.add_form.dup_error', ['id' => $dup->id]));
+            $field = ($this->vin && $dup->vin === $this->vin && $dup->vehicle_number !== $this->vehicle_number)
+                ? 'vin' : 'vehicle_number';
+            $this->addError($field, __('listings.add_form.dup_error', ['id' => $dup->id]));
 
             return;
+        }
+
+        // 경매 출품번호 중복 차단 ((venue, lot) = 식별값, 활성만). DB unique 제거분 대체.
+        if ($this->source === 'auction' && $this->auction_venue && $this->lot_number) {
+            $lotDup = PurchaseListing::withoutGlobalScope(\App\Models\Scopes\SalesmanScope::class)
+                ->where('auction_venue', $this->auction_venue)
+                ->where('lot_number', $this->lot_number)
+                ->first();
+            if ($lotDup) {
+                $this->addError('lot_number', __('listings.add_form.dup_error', ['id' => $lotDup->id]));
+
+                return;
+            }
         }
 
         // 경매 등록 시간잠금 (관리자 우회)
