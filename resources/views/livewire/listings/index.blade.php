@@ -118,7 +118,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         return match ($this->displayCurrency) {
             'USD' => '$'.number_format($krw / max(1, $this->usdRate()), 2),
             'EUR' => '€'.number_format($krw / max(1, $this->eurRate()), 2),
-            default => number_format($krw).'원',
+            default => number_format($krw).__('common.won_currency'),
         };
     }
 
@@ -868,7 +868,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <div class="text-xs text-gray-400">VIN ·{{ \Illuminate\Support\Str::limit($l->vin, 10, '') }}</div>
                             </td>
                             <td><span class="badge {{ $l->originBadge() }}">{{ $l->originLabel() }}</span></td>
-                            <td class="font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).'원' : '—' }}</td>
+                            <td class="font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).__('common.won_currency') : '—' }}</td>
                             <td class="max-w-[200px] truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">{{ $l->inspection_note ?: '—' }}</td>
                             <td>@if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</td>
                             <td><span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span></td>
@@ -896,7 +896,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span>
                             @if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@endif
                         </div>
-                        <span class="shrink-0 text-sm font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).'원' : '—' }}</span>
+                        <span class="shrink-0 text-sm font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).__('common.won_currency') : '—' }}</span>
                     </div>
                     @if ($l->inspection_note)
                         <div class="mt-1 truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">📝 {{ $l->inspection_note }}</div>
@@ -1083,7 +1083,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 {{-- 읽기전용 진행 정보 (현지확인·경매에서 채워짐) --}}
                 <div class="mt-4 grid grid-cols-2 gap-3 text-xs text-gray-500">
-                    <div>{{ __('listings.drawer.local_total') }}<br><b class="text-sm text-gray-800">{{ $e->final_price ? number_format($e->final_price).'원' : __('listings.drawer.local_total_pending') }}</b></div>
+                    <div>{{ __('listings.drawer.local_total') }}<br><b class="text-sm text-gray-800">{{ $e->final_price ? number_format($e->final_price).__('common.won_currency') : __('listings.drawer.local_total_pending') }}</b></div>
                     <div>{{ __('listings.drawer.status') }}<br><span class="badge {{ $e->statusBadge() }}">{{ $e->statusLabel() }}</span></div>
                     <div>{{ __('listings.drawer.buyer') }}<br>@if ($e->verdictLabel())<span class="badge {{ $e->verdictBadge() }}">{{ $e->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</div>
                     <div>{{ __('listings.drawer.buyer_name') }}<br><b class="text-gray-800">{{ $e->buyer_name ?: '—' }}</b></div>
