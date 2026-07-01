@@ -23,8 +23,9 @@ class PollSsancarMedia extends Command
 
     public function handle(SsancarMediaService $ssancar): int
     {
-        if (! $ssancar->configured()) {
-            $this->info('ssancar 미디어 미설정 — 스킵(no-op)');
+        // 미디어 설정 + 자동전이 플래그 둘 다여야 동작. 플래그(기본 off)는 ssancar 폴링 계약 확인 후 opt-in.
+        if (! $ssancar->configured() || ! config('board.ssancar_auto_forward')) {
+            $this->info('ssancar 자동전이 미활성(미설정/플래그 off) — 스킵(no-op)');
 
             return self::SUCCESS;
         }

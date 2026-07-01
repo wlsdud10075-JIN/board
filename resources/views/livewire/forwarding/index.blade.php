@@ -388,7 +388,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     {{-- ─────────── 상세 드로어 (검차 사진/금액 읽기전용 → 전달) ─────────── --}}
     @if ($this->detail)
-        @php $d = $this->detail; $q = $this->quoteData(); @endphp
+        @php $d = $this->detail; $q = $this->quoteData(); $sm = $this->ssancarMedia; @endphp
         <div class="fixed inset-0 z-40 bg-black/40" wire:click="closeDetail"></div>
         <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[440px]">
             <div class="flex items-center justify-between border-b border-gray-200 px-5 py-4">
@@ -477,7 +477,6 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @endif
 
                 {{-- ssancar 검차영상/사진 (폴러 자동감지) — 영업 확인용. 바이어 링크엔 자동 포함(별도 전송 불필요). --}}
-                @php $sm = $this->ssancarMedia; @endphp
                 @if (count($sm['videos']) || count($sm['photos']))
                     <div class="section-title-sm">{{ __('forwarding.ssancar_media') }}</div>
                     <div class="grid grid-cols-4 gap-2">
@@ -500,7 +499,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     $sharePhotos = $d->photos->reject(fn ($p) => $p->isVideo())
                         ->map(fn ($p) => ['url' => route('photos.show', $p->id), 'name' => $p->original_name ?: 'photo.jpg'])->values()->all();
                 @endphp
-                @if ($d->photos->count() || $q)
+                @if ($d->photos->count() || $q || count($sm['videos']) || count($sm['photos']))
                     <button type="button" class="btn-primary mt-3 w-full justify-center"
                         @click="window.videoShare(@js($this->buyerLink()))">
                         🔗 {{ __('forwarding.send_all') }}
