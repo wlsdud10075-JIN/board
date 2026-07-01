@@ -3,6 +3,7 @@
 use App\Models\PurchaseListing;
 use App\Services\ExchangeRateService;
 use App\Services\OfferForwardService;
+use App\Services\SsancarMediaService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Computed;
@@ -73,6 +74,15 @@ new #[Layout('components.layouts.app')] class extends Component {
         return $this->detailId
             ? PurchaseListing::with(['creator', 'photos'])->where('status', 'inspected')->find($this->detailId)
             : null;
+    }
+
+    /** 전달대기 차의 ssancar 검차영상/사진 — 영업이 전달 전 확인(폴러가 매칭한 미디어 검증). 10분 캐시. */
+    #[Computed]
+    public function ssancarMedia(): array
+    {
+        return $this->detail
+            ? app(SsancarMediaService::class)->mediaFor($this->detail)
+            : ['videos' => [], 'photos' => []];
     }
 
     public function openDetail(int $id): void
@@ -464,6 +474,25 @@ new #[Layout('components.layouts.app')] class extends Component {
                     </div>
                 @else
                     <p class="text-xs text-gray-400">—</p>
+                @endif
+
+                {{-- ssancar 검차영상/사진 (폴러 자동감지) — 영업 확인용. 바이어 링크엔 자동 포함(별도 전송 불필요). --}}
+                @php $sm = $this->ssancarMedia; @endphp
+                @if (count($sm['videos']) || count($sm['photos']))
+                    <div class="section-title-sm">{{ __('forwarding.ssancar_media') }}</div>
+                    <div class="grid grid-cols-4 gap-2">
+                        @foreach ($sm['videos'] as $v)
+                            @if (! empty($v['embed_url']))
+                                <iframe src="{{ $v['embed_url'] }}" class="col-span-2 aspect-video w-full rounded-md" loading="lazy" allowfullscreen></iframe>
+                            @elseif (! empty($v['url']))
+                                <video src="{{ $v['url'] }}" class="col-span-2 aspect-video w-full rounded-md object-cover" controls preload="metadata"></video>
+                            @endif
+                        @endforeach
+                        @foreach ($sm['photos'] as $ph)
+                            <img src="{{ $ph }}" @click="$dispatch('open-lightbox', { src: '{{ $ph }}' })" class="aspect-square w-full cursor-zoom-in rounded-md object-cover" alt="">
+                        @endforeach
+                    </div>
+                    <p class="mt-1 text-xs text-gray-400">{{ __('forwarding.ssancar_media_hint') }}</p>
                 @endif
 
                 {{-- 전체 보내기 — 사진·영상·견적을 한 링크(공개 페이지)로. 영상 N개여도 링크 1개. 30일 유효, 미디어 추가 시 같은 링크 재열람. --}}

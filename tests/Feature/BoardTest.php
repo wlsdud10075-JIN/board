@@ -613,6 +613,29 @@ class BoardTest extends TestCase
         $this->assertSame('awaiting_buyer', $l->fresh()->status);
     }
 
+    public function test_forwarding_drawer_shows_ssancar_video(): void
+    {
+        config([
+            'services.ssancar_media.base_url' => 'https://www.ssancar.com/page/api_car_media.php',
+            'services.ssancar_media.api_key' => 'testkey',
+        ]);
+        Cache::flush();
+        Http::fake(['*api_car_media.php*' => Http::response([
+            'ok' => 1, 'mode' => 'plate',
+            'videos' => [['embed_url' => 'https://iframe.mediadelivery.net/embed/685063/fwd']],
+            'photos' => [],
+        ], 200)]);
+
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'inspected']);
+        $this->actingAs($sales);
+
+        // 전달 드로어에 ssancar 자동감지 영상(embed)이 영업 확인용으로 노출
+        Volt::test('forwarding.index')
+            ->call('openDetail', $l->id)
+            ->assertSee('iframe.mediadelivery.net/embed/685063/fwd');
+    }
+
     public function test_forwarding_save_amount_recomputes_total_and_preserves_currency(): void
     {
         $sales = $this->mkUser('sales');
