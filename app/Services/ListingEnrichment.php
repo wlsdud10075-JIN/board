@@ -50,16 +50,16 @@ class ListingEnrichment
         $html = $res->body();
         $out = [];
 
-        // 차량번호·지역·VIN
+        // 차량번호·지역·VIN — 검차매물은 원본 encar 링크로 우회(차량번호·지역·VIN·KRW).
         if (preg_match('#encar\.com/cars/detail/(\d+)#i', $html, $m)) {
-            $out = $this->byEncarId($m[1]);   // 검차매물 = encar 우회(차량번호·지역·VIN·KRW 가격)
-        } else {
-            if (preg_match('/id=["\']copy_txt["\'][^>]*>\s*([^<\s][^<]*?)\s*</u', $html, $m)) {
-                $out['vin'] = trim($m[1]);
-            }
-            if (preg_match('/(\d{2,3}\s?[가-힣]\s?\d{4})/u', $html, $m)) {
-                $out['vehicle_number'] = preg_replace('/\s+/u', '', $m[1]);
-            }
+            $out = $this->byEncarId($m[1]);
+        }
+        // encar 우회가 비었으면(=검차매물 엔카 내려감/404) 또는 링크 없으면 → 페이지 자체 패턴으로 빈 필드만 폴백.
+        if (empty($out['vin']) && preg_match('/id=["\']copy_txt["\'][^>]*>\s*([^<\s][^<]*?)\s*</u', $html, $m)) {
+            $out['vin'] = trim($m[1]);
+        }
+        if (empty($out['vehicle_number']) && preg_match('/(\d{2,3}\s?[가-힣]\s?\d{4})/u', $html, $m)) {
+            $out['vehicle_number'] = preg_replace('/\s+/u', '', $m[1]);
         }
 
         // 차값 = money 블록 3통화
