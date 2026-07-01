@@ -934,6 +934,76 @@ class BoardTest extends TestCase
         Http::assertNothingSent();   // 플래그 off면 조회조차 안 함
     }
 
+    public function test_poll_ssancar_media_ages_out_stale_draft(): void
+    {
+        config([
+            'services.ssancar_media.base_url' => 'https://www.ssancar.com/page/api_car_media.php',
+            'services.ssancar_media.api_key' => 'testkey',
+            'board.ssancar_auto_forward' => true,
+            'board.ssancar_poll_max_age_days' => 3,
+        ]);
+        Cache::flush();
+        Http::fake(['*api_car_media.php*' => Http::response([
+            'ok' => 1, 'videos' => [['embed_url' => 'https://x/embed/1']], 'photos' => [],
+        ], 200)]);
+
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'draft']);
+        $l->created_at = now()->subDays(4);   // 4일 전 등록 + 미디어 본 적 없음 → 에이지아웃
+        $l->saveQuietly();
+
+        $this->artisan('board:poll-ssancar-media')->assertExitCode(0);
+
+        $this->assertSame('draft', $l->fresh()->status);   // 제외 → 전이 안 됨
+        Http::assertNothingSent();   // 쿼리서 빠져 API 조회조차 안 함(부하 0)
+    }
+
+    public function test_poll_ssancar_media_keeps_polling_connected_stale_draft(): void
+    {
+        config([
+            'services.ssancar_media.base_url' => 'https://www.ssancar.com/page/api_car_media.php',
+            'services.ssancar_media.api_key' => 'testkey',
+            'board.ssancar_auto_forward' => true,
+            'board.ssancar_poll_max_age_days' => 3,
+        ]);
+        Cache::flush();
+        Http::fake(['*api_car_media.php*' => Http::response([
+            'ok' => 1, 'videos' => [['embed_url' => 'https://x/embed/1']], 'photos' => [],
+        ], 200)]);
+
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'draft']);
+        $l->created_at = now()->subDays(4);              // 4일 전이지만
+        $l->ssancar_media_seen_at = now()->subDays(2);   // 이미 연결됨(미디어 본 적) → 계속 폴링
+        $l->saveQuietly();
+
+        $this->artisan('board:poll-ssancar-media')->assertExitCode(0);
+
+        $this->assertSame('inspected', $l->fresh()->status);   // 연결된 건 3일 넘어도 폴링 → 영상 감지 전이
+    }
+
+    public function test_poll_ssancar_media_marks_connection_on_photo_only(): void
+    {
+        config([
+            'services.ssancar_media.base_url' => 'https://www.ssancar.com/page/api_car_media.php',
+            'services.ssancar_media.api_key' => 'testkey',
+            'board.ssancar_auto_forward' => true,
+        ]);
+        Cache::flush();
+        Http::fake(['*api_car_media.php*' => Http::response([
+            'ok' => 1, 'videos' => [], 'photos' => ['https://cdn.ssancar.com/x.jpg'],
+        ], 200)]);
+
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'draft']);
+
+        $this->artisan('board:poll-ssancar-media')->assertExitCode(0);
+
+        $l->refresh();
+        $this->assertSame('draft', $l->status);              // 사진만 → 전이 안 함(영상 대기)
+        $this->assertNotNull($l->ssancar_media_seen_at);     // 연결 표식은 찍힘 → 이후 에이지아웃 유예
+    }
+
     public function test_inspection_upload_defaults_to_shared(): void
     {
         config(['board.photo_disk' => 'public']);

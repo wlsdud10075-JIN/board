@@ -52,6 +52,10 @@ return [
     //    ssancar 폴링 계약(영상 업로드 전 videos[] 빈배열 등) 확인 후에만 켠다. 인계=handoff-ssancar-media-poll.md.
     'ssancar_auto_forward' => (bool) env('BOARD_SSANCAR_AUTO_FORWARD', false),
 
+    // ssancar.com 미디어 폴링 에이지아웃(일) — 등록 후 이 일수 내 미디어(사진/영상) 못 받은 draft 는
+    // 폴링 제외(죽은 draft=엔카 등 무한폴링 방지). 단 한 번이라도 미디어 받으면(연결됨) 이후 계속 폴링.
+    'ssancar_poll_max_age_days' => (int) env('BOARD_SSANCAR_POLL_MAX_AGE_DAYS', 3),
+
     // 업무 가이드(Notion 등 외부) — 사이드바 하단 링크. 비우면 미노출.
     'work_guide_url' => env('BOARD_WORK_GUIDE_URL', 'https://app.notion.com/p/37345d82bd838108a418c76a210f1854'),
 
