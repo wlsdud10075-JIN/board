@@ -55,7 +55,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         return match ($this->displayCurrency) {
             'USD' => '$'.number_format($krw / max(1, $this->usdRate()), 2),
             'EUR' => '€'.number_format($krw / max(1, $this->eurRate()), 2),
-            default => number_format($krw).'원',
+            default => number_format($krw).__('common.won_currency'),
         };
     }
 
