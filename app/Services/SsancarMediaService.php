@@ -38,9 +38,20 @@ class SsancarMediaService
      */
     public function mediaFor(PurchaseListing $l): array
     {
-        return ($params = $l->ssancarMediaParams())
-            ? $this->fetch($params['type'], $params['id'])
-            : $this->fetchByVehicle($l->vin, $l->vehicle_number);
+        $params = $l->ssancarMediaParams();
+        $direct = $params ? $this->fetch($params['type'], $params['id']) : self::EMPTY;
+
+        // 직접 엔트리(inspected)에 이미 영상 있으면 그대로. 없으면(auction/stock/무 ref) 검차영상은
+        // inspected 에만 있으므로 번호판 교차매칭으로 합류 — 영상은 교차매칭 것, 사진은 합집합(auction 사진 보존).
+        if (! empty($direct['videos'])) {
+            return $direct;
+        }
+        $cross = $this->fetchByVehicle($l->vin, $l->vehicle_number);
+
+        return [
+            'videos' => $cross['videos'],
+            'photos' => array_values(array_unique(array_merge($direct['photos'], $cross['photos']))),
+        ];
     }
 
     /** (A) type+id 직접모드. */

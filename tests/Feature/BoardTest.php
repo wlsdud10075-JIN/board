@@ -1004,6 +1004,29 @@ class BoardTest extends TestCase
         $this->assertNotNull($l->ssancar_media_seen_at);     // 연결 표식은 찍힘 → 이후 에이지아웃 유예
     }
 
+    public function test_poll_ssancar_media_finds_video_via_crossmatch_when_ref_is_auction(): void
+    {
+        // 227소9997 케이스: ssancar_ref=car_no(auction, 영상없음)이지만 검차영상은 inspected 교차매칭에 존재.
+        config([
+            'services.ssancar_media.base_url' => 'https://www.ssancar.com/page/api_car_media.php',
+            'services.ssancar_media.api_key' => 'testkey',
+            'board.ssancar_auto_forward' => true,
+        ]);
+        Cache::flush();
+        Http::fake([
+            '*type=auction*' => Http::response(['ok' => 1, 'videos' => [], 'photos' => ['https://cdn.ssancar.com/auction.jpg']], 200),
+            '*api_car_media.php*' => Http::response(['ok' => 1, 'videos' => [['embed_url' => 'https://x/embed/insp']], 'photos' => ['https://cdn.ssancar.com/insp.jpg']], 200),
+        ]);
+
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'draft', 'ssancar_ref' => 'car_no:1639088512']);
+
+        $this->artisan('board:poll-ssancar-media')->assertExitCode(0);
+
+        // auction 직접엔트리엔 영상 없어도 번호판 교차매칭(inspected) 영상으로 전이
+        $this->assertSame('inspected', $l->fresh()->status);
+    }
+
     public function test_inspection_upload_defaults_to_shared(): void
     {
         config(['board.photo_disk' => 'public']);
