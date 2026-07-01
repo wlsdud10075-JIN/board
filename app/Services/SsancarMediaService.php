@@ -23,7 +23,7 @@ use Illuminate\Support\Facades\Http;
  */
 class SsancarMediaService
 {
-    private const EMPTY = ['videos' => [], 'photos' => []];
+    private const EMPTY = ['videos' => [], 'photos' => [], 'sources' => []];
 
     /** 설정(base_url·api_key) 되어 있나 — 미설정이면 폴러/호출 no-op. */
     public function configured(): bool
@@ -51,6 +51,29 @@ class SsancarMediaService
         return [
             'videos' => $cross['videos'],
             'photos' => array_values(array_unique(array_merge($direct['photos'], $cross['photos']))),
+        ];
+    }
+
+    /**
+     * 폴러 전이 판정 (Jin 규칙, 2026-07-01) — 번호판/vin 교차매칭의 소스별 미디어로 결정.
+     *  - inspected 에 영상 있으면 → 전이 (검차완료).
+     *  - stock 에 사진 있으면 → 전이 (재고 차량은 사진이 전부).
+     *  - inspected 에 사진만(영상 0) → 대기 (영상 올 때까지). = 검차 진행중.
+     * (auction 은 제외 — 낙찰 전 경매매물, 전달 대상 아님.)
+     *
+     * @return array{advance: bool, has_media: bool, reason: string}
+     */
+    public function pollDecision(PurchaseListing $l): array
+    {
+        $src = $this->fetchByVehicle($l->vin, $l->vehicle_number)['sources'] ?? [];
+        $inspVideos = count($src['inspected']['videos'] ?? []);
+        $inspPhotos = count($src['inspected']['photos'] ?? []);
+        $stockPhotos = count($src['stock']['photos'] ?? []);
+
+        return [
+            'advance' => $inspVideos > 0 || $stockPhotos > 0,
+            'has_media' => ($inspVideos + $inspPhotos + $stockPhotos) > 0,   // 연결 표식(에이지아웃 유예)용
+            'reason' => $inspVideos > 0 ? 'inspected_video' : ($stockPhotos > 0 ? 'stock_photos' : 'none'),
         ];
     }
 
@@ -131,7 +154,12 @@ class SsancarMediaService
             ->filter(fn ($p) => is_string($p) && $p !== '')
             ->values()->all();
 
-        $out = ['videos' => $videos, 'photos' => $photos];
+        // sources = 타입별(stock/inspected/auction) 매칭·미디어 breakdown. 폴러 전이 판정(pollDecision)에 사용.
+        $out = [
+            'videos' => $videos,
+            'photos' => $photos,
+            'sources' => is_array($j['sources'] ?? null) ? $j['sources'] : [],
+        ];
         Cache::put($cacheKey, $out, now()->addMinutes(10));
 
         return $out;

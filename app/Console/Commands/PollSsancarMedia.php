@@ -46,17 +46,17 @@ class PollSsancarMedia extends Command
         $advanced = 0;
 
         foreach ($listings as $listing) {
-            $media = $ssancar->mediaFor($listing);
-            $hasMedia = ! empty($media['videos']) || ! empty($media['photos']);
+            $d = $ssancar->pollDecision($listing);
 
-            // 연결 표식 — 미디어(사진/영상) 처음 감지 시 stamp(에이지아웃 유예). 사진만이어도 검차 진행중.
-            if ($hasMedia && $listing->ssancar_media_seen_at === null) {
+            // 연결 표식 — 미디어(사진/영상) 처음 감지 시 stamp(에이지아웃 유예).
+            // inspected 사진만(영상 대기) 케이스도 여기서 연결로 잡혀 3일 지나도 계속 폴링.
+            if ($d['has_media'] && $listing->ssancar_media_seen_at === null) {
                 $listing->ssancar_media_seen_at = now();
                 $listing->save();
             }
 
-            if (empty($media['videos'])) {
-                continue;   // 영상 아직 없음 → draft 유지(사진만이면 표식만 찍고 다음 폴에서 영상 대기)
+            if (! $d['advance']) {
+                continue;   // inspected 사진만(영상 대기) 또는 미디어 없음 → draft 유지
             }
 
             // draft → inspected(전달대기). 허용 전이 + 감사로그는 모델 옵저버가 자동(user_id=null 시스템).
@@ -71,10 +71,10 @@ class PollSsancarMedia extends Command
                 'request_payload' => [
                     'vin' => $listing->vin,
                     'car_no' => $listing->vehicle_number,
-                    'videos' => count($media['videos']),
+                    'reason' => $d['reason'],   // inspected_video | stock_photos
                 ],
                 'response_status' => 200,
-                'response_body' => 'advanced_to_inspected',
+                'response_body' => 'advanced:'.$d['reason'],
             ]);
 
             $advanced++;
