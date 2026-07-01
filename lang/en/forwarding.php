@@ -36,6 +36,8 @@ return [
     'share_hint_quote' => 'Sends one quote card + all inspection photos at once to KakaoTalk/WhatsApp etc. Change currency with the toggle above.',
 
     // Send all — photos, videos and quote in one link (public page)
+    'ssancar_media' => 'ssancar Inspection Video',
+    'ssancar_media_hint' => 'Inspection video/photos auto-detected from ssancar. Automatically included in the buyer link.',
     'send_all' => 'Send all (photos·videos·quote link)',
     'send_all_hint' => 'Photos, videos and the quote go in one link — no matter how many videos. Paste it into KakaoTalk etc. (Valid 30 days; if you add media later, just reopen the same link.)',
 

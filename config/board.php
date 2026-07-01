@@ -47,6 +47,11 @@ return [
     // 연동 A 승격 대기 — 캡처 후 이 일수 방치되면 폴러가 자동 expired (목록서 사라짐)
     'promotion_ttl_days' => (int) env('BOARD_PROMOTION_TTL_DAYS', 7),
 
+    // ssancar 검차영상 자동감지 → draft 자동 전달대기 전이 on/off. ★기본 off★
+    //  - 미디어 표시(services.ssancar_media)와 별개 스위치: 버퍼페이지 영상은 켜되 상태 자동전이는
+    //    ssancar 폴링 계약(영상 업로드 전 videos[] 빈배열 등) 확인 후에만 켠다. 인계=handoff-ssancar-media-poll.md.
+    'ssancar_auto_forward' => (bool) env('BOARD_SSANCAR_AUTO_FORWARD', false),
+
     // 업무 가이드(Notion 등 외부) — 사이드바 하단 링크. 비우면 미노출.
     'work_guide_url' => env('BOARD_WORK_GUIDE_URL', 'https://app.notion.com/p/37345d82bd838108a418c76a210f1854'),
 

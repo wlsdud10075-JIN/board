@@ -613,6 +613,30 @@ class BoardTest extends TestCase
         $this->assertSame('awaiting_buyer', $l->fresh()->status);
     }
 
+    public function test_forwarding_drawer_shows_ssancar_video(): void
+    {
+        config([
+            'services.ssancar_media.base_url' => 'https://www.ssancar.com/page/api_car_media.php',
+            'services.ssancar_media.api_key' => 'testkey',
+        ]);
+        Cache::flush();
+        Http::fake(['*api_car_media.php*' => Http::response([
+            'ok' => 1, 'mode' => 'plate',
+            'videos' => [['embed_url' => 'https://iframe.mediadelivery.net/embed/685063/fwd']],
+            'photos' => [],
+        ], 200)]);
+
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'inspected']);
+        $this->actingAs($sales);
+
+        // 전달 드로어에 ssancar 자동감지 영상(embed) 노출 + board 사진·견적 없어도 전송버튼 노출(#2 게이트).
+        Volt::test('forwarding.index')
+            ->call('openDetail', $l->id)
+            ->assertSee('iframe.mediadelivery.net/embed/685063/fwd')
+            ->assertSee(__('forwarding.send_all'));
+    }
+
     public function test_forwarding_save_amount_recomputes_total_and_preserves_currency(): void
     {
         $sales = $this->mkUser('sales');
@@ -823,6 +847,91 @@ class BoardTest extends TestCase
             && str_contains($req->url(), 'vin='.$l->vin)
             && str_contains($req->url(), 'car_no=')
             && ! str_contains($req->url(), 'type='));
+    }
+
+    public function test_poll_ssancar_media_advances_draft_when_video_appears(): void
+    {
+        config([
+            'services.ssancar_media.base_url' => 'https://www.ssancar.com/page/api_car_media.php',
+            'services.ssancar_media.api_key' => 'testkey',
+            'board.ssancar_auto_forward' => true,   // 자동전이 opt-in(계약 확인 후 켬)
+        ]);
+        Cache::flush();
+        Http::fake(['*api_car_media.php*' => Http::response([
+            'ok' => 1, 'mode' => 'plate',
+            'videos' => [['embed_url' => 'https://iframe.mediadelivery.net/embed/685063/vid']],
+            'photos' => [],
+        ], 200)]);
+
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'draft']);   // encar → (B) vin/번호판 교차매칭
+
+        $this->artisan('board:poll-ssancar-media')->assertExitCode(0);
+
+        $this->assertSame('inspected', $l->fresh()->status);   // 영상 감지 → 전달대기 자동 전이
+        $this->assertDatabaseHas('integration_events', [
+            'purchase_listing_id' => $l->id,
+            'target' => 'ssancar_media',
+            'event_type' => 'auto_forward_ready',
+        ]);
+    }
+
+    public function test_poll_ssancar_media_keeps_draft_when_no_video(): void
+    {
+        config([
+            'services.ssancar_media.base_url' => 'https://www.ssancar.com/page/api_car_media.php',
+            'services.ssancar_media.api_key' => 'testkey',
+            'board.ssancar_auto_forward' => true,
+        ]);
+        Cache::flush();
+        Http::fake(['*api_car_media.php*' => Http::response([
+            'ok' => 1, 'mode' => 'plate', 'videos' => [], 'photos' => ['https://cdn.ssancar.com/x.jpg'],
+        ], 200)]);
+
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'draft']);
+
+        $this->artisan('board:poll-ssancar-media')->assertExitCode(0);
+
+        $this->assertSame('draft', $l->fresh()->status);   // 사진만/영상 없음 → draft 유지(현지확인 수동 폴백)
+    }
+
+    public function test_poll_ssancar_media_noop_when_unconfigured(): void
+    {
+        config([
+            'services.ssancar_media.base_url' => '',
+            'services.ssancar_media.api_key' => '',
+        ]);
+        Http::fake();
+
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'draft']);
+
+        $this->artisan('board:poll-ssancar-media')->assertExitCode(0);
+
+        $this->assertSame('draft', $l->fresh()->status);
+        Http::assertNothingSent();   // 미설정이면 외부호출 0
+    }
+
+    public function test_poll_ssancar_media_noop_when_flag_off_even_with_video(): void
+    {
+        // 미디어 설정은 됐지만 자동전이 플래그 off(기본) → 상태 자동전이 안 함(계약 확인 전 안전).
+        config([
+            'services.ssancar_media.base_url' => 'https://www.ssancar.com/page/api_car_media.php',
+            'services.ssancar_media.api_key' => 'testkey',
+            'board.ssancar_auto_forward' => false,
+        ]);
+        Http::fake(['*api_car_media.php*' => Http::response([
+            'ok' => 1, 'videos' => [['embed_url' => 'https://x/embed/1']], 'photos' => [],
+        ], 200)]);
+
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'draft']);
+
+        $this->artisan('board:poll-ssancar-media')->assertExitCode(0);
+
+        $this->assertSame('draft', $l->fresh()->status);
+        Http::assertNothingSent();   // 플래그 off면 조회조차 안 함
     }
 
     public function test_inspection_upload_defaults_to_shared(): void

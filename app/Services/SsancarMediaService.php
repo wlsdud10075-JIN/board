@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\PurchaseListing;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
@@ -23,6 +24,24 @@ use Illuminate\Support\Facades\Http;
 class SsancarMediaService
 {
     private const EMPTY = ['videos' => [], 'photos' => []];
+
+    /** 설정(base_url·api_key) 되어 있나 — 미설정이면 폴러/호출 no-op. */
+    public function configured(): bool
+    {
+        return (string) config('services.ssancar_media.base_url') !== ''
+            && (string) config('services.ssancar_media.api_key') !== '';
+    }
+
+    /**
+     * 매물 1건의 ssancar 미디어 — (A) ssancar id 있으면 직접모드 / 없으면 (B) vin·번호판 교차매칭.
+     * BuyerViewController·전달드로어·폴러 공용 단일 경로(로직 분기 중복 제거).
+     */
+    public function mediaFor(PurchaseListing $l): array
+    {
+        return ($params = $l->ssancarMediaParams())
+            ? $this->fetch($params['type'], $params['id'])
+            : $this->fetchByVehicle($l->vin, $l->vehicle_number);
+    }
 
     /** (A) type+id 직접모드. */
     public function fetch(string $type, string $id): array
