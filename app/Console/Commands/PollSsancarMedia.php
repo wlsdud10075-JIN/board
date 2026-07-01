@@ -30,10 +30,16 @@ class PollSsancarMedia extends Command
             return self::SUCCESS;
         }
 
-        // draft + (vin 또는 번호판) 보유 매물만. 비인증 콘솔이라 SalesmanScope 전체 노출.
+        // draft + (vin 또는 번호판) 보유 + 에이지아웃 안 된 매물만. 비인증 콘솔이라 SalesmanScope 전체 노출.
+        // 에이지아웃: 등록 N일 경과 draft 중 미디어 한 번도 못 본 것(ssancar_media_seen_at null)은 제외
+        //  = 죽은 draft(엔카 등) 무한폴링 차단. 연결된 것(미디어 본 것)은 3일 지나도 계속 폴링(영상 대기).
+        $cutoff = now()->subDays((int) config('board.ssancar_poll_max_age_days', 3));
         $listings = PurchaseListing::where('status', 'draft')
             ->where(function ($q) {
                 $q->whereNotNull('vin')->orWhereNotNull('vehicle_number');
+            })
+            ->where(function ($q) use ($cutoff) {
+                $q->where('created_at', '>=', $cutoff)->orWhereNotNull('ssancar_media_seen_at');
             })
             ->get();
 
@@ -41,8 +47,16 @@ class PollSsancarMedia extends Command
 
         foreach ($listings as $listing) {
             $media = $ssancar->mediaFor($listing);
+            $hasMedia = ! empty($media['videos']) || ! empty($media['photos']);
+
+            // 연결 표식 — 미디어(사진/영상) 처음 감지 시 stamp(에이지아웃 유예). 사진만이어도 검차 진행중.
+            if ($hasMedia && $listing->ssancar_media_seen_at === null) {
+                $listing->ssancar_media_seen_at = now();
+                $listing->save();
+            }
+
             if (empty($media['videos'])) {
-                continue;   // 영상 아직 없음 → draft 유지
+                continue;   // 영상 아직 없음 → draft 유지(사진만이면 표식만 찍고 다음 폴에서 영상 대기)
             }
 
             // draft → inspected(전달대기). 허용 전이 + 감사로그는 모델 옵저버가 자동(user_id=null 시스템).

@@ -41,6 +41,7 @@ class PurchaseListing extends Model
             'offer_rate' => 'integer',
             'payee_account' => 'encrypted',   // 계좌번호 at-rest 암호화 (§6e)
             'lock_at' => 'datetime',
+            'ssancar_media_seen_at' => 'datetime',
             'car_erp_vehicle_id' => 'integer',
             'car_erp_buyer_id' => 'integer',
             'car_erp_consignee_id' => 'integer',
