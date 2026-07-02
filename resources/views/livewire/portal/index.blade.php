@@ -499,12 +499,17 @@ new #[Layout('components.layouts.app')] class extends Component {
 
             return null;
         }
-        $method = strtolower($method) === 'container' ? 'container' : 'roro';   // roro|container
-        $type = $method.'_'.$kind;   // roro_contract / container_invoice_packing ...
+        // sales_contract(판매계약서)는 method 접두사 없는 리터럴 타입 — roro_/container_ 조합 금지.
+        $type = $kind === 'sales_contract'
+            ? 'sales_contract'
+            : (strtolower($method) === 'container' ? 'container' : 'roro').'_'.$kind;   // roro_contract / container_invoice_packing ...
 
         $res = $this->svc()->document($type, $ids, $this->salesmanEmail());
         if (! ($res['ok'] ?? false)) {
-            $this->shipNote = __('portal.flash_docs_failed');
+            // sales_contract 는 동일 바이어·단일 통화 차량만 함께 발급 가능 → car-erp 거부(대개 이 조건)면 그 안내로.
+            $this->shipNote = $type === 'sales_contract'
+                ? __('portal.flash_docs_sales_contract_failed')
+                : __('portal.flash_docs_failed');
 
             return null;
         }
@@ -772,6 +777,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <span class="text-gray-400">{{ __('portal.docs_label', ['method' => $method ?: 'RORO']) }}</span>
                                 <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'contract')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_contract') }}</button>
                                 <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'invoice_packing')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_invoice_packing') }}</button>
+                                <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'sales_contract')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_sales_contract') }}</button>
                             </div>
                             {{-- 변경요청 (in_progress = 관리 착수 → 자동변경 불가, 명시 요청만) --}}
                             @if ($busy)

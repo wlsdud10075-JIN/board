@@ -45,6 +45,7 @@ return [
     'flash_view_only_docs' => '조회 전용입니다. 서류는 본인 계정에서 받으세요.',
     'flash_select_vehicle_docs' => '서류 받을 차량을 선택하세요.',
     'flash_docs_failed' => '서류를 불러올 수 없습니다. (car-erp 연동 확인)',
+    'flash_docs_sales_contract_failed' => '판매계약서를 발급할 수 없습니다. 동일 바이어·단일 통화 차량만 함께 발급됩니다. (묶음 구성/연동 확인)',
 
     // 요약(재무) KPI
     'kpi_unpaid_total' => '미수금 합계',
@@ -82,6 +83,7 @@ return [
     'docs_label' => '선택 차량 서류(:method):',
     'docs_contract' => '계약서',
     'docs_invoice_packing' => '인보이스·패킹',
+    'docs_sales_contract' => '판매계약서',
     'ship_empty' => '선적 가능한 차량이 없습니다. (판매완료·수출·미요청 차량만 표시)',
 
     // 선적·B/L 묶음 v2

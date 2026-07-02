@@ -45,6 +45,7 @@ return [
     'flash_view_only_docs' => 'View-only. Download documents from your own account.',
     'flash_select_vehicle_docs' => 'Select the vehicle(s) to get documents for.',
     'flash_docs_failed' => 'Could not load documents. (Check the car-erp integration)',
+    'flash_docs_sales_contract_failed' => 'Could not issue the sales contract. Only vehicles with the same buyer and single currency can be issued together. (Check bundle composition / integration)',
 
     // Summary (finance) KPIs
     'kpi_unpaid_total' => 'Total receivables',
@@ -82,6 +83,7 @@ return [
     'docs_label' => 'Documents for selected vehicles (:method):',
     'docs_contract' => 'Contract',
     'docs_invoice_packing' => 'Invoice / Packing',
+    'docs_sales_contract' => 'Sales Contract',
     'ship_empty' => 'No shippable vehicles. (Only sold, export, not-yet-requested vehicles are shown)',
 
     // Shipping & B/L bundles v2
