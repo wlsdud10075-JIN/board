@@ -41,6 +41,11 @@ return [
     'send_all' => 'Send all (photos·videos·quote link)',
     'send_all_hint' => 'Photos, videos and the quote go in one link — no matter how many videos. Paste it into KakaoTalk etc. (Valid 30 days; if you add media later, just reopen the same link.)',
 
+    // PC — copy link (the OS share sheet has no messenger target, so paste instead)
+    'copy_link' => 'Copy buyer link (photos·videos·quote)',
+    'copied' => 'Copied — paste into KakaoTalk etc.',
+    'copy_link_hint' => 'Copies one link with the photos, videos and quote. Paste it (Ctrl+V) into KakaoTalk PC / WhatsApp Web to send. (Valid 30 days)',
+
     'forward_section' => 'Forward to buyer',
     'buyer_placeholder' => 'Buyer name (optional)',
     'attr_buyer_name' => 'buyer name',
