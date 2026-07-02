@@ -20,9 +20,14 @@ class CarErpReadService
     /** 계약 prefix(canonical PATH 에 그대로 들어감). */
     private const PREFIX = '/api/internal/board';
 
-    /** 서류 화이트리스트(선적 4종만) — board 측에서도 강제(car-erp 403 에만 의존 X). 말소서류 등 = PII. */
+    /**
+     * 서류 화이트리스트 — board 측에서도 강제(car-erp 403 에만 의존 X). 말소서류 등 = PII.
+     * 선적 4종 + 판매계약서(sales_contract, 수출/바이어측·다중차량·동일바이어 필수, 2026-07-01 car-erp 추가).
+     * ⚠️ car-erp 의 board 화이트리스트(InternalDocumentController::BOARD_ALLOWED_TYPES)에도 있어야 실제 200.
+     */
     public const ALLOWED_DOC_TYPES = [
         'roro_invoice_packing', 'roro_contract', 'container_invoice_packing', 'container_contract',
+        'sales_contract',
     ];
 
     private ?string $base;
@@ -186,7 +191,8 @@ class CarErpReadService
         [$headers] = $this->sign('GET', $path, $query, '');
 
         try {
-            $res = Http::timeout(60)->withHeaders($headers)->get($this->base.$path, $query);
+            // acceptJson: 오류(403/422 등) 시 car-erp 가 웹 리다이렉트 대신 JSON 상태코드를 반환하게(성공 xlsx 스트림은 무영향).
+            $res = Http::timeout(60)->withHeaders($headers)->acceptJson()->get($this->base.$path, $query);
         } catch (\Throwable) {
             return ['ok' => false, 'status' => 0, 'body' => null, 'content_type' => null, 'reason' => 'exception'];
         }
@@ -220,7 +226,9 @@ class CarErpReadService
         [$headers] = $this->sign($method, $path, $query, $body);
 
         try {
-            $req = Http::timeout(20)->withHeaders($headers);
+            // acceptJson: 검증/오류 시 car-erp 가 웹 302 리다이렉트 대신 JSON(422 등)을 반환하게.
+            // (Accept 없으면 ValidationException 이 back()302 → 클라가 GET 으로 따라가 HTML 200 → ok=true/데이터 null 로 조용히 삼켜짐)
+            $req = Http::timeout(20)->withHeaders($headers)->acceptJson();
             $res = $method === 'GET'
                 ? $req->get($this->base.$path, $query)
                 : $req->withBody($body, 'application/json')->post($this->base.$path.'?'.http_build_query($query));
