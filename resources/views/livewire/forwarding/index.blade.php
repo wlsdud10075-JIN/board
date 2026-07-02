@@ -500,20 +500,32 @@ new #[Layout('components.layouts.app')] class extends Component {
                         ->map(fn ($p) => ['url' => route('photos.show', $p->id), 'name' => $p->original_name ?: 'photo.jpg'])->values()->all();
                 @endphp
                 @if ($d->photos->count() || $q || count($sm['videos']) || count($sm['photos']))
-                    <button type="button" class="btn-primary mt-3 w-full justify-center"
-                        @click="window.videoShare(@js($this->buyerLink()))">
-                        🔗 {{ __('forwarding.send_all') }}
-                    </button>
-                    <p class="mt-1 text-xs text-gray-400">{{ __('forwarding.send_all_hint') }}</p>
-                @endif
+                    {{-- 모바일=OS 공유시트로 링크 전송 / PC=링크 복사(공유시트에 카톡·왓츠앱이 안 걸려 무용 → 붙여넣기). --}}
+                    <div x-data="{ isMobile: !!navigator.share && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent), copied: false }">
+                        {{-- 모바일 --}}
+                        <button x-show="isMobile" style="display:none" type="button" class="btn-primary mt-3 w-full justify-center"
+                            @click="window.videoShare(@js($this->buyerLink()))">
+                            🔗 {{ __('forwarding.send_all') }}
+                        </button>
+                        <p class="mt-1 text-xs text-gray-400" x-show="isMobile" style="display:none">{{ __('forwarding.send_all_hint') }}</p>
 
-                {{-- (보조) 사진만 카톡에 파일로 바로 — 이미지 한정. 영상은 위 전체 링크로. --}}
-                @if (count($sharePhotos) || $q)
-                    <button type="button" class="btn-outline btn-sm mt-2 w-full justify-center" x-data="{ busy: false }" :disabled="busy"
-                        @click="busy = true; window.fwdShare(@js($q), @js($sharePhotos)).finally(() => busy = false)">
-                        <span x-show="!busy">📤 {{ count($sharePhotos) ? __('forwarding.share_button', ['count' => count($sharePhotos)]) : __('forwarding.share_card_only') }}</span>
-                        <span x-show="busy" style="display:none">…</span>
-                    </button>
+                        {{-- PC --}}
+                        <button x-show="!isMobile" style="display:none" type="button" class="btn-primary mt-3 w-full justify-center"
+                            @click="window.copyBuyerLink(@js($this->buyerLink())).then(ok => { if (ok) { copied = true; setTimeout(() => copied = false, 2000); } })">
+                            <span x-show="!copied">🔗 {{ __('forwarding.copy_link') }}</span>
+                            <span x-show="copied" style="display:none">✓ {{ __('forwarding.copied') }}</span>
+                        </button>
+                        <p class="mt-1 text-xs text-gray-400" x-show="!isMobile" style="display:none">{{ __('forwarding.copy_link_hint') }}</p>
+
+                        {{-- (보조) 사진만 카톡에 파일로 바로 — 모바일 한정(PC는 파일 공유 미지원). 영상은 위 링크로. --}}
+                        @if (count($sharePhotos) || $q)
+                            <button x-show="isMobile" style="display:none" type="button" class="btn-outline btn-sm mt-2 w-full justify-center" x-data="{ busy: false }" :disabled="busy"
+                                @click="busy = true; window.fwdShare(@js($q), @js($sharePhotos)).finally(() => busy = false)">
+                                <span x-show="!busy">📤 {{ count($sharePhotos) ? __('forwarding.share_button', ['count' => count($sharePhotos)]) : __('forwarding.share_card_only') }}</span>
+                                <span x-show="busy" style="display:none">…</span>
+                            </button>
+                        @endif
+                    </div>
                 @endif
 
                 {{-- 바이어 + 전달완료 체크 --}}
@@ -595,6 +607,17 @@ new #[Layout('components.layouts.app')] class extends Component {
             } catch (e) {
                 if (e && e.name === 'AbortError') return;   // 사용자가 공유 취소
                 alert('공유에 실패했습니다. 사진을 길게 눌러 하나씩 공유해 주세요.');
+            }
+        };
+
+        // PC = 링크 복사(공유시트 대신). 성공 true / 실패 시 prompt 폴백 후 false.
+        window.copyBuyerLink = async function (url) {
+            try {
+                await navigator.clipboard.writeText(url);
+                return true;
+            } catch (e) {
+                prompt('바이어 링크 — 길게 눌러 복사하세요:', url);
+                return false;
             }
         };
 
