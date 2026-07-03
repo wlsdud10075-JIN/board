@@ -1143,6 +1143,7 @@ class BoardTest extends TestCase
         $this->assertSame(1401, $svc->krwPerUsd());   // round(1400.50), 계산/표시용 int
         $this->assertSame(1550, $svc->krwPerEur());
         $this->assertSame('1400.50', (string) ExchangeRate::where('currency', 'USD')->first()->krw_per_unit);   // 원본 소수 보존(car-erp와 어긋남 방지)
+        $this->assertSame('1,400.50', $svc->snapshot()['USD_display']);   // 표시 2자리 = car-erp number_format(rate,2) 와 일치
 
         // 캐시 없으면 config 폴백
         ExchangeRate::query()->delete();

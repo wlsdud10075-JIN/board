@@ -45,11 +45,23 @@ class ExchangeRateService
         $rows = ExchangeRate::whereIn('currency', self::SUPPORTED)->get()->keyBy('currency');
 
         return [
-            'USD' => $this->krwPerUsd(),
+            'USD' => $this->krwPerUsd(),   // 계산용 int(반올림)
             'EUR' => $this->krwPerEur(),
+            // 표시용 2자리 문자열 — car-erp `number_format(rate, 2)` 와 동일(같은 소스·같은 반올림 → 같은 값).
+            'USD_display' => $this->displayRate('USD', $rows),
+            'EUR_display' => $this->displayRate('EUR', $rows),
             'fetched_at' => optional($rows->max('fetched_at'))?->format('Y-m-d H:i') ?? null,
             'is_live' => $rows->isNotEmpty(),
         ];
+    }
+
+    /** 표시용 환율 문자열(소수 2자리) — car-erp 표시(number_format(rate,2))와 일치. 캐시 없으면 config 폴백. */
+    private function displayRate(string $currency, $rows): string
+    {
+        $row = $rows[$currency] ?? null;
+        $val = $row ? (float) $row->krw_per_unit : (float) $this->fallback($currency);
+
+        return number_format($val, 2);
     }
 
     private function fallback(string $currency): int

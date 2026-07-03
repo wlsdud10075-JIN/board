@@ -76,6 +76,8 @@ new #[Layout('components.layouts.app')] class extends Component {
     // ── 환율 (§6a 라이브) ──
     public int $krwPerUsd = 0;
     public int $krwPerEur = 0;
+    public string $krwPerUsdDisplay = '';   // 표시용 2자리(car-erp 일치)
+    public string $krwPerEurDisplay = '';
     public ?string $rateFetchedAt = null;
     public bool $rateLive = false;
 
@@ -90,6 +92,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $snap = $rates->snapshot();
         $this->krwPerUsd = $snap['USD'];
         $this->krwPerEur = $snap['EUR'];
+        $this->krwPerUsdDisplay = $snap['USD_display'];
+        $this->krwPerEurDisplay = $snap['EUR_display'];
         $this->rateFetchedAt = $snap['fetched_at'];
         $this->rateLive = $snap['is_live'];
     }
@@ -639,15 +643,15 @@ new #[Layout('components.layouts.app')] class extends Component {
             <h1 class="text-xl font-bold text-gray-800">{{ __('listings.heading') }}</h1>
             <p class="mt-0.5 text-xs text-gray-500">{{ __('listings.own_only_note', ['name' => auth()->user()->name]) }}</p>
         </div>
-        {{-- 환율 (네이버/다음 라이브 · 실패 시 폴백) --}}
+        {{-- 환율 (car-erp 전신환 매입률 · 실패 시 폴백) — car-erp 표시(소수 2자리)와 일치 --}}
         <div class="card-sm shrink-0 text-right text-[13px]" style="background:#f5f8ff;border-color:#dbeafe">
             <div class="flex items-center justify-end gap-1 text-[11px] text-gray-500">
                 {{ __('listings.rate.label') }}
                 <span class="font-semibold {{ $rateLive ? 'text-green-600' : 'text-amber-600' }}">{{ $rateLive ? __('listings.rate.live') : __('listings.rate.temp') }}</span>
                 <button wire:click="refreshRate" wire:loading.attr="disabled" class="text-blue-500 hover:text-blue-700" title="{{ __('listings.rate.refresh_title') }}">↻</button>
             </div>
-            <div class="font-bold text-gray-800">{{ __('listings.rate.usd_line', ['amount' => number_format($krwPerUsd)]) }}</div>
-            <div class="font-bold text-gray-800">{{ __('listings.rate.eur_line', ['amount' => number_format($krwPerEur)]) }}</div>
+            <div class="font-bold text-gray-800">{{ __('listings.rate.usd_line', ['amount' => $krwPerUsdDisplay]) }}</div>
+            <div class="font-bold text-gray-800">{{ __('listings.rate.eur_line', ['amount' => $krwPerEurDisplay]) }}</div>
             @if ($rateFetchedAt)<div class="text-[10px] text-gray-400">{{ __('listings.rate.as_of', ['time' => $rateFetchedAt]) }}</div>@endif
         </div>
     </div>
