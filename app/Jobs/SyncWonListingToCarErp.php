@@ -91,7 +91,7 @@ class SyncWonListingToCarErp implements ShouldQueue
 
         // board 는 VIN 을 모른다(NICE 조회=car-erp). 매칭키 = vehicle_number, NICE 입력 = owner_name.
         $payload = [
-            'contract_version' => 3,   // v3: 금액분해(매입가=구입금액)+판매pre-fill+바이어/컨사이니. 전방호환(v1/v2 수용)
+            'contract_version' => 4,   // v4: v3 + 매도비 계좌(selling_fee_payee_*, 판매자와 별개). 전방호환(v1~v3 수용)
             'vehicle_number' => $l->vehicle_number,
             'owner_name' => $l->owner_name,
             'source' => $l->source,
@@ -103,6 +103,10 @@ class SyncWonListingToCarErp implements ShouldQueue
             'payee_name' => $l->payee_name,
             'payee_bank' => $l->payee_bank,
             'payee_account' => $l->payee_account,
+            // v4 매도비 계좌 (매입가 계좌와 별개 — 판매자와 다른 대상)
+            'selling_fee_payee_name' => $l->selling_fee_payee_name,
+            'selling_fee_payee_bank' => $l->selling_fee_payee_bank,
+            'selling_fee_payee_account' => $l->selling_fee_payee_account,
             'attachments' => $attachments,
             // v3 매입측(KRW)
             'purchase_price_krw' => $purchasePriceKrw,
@@ -130,6 +134,9 @@ class SyncWonListingToCarErp implements ShouldQueue
         $logged = $payload;
         if ($logged['payee_account'] !== null) {
             $logged['payee_account'] = '***';
+        }
+        if ($logged['selling_fee_payee_account'] !== null) {
+            $logged['selling_fee_payee_account'] = '***';
         }
         IntegrationEvent::create([
             'direction' => 'outbound',
