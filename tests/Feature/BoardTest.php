@@ -1542,6 +1542,20 @@ class BoardTest extends TestCase
         $this->get($url)->assertOk()->assertSee('HEYMAN')->assertDontSee('SSANCAR');
     }
 
+    public function test_og_card_url_is_versioned_for_cache_bust(): void
+    {
+        // 카톡 OG 캐시(URL 단위) 회피 — 카드 URL에 수정시각 버전이 붙어 견적 변경 시 갱신.
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'won', 'final_price' => 9000000, 'offer_currency' => 'USD', 'offer_rate' => 1500]);
+
+        $url = URL::temporarySignedRoute('buyer.view', now()->addDays(30), ['listing' => $l->id]);
+        $res = $this->get($url)->assertOk();
+        $this->assertStringContainsString('card.png?v=', $res->getContent());   // og:image 에 캐시버스트 v=
+
+        // 버전 붙은 카드 URL 도 서명 유효(200 · PNG)
+        $cardUrl = URL::signedRoute('buyer.card', ['listing' => $l->id, 'v' => $l->updated_at?->timestamp ?? 0]);
+        $this->get($cardUrl)->assertOk()->assertHeader('Content-Type', 'image/png');
+    }
+
     public function test_sync_uses_car_erp_salesman_email_override(): void
     {
         config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh']);
