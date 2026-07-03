@@ -44,7 +44,9 @@ class BuyerViewController extends Controller
             'ssancarMedia' => $ssancarMedia,
             'company' => Setting::get('buyer_company_name', 'SSANCAR') ?: 'SSANCAR',
             // OG 미리보기 — 카톡/왓츠앱 링크 unfurl 시 견적카드 이미지. 만료없는 서명(재크롤 안 깨짐).
-            'cardUrl' => URL::signedRoute('buyer.card', ['listing' => $l->id]),
+            // ⚠️ `v`(수정시각) = 캐시버스트. 카톡은 og:image 를 URL 단위로 캐시 → 통화·금액 바뀌어도
+            // URL 고정이면 옛 카드 계속 노출. 견적 변경 시 updated_at 이 바뀌어 URL·카드가 갱신된다.
+            'cardUrl' => URL::signedRoute('buyer.card', ['listing' => $l->id, 'v' => $l->updated_at?->timestamp ?? 0]),
         ]);
     }
 
