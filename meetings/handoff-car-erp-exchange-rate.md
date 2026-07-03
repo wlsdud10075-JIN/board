@@ -37,6 +37,13 @@
 - 권위 스펙 = car-erp `docs/integration/board-portal-api.md` 에 `/rates` 추가 + board 에 역링크.
 
 ## 4. 체크리스트 (car-erp)
-- [ ] `GET /api/internal/board/rates`(HMAC GET, 스코프 없음) — car-erp 가 쓰는 전신환 매입률 USD/EUR(정수 원) 반환
-- [ ] `docs/integration/board-portal-api.md` 에 엔드포인트 명세 추가(응답키 확정), board 역링크
-- [ ] (선택) fetched_at·source 필드
+- [x] `GET /api/internal/board/rates`(HMAC GET, 스코프 없음) — 구현 완료(car-erp dev 246cbe4). 응답 {rates:{USD,JPY,EUR,GBP,CNY}, fetched_at, source}, 반올림 X, JPY=100엔.
+- [ ] ⚠️ **prod 배포** — 2026-07-03 라이브 확인 결과 **heysellcar.com·heymancar.com 둘 다 `/rates` = 404**(`/finance` 는 401=존재). 엔드포인트가 **dev 에만** 있음(3사 배포된 건 자동환율 소스변경분, 엔드포인트 아님). → **car-erp master 배포(또는 route:cache 갱신) 필요.** 이거 되기 전엔 board 는 폴백(구 캐시/config)만 씀 = 값 안 맞음.
+- [ ] `docs/integration/board-portal-api.md` §4-1 반영(했다고 함), board 역링크
+- [x] fetched_at·source 필드
+
+## 5. ⚠️ 반올림 정책 확인 (board 일치 필수 — Jin 2026-07-03)
+Jin: "erp 도 소수점 **버리는(truncate)** 걸로 했을 것 같다, 확인해봐." → **car-erp 가 표시·계산에서 환율을 round(반올림) 하는지 truncate(버림) 하는지 회신 바람.**
+- board 는 현재 `krwPer()` = `(int) round()` = **반올림**. car-erp 가 **버림**이면 소수 .5 이상에서 **1원 어긋남**(예 1400.50 → board 1401 vs erp 1400).
+- car-erp 방식대로 board 를 맞춤: **버림이면 board 도 `(int)`(floor) 로 변경**, 반올림이면 현행 유지.
+- (엔드포인트가 아직 prod 404 라 board 가 라이브 값으로 검증 못 함 → prod 배포 후 실값으로 최종 확인.)
