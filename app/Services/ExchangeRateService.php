@@ -5,13 +5,12 @@ namespace App\Services;
 use App\Models\ExchangeRate;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
- * 환율 조회/캐시 (§6a). 기본 소스 = Frankfurter(키 불필요, ECB 기준).
- * 실패 시 마지막 캐시값 → config 폴백 순으로 항상 값을 보장한다.
- * 소스 교체(네이버/다음 등)는 config('board.rate_api_base') + fetch() 파서만 수정.
+ * 환율 조회/캐시 (§6a). 소스 = **car-erp `/rates`**(네이버 전신환 매입률 원본, 반올림 X = car-erp 값과 일치).
+ * 실패 시 마지막 캐시값 → config 폴백 순으로 항상 값을 보장한다(car-erp 불통도 board 안 깨짐).
+ * (종전 Frankfurter/ECB 폐기 — 소스 달라 환율 어긋난 원인. refresh() 참고.)
  *
  * 차량금액은 KRW 원장, 배송금액은 USD 원장 → 표시통화로 변환 시 이 환율 사용.
  */
@@ -90,43 +89,33 @@ class ExchangeRateService
         $this->refresh();
     }
 
-    /** 라이브 조회 후 캐시 갱신. 통화별로 독립 실패 허용(부분 성공). 반환 = 갱신된 통화맵. */
+    /**
+     * 라이브 조회 후 캐시 갱신 — 소스 = **car-erp `/rates`**(네이버 전신환 매입률 원본, ⚠️반올림 X = car-erp와 값 일치).
+     * 실패/미설정 시 아무것도 갱신 안 함 → 폴백 체인(마지막 캐시값 → config default) 유지, board 안 깨짐. 반환 = 갱신 통화맵.
+     * (종전 Frankfurter/ECB 직접호출 폐기 — 소스 불일치로 car-erp 와 환율 달랐던 원인. 인계=handoff-car-erp-exchange-rate.)
+     */
     public function refresh(): array
     {
         $updated = [];
+        $resp = app(CarErpReadService::class)->rates();
+        if (($resp['ok'] ?? false) !== true) {
+            Log::warning('환율 조회 실패(car-erp /rates): '.($resp['reason'] ?? 'unknown'));
+
+            return $updated;
+        }
+
+        $rates = $resp['data']['rates'] ?? [];
         foreach (self::SUPPORTED as $currency) {
-            try {
-                $rate = $this->fetch($currency);
-                if ($rate !== null && $rate > 0) {
-                    ExchangeRate::updateOrCreate(
-                        ['currency' => $currency],
-                        ['krw_per_unit' => $rate, 'fetched_at' => now()],
-                    );
-                    $updated[$currency] = $rate;
-                }
-            } catch (\Throwable $e) {
-                Log::warning("환율 조회 실패({$currency}): ".$e->getMessage());
+            $rate = $rates[$currency] ?? null;
+            if ($rate !== null && (float) $rate > 0) {
+                ExchangeRate::updateOrCreate(
+                    ['currency' => $currency],
+                    ['krw_per_unit' => $rate, 'fetched_at' => now()],
+                );
+                $updated[$currency] = (float) $rate;
             }
         }
 
         return $updated;
-    }
-
-    /**
-     * 환율 조회 (1 {currency} = ? KRW). 실패/형식오류 시 null(상위에서 폴백 유지).
-     * 기본 소스 = Frankfurter(키 불필요, ECB 기준). config('board.rate_api_base') 로 교체 가능.
-     */
-    protected function fetch(string $currency): ?float
-    {
-        $base = rtrim((string) config('board.rate_api_base'), '/');
-        $res = Http::timeout(8)->get("{$base}/latest", ['from' => $currency, 'to' => 'KRW']);
-
-        if (! $res->ok()) {
-            return null;
-        }
-
-        $rate = $res->json('rates.KRW');
-
-        return ($rate && (float) $rate > 0) ? (float) $rate : null;
     }
 }
