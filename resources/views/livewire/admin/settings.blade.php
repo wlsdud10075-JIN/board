@@ -7,6 +7,8 @@ use Livewire\Volt\Component;
 new #[Layout('components.layouts.app')] class extends Component {
     public string $sidebarBrand = '';
 
+    public string $buyerCompanyName = '';
+
     public bool $localeEnEnabled = false;
 
     public function mount(): void
@@ -15,6 +17,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             abort(403);
         }
         $this->sidebarBrand = Setting::get('sidebar_brand', 'HeymanBoard') ?: 'HeymanBoard';
+        $this->buyerCompanyName = Setting::get('buyer_company_name', 'SSANCAR') ?: 'SSANCAR';
         $this->localeEnEnabled = (bool) Setting::get('locale_en_enabled', false);
     }
 
@@ -26,9 +29,14 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $this->validate([
             'sidebarBrand' => ['required', 'string', 'max:12'],
-        ], [], ['sidebarBrand' => __('settings.feature.brand_label')]);
+            'buyerCompanyName' => ['required', 'string', 'max:30'],
+        ], [], [
+            'sidebarBrand' => __('settings.feature.brand_label'),
+            'buyerCompanyName' => __('settings.feature.company_label'),
+        ]);
 
         $brand = trim($this->sidebarBrand) ?: 'HeymanBoard';
+        $company = trim($this->buyerCompanyName) ?: 'SSANCAR';
 
         Setting::updateOrCreate(
             ['key' => 'sidebar_brand'],
@@ -39,7 +47,17 @@ new #[Layout('components.layouts.app')] class extends Component {
             ],
         );
 
+        Setting::updateOrCreate(
+            ['key' => 'buyer_company_name'],
+            [
+                'value' => $company,
+                'type' => 'string',
+                'description' => '바이어 견적서·공개페이지 표시 회사명',
+            ],
+        );
+
         $this->sidebarBrand = $brand;
+        $this->buyerCompanyName = $company;
         $this->dispatch('saved');
     }
 
@@ -92,6 +110,14 @@ new #[Layout('components.layouts.app')] class extends Component {
                 maxlength="12"
                 required
                 autofocus
+            />
+
+            <flux:input
+                wire:model="buyerCompanyName"
+                :label="__('settings.feature.company_label')"
+                :description="__('settings.feature.company_hint')"
+                maxlength="30"
+                required
             />
 
             <div class="flex items-center gap-3">

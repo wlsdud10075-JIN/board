@@ -15,8 +15,8 @@ class QuoteCardImage
 
     private const H = 630;
 
-    /** 형식 완료된(통화기호 포함) 금액 문자열 3개를 받아 PNG 바이트 반환. */
-    public function render(string $car, string $shipping, string $total): string
+    /** 형식 완료된(통화기호 포함) 금액 문자열 3개 + 회사명을 받아 PNG 바이트 반환. */
+    public function render(string $car, string $shipping, string $total, string $company = 'SSANCAR'): string
     {
         $reg = resource_path('fonts/DejaVuSans.ttf');
         $bold = resource_path('fonts/DejaVuSans-Bold.ttf');
@@ -32,7 +32,7 @@ class QuoteCardImage
 
         // 헤더 바
         imagefilledrectangle($im, 0, 0, self::W, 150, $purple);
-        imagettftext($im, 22, 0, 64, 60, $white, $bold, 'SSANCAR');
+        imagettftext($im, 22, 0, 64, 60, $white, $bold, $company);
         imagettftext($im, 50, 0, 64, 120, $white, $bold, 'QUOTATION');
 
         // 본문 3줄

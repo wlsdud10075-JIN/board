@@ -1533,6 +1533,15 @@ class BoardTest extends TestCase
         $this->assertStringContainsString('8,500,000', $krw->offerDisplay());
     }
 
+    public function test_buyer_page_uses_configured_company_name(): void
+    {
+        Setting::updateOrCreate(['key' => 'buyer_company_name'], ['value' => 'HEYMAN', 'type' => 'string']);
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'won', 'final_price' => 9000000, 'offer_currency' => 'USD', 'offer_rate' => 1400]);
+
+        $url = URL::temporarySignedRoute('buyer.view', now()->addDays(30), ['listing' => $l->id]);
+        $this->get($url)->assertOk()->assertSee('HEYMAN')->assertDontSee('SSANCAR');
+    }
+
     public function test_sync_uses_car_erp_salesman_email_override(): void
     {
         config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh']);
