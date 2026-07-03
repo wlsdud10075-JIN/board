@@ -110,6 +110,10 @@ function divider(): array
 {
     return ['object' => 'block', 'type' => 'divider', 'divider' => (object) []];
 }
+function linkpage(string $pageId): array
+{
+    return ['object' => 'block', 'type' => 'link_to_page', 'link_to_page' => ['type' => 'page_id', 'page_id' => $pageId]];
+}
 function footer(string $dept): array
 {
     return callout('🕒', "SSANCAR 매입보드(board) 업무 가이드 · $dept · 2026-07-03 갱신 (자동 발행). 이 아래에 running log(매일 1~2줄)를 쌓으세요. 화면 캡처도 여기에.", 'gray_background');
@@ -252,11 +256,16 @@ function blocks_inspection(): array
 // ════════════════════════════════════════════════════════════
 //  관리 (board /manage + /users + /audit)
 // ════════════════════════════════════════════════════════════
-function blocks_manager(): array
+function blocks_manager(?string $salesPageId = null): array
 {
     $b = [];
     $b[] = callout('🗂️', '이 페이지는 「매입보드(board)」 앱의 관리자 화면 가이드입니다. car-erp 의 "관리 (통합)" 과는 별개 — 여기서는 board 안의 전체현황 모니터링·무제한 수정·계정관리·감사로그를 다룹니다.', 'blue_background');
     $b[] = callout('🔑', '관리(manager) 권한은 영업/검차 화면을 모두 보고(전체현황), 식별값·상태를 우회 수정할 수 있습니다. super(시스템관리자)는 추가로 계정관리·감사로그까지.', 'gray_background');
+    $b[] = callout('👨‍💼', '관리자도 영업입니다 — 매입예정 등록 · 바이어 전달 · 구매확정 · 영업 포털 같은 실제 영업 업무는 「영업」 페이지를 그대로 따르세요. 이 관리 페이지는 그 위에 얹히는 관리 전용 기능(전체현황·무제한 수정·계정관리·감사로그)만 다룹니다.', 'blue_background');
+    if ($salesPageId) {
+        $b[] = para('👉 영업 업무 가이드 (관리자도 동일하게 수행):');
+        $b[] = linkpage($salesPageId);
+    }
     $b[] = h2('🔄 관리가 보는 것');
     $b[] = bul('전체현황(/manage) → 무제한 수정 드로어 → (super) 계정관리(/users) · 감사로그(/audit)');
     $b[] = divider();
@@ -278,6 +287,7 @@ function blocks_manager(): array
 
     $b[] = h2('3. 계정관리 — 화면: /users  [super 전용]');
     $b[] = num('계정 생성 · 역할 지정(영업/현지확인/경매/관리) · 시스템관리자(super) 지정 · 활성토글.');
+    $b[] = callout('ℹ️', '「경매」 역할은 사실상 안 씁니다 — 이제 영업이 딜을 끝까지 소유(등록→전달→구매확정)합니다. 신규 계정은 보통 영업/현지확인/관리 중에서 지정.', 'gray_background');
     $b[] = num('car-erp 영업 이메일 매핑 — board 로그인 이메일과 car-erp 영업 이메일이 다르면 여기서 car-erp 이메일을 적어줌(연동 B 자동매칭용).');
     $b[] = callout('💡', '대부분 board 로그인 이메일 = car-erp 이메일이라 자동 매칭됨. "car-erp 연동 안 됨"은 보통 이 이메일 매핑 누락.', 'gray_background');
     $b[] = num('퇴사자 = 활성토글 끔(is_active=false) → 로그인돼도 업무화면 403. car-erp 쪽도 같이 정지.');
@@ -439,7 +449,7 @@ foreach ($targets as $name => $cfg) {
     if ($only && ! in_array($name, $only, true)) {
         continue;
     }
-    $blocks = $cfg['fn']();
+    $blocks = $name === '관리' ? blocks_manager($pkids['영업'] ?? null) : $cfg['fn']();
     $cid = $pkids[$name] ?? null;
 
     if (! $apply) {
