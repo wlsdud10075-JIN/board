@@ -1130,17 +1130,20 @@ class BoardTest extends TestCase
 
     public function test_exchange_rate_service_fetches_and_falls_back(): void
     {
-        Http::fake([
-            '*from=USD*' => Http::response(['rates' => ['KRW' => 1400.50]]),
-            '*from=EUR*' => Http::response(['rates' => ['KRW' => 1550.00]]),
-        ]);
+        // 소스 = car-erp /rates(전신환 매입률 원본, 반올림 X). Frankfurter 폐기.
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'shh']);
+        Http::fake(['*/api/internal/board/rates' => Http::response([
+            'rates' => ['USD' => 1400.50, 'EUR' => 1550.00, 'JPY' => 905.5],
+            'fetched_at' => '2026-07-03 14:05', 'source' => 'naver',
+        ], 200)]);
 
         $svc = app(ExchangeRateService::class);
         $svc->refresh();
 
-        $this->assertSame(1401, $svc->krwPerUsd());   // round(1400.50)
+        $this->assertSame(1401, $svc->krwPerUsd());   // round(1400.50), 계산/표시용 int
         $this->assertSame(1550, $svc->krwPerEur());
-        $this->assertDatabaseHas('exchange_rates', ['currency' => 'USD']);
+        $this->assertSame('1400.50', (string) ExchangeRate::where('currency', 'USD')->first()->krw_per_unit);   // 원본 소수 보존(car-erp와 어긋남 방지)
+        $this->assertSame('1,400.50', $svc->snapshot()['USD_display']);   // 표시 2자리 = car-erp number_format(rate,2) 와 일치
 
         // 캐시 없으면 config 폴백
         ExchangeRate::query()->delete();
@@ -1158,12 +1161,15 @@ class BoardTest extends TestCase
 
     public function test_lazy_refresh_runs_only_when_stale(): void
     {
-        config(['board.rate_auto_refresh' => true]);   // 테스트 기본 false → 이 테스트만 켬
-        Cache::flush();
-        Http::fake([
-            '*from=USD*' => Http::response(['rates' => ['KRW' => 1400]]),
-            '*from=EUR*' => Http::response(['rates' => ['KRW' => 1600]]),
+        config([
+            'board.rate_auto_refresh' => true,   // 테스트 기본 false → 이 테스트만 켬
+            'services.car_erp.base_url' => 'https://carerp.test',
+            'services.car_erp.read_hmac_secret' => 'shh',
         ]);
+        Cache::flush();
+        Http::fake(['*/api/internal/board/rates' => Http::response([
+            'rates' => ['USD' => 1400, 'EUR' => 1600],
+        ], 200)]);
         $svc = app(ExchangeRateService::class);
 
         $this->assertTrue($svc->isStale());   // 캐시 없음 → stale

@@ -83,6 +83,16 @@ class CarErpReadService
         return $this->get('/by-buyer', ['salesman_email' => $email]);
     }
 
+    /**
+     * 환율 — car-erp 전신환 매입률(네이버 "송금 받으실 때") 원본 그대로. ⚠️반올림 안 됨(board와 어긋남 방지).
+     * 스코프 없음(전역값). data = {rates:{USD,JPY,EUR,GBP,CNY}, fetched_at, source}. JPY는 100엔 기준.
+     * 권위 = car-erp board-portal-api.md §4-1.
+     */
+    public function rates(): array
+    {
+        return $this->get('/rates', []);
+    }
+
     /** v3 — 바이어 드롭다운(경매/구매). 본인 스코프(car-erp 결정: IDOR 격리). {count,data:[{id,name,country}]}. */
     public function buyers(string $email): array
     {
