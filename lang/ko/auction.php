@@ -44,6 +44,8 @@ return [
 
     'payment_info' => '입금정보',
     'payment_info_hint' => '(매입 정산 계좌 · car-erp 전달)',
+    'selling_fee_info' => '매도비 계좌',
+    'selling_fee_info_hint' => '(판매자와 다른 대상 · car-erp 전달)',
     'bank_placeholder' => '은행',
     'payee_placeholder' => '예금주',
     'account_placeholder' => '계좌번호 (암호화 저장)',

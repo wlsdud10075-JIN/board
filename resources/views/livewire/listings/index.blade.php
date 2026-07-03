@@ -48,6 +48,10 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $payee_name = '';
     public string $payee_bank = '';
     public string $payee_account = '';
+    // 매도비 계좌 (선택 — 판매자와 다른 대상, 영업 직접입력) — 매입가 계좌와 별개
+    public string $selling_fee_payee_name = '';
+    public string $selling_fee_payee_bank = '';
+    public string $selling_fee_payee_account = '';
 
     // ── 편집 (본인 글 수정) ──
     public ?int $editingId = null;
@@ -58,6 +62,9 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $e_payee_name = '';
     public string $e_payee_bank = '';
     public string $e_payee_account = '';
+    public string $e_selling_fee_payee_name = '';
+    public string $e_selling_fee_payee_bank = '';
+    public string $e_selling_fee_payee_account = '';
     public ?string $e_car_cost = null;
     public ?string $e_discount_rate = null;
     public ?int $e_shipping_usd = null;
@@ -219,6 +226,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->e_payee_name = $l->payee_name ?? '';
         $this->e_payee_bank = $l->payee_bank ?? '';
         $this->e_payee_account = $l->payee_account ?? '';
+        $this->e_selling_fee_payee_name = $l->selling_fee_payee_name ?? '';
+        $this->e_selling_fee_payee_bank = $l->selling_fee_payee_bank ?? '';
+        $this->e_selling_fee_payee_account = $l->selling_fee_payee_account ?? '';
         $this->e_car_cost = $l->car_cost !== null ? (string) $l->car_cost : null;
         $this->e_discount_rate = $l->discount_rate !== null ? (string) $l->discount_rate : null;
         $this->e_shipping_usd = $l->shipping_usd;
@@ -232,7 +242,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'eSalesFiles']);
+        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'eSalesFiles']);
         unset($this->editing);
     }
 
@@ -254,6 +264,9 @@ new #[Layout('components.layouts.app')] class extends Component {
             'e_payee_name' => 'nullable|string|max:60',
             'e_payee_bank' => 'nullable|string|max:40',
             'e_payee_account' => 'nullable|string|max:40',
+            'e_selling_fee_payee_name' => 'nullable|string|max:60',
+            'e_selling_fee_payee_bank' => 'nullable|string|max:40',
+            'e_selling_fee_payee_account' => 'nullable|string|max:40',
             'e_car_cost' => 'nullable|numeric|min:0',
             'e_discount_rate' => 'nullable|numeric|min:0|max:100',
             'e_shipping_usd' => 'nullable|integer|in:'.implode(',', config('board.shipping_options')),
@@ -275,6 +288,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->payee_name = $this->e_payee_name ?: null;
         $l->payee_bank = $this->e_payee_bank ?: null;
         $l->payee_account = $this->e_payee_account ?: null;
+        $l->selling_fee_payee_name = $this->e_selling_fee_payee_name ?: null;
+        $l->selling_fee_payee_bank = $this->e_selling_fee_payee_bank ?: null;
+        $l->selling_fee_payee_account = $this->e_selling_fee_payee_account ?: null;
         $l->car_cost = ($this->e_car_cost === null || $this->e_car_cost === '') ? null : (int) $this->e_car_cost;
         $l->discount_rate = ($this->e_discount_rate === null || $this->e_discount_rate === '') ? null : (float) $this->e_discount_rate;
         $l->shipping_usd = $this->e_shipping_usd ?: null;
@@ -408,6 +424,9 @@ new #[Layout('components.layouts.app')] class extends Component {
             'payee_name' => 'nullable|string|max:60',
             'payee_bank' => 'nullable|string|max:40',
             'payee_account' => 'nullable|string|max:40',
+            'selling_fee_payee_name' => 'nullable|string|max:60',
+            'selling_fee_payee_bank' => 'nullable|string|max:40',
+            'selling_fee_payee_account' => 'nullable|string|max:40',
             'car_cost' => 'nullable|numeric|min:0',
             'discount_rate' => 'nullable|numeric|min:0|max:100',
             'shipping_usd' => 'nullable|integer|in:'.implode(',', config('board.shipping_options')),
@@ -483,6 +502,9 @@ new #[Layout('components.layouts.app')] class extends Component {
             'payee_name' => $this->payee_name ?: null,
             'payee_bank' => $this->payee_bank ?: null,
             'payee_account' => $this->payee_account ?: null,
+            'selling_fee_payee_name' => $this->selling_fee_payee_name ?: null,
+            'selling_fee_payee_bank' => $this->selling_fee_payee_bank ?: null,
+            'selling_fee_payee_account' => $this->selling_fee_payee_account ?: null,
             'expected_price' => ($this->expected_price === null || $this->expected_price === '') ? null : (int) $this->expected_price,
             'expected_price_currency' => $this->expected_price_currency,
             'car_cost' => $carCost,
@@ -596,7 +618,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     private function resetForm(): void
     {
-        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'encarLink', 'ssancarLink', 'promotingId', 'expected_price', 'expected_price_currency', 'priceOptions', 'payee_name', 'payee_bank', 'payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number', 'salesFiles']);
+        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'encarLink', 'ssancarLink', 'promotingId', 'expected_price', 'expected_price_currency', 'priceOptions', 'payee_name', 'payee_bank', 'payee_account', 'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number', 'salesFiles']);
         $this->origin = 'encar';
         $this->source = 'encar';
         $this->resetErrorBag();
@@ -837,6 +859,23 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @error('payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 <p class="mt-1 text-[11px] text-gray-400">{{ __('listings.payee.help') }}</p>
 
+                {{-- 매도비 계좌 (선택 · 판매자와 다른 대상) — 매입가 계좌와 별개 --}}
+                <label class="label-base mt-3">{{ __('listings.selling_fee_payee.label') }} <span class="text-gray-400">{{ __('listings.selling_fee_payee.hint') }}</span></label>
+                <div x-data class="grid gap-2 sm:grid-cols-3">
+                    <div>
+                        <input x-ref="feeBankAdd" wire:model.blur="selling_fee_payee_bank" list="korean-banks-fee-add" autocomplete="off"
+                               class="input-base" placeholder="{{ __('listings.payee.bank_ph') }}" maxlength="100"
+                               x-on:input="$refs.feeAcctAdd.value = $store.koreanBanks.applyMask($el.value, $refs.feeAcctAdd.value)">
+                        <datalist id="korean-banks-fee-add"><template x-for="b in $store.koreanBanks.names()" :key="b"><option :value="b"></option></template></datalist>
+                    </div>
+                    <div><input wire:model.blur="selling_fee_payee_name" class="input-base" placeholder="{{ __('listings.payee.name_ph') }}" maxlength="60"></div>
+                    <div><input x-ref="feeAcctAdd" wire:model.blur="selling_fee_payee_account" autocomplete="off"
+                               class="input-base font-mono" placeholder="{{ __('listings.payee.account_ph') }}"
+                               x-on:input="$el.value = $store.koreanBanks.applyMask($refs.feeBankAdd.value, $el.value)"></div>
+                </div>
+                @error('selling_fee_payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                <p class="mt-1 text-[11px] text-gray-400">{{ __('listings.selling_fee_payee.help') }}</p>
+
                 {{-- 차량 첨부 (영업 자료 → 낙찰 시 연동 B 로 car-erp 첨부탭) · 첨부파일 1칸 통합 --}}
                 <label class="label-base mt-3">{{ __('listings.attach.add_label') }} <span class="text-gray-400">{{ __('listings.attach.add_hint', ['max' => config('board.attachment_max')]) }}</span></label>
                 <label class="flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-gray-300 py-3 text-[13px] text-gray-500 hover:border-[var(--color-primary)]">
@@ -1012,6 +1051,22 @@ new #[Layout('components.layouts.app')] class extends Component {
                                x-on:input="$el.value = $store.koreanBanks.applyMask($refs.bankEdit.value, $el.value)"></div>
                 </div>
                 @error('e_payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+
+                {{-- 매도비 계좌 (선택 · 판매자와 다른 대상) --}}
+                <label class="label-base mt-3">{{ __('listings.selling_fee_payee.label') }} <span class="text-gray-400">{{ __('listings.selling_fee_payee.hint') }}</span></label>
+                <div x-data class="grid gap-2 sm:grid-cols-3">
+                    <div>
+                        <input x-ref="feeBankEdit" wire:model.blur="e_selling_fee_payee_bank" list="korean-banks-fee-edit" autocomplete="off"
+                               class="input-base" placeholder="{{ __('listings.payee.bank_ph') }}" maxlength="100" @unless ($canEdit) disabled @endunless
+                               x-on:input="$refs.feeAcctEdit.value = $store.koreanBanks.applyMask($el.value, $refs.feeAcctEdit.value)">
+                        <datalist id="korean-banks-fee-edit"><template x-for="b in $store.koreanBanks.names()" :key="b"><option :value="b"></option></template></datalist>
+                    </div>
+                    <div><input wire:model.blur="e_selling_fee_payee_name" class="input-base" placeholder="{{ __('listings.payee.name_ph') }}" maxlength="60" @unless ($canEdit) disabled @endunless></div>
+                    <div><input x-ref="feeAcctEdit" wire:model.blur="e_selling_fee_payee_account" autocomplete="off"
+                               class="input-base font-mono" placeholder="{{ __('listings.payee.account_ph') }}" @unless ($canEdit) disabled @endunless
+                               x-on:input="$el.value = $store.koreanBanks.applyMask($refs.feeBankEdit.value, $el.value)"></div>
+                </div>
+                @error('e_selling_fee_payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 <label class="label-base mt-3">{{ __('listings.add_form.region') }}</label>
                 <input class="input-base" wire:model="e_region" list="regionListEdit" placeholder="{{ __('listings.add_form.region_ph') }}" @unless ($canEdit) disabled @endunless>

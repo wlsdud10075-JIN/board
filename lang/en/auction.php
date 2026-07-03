@@ -44,6 +44,8 @@ return [
 
     'payment_info' => 'Payment info',
     'payment_info_hint' => '(settlement account · sent to car-erp)',
+    'selling_fee_info' => 'Selling fee account',
+    'selling_fee_info_hint' => '(different party from seller · sent to car-erp)',
     'bank_placeholder' => 'Bank',
     'payee_placeholder' => 'Account holder',
     'account_placeholder' => 'Account no. (stored encrypted)',

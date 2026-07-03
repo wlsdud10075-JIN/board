@@ -144,6 +144,12 @@ return [
         'help' => '💡 Enter now if known → shown automatically at the purchase stage. Leave blank for the buyer to fill. (Auto hyphens by bank · account number encrypted)',
     ],
 
+    'selling_fee_payee' => [
+        'label' => 'Selling fee account',
+        'hint' => '(optional · different party from seller)',
+        'help' => '💡 Separate account that receives the selling fee — enter when it differs from the purchase-price account. (Auto hyphens by bank · encrypted)',
+    ],
+
     // Attachments
     'attach' => [
         'add_label' => 'Vehicle attachments',

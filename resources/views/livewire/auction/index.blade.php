@@ -17,6 +17,10 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $payee_name = '';
     public string $payee_bank = '';
     public string $payee_account = '';
+    // 매도비 계좌 (판매자와 다른 대상, 영업 직접입력) — 매입가 계좌와 별개
+    public string $selling_fee_payee_name = '';
+    public string $selling_fee_payee_bank = '';
+    public string $selling_fee_payee_account = '';
 
     // v3 — car-erp 바이어/컨사이니 (드롭다운 선택 → 연동B buyer_id/consignee_id). 본인 스코프.
     public ?int $buyerId = null;
@@ -66,6 +70,9 @@ new #[Layout('components.layouts.app')] class extends Component {
             'payee_name' => 'nullable|string|max:60',
             'payee_bank' => 'nullable|string|max:40',
             'payee_account' => 'nullable|string|max:40',
+            'selling_fee_payee_name' => 'nullable|string|max:60',
+            'selling_fee_payee_bank' => 'nullable|string|max:40',
+            'selling_fee_payee_account' => 'nullable|string|max:40',
         ];
     }
 
@@ -92,6 +99,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->payee_name = $l->payee_name ?? '';
         $this->payee_bank = $l->payee_bank ?? '';
         $this->payee_account = $l->payee_account ?? '';
+        $this->selling_fee_payee_name = $l->selling_fee_payee_name ?? '';
+        $this->selling_fee_payee_bank = $l->selling_fee_payee_bank ?? '';
+        $this->selling_fee_payee_account = $l->selling_fee_payee_account ?? '';
         $this->buyerId = $l->car_erp_buyer_id;
         $this->consigneeId = $l->car_erp_consignee_id;
         $this->loadBuyers();
@@ -102,6 +112,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function closeDetail(): void
     {
         $this->reset(['detailId', 'owner_name', 'payee_name', 'payee_bank', 'payee_account',
+            'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account',
             'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts']);
         unset($this->detail);
     }
@@ -112,6 +123,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->payee_name = $this->payee_name ?: null;
         $l->payee_bank = $this->payee_bank ?: null;
         $l->payee_account = $this->payee_account ?: null;
+        $l->selling_fee_payee_name = $this->selling_fee_payee_name ?: null;
+        $l->selling_fee_payee_bank = $this->selling_fee_payee_bank ?: null;
+        $l->selling_fee_payee_account = $this->selling_fee_payee_account ?: null;
         $l->car_erp_buyer_id = $this->buyerId ?: null;
         $l->car_erp_consignee_id = $this->consigneeId ?: null;
     }
@@ -163,6 +177,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->status = $result;
         $l->save();
         $this->reset(['detailId', 'owner_name', 'payee_name', 'payee_bank', 'payee_account',
+            'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account',
             'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts']);
         unset($this->listings, $this->detail);
         session()->flash('ok', __('auction.flash_processed', ['no' => $l->vehicle_number, 'label' => $l->statusLabel()]));
@@ -343,6 +358,24 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @error('payee_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     @error('payee_bank') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     @error('payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+
+                    {{-- 매도비 계좌 (판매자와 다른 대상) --}}
+                    <div class="section-title-sm mt-3">{{ __('auction.selling_fee_info') }} <span class="text-[11px] font-normal text-gray-400">{{ __('auction.selling_fee_info_hint') }}</span></div>
+                    <div x-data>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <input x-ref="feeBankAuc" wire:model.blur="selling_fee_payee_bank" list="korean-banks-fee-auction" autocomplete="off"
+                                       class="input-base" placeholder="{{ __('auction.bank_placeholder') }}" maxlength="100"
+                                       x-on:input="$refs.feeAcctAuc.value = $store.koreanBanks.applyMask($el.value, $refs.feeAcctAuc.value)">
+                                <datalist id="korean-banks-fee-auction"><template x-for="b in $store.koreanBanks.names()" :key="b"><option :value="b"></option></template></datalist>
+                            </div>
+                            <div><input wire:model.blur="selling_fee_payee_name" class="input-base" placeholder="{{ __('auction.payee_placeholder') }}" maxlength="60"></div>
+                        </div>
+                        <input x-ref="feeAcctAuc" wire:model.blur="selling_fee_payee_account" autocomplete="off"
+                               class="input-base mt-2 font-mono" placeholder="{{ __('auction.account_placeholder') }}"
+                               x-on:input="$el.value = $store.koreanBanks.applyMask($refs.feeBankAuc.value, $el.value)">
+                    </div>
+                    @error('selling_fee_payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 @endif
 
                 {{-- 집행 --}}

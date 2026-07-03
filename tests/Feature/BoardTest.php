@@ -328,7 +328,7 @@ class BoardTest extends TestCase
         Http::assertSent(function ($request) {
             $att = $request['attachments'] ?? [];
 
-            return $request['contract_version'] === 3
+            return $request['contract_version'] === 4
                 && count($att) === 2                                   // 검차사진(i/x.jpg)은 제외, 영업 자료만
                 && collect($att)->pluck('s3_path')->sort()->values()->all() === ['s/a.jpg', 's/r.pdf']
                 && collect($att)->firstWhere('kind', 'sales_document')['s3_path'] === 's/r.pdf';
@@ -352,7 +352,7 @@ class BoardTest extends TestCase
         (new SyncWonListingToCarErp($l->id))->handle();
 
         Http::assertSent(function ($r) {
-            return $r['contract_version'] === 3
+            return $r['contract_version'] === 4
                 && $r['purchase_price_krw'] === 9900000          // 1000만 − 할인1%(10만)
                 && $r['selling_fee_krw'] === 440000              // 매도비
                 && $r['sale_currency'] === 'EUR'
@@ -1491,6 +1491,33 @@ class BoardTest extends TestCase
         $this->assertSame('car_erp', $ev->target);
         $this->assertSame(200, $ev->response_status);
         $this->assertSame('***', $ev->request_payload['payee_account']);   // 로그엔 마스킹
+    }
+
+    public function test_sync_payload_includes_selling_fee_payee_masked_in_log(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh']);
+        Http::fake(['*/api/internal/purchase-sync' => Http::response(['vehicle_id' => 778], 200)]);
+
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'won', 'source' => 'auction', 'final_price' => 9000000,
+            'selling_fee_payee_name' => '매도대행', 'selling_fee_payee_bank' => '신한',
+            'selling_fee_payee_account' => '999-888-77766',
+        ]);
+
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        // v4: 매도비 계좌(판매자와 별개) — 전송 본문엔 실값, 로그엔 마스킹
+        Http::assertSent(fn ($r) => $r['contract_version'] === 4
+            && $r['selling_fee_payee_name'] === '매도대행'
+            && $r['selling_fee_payee_bank'] === '신한'
+            && $r['selling_fee_payee_account'] === '999-888-77766');
+
+        $ev = IntegrationEvent::first();
+        $this->assertSame('***', $ev->request_payload['selling_fee_payee_account']);
+
+        // 계좌번호 at-rest 암호화 확인
+        $raw = \DB::table('purchase_listings')->where('id', $l->id)->value('selling_fee_payee_account');
+        $this->assertNotSame('999-888-77766', $raw);
     }
 
     public function test_sync_uses_car_erp_salesman_email_override(): void
