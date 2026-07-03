@@ -215,7 +215,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <td class="font-semibold text-gray-800">{{ $l->vehicle_number }}</td>
                             <td><span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }}">{{ $l->isAuction() ? __('domain.source.auction') : __('domain.source.encar') }}</span></td>
                             <td class="text-gray-600">{{ $l->creator->name }}</td>
-                            <td class="font-semibold text-[var(--color-primary-text)]">{{ $l->final_price ? number_format($l->final_price).__('common.won_currency') : '—' }}</td>
+                            <td class="font-semibold text-[var(--color-primary-text)]">{{ $l->offerDisplay() ?? '—' }}</td>
                             <td>
                                 @if ($l->status === 'accepted')
                                     <span class="badge badge-amber">{{ __('auction.pending_click') }}</span>
@@ -248,7 +248,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                         @else
                             <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }} ✓</span>
                         @endif
-                        <span class="shrink-0 text-sm font-semibold text-[var(--color-primary-text)]">{{ $l->final_price ? number_format($l->final_price).__('common.won_currency') : '—' }}</span>
+                        <span class="shrink-0 text-sm font-semibold text-[var(--color-primary-text)]">{{ $l->offerDisplay() ?? '—' }}</span>
                     </div>
                 </div>
             @empty
@@ -287,7 +287,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 </div>
                 <div class="mt-3 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
                     <span class="font-semibold text-gray-700">{{ __('auction.final_price') }}</span>
-                    <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $d->final_price ? number_format($d->final_price).__('common.won_currency') : '—' }}</span>
+                    <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $d->offerDisplay() ?? '—' }}</span>
                 </div>
 
                 @if ($d->inspection_memo || $d->inspection_note)

@@ -126,6 +126,25 @@ class PurchaseListing extends Model
     }
 
     /**
+     * 판매가 표시 문자열 — 확정 통화(offer_currency) 기준(바이어에게 전달된 그 통화·금액).
+     * 통화 미확정이면 KRW(final_price). auction/구매 화면 표시용 — final_price(KRW)만 보이던 버그 교정.
+     * 반환: "$8,500" / "€7,200" / "8,500,000원" | null(가격 미정).
+     */
+    public function offerDisplay(?int $krwPerUsd = null, ?int $krwPerEur = null): ?string
+    {
+        $offer = $this->offerAmount($krwPerUsd, $krwPerEur);
+        if ($offer === null) {
+            return null;
+        }
+        // 통화 미확정(offer_currency 없음) 또는 KRW → 원화 표시(전달 전 기본과 일치)
+        if (! $this->offer_currency || $offer['currency'] === 'KRW') {
+            return number_format($this->final_price).__('common.won_currency');
+        }
+
+        return (Money::SYMBOLS[$offer['currency']] ?? '').number_format($offer['amount']);
+    }
+
+    /**
      * 바이어 견적 3줄 분해(숫자) — 견적 카드/전달드로어/바이어 공개페이지 공용(단일 출처, drift 방지).
      * Total = offerAmount(final_price 스냅샷, 불변) / Car = carPriceKrw ÷ rate / Shipping = Total−Car(잔차 흡수).
      * 나눗셈 두 번 금지 → 합 == Total 보장. final_price 없으면 null(가격 협의중).

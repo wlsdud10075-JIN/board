@@ -1520,6 +1520,19 @@ class BoardTest extends TestCase
         $this->assertNotSame('999-888-77766', $raw);
     }
 
+    public function test_offer_display_uses_confirmed_currency_and_snapshot_rate(): void
+    {
+        // EUR 확정 딜 — 표시는 € 금액, 환율은 offer_rate(전달 시점 스냅샷) 고정: 라이브 환율 줘도 불변
+        $eur = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'won', 'final_price' => 10340000, 'offer_currency' => 'EUR', 'offer_rate' => 1500,
+        ]);
+        $this->assertSame('€6,893', $eur->offerDisplay(9999, 9999));   // 10,340,000 / 1500, 라이브(9999) 무시
+
+        // 통화 미확정 → KRW(final_price) 표시(전달 전 기본)
+        $krw = $this->mkListing($this->mkUser('sales'), ['status' => 'won', 'final_price' => 8500000]);
+        $this->assertStringContainsString('8,500,000', $krw->offerDisplay());
+    }
+
     public function test_sync_uses_car_erp_salesman_email_override(): void
     {
         config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh']);

@@ -79,6 +79,9 @@
 
         <div class="card">
             <div class="sec-title">Photos &amp; Videos</div>
+            @if ($hasVideo)
+                <p class="hint">▶ If a video won't play in fullscreen, open this page in your browser (Chrome / Safari). Some in-app chat browsers block video fullscreen.</p>
+            @endif
             @if ($hasAny)
                 {{-- ssancar 검차 영상 (Bunny iframe) — 다운로드/재업로드 없이 임베드(용량문제 회피). --}}
                 @foreach ($sVideos as $v)
@@ -108,9 +111,6 @@
                 </div>
             @else
                 <div class="empty">No media available.</div>
-            @endif
-            @if ($hasVideo)
-                <p class="hint">▶ If a video won't play in fullscreen, open this page in your browser (Chrome / Safari). Some in-app chat browsers block video fullscreen.</p>
             @endif
         </div>
 
