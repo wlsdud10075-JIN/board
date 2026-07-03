@@ -56,6 +56,8 @@ return [
         'brand_section' => 'Brand',
         'brand_label' => 'Brand text',
         'brand_hint' => 'Shown on the sidebar header and the login screen (max 12 chars).',
+        'company_label' => 'Buyer-facing company name',
+        'company_hint' => 'Shown on the quote and the buyer public page (Latin recommended — the quote card image supports Latin only).',
         'lang_section' => 'Language',
         'locale_label' => 'Enable English UI',
         'locale_hint' => 'When on, a 한국어 / English switch appears in the top bar.',

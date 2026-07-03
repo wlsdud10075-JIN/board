@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\PurchaseListing;
 use App\Models\Scopes\SalesmanScope;
+use App\Models\Setting;
 use App\Services\ExchangeRateService;
 use App\Services\SsancarMediaService;
 use App\Support\QuoteCardImage;
@@ -41,6 +42,7 @@ class BuyerViewController extends Controller
             'breakdown' => $breakdown,
             'media' => $media,
             'ssancarMedia' => $ssancarMedia,
+            'company' => Setting::get('buyer_company_name', 'SSANCAR') ?: 'SSANCAR',
             // OG 미리보기 — 카톡/왓츠앱 링크 unfurl 시 견적카드 이미지. 만료없는 서명(재크롤 안 깨짐).
             'cardUrl' => URL::signedRoute('buyer.card', ['listing' => $l->id]),
         ]);
@@ -56,7 +58,8 @@ class BuyerViewController extends Controller
         $eur = $rates->krwPerEur() ?: (int) config('board.default_krw_per_eur');
         [$carStr, $shipStr, $totalStr] = $this->quoteStrings($l->offerBreakdown($usd, $eur));
 
-        $png = $card->render($carStr, $shipStr, $totalStr);
+        $company = Setting::get('buyer_company_name', 'SSANCAR') ?: 'SSANCAR';
+        $png = $card->render($carStr, $shipStr, $totalStr, $company);
 
         return response($png, 200, [
             'Content-Type' => 'image/png',

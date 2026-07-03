@@ -17,22 +17,22 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="robots" content="noindex, nofollow">
-    <title>SSANCAR · {{ $listing->vehicle_number }}</title>
+    <title>{{ $company }} · {{ $listing->vehicle_number }}</title>
 
     {{-- OG 미리보기 — 카톡/왓츠앱에 링크 붙으면 견적카드 이미지 + 차량/총액이 펼쳐 보임. --}}
     @php
         $ogDesc = trim(sprintf('Car %s · Shipping %s · Total %s', $fmt($breakdown['car'] ?? null), $fmt($breakdown['shipping'] ?? null), $fmt($breakdown['total'] ?? null)));
     @endphp
     <meta property="og:type" content="website">
-    <meta property="og:site_name" content="SSANCAR">
-    <meta property="og:title" content="SSANCAR Quotation · {{ $listing->vehicle_number }}">
+    <meta property="og:site_name" content="{{ $company }}">
+    <meta property="og:title" content="{{ $company }} Quotation · {{ $listing->vehicle_number }}">
     <meta property="og:description" content="{{ $ogDesc }}">
     <meta property="og:image" content="{{ $cardUrl }}">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
     <meta property="og:url" content="{{ url()->full() }}">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="SSANCAR Quotation · {{ $listing->vehicle_number }}">
+    <meta name="twitter:title" content="{{ $company }} Quotation · {{ $listing->vehicle_number }}">
     <meta name="twitter:description" content="{{ $ogDesc }}">
     <meta name="twitter:image" content="{{ $cardUrl }}">
     <style>
@@ -65,7 +65,7 @@
 <body>
     <div class="wrap">
         <header>
-            <h1>SSANCAR · QUOTATION</h1>
+            <h1>{{ $company }} · QUOTATION</h1>
             <div class="veh">{{ $listing->vehicle_number }}</div>
         </header>
 
@@ -79,6 +79,9 @@
 
         <div class="card">
             <div class="sec-title">Photos &amp; Videos</div>
+            @if ($hasVideo)
+                <p class="hint">▶ If a video won't play in fullscreen, open this page in your browser (Chrome / Safari). Some in-app chat browsers block video fullscreen.</p>
+            @endif
             @if ($hasAny)
                 {{-- ssancar 검차 영상 (Bunny iframe) — 다운로드/재업로드 없이 임베드(용량문제 회피). --}}
                 @foreach ($sVideos as $v)
@@ -109,12 +112,9 @@
             @else
                 <div class="empty">No media available.</div>
             @endif
-            @if ($hasVideo)
-                <p class="hint">▶ If a video won't play in fullscreen, open this page in your browser (Chrome / Safari). Some in-app chat browsers block video fullscreen.</p>
-            @endif
         </div>
 
-        <footer>SSANCAR</footer>
+        <footer>{{ $company }}</footer>
     </div>
 </body>
 </html>

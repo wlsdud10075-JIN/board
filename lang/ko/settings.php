@@ -56,6 +56,8 @@ return [
         'brand_section' => '브랜드',
         'brand_label' => '브랜드 텍스트',
         'brand_hint' => '사이드바 헤더와 로그인 화면에 함께 표시됩니다 (최대 12자).',
+        'company_label' => '바이어 표시 회사명',
+        'company_hint' => '견적서·바이어 공개페이지에 표시되는 회사명입니다 (영문 권장 — 견적카드 이미지는 영문만 지원).',
         'lang_section' => '언어',
         'locale_label' => '영어 UI 활성화',
         'locale_hint' => '켜면 상단바에 한국어 / English 전환 버튼이 표시됩니다.',
