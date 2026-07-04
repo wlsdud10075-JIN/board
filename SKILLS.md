@@ -233,3 +233,16 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 - **🟢 운영 배포 + 시크릿 (2026-06-19, master aed439e)**: 포털·매물자동채움·다크사이드바 운영 라이브. **`CAR_ERP_READ_HMAC_SECRET=ssancar2`(board·car-erp 운영 양쪽 동일, config:cache 완료)**. board→car-erp 운영 e2e finance 200 검증.
 - ⚠️ **흔한 함정 = "연동 안됨" = 계정 매핑**(키 문제 아님): 포털은 로그인 영업의 `car_erp_salesman_email ?: email` 로 car-erp **활성 salesman** 조회 → 안 맞으면 **403 "조회 불가"**(빈 화면). 운영 board 계정 대부분 @board.test 라 미매칭. **`moo@board.test`(→moo@car-erp.test 매핑됨)로 로그인하면 데이터** / 다른 계정은 `/users` 에서 car-erp 영업 이메일 매핑. car-erp 활성 영업 = moo/art/leeyongbin@car-erp.test.
 - **운영 서버 ops**: 같은 Lightsail(`ubuntu@52.79.200.151`), board=`/var/www/board`·car-erp=`/var/www/car-erp`, SSH 키 = Jin PC `~/.ssh/car_erp_key`. .env 는 deploy 가 안 건드림(서버 수동 + `config:cache`).
+
+## 15. 사내 Notion 업무가이드 발행 + 허브 네비 표준 (Jin 지시 — "항상 이 상태로")
+> 사내 Notion "사내 업무 가이드" 갱신 = **MCP 아님**, 자체 스크립트 `scripts/notion-guide-publish.php`(Notion REST 직접). 토큰 = Windows **User env `NOTION_TOKEN`**. 세션이 토큰 등록 전에 켜졌으면 `getenv()` 못 잡음 → PowerShell 인라인 주입: `$env:NOTION_TOKEN=[Environment]::GetEnvironmentVariable('NOTION_TOKEN','User'); php scripts/notion-guide-publish.php --apply`. **발행=라이브 즉시반영** → apply 전 인자 없이 dry-run 으로 블록수 확인.
+
+**허브 구조**: 허브 `사내 업무 가이드` → 섹션 child_page **`🛒 매입보드 (BOARD)`** / **`🏢 ERP (car-erp)`** → 각 섹션 하위 가이드 child_page + **허브 메인에 섹션별 네비게이션**(섹션 child_page 바로 아래 `bulleted_list_item` 안 **page-mention**).
+- board 스크립트 `$targets` = `전체 워크플로우 / 영업 / 검차 / 관리 / 에러·락 대처`(blocks_workflow/…/blocks_troubleshoot). 본문 하드코딩 → `--apply` 로 블록 통째 교체(clearBlocks+append, child_page 보존).
+- ⚠️ **타깃 발행 = line 33 `$only` 화이트리스트에 제목 있어야** — 없으면 매칭실패→$only 빈배열→**전 페이지 재발행**. 공백·`·` 제목은 따옴표(`--apply "전체 워크플로우" "에러·락 대처"`).
+
+**⭐ 허브 네비 정리 표준 (2026-07-04 Jin — "항상 이 상태, 추가분은 추가")**:
+- 각 섹션(매입보드·ERP) 네비 순서 = **🔄 전체 워크플로우(맨 위) → 실무 페이지들(그대로) → ⚠️ 에러·락(맨 아래)**. 양쪽 대칭. 현재 board=5링크, ERP=6링크(공통/재무/수출통관/관리(통합)+워크플로우+에러).
+- 하위 페이지 **추가 시 허브 네비에 mention bullet 만 append**(PATCH `/blocks/{hubId}/children` + `after`=섹션 blockId 또는 마지막 nav bullet). 기존 정상 링크는 안 건드림. 멱등(이미 있으면 스킵).
+- 🚫 **순서 바꾸려고 페이지 삭제·재생성 금지** — page ID 바뀌어 **허브 mention 전멸**(2026-07-04 board 3링크 다 깸 → 복구). 순서변경 = Notion 드래그(무손실). Notion API 는 기존 블록 move 미지원.
+- 복구/추가 헬퍼 패턴(일회성, scratchpad): 허브→섹션 child_page 구간의 bullet 을 새 페이지 mention 으로 교체(board) / 새 페이지만 append(ERP). ERP 가이드 페이지 자체는 car-erp 세션 소관이나 **허브 네비(공유 인프라)는 Jin 지시로 board 세션이 정리 가능**.
