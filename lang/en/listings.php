@@ -171,6 +171,7 @@ return [
     // Edit drawer
     'drawer' => [
         'title' => ':number · Edit purchase',
+        'money_moved' => 'Amount, payout account, and vehicle attachments are entered in later steps (Quote/Forward · Purchase confirm).',
         'summary_locked' => 'Identifiers (vehicle no. · VIN) and source cannot be edited',
         'method_auction' => 'Auction',
         'method_encar' => 'Encar instant buy',

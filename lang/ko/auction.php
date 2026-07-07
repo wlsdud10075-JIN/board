@@ -69,4 +69,15 @@ return [
     'buyer_unavailable' => '바이어 목록을 불러올 수 없습니다 — car-erp에서 수동 지정.',
     'buyer_select' => '바이어 선택',
     'consignee_select' => '컨사이니 선택 (선택)',
+
+    'attach' => [
+        'title' => '딜러 차량 첨부',
+        'hint' => '매입 후 딜러에게 받은 사진·서류 (최대 :max건). 낙찰 시 car-erp 첨부탭으로 전달',
+        'dropzone' => '＋ 사진·서류 추가 (탭)',
+        'uploading' => '업로드 중…',
+        'delete_confirm' => '이 첨부를 삭제할까요?',
+        'help' => '이미지=사진 / 그 외=서류로 자동 분류. 서류는 바이어에게 전송되지 않습니다.',
+        'exec_error' => '실행파일은 첨부할 수 없습니다 (:name).',
+        'max_error' => '첨부는 최대 :max건입니다 (현재 :existing건).',
+    ],
 ];

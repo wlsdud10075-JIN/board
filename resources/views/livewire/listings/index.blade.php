@@ -765,7 +765,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @endif
                 </div>
 
-                {{-- 차량번호 · 차값 · 할인율 · 지역 (한 행) --}}
+                {{-- 차량번호 · 소유자 · 지역 · 매물번호 (한 행) — 차값/할인/배송/계좌/첨부는 이후 씬(견적·구매확정)에서 입력 --}}
                 <div class="grid gap-3 sm:grid-cols-4">
                     <div>
                         <label class="label-base">{{ __('listings.add_form.vehicle_number') }} <span class="text-red-500">*</span></label>
@@ -776,16 +776,6 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <label class="label-base">{{ __('listings.add_form.owner') }} <span class="text-gray-400">{{ __('listings.add_form.owner_hint') }}</span></label>
                         <input class="input-base" wire:model="owner_name" placeholder="{{ __('listings.add_form.owner_ph') }}">
                         @error('owner_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                    </div>
-                    <div>
-                        <label class="label-base">{{ __('listings.add_form.car_cost') }} ({{ \App\Support\Money::SYMBOLS[$expected_price_currency] ?? '원' }})</label>
-                        <input class="input-base" wire:model.live.debounce.400ms="car_cost" inputmode="numeric" placeholder="{{ __('listings.add_form.car_cost_ph') }}">
-                        @error('car_cost') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                    </div>
-                    <div>
-                        <label class="label-base">{{ __('listings.add_form.discount_rate') }}</label>
-                        <input class="input-base" wire:model.live.debounce.400ms="discount_rate" inputmode="decimal" placeholder="{{ __('listings.add_form.discount_rate_ph') }}">
-                        @error('discount_rate') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                     <div>
                         <label class="label-base">{{ __('listings.add_form.region') }}</label>
@@ -810,106 +800,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     </div>
                 @endif
 
-                {{-- 금액 산정 (§6) --}}
-                @php
-                    $carPrice = $this->calcCarPrice($car_cost, $discount_rate, $expected_price_currency);
-                    $total = $this->calcTotal($car_cost, $discount_rate, $shipping_usd, $expected_price_currency);
-                    $shipKrw = $shipping_usd ? (int) $shipping_usd * $this->usdRate() : null;
-                @endphp
-                <div class="mt-3 flex items-center justify-between">
-                    <span class="text-xs font-semibold text-gray-600">{{ __('listings.pricing.heading') }}</span>
-                    <div class="inline-flex overflow-hidden rounded-md border border-gray-300 text-xs">
-                        @foreach (['KRW' => '원', 'USD' => '$', 'EUR' => '€'] as $cur => $sym)
-                            <button type="button" wire:click="$set('displayCurrency', '{{ $cur }}')"
-                                class="px-2 py-1 font-semibold {{ $displayCurrency === $cur ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }}">{{ $sym }}</button>
-                        @endforeach
-                    </div>
-                </div>
-                <div class="mt-1 flex items-center justify-between text-xs text-gray-500">
-                    <span>{{ __('listings.pricing.sales_fee') }}</span><span class="font-semibold text-gray-700">{{ number_format((int) config('board.sales_fee')) }}원</span>
-                </div>
-                <div class="mt-1 flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 text-sm">
-                    <span class="text-gray-600">{{ __('listings.pricing.car_price') }}</span>
-                    <span class="font-bold text-gray-800">{{ $this->fmt($carPrice) }}</span>
-                </div>
-                <label class="label-base mt-3">{{ __('listings.pricing.shipping_label') }}</label>
-                <div class="inline-flex overflow-hidden rounded-md border border-gray-300">
-                    @foreach (config('board.shipping_options') as $opt)
-                        <button type="button" wire:click="$set('shipping_usd', {{ $opt }})"
-                            class="px-3 py-1.5 text-[13px] font-semibold {{ (int) $shipping_usd === $opt ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }}">${{ number_format($opt) }}</button>
-                    @endforeach
-                </div>
-                @error('shipping_usd') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                @if ($shipKrw !== null)<div class="mt-1 text-right text-xs text-gray-500">{{ __('listings.pricing.shipping_prefix') }}{{ $this->fmt($shipKrw) }}</div>@endif
-                <div class="mt-2 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
-                    <span class="text-sm font-semibold text-gray-700">{{ __('listings.pricing.total') }}</span>
-                    <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $this->fmt($total) }}</span>
-                </div>
-
-                {{-- 입금정보 (선택 — 알면 미리, 모르면 구매단계에서) §6e · car-erp 형식(은행 자동완성 + 계좌 마스킹) --}}
-                <label class="label-base mt-3">{{ __('listings.payee.label') }} <span class="text-gray-400">{{ __('listings.payee.hint') }}</span></label>
-                <div x-data class="grid gap-2 sm:grid-cols-3">
-                    <div>
-                        <input x-ref="bankAdd" wire:model.blur="payee_bank" list="korean-banks-add" autocomplete="off"
-                               class="input-base" placeholder="{{ __('listings.payee.bank_ph') }}" maxlength="100"
-                               x-on:input="$refs.acctAdd.value = $store.koreanBanks.applyMask($el.value, $refs.acctAdd.value)">
-                        <datalist id="korean-banks-add"><template x-for="b in $store.koreanBanks.names()" :key="b"><option :value="b"></option></template></datalist>
-                    </div>
-                    <div><input wire:model.blur="payee_name" class="input-base" placeholder="{{ __('listings.payee.name_ph') }}" maxlength="60"></div>
-                    <div><input x-ref="acctAdd" wire:model.blur="payee_account" autocomplete="off"
-                               class="input-base font-mono" placeholder="{{ __('listings.payee.account_ph') }}"
-                               x-on:input="$el.value = $store.koreanBanks.applyMask($refs.bankAdd.value, $el.value)"></div>
-                </div>
-                @error('payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                <p class="mt-1 text-[11px] text-gray-400">{{ __('listings.payee.help') }}</p>
-
-                {{-- 매도비 계좌 (선택 · 판매자와 다른 대상) — 매입가 계좌와 별개 --}}
-                <label class="label-base mt-3">{{ __('listings.selling_fee_payee.label') }} <span class="text-gray-400">{{ __('listings.selling_fee_payee.hint') }}</span></label>
-                <div x-data class="grid gap-2 sm:grid-cols-3">
-                    <div>
-                        <input x-ref="feeBankAdd" wire:model.blur="selling_fee_payee_bank" list="korean-banks-fee-add" autocomplete="off"
-                               class="input-base" placeholder="{{ __('listings.payee.bank_ph') }}" maxlength="100"
-                               x-on:input="$refs.feeAcctAdd.value = $store.koreanBanks.applyMask($el.value, $refs.feeAcctAdd.value)">
-                        <datalist id="korean-banks-fee-add"><template x-for="b in $store.koreanBanks.names()" :key="b"><option :value="b"></option></template></datalist>
-                    </div>
-                    <div><input wire:model.blur="selling_fee_payee_name" class="input-base" placeholder="{{ __('listings.payee.name_ph') }}" maxlength="60"></div>
-                    <div><input x-ref="feeAcctAdd" wire:model.blur="selling_fee_payee_account" autocomplete="off"
-                               class="input-base font-mono" placeholder="{{ __('listings.payee.account_ph') }}"
-                               x-on:input="$el.value = $store.koreanBanks.applyMask($refs.feeBankAdd.value, $el.value)"></div>
-                </div>
-                @error('selling_fee_payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                <p class="mt-1 text-[11px] text-gray-400">{{ __('listings.selling_fee_payee.help') }}</p>
-
-                {{-- 차량 첨부 (영업 자료 → 낙찰 시 연동 B 로 car-erp 첨부탭) · 첨부파일 1칸 통합 --}}
-                <label class="label-base mt-3">{{ __('listings.attach.add_label') }} <span class="text-gray-400">{{ __('listings.attach.add_hint', ['max' => config('board.attachment_max')]) }}</span></label>
-                <label class="flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-gray-300 py-3 text-[13px] text-gray-500 hover:border-[var(--color-primary)]">
-                    {{ __('listings.attach.dropzone') }}
-                    <input type="file" multiple wire:model="salesFiles" class="hidden">
-                </label>
-                <div wire:loading wire:target="salesFiles" class="mt-1 text-xs text-gray-400">{{ __('listings.attach.uploading') }}</div>
-                @if (count($salesFiles))
-                    <div class="mt-2 grid grid-cols-4 gap-2 sm:grid-cols-6">
-                        @foreach ($salesFiles as $i => $f)
-                            <div class="relative overflow-hidden rounded-md border border-gray-200" wire:key="newfile-{{ $i }}">
-                                @if ($f->isPreviewable() && str_starts_with((string) $f->getMimeType(), 'image/'))
-                                    <img src="{{ $f->temporaryUrl() }}" class="aspect-square w-full object-cover" alt="">
-                                @else
-                                    <div class="flex aspect-square w-full flex-col items-center justify-center bg-gray-50 p-1 text-center text-[10px] text-gray-500">
-                                        <span class="text-lg">📄</span><span class="line-clamp-2 break-all">{{ $f->getClientOriginalName() }}</span>
-                                    </div>
-                                @endif
-                                <button type="button" wire:click="removeSalesFile({{ $i }})"
-                                    class="absolute right-0.5 top-0.5 rounded bg-black/55 px-1 text-[10px] font-semibold text-white hover:bg-red-600">✕</button>
-                            </div>
-                        @endforeach
-                    </div>
-                    <p class="mt-1 text-[11px] text-gray-500">{{ __('listings.attach.selected', ['count' => count($salesFiles)]) }}</p>
-                @endif
-                @error('salesFiles') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                @error('salesFiles.*') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                <p class="mt-1 text-[11px] text-gray-400">{{ __('listings.attach.help') }}</p>
-
-                <p class="mt-2 text-xs text-gray-500">{!! __('listings.add_form.note') !!}</p>
+                <p class="mt-3 text-xs text-gray-500">{!! __('listings.add_form.note') !!}</p>
                 @error('source') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 <div class="mt-3 flex gap-2">
@@ -995,82 +886,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <div class="card-sm mb-3 border-amber-200 bg-amber-50 text-[13px] text-amber-800">{{ __('listings.drawer.locked_notice') }}</div>
                 @endunless
 
-                {{-- 금액 산정 (§6) --}}
-                @php
-                    $eCar = $this->calcCarPrice($e_car_cost, $e_discount_rate, $e->expected_price_currency);
-                    $eTotal = $this->calcTotal($e_car_cost, $e_discount_rate, $e_shipping_usd, $e->expected_price_currency);
-                    $eShipKrw = $e_shipping_usd ? (int) $e_shipping_usd * $this->usdRate() : null;
-                @endphp
-                <div class="mb-2 flex justify-end">
-                    <div class="inline-flex overflow-hidden rounded-md border border-gray-300 text-xs">
-                        @foreach (['KRW' => '원', 'USD' => '$', 'EUR' => '€'] as $cur => $sym)
-                            <button type="button" wire:click="$set('displayCurrency', '{{ $cur }}')"
-                                class="px-2 py-1 font-semibold {{ $displayCurrency === $cur ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }}">{{ $sym }}</button>
-                        @endforeach
-                    </div>
-                </div>
-                <div class="grid grid-cols-2 gap-3">
-                    <div>
-                        <label class="label-base">{{ __('listings.add_form.car_cost') }} ({{ \App\Support\Money::SYMBOLS[$e->expected_price_currency] ?? '원' }})</label>
-                        <input class="input-base" wire:model.live.debounce.400ms="e_car_cost" inputmode="numeric" @unless ($canEdit) disabled @endunless>
-                        @error('e_car_cost') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                    </div>
-                    <div>
-                        <label class="label-base">{{ __('listings.add_form.discount_rate') }}</label>
-                        <input class="input-base" wire:model.live.debounce.400ms="e_discount_rate" inputmode="decimal" @unless ($canEdit) disabled @endunless>
-                        @error('e_discount_rate') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                    </div>
-                </div>
-                <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
-                    <span>{{ __('listings.pricing.sales_fee') }}</span><span class="font-semibold text-gray-700">{{ number_format((int) config('board.sales_fee')) }}원</span>
-                </div>
-                <div class="mt-1 flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 text-sm">
-                    <span class="text-gray-600">{{ __('listings.pricing.car_price_short') }}</span><span class="font-bold text-gray-800">{{ $this->fmt($eCar) }}</span>
-                </div>
-                <label class="label-base mt-3">{{ __('listings.pricing.shipping_label') }}</label>
-                <div class="inline-flex overflow-hidden rounded-md border border-gray-300">
-                    @foreach (config('board.shipping_options') as $opt)
-                        <button type="button" @if ($canEdit) wire:click="$set('e_shipping_usd', {{ $opt }})" @else disabled @endif
-                            class="px-3 py-1.5 text-[13px] font-semibold {{ (int) $e_shipping_usd === $opt ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }}">${{ number_format($opt) }}</button>
-                    @endforeach
-                </div>
-                @error('e_shipping_usd') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                @if ($eShipKrw !== null)<div class="mt-1 text-right text-xs text-gray-500">{{ __('listings.pricing.shipping_prefix') }}{{ $this->fmt($eShipKrw) }}</div>@endif
-                <div class="mt-2 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
-                    <span class="text-sm font-semibold text-gray-700">{{ __('listings.pricing.total_short') }}</span><span class="text-base font-bold text-[var(--color-primary-text)]">{{ $this->fmt($eTotal) }}</span>
-                </div>
-
-                {{-- 입금정보 (선택) §6e · car-erp 형식 --}}
-                <label class="label-base mt-3">{{ __('listings.payee.label') }} <span class="text-gray-400">{{ __('listings.payee.hint') }}</span></label>
-                <div x-data class="grid gap-2 sm:grid-cols-3">
-                    <div>
-                        <input x-ref="bankEdit" wire:model.blur="e_payee_bank" list="korean-banks-edit" autocomplete="off"
-                               class="input-base" placeholder="{{ __('listings.payee.bank_ph') }}" maxlength="100" @unless ($canEdit) disabled @endunless
-                               x-on:input="$refs.acctEdit.value = $store.koreanBanks.applyMask($el.value, $refs.acctEdit.value)">
-                        <datalist id="korean-banks-edit"><template x-for="b in $store.koreanBanks.names()" :key="b"><option :value="b"></option></template></datalist>
-                    </div>
-                    <div><input wire:model.blur="e_payee_name" class="input-base" placeholder="{{ __('listings.payee.name_ph') }}" maxlength="60" @unless ($canEdit) disabled @endunless></div>
-                    <div><input x-ref="acctEdit" wire:model.blur="e_payee_account" autocomplete="off"
-                               class="input-base font-mono" placeholder="{{ __('listings.payee.account_ph') }}" @unless ($canEdit) disabled @endunless
-                               x-on:input="$el.value = $store.koreanBanks.applyMask($refs.bankEdit.value, $el.value)"></div>
-                </div>
-                @error('e_payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-
-                {{-- 매도비 계좌 (선택 · 판매자와 다른 대상) --}}
-                <label class="label-base mt-3">{{ __('listings.selling_fee_payee.label') }} <span class="text-gray-400">{{ __('listings.selling_fee_payee.hint') }}</span></label>
-                <div x-data class="grid gap-2 sm:grid-cols-3">
-                    <div>
-                        <input x-ref="feeBankEdit" wire:model.blur="e_selling_fee_payee_bank" list="korean-banks-fee-edit" autocomplete="off"
-                               class="input-base" placeholder="{{ __('listings.payee.bank_ph') }}" maxlength="100" @unless ($canEdit) disabled @endunless
-                               x-on:input="$refs.feeAcctEdit.value = $store.koreanBanks.applyMask($el.value, $refs.feeAcctEdit.value)">
-                        <datalist id="korean-banks-fee-edit"><template x-for="b in $store.koreanBanks.names()" :key="b"><option :value="b"></option></template></datalist>
-                    </div>
-                    <div><input wire:model.blur="e_selling_fee_payee_name" class="input-base" placeholder="{{ __('listings.payee.name_ph') }}" maxlength="60" @unless ($canEdit) disabled @endunless></div>
-                    <div><input x-ref="feeAcctEdit" wire:model.blur="e_selling_fee_payee_account" autocomplete="off"
-                               class="input-base font-mono" placeholder="{{ __('listings.payee.account_ph') }}" @unless ($canEdit) disabled @endunless
-                               x-on:input="$el.value = $store.koreanBanks.applyMask($refs.feeBankEdit.value, $el.value)"></div>
-                </div>
-                @error('e_selling_fee_payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                <div class="card-sm mb-3 border-blue-100 bg-blue-50/50 text-[11px] text-gray-500">{{ __('listings.drawer.money_moved') }}</div>
 
                 <label class="label-base mt-3">{{ __('listings.add_form.region') }}</label>
                 <input class="input-base" wire:model="e_region" list="regionListEdit" placeholder="{{ __('listings.add_form.region_ph') }}" @unless ($canEdit) disabled @endunless>
@@ -1108,58 +924,6 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <input class="input-base" wire:model="e_auction_venue" @unless ($canEdit) disabled @endunless>
                     <label class="label-base mt-3">{{ __('listings.add_form.lot_number') }}</label>
                     <input class="input-base" wire:model="e_lot_number" @unless ($canEdit) disabled @endunless>
-                @endif
-
-                {{-- 차량 첨부 (영업 자료 → 연동 B car-erp 첨부탭) --}}
-                <label class="label-base mt-4">{{ __('listings.attach.drawer_label') }} <span class="text-gray-400">{{ __('listings.attach.drawer_hint', ['max' => config('board.attachment_max')]) }}</span></label>
-                @if ($e->salesAttachments->count())
-                    <div class="mt-1 grid grid-cols-4 gap-2">
-                        @foreach ($e->salesAttachments as $p)
-                            <div class="relative overflow-hidden rounded-md border border-gray-200" wire:key="att-{{ $p->id }}">
-                                @if ($p->isDocument())
-                                    <a href="{{ $p->shareUrl() }}" target="_blank" class="flex aspect-square w-full flex-col items-center justify-center bg-gray-50 p-1 text-center text-[10px] text-gray-500 hover:bg-gray-100">
-                                        <span class="text-lg">📄</span><span class="line-clamp-2 break-all">{{ $p->original_name }}</span>
-                                    </a>
-                                @else
-                                    @php $u = $p->shareUrl(); @endphp
-                                    <img src="{{ $u }}" @click="$dispatch('open-lightbox', { src: '{{ $u }}' })" class="aspect-square w-full cursor-zoom-in object-cover" alt="">
-                                @endif
-                                @if ($canEdit)
-                                    <button type="button" wire:click="deleteSalesAttachment({{ $p->id }})" wire:confirm="{{ __('listings.attach.delete_confirm') }}"
-                                        class="absolute right-0.5 top-0.5 rounded bg-black/55 px-1 text-[10px] font-semibold text-white hover:bg-red-600">✕</button>
-                                @endif
-                            </div>
-                        @endforeach
-                    </div>
-                @else
-                    <p class="mt-1 text-[11px] text-gray-400">{{ __('listings.attach.drawer_empty') }}</p>
-                @endif
-                @if ($canEdit)
-                    <label class="mt-2 flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-gray-300 py-2.5 text-[13px] text-gray-500 hover:border-[var(--color-primary)]">
-                        {{ __('listings.attach.drawer_add') }}
-                        <input type="file" multiple wire:model="eSalesFiles" class="hidden">
-                    </label>
-                    <div wire:loading wire:target="eSalesFiles" class="mt-1 text-xs text-gray-400">{{ __('listings.attach.uploading') }}</div>
-                    @if (count($eSalesFiles))
-                        <div class="mt-2 grid grid-cols-4 gap-2">
-                            @foreach ($eSalesFiles as $i => $f)
-                                <div class="relative overflow-hidden rounded-md border border-gray-200" wire:key="enewfile-{{ $i }}">
-                                    @if ($f->isPreviewable() && str_starts_with((string) $f->getMimeType(), 'image/'))
-                                        <img src="{{ $f->temporaryUrl() }}" class="aspect-square w-full object-cover" alt="">
-                                    @else
-                                        <div class="flex aspect-square w-full flex-col items-center justify-center bg-gray-50 p-1 text-center text-[10px] text-gray-500">
-                                            <span class="text-lg">📄</span><span class="line-clamp-2 break-all">{{ $f->getClientOriginalName() }}</span>
-                                        </div>
-                                    @endif
-                                    <button type="button" wire:click="removeESalesFile({{ $i }})"
-                                        class="absolute right-0.5 top-0.5 rounded bg-black/55 px-1 text-[10px] font-semibold text-white hover:bg-red-600">✕</button>
-                                </div>
-                            @endforeach
-                        </div>
-                        <p class="mt-1 text-[11px] text-gray-500">{{ __('listings.attach.selected', ['count' => count($eSalesFiles)]) }}</p>
-                    @endif
-                    @error('eSalesFiles') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                    @error('eSalesFiles.*') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 @endif
 
                 {{-- 읽기전용 진행 정보 (현지확인·경매에서 채워짐) --}}

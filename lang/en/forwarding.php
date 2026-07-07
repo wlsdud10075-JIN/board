@@ -19,8 +19,13 @@ return [
     'badge_no_photos' => 'No photos',
 
     // Amount editing (re-quote / adjust) — auto-saves & recalculates on edit
-    'amount_section' => 'Amount (auto-applies on edit)',
-    'amount_hint' => 'If the buyer asks for a discount, just edit car price / discount / shipping. Leaving a field auto-saves and recalculates the total & quote card. (For foreign-currency deals, re-tap the currency button above to re-fix the conversion.)',
+    'amount_section' => 'Amount (input = preview · save with [Apply])',
+    'sale_discount_label' => 'Extra discount',
+    'apply_button' => 'Apply',
+    'unapplied_note' => 'Not applied — press [Apply] to reflect in the quote/forward',
+    'applied_note' => 'Applied · press [Apply] again if you change any field',
+    'share_needs_apply' => 'You have unapplied amount changes. Press [Apply] before sharing.',
+    'amount_hint' => 'Car price = purchase cost (fixed). The customary discount (%) is the default; if the buyer asks for more off the total, enter it as Extra discount (KRW). Both reduce the sale price only — the purchase cost stays. Leaving a field auto-saves. (For foreign-currency deals, re-tap the currency button above to re-fix the conversion.)',
 
     // Quote card — currency/amounts to send to the buyer
     'quote_section' => 'Quote currency',

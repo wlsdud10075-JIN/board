@@ -157,9 +157,9 @@ class BoardTest extends TestCase
         $this->assertSame('판매상사', $l->payee_name);
         $this->assertSame('110-222-333444', $l->payee_account);
         $this->assertNotSame('110-222-333444', \DB::table('purchase_listings')->where('id', $l->id)->value('payee_account'));
-        // 차량금액 = 13,000,000 − 0% + 440,000(매도비) = 13,440,000
-        // 최종금액 = 13,440,000 + 1640 × 1380(임시환율) = 15,703,200 스냅샷
-        $this->assertSame(13440000 + 1640 * (int) config('board.default_krw_per_usd'), $l->final_price);
+        // 판매가 = 13,000,000 − 0%(할인) − 0(차감) = 13,000,000 (매도비 제외, Model A)
+        // 최종금액 = 13,000,000 + 1640 × 1380(임시환율) 스냅샷
+        $this->assertSame(13000000 + 1640 * (int) config('board.default_krw_per_usd'), $l->final_price);
     }
 
     public function test_listings_blocks_active_duplicate_vin(): void
@@ -353,11 +353,11 @@ class BoardTest extends TestCase
 
         Http::assertSent(function ($r) {
             return $r['contract_version'] === 4
-                && $r['purchase_price_krw'] === 9900000          // 1000만 − 할인1%(10만)
-                && $r['selling_fee_krw'] === 440000              // 매도비
+                && $r['purchase_price_krw'] === 10000000         // 원가 그대로(할인 미반영, Model A)
+                && $r['selling_fee_krw'] === 440000              // 매도비(매입탭 별도, 회사 부담)
                 && $r['sale_currency'] === 'EUR'
                 && $r['sale_exchange_rate'] === 1500
-                && $r['sale_price'] === 6893.33                  // 차량금액 10,340,000 / 1500
+                && (float) $r['sale_price'] === 6600.0            // 판매가 9,900,000(=1000만−1%) / 1500, 매도비 제외 (whole → JSON int)
                 && $r['transport_fee'] === 1530.67               // 1640 USD ×1400 / 1500 (판매통화 환산)
                 && $r['buyer_id'] === 55 && $r['consignee_id'] === 66;
         });
@@ -547,17 +547,18 @@ class BoardTest extends TestCase
         Storage::disk('public')->assertMissing('s/del.jpg');
     }
 
-    public function test_edit_drawer_renders_attachment_section(): void
+    public function test_auction_drawer_renders_attachment_section(): void
     {
+        // 딜러 첨부(사진·서류) 업로드/표시는 구매확정(auction) 드로어로 이동(2026-07-06).
         config(['board.photo_disk' => 'public']);
         $kim = $this->mkUser('sales');
-        $this->actingAs($kim);
-        $l = $this->mkListing($kim);
+        $l = $this->mkListing($kim, ['status' => 'accepted', 'buyer_verdict' => 'accepted']);
         $l->salesAttachments()->create(['s3_path' => 's/reg.pdf', 'original_name' => 'reg.pdf', 'sort' => 1, 'kind' => InspectionPhoto::KIND_SALES_DOCUMENT]);
 
-        Volt::test('listings.index')
-            ->call('openEdit', $l->id)
-            ->assertSee('차량 첨부')
+        $this->actingAs($this->mkUser('manager'));
+        Volt::test('auction.index')
+            ->call('openDetail', $l->id)
+            ->assertSee(__('auction.attach.title'))
             ->assertSee('reg.pdf');   // 서류 분기(isDocument) 렌더
     }
 
@@ -599,14 +600,13 @@ class BoardTest extends TestCase
         // 수동씬: 검차완료 선택 → 저장 눌러야 반영. 바이어 전달(awaiting_buyer)은 영업이 따로.
         Volt::test('inspection.index')
             ->call('openDrawer', $l->id)
-            ->set('final_price', '13200000')
+            ->set('inspection_memo', '외관 양호')
             ->set('sendSelected', true)
             ->call('save')
             ->assertHasNoErrors();
 
         $l->refresh();
-        $this->assertSame('inspected', $l->status);
-        $this->assertSame(13200000, $l->final_price);
+        $this->assertSame('inspected', $l->status);      // 금액 없이도 검차완료(금액은 forwarding 단계)
         $this->assertSame('none', $l->buyer_verdict);   // 검차완료는 회신 단계 아님
     }
 
@@ -716,8 +716,8 @@ class BoardTest extends TestCase
             ->assertHasNoErrors();
 
         $l->refresh();
-        // 10,000,000 − 10% + 440,000(매도비 고정) = 9,440,000, 배송 없음
-        $this->assertSame(9440000, $l->final_price);
+        // 10,000,000 − 10%(할인) = 9,000,000 (매도비 제외, Model A), 배송 없음
+        $this->assertSame(9000000, $l->final_price);
         $this->assertSame(10000000, $l->car_cost);
         $this->assertSame(10.0, (float) $l->discount_rate);
         // 통화 선택(offer_currency/offer_rate)은 건드리지 않음 — listings 미러(EUR 딜 보존)
@@ -748,8 +748,8 @@ class BoardTest extends TestCase
             ->assertHasNoErrors();
 
         $l->refresh();
-        // 10,000,000 − 20% + 440,000(매도비) = 8,440,000 (옛 10,440,000 이 나가면 안 됨)
-        $this->assertSame(8440000, $l->final_price);
+        // 10,000,000 − 20%(할인) = 8,000,000 (매도비 제외; 옛 10,440,000 이 나가면 안 됨)
+        $this->assertSame(8000000, $l->final_price);
         $this->assertSame('awaiting_buyer', $l->status);
     }
 
@@ -2164,21 +2164,7 @@ class BoardTest extends TestCase
         $c->call('check')->assertNotDispatched('forward-arrived');
     }
 
-    public function test_inspection_finalizes_offer_currency(): void
-    {
-        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft', 'car_cost' => 9000000]);
-        $this->actingAs($this->mkUser('inspection'));
-
-        Volt::test('inspection.index')
-            ->call('openDrawer', $l->id)
-            ->set('car_cost', '9000000')
-            ->set('displayCurrency', 'EUR')
-            ->call('save')->assertHasNoErrors();
-
-        $l->refresh();
-        $this->assertSame('EUR', $l->offer_currency);
-        $this->assertGreaterThan(0, $l->offer_rate);   // 확정 시점 EUR 환율 스냅샷
-    }
+    // 견적 통화 확정은 forwarding 단계로 이동(2026-07-06) → test_forwarding_set_quote_currency_saves_only_on_click 참조.
 
     // ─────────────────────── 견적 카드 + 전달대기 통화 + 재견적 ───────────────────────
 
@@ -2206,40 +2192,46 @@ class BoardTest extends TestCase
     {
         Bus::fake();
         $sales = $this->mkUser('sales');
-        // 차값 13.8M KRW, 할인 0, 배송 1000 USD → car=14,240,000 / ship=1,380,000 / total=15,620,000
+        // 차값 13.8M KRW, 할인 0, 배송 1640 USD → 판매가=13,800,000(매도비 제외) + 1640×1380 = 16,063,200
         $l = $this->mkListing($sales, [
             'status' => 'inspected',
             'car_cost' => 13800000, 'expected_price_currency' => 'KRW',
-            'discount_rate' => 0, 'shipping_usd' => 1000,
+            'discount_rate' => 0, 'shipping_usd' => 1640,
             'offer_currency' => 'KRW', 'offer_rate' => 1, 'final_price' => 15620000,
         ]);
         $this->actingAs($sales);
 
+        // 통화 선택은 미리보기만 → [적용](saveAmount)에서 offer_currency/rate/final 확정.
         Volt::test('forwarding.index')
             ->call('openDetail', $l->id)
-            ->call('setQuoteCurrency', 'USD')
-            ->assertSet('quoteCurrency', 'USD');
+            ->call('pickQuoteCurrency', 'USD')
+            ->assertSet('quoteCurrency', 'USD')
+            ->assertSet('amountDirty', true)
+            ->call('saveAmount')
+            ->assertSet('amountDirty', false);
 
         $l->refresh();
         $this->assertSame('USD', $l->offer_currency);
-        $this->assertSame(1380, $l->offer_rate);          // 라이브(폴백) 환율 스냅샷
-        $this->assertSame(15620000, $l->final_price);      // totalKrw 재스냅샷(동일)
+        $this->assertSame(1380, $l->offer_rate);          // 통화 변경 → 라이브(폴백) 환율 스냅샷
+        $this->assertSame(16063200, $l->final_price);      // totalKrw 재스냅샷(매도비 제외, Model A)
     }
 
     public function test_forwarding_quote_card_amounts_are_consistent(): void
     {
         Bus::fake();
         $sales = $this->mkUser('sales');
+        // Model A: 판매가 13,800,000(매도비 제외) + 운임 1,000×1,380 = 15,180,000
         $attr = [
             'status' => 'inspected', 'car_cost' => 13800000, 'expected_price_currency' => 'KRW',
-            'discount_rate' => 0, 'shipping_usd' => 1000, 'final_price' => 15620000,
+            'discount_rate' => 0, 'shipping_usd' => 1000, 'final_price' => 15180000,
         ];
         $eur = $this->mkListing($sales, $attr + ['offer_currency' => 'EUR', 'offer_rate' => 1500]);
         $krw = $this->mkListing($sales, $attr + ['offer_currency' => 'KRW', 'offer_rate' => 1]);
         $this->actingAs($sales);
 
         foreach ([$eur, $krw] as $l) {
-            $c = Volt::test('forwarding.index')->call('openDetail', $l->id);
+            // 카드는 라이브 환율(워킹 미리보기) — offer_rate 스냅샷과 일치시키려 동일 환율 주입
+            $c = Volt::test('forwarding.index')->set('krwPerUsd', 1380)->set('krwPerEur', 1500)->call('openDetail', $l->id);
             $q = $c->instance()->quoteData();
             $strip = fn ($s) => (int) preg_replace('/[^0-9]/', '', $s);
             $car = $strip($q['car']);
@@ -2267,7 +2259,7 @@ class BoardTest extends TestCase
         Bus::fake();
         $sales = $this->mkUser('sales');
         $l = $this->mkListing($sales, [
-            'status' => 'inspected', 'vehicle_number' => '375러1924', 'final_price' => 10000000,
+            'status' => 'inspected', 'vehicle_number' => '375러1924', 'car_cost' => 10000000, 'final_price' => 10000000,
             'offer_currency' => 'KRW', 'offer_rate' => 1,
         ]);
         $this->actingAs($sales);
@@ -2572,9 +2564,7 @@ class BoardTest extends TestCase
         $this->actingAs($this->mkUser('manager'));
         Volt::test('manage.index')->call('openEdit', $l->id)->assertSee('차값 ($)');
 
-        $this->actingAs($this->mkUser('inspection'));
-        Volt::test('inspection.index')->call('openDrawer', $l->id)->assertSee('차값 ($)');
-
+        // 검차 화면은 금액 미표시(견적·전달로 이동, 2026-07-06) → 구매확정 드로어에서 통화표기 확인
         $this->actingAs($this->mkUser('auction'));
         Volt::test('auction.index')->call('openDetail', $l->id)->assertSee('$7,000');
     }
@@ -2598,8 +2588,8 @@ class BoardTest extends TestCase
         $this->assertNotNull($l);
         $this->assertSame(7000, $l->car_cost);             // 차값은 USD 금액 그대로 보관
         $this->assertSame('USD', $l->expected_price_currency);
-        // final_price(KRW) = 7,000×1,400 − 0% + 440,000(매도비) = 10,240,000 (배송 없음)
-        $this->assertSame(7000 * 1400 + (int) config('board.sales_fee'), $l->final_price);
+        // final_price(KRW) = 7,000×1,400 − 0%(할인) = 9,800,000 (매도비 제외, Model A, 배송 없음)
+        $this->assertSame(7000 * 1400, $l->final_price);
     }
 
     public function test_currency_toggle_disabled_for_missing_currency(): void

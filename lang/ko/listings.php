@@ -171,6 +171,7 @@ return [
     // 편집 드로어
     'drawer' => [
         'title' => ':number · 매입예정 수정',
+        'money_moved' => '금액·입금계좌·차량첨부는 이후 단계(견적·전달 / 구매확정)에서 입력합니다.',
         'summary_locked' => '식별값(차량번호·VIN)·출처는 수정 불가',
         'method_auction' => '경매',
         'method_encar' => '엔카 즉시구매',

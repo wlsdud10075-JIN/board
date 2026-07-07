@@ -37,7 +37,12 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public ?string $e_discount_rate = null;
 
+    public ?string $e_sale_discount = null;   // 차감액(바이어 추가흥정, KRW 절대금액) — Model A sell-side
+
     public ?int $e_shipping_usd = null;
+
+    /** 금액/통화 입력이 미적용(미저장) 상태인지 — true 면 카드는 미리보기, 전달·공유 전 [적용] 필요. */
+    public bool $amountDirty = false;
 
     public function mount(ExchangeRateService $rates): void
     {
@@ -97,31 +102,32 @@ new #[Layout('components.layouts.app')] class extends Component {
         // 금액 수정칸 채우기(재견적·조정용)
         $this->e_car_cost = $l->car_cost !== null ? (string) $l->car_cost : null;
         $this->e_discount_rate = $l->discount_rate !== null ? (string) $l->discount_rate : null;
+        $this->e_sale_discount = $l->sale_discount_amount !== null ? (string) $l->sale_discount_amount : null;
         $this->e_shipping_usd = $l->shipping_usd;
+        $this->amountDirty = false;   // 열 때는 저장값과 동일 = 적용됨
         $this->resetErrorBag();
     }
 
     public function closeDetail(): void
     {
-        $this->reset(['detailId', 'buyer_name', 'forceManual', 'conflictVehicle', 'quoteCurrency', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd']);
+        $this->reset(['detailId', 'buyer_name', 'forceManual', 'conflictVehicle', 'quoteCurrency', 'e_car_cost', 'e_discount_rate', 'e_sale_discount', 'e_shipping_usd', 'amountDirty']);
         unset($this->detail);
     }
 
     /**
-     * 금액 입력 변경 시 자동 저장(blur). 통화 토글이 클릭 즉시 저장하는 패턴 미러 — 별도 저장 버튼 없음.
-     * 핵심: 저장 안 한 채 전달/공유하면 옛 금액이 바이어에게 나가는 footgun 차단.
+     * 입력 변경 = 미리보기만 갱신(amountDirty=true). 저장은 [적용] 버튼에서만(실수 blur 커밋 방지).
+     * 전달은 미적용 시 먼저 적용, 공유는 미적용 시 차단 → 옛 값이 바이어에게 나가는 footgun 차단.
      */
     public function updated($name): void
     {
-        if (in_array($name, ['e_car_cost', 'e_discount_rate', 'e_shipping_usd'], true)) {
-            $this->saveAmount();
+        if (in_array($name, ['e_car_cost', 'e_discount_rate', 'e_sale_discount', 'e_shipping_usd'], true)) {
+            $this->amountDirty = true;   // 카드 미리보기만 갱신 — 저장은 [적용] 버튼에서만(실수 커밋 방지)
         }
     }
 
     /**
-     * 금액 수정(재견적·조정) — 차값·할인율·배송을 고치고 최종금액(final_price)만 재스냅.
-     * listings update() 미러: offer_currency/offer_rate 는 건드리지 않음(통화 선택 보존 = EUR 딜 안전).
-     * 통화별 환산 재스냅이 필요하면 영업이 위 통화 버튼을 다시 누르면 됨.
+     * [적용] — 워킹 입력(차값·할인·차감액·배송)과 견적통화를 커밋. 명시 버튼에서만(blur 자동저장 폐지 → 실수 커밋 방지).
+     * 견적통화가 바뀌었을 때만 offer_rate 재스냅(불변이면 보존 = EUR 딜 안전). final_price(KRW)는 항상 재스냅.
      */
     public function saveAmount(): void
     {
@@ -132,10 +138,12 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->validate([
             'e_car_cost' => 'nullable|numeric|min:0',
             'e_discount_rate' => 'nullable|numeric|min:0|max:100',
+            'e_sale_discount' => 'nullable|numeric|min:0',
             'e_shipping_usd' => 'nullable|integer|in:'.implode(',', config('board.shipping_options')),
         ], attributes: [
             'e_car_cost' => __('auction.car_cost'),
             'e_discount_rate' => __('auction.discount_rate'),
+            'e_sale_discount' => __('forwarding.sale_discount_label'),
             'e_shipping_usd' => __('auction.shipping'),
         ]);
 
@@ -143,48 +151,68 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l = PurchaseListing::where('status', 'inspected')->findOrFail($this->detailId);
         $l->car_cost = ($this->e_car_cost === null || $this->e_car_cost === '') ? null : (int) $this->e_car_cost;
         $l->discount_rate = ($this->e_discount_rate === null || $this->e_discount_rate === '') ? null : (float) $this->e_discount_rate;
+        $l->sale_discount_amount = ($this->e_sale_discount === null || $this->e_sale_discount === '') ? null : (int) $this->e_sale_discount;
         $l->shipping_usd = $this->e_shipping_usd ?: null;
+        // 견적통화 변경 시에만 offer_currency/offer_rate 재스냅(불변이면 보존 = EUR 딜 안전).
+        if ($this->quoteCurrency !== ($l->offer_currency ?: 'KRW')) {
+            $l->offer_currency = $this->quoteCurrency;
+            $l->offer_rate = match ($this->quoteCurrency) {
+                'USD' => $this->usdRate(),
+                'EUR' => $this->eurRate(),
+                default => 1,
+            };
+        }
         // 최종금액(KRW) 재스냅 — 공식 입력 있을 때만(없으면 기존 final_price 유지).
         $l->final_price = $l->totalKrw($this->usdRate(), $this->eurRate()) ?? $l->final_price;
         $l->save();
 
+        $this->amountDirty = false;
         unset($this->detail, $this->items);   // 금액/견적 카드 재렌더
     }
 
-    /**
-     * 견적 통화 확정 — 영업이 버튼을 직접 누를 때만 저장(드로어 열기로는 안 덮음 → EUR 딜 보존).
-     * offer_currency = 판매통화(연동 B sale_currency)라 명시 클릭 시에만 굳힌다.
-     * offer_rate(라이브 스냅샷) + final_price(=totalKrw 재스냅샷)를 함께 → 카드 최종 = offerAmount() 일치.
-     */
-    public function setQuoteCurrency(string $cur): void
+    /** 견적 통화 선택 — 미리보기만(저장 ❌). 실제 확정은 [적용] 버튼. */
+    public function pickQuoteCurrency(string $cur): void
     {
-        if (! in_array($cur, ['KRW', 'USD', 'EUR'], true)) {
-            return;
+        if (! in_array($cur, ['KRW', 'USD', 'EUR'], true) || $cur === $this->quoteCurrency) {
+            return;   // 같은 통화 재클릭은 무시(불필요한 미적용 방지)
         }
-
-        // findOrFail 이 SalesmanScope 안 → 본인 글만(IDOR). inspected 한정.
-        $l = PurchaseListing::where('status', 'inspected')->findOrFail($this->detailId);
-
-        $l->offer_currency = $cur;
-        $l->offer_rate = match ($cur) {
-            'USD' => $this->usdRate(),
-            'EUR' => $this->eurRate(),
-            default => 1,
-        };
-        // 최종금액(KRW) 재스냅샷 — 공식 입력이 있을 때만(없으면 기존 final_price 유지).
-        $computed = $l->totalKrw($this->usdRate(), $this->eurRate());
-        if ($computed !== null) {
-            $l->final_price = $computed;
-        }
-        $l->save();
-
         $this->quoteCurrency = $cur;
-        unset($this->detail, $this->items);   // 캐시 무효화 → 카드/표시가 새 offer_rate·final_price 로 재렌더
+        $this->amountDirty = true;   // 통화 변경 = 미적용(적용 눌러야 offer_currency 확정)
+    }
+
+    /** 워킹 입력(미저장) 기준 금액(KRW) — 라이브 미리보기용. ['cost'=원가, 'car'=판매가, 'total'=최종]. 차값 없으면 null. */
+    private function workingKrw(): ?array
+    {
+        $d = $this->detail;
+        if (! $d) {
+            return null;
+        }
+        $carCostKrw = \App\Support\Money::toKrw(
+            ($this->e_car_cost === null || $this->e_car_cost === '') ? null : (int) $this->e_car_cost,
+            $d->expected_price_currency ?: 'KRW',
+            $this->usdRate(),
+            $this->eurRate(),
+        );
+        if ($carCostKrw === null) {
+            return null;
+        }
+        $disc = (int) round($carCostKrw * ((float) $this->e_discount_rate / 100));
+        $saleDisc = ($this->e_sale_discount === null || $this->e_sale_discount === '') ? 0 : (int) $this->e_sale_discount;
+        $carPriceKrw = $carCostKrw - $disc - $saleDisc;   // Model A: 매도비 제외
+        $shipKrw = $this->e_shipping_usd ? (int) $this->e_shipping_usd * $this->usdRate() : 0;
+
+        return ['cost' => $carCostKrw, 'car' => $carPriceKrw, 'total' => $carPriceKrw + $shipKrw];
+    }
+
+    /** 워킹 최종금액(KRW) — 미리보기 final_price 표시용. */
+    public function previewTotalKrw(): ?int
+    {
+        return $this->workingKrw()['total'] ?? null;
     }
 
     /**
-     * 견적 카드/드로어 3줄 금액 — 모델 offerBreakdown() 공유(바이어 공개페이지와 동일 계산 = 가격 불일치 방지).
-     * 여기선 표시 포맷만(통화기호 + 차량번호 로마자). final_price 없으면 null(카드 없이 사진만).
+     * 견적 카드/드로어 3줄 금액 — 워킹 입력 기준 라이브 미리보기(저장 없이 즉시 반영).
+     * 계산은 모델 offerBreakdown() 과 동일(잔차 흡수) → [적용] 후 저장값과 일치. final_price 없으면 null.
      */
     public function quoteData(): ?array
     {
@@ -192,20 +220,22 @@ new #[Layout('components.layouts.app')] class extends Component {
         if (! $d) {
             return null;
         }
-
-        $b = $d->offerBreakdown($this->usdRate(), $this->eurRate());
-        if ($b === null) {
-            return null;   // final_price 미설정 → 가격 협의중
+        $w = $this->workingKrw();
+        if ($w === null) {
+            return null;   // 차값 미설정 → 가격 협의중
         }
 
-        $cur = $b['currency'];
+        $cur = $this->quoteCurrency;
+        $rate = max(1, match ($cur) { 'USD' => $this->usdRate(), 'EUR' => $this->eurRate(), default => 1 });
+        $total = (int) round($w['total'] / $rate);
+        $car = (int) round($w['car'] / $rate);
 
         return [
             'vehicle' => $this->vehicleRoman($d->vehicle_number),
             'currency' => $cur,
-            'car' => $this->fmtCur($b['car'], $cur),
-            'shipping' => $this->fmtCur($b['shipping'], $cur),
-            'total' => $this->fmtCur($b['total'], $cur),
+            'car' => $this->fmtCur($car, $cur),
+            'shipping' => $this->fmtCur($total - $car, $cur),   // 잔차 흡수(모델 일치)
+            'total' => $this->fmtCur($total, $cur),
         ];
     }
 
@@ -274,6 +304,11 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function forward(): void
     {
         $this->validate(['buyer_name' => 'nullable|string|max:100'], attributes: ['buyer_name' => __('forwarding.attr_buyer_name')]);
+
+        // 미적용 금액/통화 입력을 먼저 커밋(전달=명시 액션) → 바이어에게 화면에 보인 값이 나감.
+        if ($this->amountDirty) {
+            $this->saveAmount();
+        }
 
         // findOrFail 이 SalesmanScope 안 → 본인 글만(IDOR)
         $l = PurchaseListing::where('status', 'inspected')->findOrFail($this->detailId);
@@ -407,17 +442,22 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <div class="grid grid-cols-2 gap-2">
                     <div>
                         <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.car_cost') }} <span class="text-gray-400">({{ $d->expected_price_currency }})</span></label>
-                        <input type="number" min="0" class="input-base" wire:model.blur="e_car_cost">
+                        <input type="number" min="0" class="input-base" wire:model.live.debounce.500ms="e_car_cost">
                         @error('e_car_cost') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                     <div>
                         <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.discount_rate') }} (%)</label>
-                        <input type="number" min="0" max="100" step="0.1" class="input-base" wire:model.blur="e_discount_rate">
+                        <input type="number" min="0" max="100" step="0.1" class="input-base" wire:model.live.debounce.500ms="e_discount_rate">
                         @error('e_discount_rate') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                     <div>
+                        <label class="mb-0.5 block text-xs text-gray-500">{{ __('forwarding.sale_discount_label') }} <span class="text-gray-400">({{ __('common.won_currency') }})</span></label>
+                        <input type="number" min="0" class="input-base" wire:model.live.debounce.500ms="e_sale_discount" placeholder="0">
+                        @error('e_sale_discount') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
+                    <div>
                         <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.shipping') }} (USD)</label>
-                        <select class="input-base" wire:model.blur="e_shipping_usd">
+                        <select class="input-base" wire:model.live="e_shipping_usd">
                             <option value="">—</option>
                             @foreach (config('board.shipping_options') as $opt)
                                 <option value="{{ $opt }}">${{ number_format($opt) }}</option>
@@ -432,16 +472,26 @@ new #[Layout('components.layouts.app')] class extends Component {
                 </div>
                 <p class="mt-1 text-xs text-gray-400">{{ __('forwarding.amount_hint') }}</p>
 
+                @php $pv = $this->previewTotalKrw(); @endphp
                 <div class="mt-3 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
                     <span class="font-semibold text-gray-700">{{ __('auction.final_price') }}</span>
-                    <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $d->final_price ? number_format($d->final_price).__('common.won_currency') : '—' }}</span>
+                    <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $pv !== null ? number_format($pv).__('common.won_currency') : '—' }}</span>
                 </div>
+                {{-- [적용] — 입력은 미리보기만, 이 버튼에서만 저장(실수 커밋 방지). 미적용 시 공유 차단·전달은 먼저 적용. --}}
+                @if ($amountDirty)
+                    <div class="mt-2 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2">
+                        <button type="button" class="btn-primary btn-sm shrink-0" wire:click="saveAmount">✓ {{ __('forwarding.apply_button') }}</button>
+                        <span class="text-xs font-semibold text-amber-700">{{ __('forwarding.unapplied_note') }}</span>
+                    </div>
+                @else
+                    <p class="mt-1 text-[11px] text-gray-400">{{ __('forwarding.applied_note') }}</p>
+                @endif
 
-                {{-- 견적 통화 + 카드 미리보기 (바이어에게 보낼 값). 버튼 누를 때만 offer_currency 저장 → EUR 딜 보존. --}}
+                {{-- 견적 통화 + 카드 미리보기 (바이어에게 보낼 값). 선택=미리보기만, [적용]에서 offer_currency 확정. --}}
                 <div class="section-title-sm">{{ __('forwarding.quote_section') }}</div>
                 <div class="inline-flex overflow-hidden rounded-md border border-gray-300 text-xs">
                     @foreach (['KRW' => '₩', 'USD' => '$', 'EUR' => '€'] as $cur => $sym)
-                        <button type="button" wire:click="setQuoteCurrency('{{ $cur }}')"
+                        <button type="button" wire:click="pickQuoteCurrency('{{ $cur }}')"
                             class="px-3 py-1 font-semibold {{ $quoteCurrency === $cur ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }}">{{ $sym }} {{ $cur }}</button>
                     @endforeach
                 </div>
@@ -499,7 +549,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                     $sharePhotos = $d->photos->reject(fn ($p) => $p->isVideo())
                         ->map(fn ($p) => ['url' => route('photos.show', $p->id), 'name' => $p->original_name ?: 'photo.jpg'])->values()->all();
                 @endphp
-                @if ($d->photos->count() || $q || count($sm['videos']) || count($sm['photos']))
+                @if ($amountDirty)
+                    <p class="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">⚠ {{ __('forwarding.share_needs_apply') }}</p>
+                @elseif ($d->photos->count() || $q || count($sm['videos']) || count($sm['photos']))
                     {{-- 모바일=OS 공유시트로 링크 전송 / PC=링크 복사(공유시트에 카톡·왓츠앱이 안 걸려 무용 → 붙여넣기). --}}
                     <div x-data="{ isMobile: !!navigator.share && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent), copied: false }">
                         {{-- 모바일 --}}

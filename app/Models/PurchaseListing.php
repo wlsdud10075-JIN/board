@@ -22,7 +22,7 @@ class PurchaseListing extends Model
         'created_by_user_id', 'source', 'origin', 'region', 'c_no', 'ssancar_ref',
         'respond_conversation_id', 'respond_contact_id', 'encar_id',
         'vehicle_number', 'owner_name', 'vin',
-        'expected_price', 'expected_price_currency', 'car_cost', 'discount_rate', 'shipping_usd',
+        'expected_price', 'expected_price_currency', 'car_cost', 'discount_rate', 'sale_discount_amount', 'shipping_usd',
         'final_price', 'offer_currency', 'offer_rate', 'encar_url', 'encar_dealer',
         'auction_venue', 'lot_number', 'status', 'buyer_verdict', 'verdict_channel',
         'buyer_name', 'payee_name', 'payee_bank', 'payee_account',
@@ -37,6 +37,7 @@ class PurchaseListing extends Model
             'expected_price' => 'integer',
             'car_cost' => 'integer',
             'discount_rate' => 'decimal:2',
+            'sale_discount_amount' => 'integer',
             'shipping_usd' => 'integer',
             'final_price' => 'integer',
             'offer_rate' => 'integer',
@@ -69,7 +70,11 @@ class PurchaseListing extends Model
         return Money::display($this->car_cost, $this->expected_price_currency);
     }
 
-    /** 차량금액(Car Price, KRW) = 차값(KRW환산) − (×할인율%) + 매도비(고정). 입력 없으면 null. */
+    /**
+     * 판매가(바이어 차값, KRW) = 차값(원가 KRW) − 관례할인(%) − 차감액.
+     * 매도비 제외 = 회사 부담(엑셀·ERP Model A, 2026-07-06). 차감액=바이어 추가흥정(sell-side).
+     * 입력 없으면 null.
+     */
     public function carPriceKrw(?int $krwPerUsd = null, ?int $krwPerEur = null): ?int
     {
         $cost = $this->carCostKrw($krwPerUsd, $krwPerEur);
@@ -78,7 +83,7 @@ class PurchaseListing extends Model
         }
         $discount = (int) round($cost * ((float) $this->discount_rate / 100));
 
-        return $cost - $discount + (int) config('board.sales_fee');
+        return $cost - $discount - (int) $this->sale_discount_amount;
     }
 
     /** 배송금액을 KRW 로 환산 (임시환율 — 슬라이스2에서 라이브 환율로 대체). */
@@ -248,7 +253,7 @@ class PurchaseListing extends Model
     public const AUDITED = [
         'source', 'origin', 'status', 'buyer_verdict', 'verdict_channel', 'buyer_name', 'c_no', 'ssancar_ref', 'encar_id',
         'respond_conversation_id',
-        'expected_price', 'final_price', 'car_cost', 'discount_rate', 'shipping_usd',
+        'expected_price', 'final_price', 'car_cost', 'discount_rate', 'sale_discount_amount', 'shipping_usd',
         'owner_name', 'payee_name', 'payee_bank', 'payee_account',
         'vehicle_number', 'vin', 'car_erp_vehicle_id', 'region', 'inspection_note', 'inspection_memo',
         'encar_url', 'encar_dealer', 'auction_venue', 'lot_number',
