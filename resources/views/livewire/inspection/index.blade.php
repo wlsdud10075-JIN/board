@@ -3,7 +3,6 @@
 use App\Models\InspectionAssignment;
 use App\Models\PurchaseListing;
 use App\Models\User;
-use App\Services\ExchangeRateService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
@@ -16,7 +15,6 @@ new #[Layout('components.layouts.app')] class extends Component {
     use WithFileUploads;
 
     public ?int $editingId = null;
-    public ?string $final_price = null;
     public string $inspection_memo = '';
     public string $buyer_name = '';
     public array $photos = [];
@@ -30,73 +28,13 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $assignRegion = '';
     public ?int $assignUserId = null;
 
-    // ── 환율 (§6a 라이브) + 표시통화 토글 ──
-    public int $krwPerUsd = 0;
-    public int $krwPerEur = 0;
-    public string $displayCurrency = 'KRW';
-
-    private function usdRate(): int
-    {
-        return $this->krwPerUsd ?: (int) config('board.default_krw_per_usd');
-    }
-
-    private function eurRate(): int
-    {
-        return $this->krwPerEur ?: (int) config('board.default_krw_per_eur');
-    }
-
-    /** KRW 금액을 표시통화로 변환+포맷. */
-    public function fmt(?int $krw): string
-    {
-        if ($krw === null) {
-            return '—';
-        }
-
-        return match ($this->displayCurrency) {
-            'USD' => '$'.number_format($krw / max(1, $this->usdRate()), 2),
-            'EUR' => '€'.number_format($krw / max(1, $this->eurRate()), 2),
-            default => number_format($krw).__('common.won_currency'),
-        };
-    }
-
-    // ── 검사지역 + 금액 재설계 (§6) ──
+    // ── 검사지역 + 추가검사사항 (금액·통화는 견적·전달 단계로 이동, 2026-07-06) ──
     public string $region = '';
     public string $inspection_note = '';
-    public ?string $car_cost = null;       // 차값 (가져온 통화 그대로 — costCurrency)
-    public string $costCurrency = 'KRW';   // 차값 통화 (listing.expected_price_currency, 엔카=KRW)
-    public ?string $discount_rate = null;  // 할인율 (%)
-    public ?int $shipping_usd = null;      // 배송금액 (USD 고정 택1)
 
-    /** 입력값 기준 차량금액(KRW) 미리보기 = 차값(통화 KRW환산) − (×할인율%) + 매도비. */
-    public function carPricePreview(): ?int
-    {
-        $krw = \App\Support\Money::toKrw($this->car_cost, $this->costCurrency, $this->usdRate(), $this->eurRate());
-        if ($krw === null) {
-            return null;
-        }
-        $discount = (int) round($krw * ((float) $this->discount_rate / 100));
-
-        return $krw - $discount + (int) config('board.sales_fee');
-    }
-
-    /** 최종금액(KRW) 미리보기 = 차량금액 + 배송(USD→KRW, 임시환율). */
-    public function totalPreview(): ?int
-    {
-        $car = $this->carPricePreview();
-        if ($car === null) {
-            return null;
-        }
-        $shipKrw = $this->shipping_usd ? $this->shipping_usd * $this->usdRate() : 0;
-
-        return $car + $shipKrw;
-    }
-
-    public function mount(ExchangeRateService $rates): void
+    public function mount(): void
     {
         $this->assignDate = now()->toDateString();
-        $rates->refreshIfStale();   // 오래됐을 때만 갱신(lazy)
-        $this->krwPerUsd = $rates->krwPerUsd();
-        $this->krwPerEur = $rates->krwPerEur();
     }
 
     /** 관리/시스템관리자만 인원 배정 가능. 현지확인 담당자는 본인 배정만 열람. */
@@ -235,17 +173,10 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $l = PurchaseListing::findOrFail($id);
         $this->editingId = $l->id;
-        $this->final_price = $l->final_price !== null ? (string) $l->final_price : null;
         $this->inspection_memo = $l->inspection_memo ?? '';
         $this->buyer_name = $l->buyer_name ?? '';
         $this->region = $l->region ?? '';
         $this->inspection_note = $l->inspection_note ?? '';
-        $this->car_cost = $l->car_cost !== null ? (string) $l->car_cost : null;
-        $this->costCurrency = $l->expected_price_currency ?: 'KRW';
-        $this->discount_rate = $l->discount_rate !== null ? (string) $l->discount_rate : null;
-        $this->shipping_usd = $l->shipping_usd;
-        // 이전에 확정한 판매통화가 있으면 그대로 보여줌(없으면 KRW). 처음 정한 통화가 이어짐.
-        $this->displayCurrency = $l->offer_currency ?: 'KRW';
         $this->photos = [];
         // 검차완료 선택 초기화 (검차완료는 draft 에서만; 전달/회신은 영업 화면)
         $this->sendSelected = false;
@@ -254,34 +185,16 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function closeDrawer(): void
     {
-        $this->reset(['editingId', 'final_price', 'inspection_memo', 'buyer_name', 'photos',
-            'region', 'inspection_note', 'car_cost', 'discount_rate', 'shipping_usd',
-            'sendSelected']);
+        $this->reset(['editingId', 'inspection_memo', 'buyer_name', 'photos',
+            'region', 'inspection_note', 'sendSelected']);
         unset($this->editing, $this->regionGroups);
     }
 
-    /** 입력된 검사지역·금액 필드를 모델에 반영 + final_price 에 최종금액(KRW) 스냅샷. */
+    /** 입력된 검사지역·추가검사사항을 모델에 반영. 금액·통화는 견적·전달(forwarding) 단계 소관. */
     private function applyInspectionFields(PurchaseListing $l): void
     {
         $l->region = $this->region ?: null;
         $l->inspection_note = $this->inspection_note ?: null;
-        $l->car_cost = ($this->car_cost === null || $this->car_cost === '') ? null : (int) $this->car_cost;
-        $l->discount_rate = ($this->discount_rate === null || $this->discount_rate === '') ? null : (float) $this->discount_rate;
-        $l->shipping_usd = $this->shipping_usd ?: null;
-        // 최종금액(KRW) 스냅샷 — 공식 입력이 있으면 자동 계산, 없으면 수동 final_price 유지.
-        $computed = $l->totalKrw($this->usdRate(), $this->eurRate());
-        if ($computed !== null) {
-            $l->final_price = $computed;
-        } elseif ($this->final_price !== null && $this->final_price !== '') {
-            $l->final_price = (int) $this->final_price;
-        }
-        // 판매 통화 확정 — 현지확인에서 고른 표시통화를 굳힘(바이어 견적·연동B 판매가 통화).
-        $l->offer_currency = $this->displayCurrency;
-        $l->offer_rate = match ($this->displayCurrency) {
-            'USD' => $this->usdRate(),
-            'EUR' => $this->eurRate(),
-            default => 1,
-        };
     }
 
     private function persistPhotos(PurchaseListing $l): void
@@ -312,12 +225,8 @@ new #[Layout('components.layouts.app')] class extends Component {
     private function pricingRules(): array
     {
         return [
-            'final_price' => 'nullable|numeric|min:0',
             'region' => 'nullable|string|max:60',
             'inspection_note' => 'nullable|string|max:255',
-            'car_cost' => 'nullable|numeric|min:0',
-            'discount_rate' => 'nullable|numeric|min:0|max:100',
-            'shipping_usd' => 'nullable|integer|in:'.implode(',', config('board.shipping_options')),
         ];
     }
 
@@ -333,13 +242,6 @@ new #[Layout('components.layouts.app')] class extends Component {
         $completing = $l->status === 'draft' && $this->sendSelected;
 
         $this->validate($this->pricingRules());
-
-        // 검차완료하려면 최종금액(공식 차값 또는 수동 final_price) 중 하나는 있어야 함(영업이 전달할 금액).
-        if ($completing && $this->carPricePreview() === null && ($this->final_price === null || $this->final_price === '')) {
-            $this->addError('car_cost', __('inspection.need_amount_to_forward'));
-
-            return;
-        }
 
         $l->inspection_memo = $this->inspection_memo ?: null;
         if ($this->buyer_name !== '') {
@@ -608,59 +510,6 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <div class="section-title-sm">{{ __('inspection.note_section') }}</div>
                 <input class="input-base" wire:model="inspection_note" placeholder="{{ __('inspection.note_placeholder') }}">
                 @error('inspection_note') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-
-                {{-- 금액 산정 (§6) --}}
-                <div class="section-title-sm flex items-center justify-between">
-                    <span>{{ __('inspection.pricing_section') }}</span>
-                    <div class="inline-flex overflow-hidden rounded-md border border-gray-300 text-xs font-normal">
-                        @foreach (['KRW' => '원', 'USD' => '$', 'EUR' => '€'] as $cur => $sym)
-                            <button type="button" wire:click="$set('displayCurrency', '{{ $cur }}')"
-                                class="px-2 py-1 font-semibold {{ $displayCurrency === $cur ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }}">{{ $sym }}</button>
-                        @endforeach
-                    </div>
-                </div>
-                @php
-                    $carPrice = $this->carPricePreview();
-                    $total = $this->totalPreview();
-                    $rate = $this->usdRate();
-                    $shipKrw = $shipping_usd ? (int) $shipping_usd * $rate : null;
-                @endphp
-                <div class="grid grid-cols-2 gap-3">
-                    <div>
-                        <label class="label-base">{{ __('inspection.car_cost_label', ['symbol' => \App\Support\Money::SYMBOLS[$costCurrency] ?? '원']) }}</label>
-                        <input class="input-base" wire:model.live.debounce.400ms="car_cost" inputmode="numeric" placeholder="{{ __('inspection.car_cost_placeholder') }}">
-                        @error('car_cost') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                    </div>
-                    <div>
-                        <label class="label-base">{{ __('inspection.discount_rate_label') }}</label>
-                        <input class="input-base" wire:model.live.debounce.400ms="discount_rate" inputmode="decimal" placeholder="0">
-                        @error('discount_rate') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                    </div>
-                </div>
-                <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
-                    <span>{{ __('inspection.sales_fee_label') }}</span>
-                    <span class="font-semibold text-gray-700">{{ number_format((int) config('board.sales_fee')) }}{{ __('common.won_currency') }}</span>
-                </div>
-                <div class="mt-1 flex items-center justify-between rounded-md bg-gray-50 px-3 py-2 text-sm">
-                    <span class="text-gray-600">{{ __('inspection.car_price_label') }}</span>
-                    <span class="font-bold text-gray-800">{{ $this->fmt($carPrice) }}</span>
-                </div>
-
-                <label class="label-base mt-3">{{ __('inspection.shipping_label') }}</label>
-                <div class="inline-flex overflow-hidden rounded-md border border-gray-300">
-                    @foreach (config('board.shipping_options') as $opt)
-                        <button type="button" wire:click="$set('shipping_usd', {{ $opt }})"
-                            class="px-3 py-1.5 text-[13px] font-semibold {{ (int) $shipping_usd === $opt ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }}">${{ number_format($opt) }}</button>
-                    @endforeach
-                </div>
-                @error('shipping_usd') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                @if ($shipKrw !== null)<div class="mt-1 text-right text-xs text-gray-500">{{ __('inspection.shipping_line', ['amount' => $this->fmt($shipKrw)]) }}</div>@endif
-
-                <div class="mt-2 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
-                    <span class="text-sm font-semibold text-gray-700">{{ __('inspection.total_label') }}</span>
-                    <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $this->fmt($total) }}</span>
-                </div>
-                <p class="mt-1 text-[11px] text-gray-400">{{ __('inspection.shipping_rate_note', ['usd' => number_format((int) $shipping_usd), 'rate' => number_format($rate)]) }}</p>
 
                 {{-- 검차완료 --}}
                 <div class="section-title-sm">{{ __('inspection.complete_section') }}</div>

@@ -1,14 +1,21 @@
 <?php
 
+use App\Models\InspectionPhoto;
 use App\Models\PurchaseListing;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
+use Livewire\WithFileUploads;
 
 new #[Layout('components.layouts.app')] class extends Component {
+    use WithFileUploads;
+
     public ?int $detailId = null;
+
+    // 딜러 차량 첨부 (매입 후 딜러에게 받은 사진·서류 → 낙찰 시 연동 B 로 car-erp 첨부탭). 이미지=사진/그 외=서류.
+    public array $salesFiles = [];
 
     // 소유자/차주명 (연동 B: car-erp NICE 조회 입력값) — 매입예정에서 미리 입력, 여기서 보정.
     public string $owner_name = '';
@@ -73,7 +80,74 @@ new #[Layout('components.layouts.app')] class extends Component {
             'selling_fee_payee_name' => 'nullable|string|max:60',
             'selling_fee_payee_bank' => 'nullable|string|max:40',
             'selling_fee_payee_account' => 'nullable|string|max:40',
+            'salesFiles.*' => 'file|max:204800',
         ];
+    }
+
+    /** 첨부 사전검증 — 실행파일 차단 + 최대건수(car-erp 첨부탭 cap). 통과=true. */
+    private function checkSalesFiles(int $existing): bool
+    {
+        $files = array_values(array_filter($this->salesFiles));
+        if (empty($files)) {
+            return true;
+        }
+        foreach ($files as $f) {
+            if (\App\Support\UploadGuard::isExecutable($f->getClientOriginalName())) {
+                $this->addError('salesFiles', __('auction.attach.exec_error', ['name' => $f->getClientOriginalName()]));
+
+                return false;
+            }
+        }
+        $max = (int) config('board.attachment_max');
+        if ($existing + count($files) > $max) {
+            $this->addError('salesFiles', __('auction.attach.max_error', ['max' => $max, 'existing' => $existing]));
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /** 첨부 저장 — 이미지=사진(sales_photo)/그 외=서류(sales_document). 서류는 바이어 전송 금지(§28). */
+    private function storeSalesFiles(PurchaseListing $l): void
+    {
+        $files = array_values(array_filter($this->salesFiles));
+        if (empty($files)) {
+            return;
+        }
+        $disk = config('board.photo_disk');
+        $sort = (int) $l->salesAttachments()->max('sort');
+        foreach ($files as $f) {
+            $isImage = str_starts_with((string) $f->getMimeType(), 'image/');
+            $prefix = $isImage ? config('board.sales_photo_prefix') : config('board.sales_document_prefix');
+            $path = $f->store($prefix.'/'.$l->id, $disk);
+            $l->salesAttachments()->create([
+                's3_path' => $path,
+                'original_name' => $f->getClientOriginalName(),
+                'sort' => ++$sort,
+                'kind' => $isImage ? InspectionPhoto::KIND_SALES_PHOTO : InspectionPhoto::KIND_SALES_DOCUMENT,
+                'uploaded_by_user_id' => \Illuminate\Support\Facades\Auth::id(),
+                'share_to_buyer' => false,
+            ]);
+        }
+        $this->salesFiles = [];
+    }
+
+    /** 저장 전 선택파일 빼기. */
+    public function removeSalesFile(int $i): void
+    {
+        unset($this->salesFiles[$i]);
+        $this->salesFiles = array_values($this->salesFiles);
+    }
+
+    /** 첨부 삭제(파일+행). */
+    public function deleteSalesAttachment(int $id): void
+    {
+        $l = PurchaseListing::findOrFail($this->detailId);
+        $p = $l->salesAttachments()->whereKey($id)->firstOrFail();
+        Storage::disk(config('board.photo_disk'))->delete($p->s3_path);
+        $p->delete();
+        unset($this->detail);
     }
 
     #[Computed]
@@ -88,7 +162,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     #[Computed]
     public function detail(): ?PurchaseListing
     {
-        return $this->detailId ? PurchaseListing::with(['creator', 'photos'])->find($this->detailId) : null;
+        return $this->detailId ? PurchaseListing::with(['creator', 'photos', 'salesAttachments'])->find($this->detailId) : null;
     }
 
     public function openDetail(int $id): void
@@ -113,7 +187,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $this->reset(['detailId', 'owner_name', 'payee_name', 'payee_bank', 'payee_account',
             'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account',
-            'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts']);
+            'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts', 'salesFiles']);
         unset($this->detail);
     }
 
@@ -130,13 +204,17 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->car_erp_consignee_id = $this->consigneeId ?: null;
     }
 
-    /** 입금정보만 저장(이미 won 인 차량 보정용). */
+    /** 입금정보·첨부 저장(이미 won 인 차량 보정용). */
     public function savePayee(): void
     {
         $this->validate($this->payeeRules());
         $l = PurchaseListing::findOrFail($this->detailId);
+        if (! $this->checkSalesFiles($l->salesAttachments()->count())) {
+            return;
+        }
         $this->applyPayee($l);
         $l->save();
+        $this->storeSalesFiles($l);
         unset($this->detail, $this->listings);
         session()->flash('ok', __('auction.flash_payee_saved'));
     }
@@ -171,14 +249,20 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         if ($result === 'won') {
             $this->validate($this->payeeRules());
+            if (! $this->checkSalesFiles($l->salesAttachments()->count())) {
+                return;
+            }
             $this->applyPayee($l);   // 낙찰/구매확정 시 입금정보 함께 저장
         }
 
         $l->status = $result;
         $l->save();
+        if ($result === 'won') {
+            $this->storeSalesFiles($l);   // 딜러 첨부(사진·서류) 저장 → 연동 B 로 car-erp 전달
+        }
         $this->reset(['detailId', 'owner_name', 'payee_name', 'payee_bank', 'payee_account',
             'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account',
-            'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts']);
+            'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts', 'salesFiles']);
         unset($this->listings, $this->detail);
         session()->flash('ok', __('auction.flash_processed', ['no' => $l->vehicle_number, 'label' => $l->statusLabel()]));
     }
@@ -376,6 +460,53 @@ new #[Layout('components.layouts.app')] class extends Component {
                                x-on:input="$el.value = $store.koreanBanks.applyMask($refs.feeBankAuc.value, $el.value)">
                     </div>
                     @error('selling_fee_payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                @endif
+
+                {{-- 딜러 차량 첨부 (매입 후 받은 사진·서류 → 낙찰 시 연동 B 로 car-erp 첨부탭). 서류는 바이어 전송 제외(§28) --}}
+                @if (in_array($d->status, ['accepted', 'won'], true))
+                    <div class="section-title-sm">{{ __('auction.attach.title') }} <span class="text-[11px] font-normal text-gray-400">{{ __('auction.attach.hint', ['max' => config('board.attachment_max')]) }}</span></div>
+                    @if ($d->salesAttachments->count())
+                        <div class="mt-1 grid grid-cols-4 gap-2">
+                            @foreach ($d->salesAttachments as $p)
+                                <div class="relative overflow-hidden rounded-md border border-gray-200" wire:key="auc-att-{{ $p->id }}">
+                                    @if ($p->isDocument())
+                                        <div class="flex aspect-square w-full flex-col items-center justify-center bg-gray-50 p-1 text-center text-[10px] text-gray-500">
+                                            <span class="text-lg">📄</span><span class="line-clamp-2 break-all">{{ $p->original_name }}</span>
+                                        </div>
+                                    @else
+                                        <img src="{{ $this->photoUrl($p->s3_path) }}" class="aspect-square w-full object-cover" alt="">
+                                    @endif
+                                    <button type="button" wire:click="deleteSalesAttachment({{ $p->id }})" wire:confirm="{{ __('auction.attach.delete_confirm') }}"
+                                        class="absolute right-0.5 top-0.5 rounded bg-black/55 px-1 text-[10px] font-semibold text-white hover:bg-red-600">✕</button>
+                                </div>
+                            @endforeach
+                        </div>
+                    @endif
+                    <label class="mt-2 flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-gray-300 py-2.5 text-[13px] text-gray-500 hover:border-[var(--color-primary)]">
+                        {{ __('auction.attach.dropzone') }}
+                        <input type="file" multiple wire:model="salesFiles" class="hidden">
+                    </label>
+                    <div wire:loading wire:target="salesFiles" class="mt-1 text-xs text-gray-400">{{ __('auction.attach.uploading') }}</div>
+                    @if (count($salesFiles))
+                        <div class="mt-2 grid grid-cols-4 gap-2">
+                            @foreach ($salesFiles as $i => $f)
+                                <div class="relative overflow-hidden rounded-md border border-gray-200" wire:key="auc-newfile-{{ $i }}">
+                                    @if ($f->isPreviewable() && str_starts_with((string) $f->getMimeType(), 'image/'))
+                                        <img src="{{ $f->temporaryUrl() }}" class="aspect-square w-full object-cover" alt="">
+                                    @else
+                                        <div class="flex aspect-square w-full flex-col items-center justify-center bg-gray-50 p-1 text-center text-[10px] text-gray-500">
+                                            <span class="text-lg">📄</span><span class="line-clamp-2 break-all">{{ $f->getClientOriginalName() }}</span>
+                                        </div>
+                                    @endif
+                                    <button type="button" wire:click="removeSalesFile({{ $i }})"
+                                        class="absolute right-0.5 top-0.5 rounded bg-black/55 px-1 text-[10px] font-semibold text-white hover:bg-red-600">✕</button>
+                                </div>
+                            @endforeach
+                        </div>
+                    @endif
+                    @error('salesFiles') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    @error('salesFiles.*') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    <p class="mt-1 text-[11px] text-gray-400">{{ __('auction.attach.help') }}</p>
                 @endif
 
                 {{-- 집행 --}}

@@ -69,4 +69,15 @@ return [
     'buyer_unavailable' => 'Buyer list unavailable — assign manually in car-erp.',
     'buyer_select' => 'Select buyer',
     'consignee_select' => 'Select consignee (optional)',
+
+    'attach' => [
+        'title' => 'Dealer vehicle attachments',
+        'hint' => 'Photos/documents received from the dealer after purchase (max :max). Sent to the car-erp attachments tab on win.',
+        'dropzone' => '＋ Add photos/documents (tap)',
+        'uploading' => 'Uploading…',
+        'delete_confirm' => 'Delete this attachment?',
+        'help' => 'Images = photos / others = documents (auto-classified). Documents are not sent to the buyer.',
+        'exec_error' => 'Executable files cannot be attached (:name).',
+        'max_error' => 'Up to :max attachments (:existing existing).',
+    ],
 ];

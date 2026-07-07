@@ -68,12 +68,11 @@ class SyncWonListingToCarErp implements ShouldQueue
         $eurR = (int) ($snap['EUR'] ?? 0) ?: (int) config('board.default_krw_per_eur');
 
         $carCostKrw = $l->carCostKrw($usdR, $eurR);
-        // 매입가(구입금액) = 차값(KRW환산) − 할인. 매도비·배송 제외(car-erp purchase_price 교정).
-        $purchasePriceKrw = $carCostKrw !== null
-            ? $carCostKrw - (int) round($carCostKrw * ((float) $l->discount_rate / 100))
-            : null;
-        $sellingFeeKrw = $carCostKrw !== null ? (int) config('board.sales_fee') : null;   // 매도비
-        $carPriceKrw = $l->carPriceKrw($usdR, $eurR);   // 차량금액 = 구입금액 + 매도비
+        // 매입가(구입금액) = 원가 그대로(할인 미반영). Model A(2026-07-06, 엑셀·ERP 정렬):
+        //   car-erp 부가세마진 = purchase_price × 0.09 라 원가여야 정합. 할인은 sell-side(판매가)에만.
+        $purchasePriceKrw = $carCostKrw;
+        $sellingFeeKrw = $carCostKrw !== null ? (int) config('board.sales_fee') : null;   // 매도비(매입탭 별도 · 회사 부담)
+        $carPriceKrw = $l->carPriceKrw($usdR, $eurR);   // 판매가 = 원가 − 관례할인 − 차감액 (매도비 제외)
 
         $offer = $l->offerAmount($usdR, $eurR);         // 판매 통화/환율(현지확인 확정)
         $saleCurrency = $offer['currency'] ?? null;
