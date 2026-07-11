@@ -181,6 +181,29 @@ class CarErpReadService
     }
 
     /**
+     * §10 판매계약서 전자서명 세션 발급 (POST). car-erp 가 서명 URL 을 반환 → board 는 그대로 바이어에게 전달만.
+     * body = {salesman_email, vehicle_ids, recipient_email?}. recipient_email 미전송 시 car-erp 가 바이어 contact_email 기본.
+     * 응답 data = {signed_url, contract_no, buyer{id,name}, currency, vehicle_count, status, expires_at}.
+     * 미설정/401/422/5xx → ok=false degrade("발급 불가"). ⚠️ 409 없음(재발급은 항상 성공 — 겹치는 pending revoke 후 새 세션).
+     * vehicle_ids = 한 계약 묶음 전체(all-or-nothing) — 전부 동일 바이어·단일 통화·export 아니면 car-erp 422.
+     * 권위 = car-erp board-portal-api.md §10-1.
+     *
+     * @param  list<int>  $vehicleIds
+     */
+    public function requestSigningSession(string $email, array $vehicleIds, ?string $recipientEmail = null): array
+    {
+        $payload = [
+            'salesman_email' => $email,
+            'vehicle_ids' => array_values(array_map('intval', $vehicleIds)),
+        ];
+        if ($recipientEmail !== null && $recipientEmail !== '') {
+            $payload['recipient_email'] = $recipientEmail;
+        }
+
+        return $this->post('/signing-requests', ['salesman_email' => $email], $payload);
+    }
+
+    /**
      * ①② 서류 프록시 — xlsx 바이트 스트림. 4종 화이트리스트 board 측 강제.
      *
      * @return array{ok:bool, status:int, body:?string, content_type:?string, reason:?string}

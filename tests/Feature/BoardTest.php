@@ -456,6 +456,44 @@ class BoardTest extends TestCase
         $this->assertStringEndsWith("\n".'{"x":1}', $canon);
     }
 
+    /** §10 전자서명 세션 발급 client — POST 서명/경로/바디 + 발급불가 degrade. */
+    public function test_car_erp_read_service_signing_session(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        Http::fake([
+            '*/api/internal/board/signing-requests*' => Http::response([
+                'signed_url' => 'https://heysellcar.com/sign/tok?expires=1&signature=ab',
+                'contract_no' => 'SC2607-01215', 'buyer' => ['id' => 42, 'name' => 'ABC TRADING'],
+                'currency' => 'USD', 'vehicle_count' => 2, 'status' => 'pending',
+                'expires_at' => '2026-07-17T09:00:00+09:00',
+            ], 200),
+        ]);
+        $svc = app(CarErpReadService::class);
+
+        $res = $svc->requestSigningSession('s@erp.test', [1215, 1216]);
+        $this->assertTrue($res['ok']);
+        $this->assertSame('https://heysellcar.com/sign/tok?expires=1&signature=ab', $res['data']['signed_url']);
+        $this->assertSame('pending', $res['data']['status']);
+
+        // POST /signing-requests — 서명 헤더 + salesman_email 쿼리 + vehicle_ids 바디(int). recipient_email 미전송 시 body 에 없음.
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/api/internal/board/signing-requests?salesman_email=s%40erp.test')
+            && str_starts_with($r->header('X-Board-Signature')[0], 'sha256=')
+            && $r->hasHeader('X-Timestamp') && $r->hasHeader('X-Nonce')
+            && str_contains($r->body(), '"vehicle_ids":[1215,1216]')
+            && str_contains($r->body(), '"salesman_email":"s@erp.test"')
+            && ! str_contains($r->body(), 'recipient_email'));
+
+        // recipient_email 전송 시 바디 포함
+        $svc->requestSigningSession('s@erp.test', [1215], 'buyer@example.com');
+        Http::assertSent(fn ($r) => str_contains($r->body(), '"recipient_email":"buyer@example.com"'));
+
+        // 미설정 → ok=false degrade("발급 불가")
+        config(['services.car_erp.read_hmac_secret' => null]);
+        $down = app(CarErpReadService::class)->requestSigningSession('s@erp.test', [1]);
+        $this->assertFalse($down['ok']);
+        $this->assertSame('not_configured', $down['reason']);
+    }
+
     /** 영업이 집행화면(구매확정/경매) 접근 + SalesmanScope 로 본인 딜만 보이고 won 까지 집행. */
     public function test_sales_can_conclude_own_deal_and_is_scoped(): void
     {
@@ -2948,6 +2986,33 @@ class BoardTest extends TestCase
         Http::assertSent(fn ($r) => str_contains($r->url(), '/api/internal/board/shipping-requests/sync')
             && str_contains($r->body(), '"buyer_id":5')
             && str_contains($r->body(), '"vehicle_ids":[1]'));   // 뺀 차(2) 제외, 전체 desired
+    }
+
+    /** §10 「전자서명 요청」 — 묶음 버튼 → signed_url 발급받아 화면에 노출(바이어 전달용). */
+    public function test_portal_requests_signature_and_shows_url(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
+                'batch_id' => 'B1', 'ship_status' => 'requested', 'bl_status' => 'none', 'bl_type' => null,
+                'shipping_method' => 'RORO', 'buyer' => ['id' => 5, 'name' => 'BuyerZ'],
+                'vehicles' => [['vehicle_id' => 1, 'vehicle_number' => 'CAR001']],
+            ]]], 200),
+            '*/api/internal/board/signing-requests*' => Http::response([
+                'signed_url' => 'https://heysellcar.com/sign/tok?expires=1&signature=ab',
+                'contract_no' => 'SC2607-00001', 'buyer' => ['id' => 5, 'name' => 'BuyerZ'],
+                'currency' => 'USD', 'vehicle_count' => 1, 'status' => 'pending',
+                'expires_at' => '2026-07-17T09:00:00+09:00',
+            ], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'shipping')
+            ->call('requestSignature', [1], 'B1')
+            ->assertHasNoErrors()
+            ->assertSee('SC2607-00001')
+            ->assertSee('https://heysellcar.com/sign/tok?expires=1&signature=ab');
     }
 
     public function test_portal_finance_abbreviates_amounts(): void

@@ -35,6 +35,9 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public array $changeNote = [];             // [vehicle_id => note] 변경요청 메모 입력
 
+    // §10 전자서명 — [batchId(또는 ids) => {signed_url,contract_no,buyer,expires_at,status}]. ERP 가 발급, board 는 URL 전달만.
+    public array $signResults = [];
+
     // 미수금 정렬/필터
     public string $recvSort = 'unpaid_krw';   // 기본 = 미수금 많은 순
 
@@ -181,7 +184,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
         $this->viewUserId = ($id !== null && $this->portalUsers->contains('id', $id)) ? $id : null;
         // 대상이 바뀌면 선적 편집상태(이전 사용자 차량 id)를 초기화.
-        $this->reset(['bundles', 'shippablePool', 'desired', 'syncResult', 'shipNote', 'changeNote']);
+        $this->reset(['bundles', 'shippablePool', 'desired', 'syncResult', 'shipNote', 'changeNote', 'signResults']);
         $this->load();
     }
 
@@ -522,6 +525,47 @@ new #[Layout('components.layouts.app')] class extends Component {
         ]);
     }
 
+    /**
+     * §10 전자서명 요청 — ERP 가 서명 세션 발급 → signed_url 반환. board 는 그 URL 을 화면에 노출,
+     * 영업이 자기 바이어 채널(카톡/SNS/이메일)로 직접 전달. board 는 서명 페이지 호스팅·전달대행 안 함.
+     * 제약(동일 바이어·단일 통화·export)은 판매계약서 발급과 동일 → 422 시 같은 안내 재사용.
+     */
+    public function requestSignature(array $vehicleIds, ?string $batchId = null)
+    {
+        // 조회 전용 — 타인 포털 열람 중엔 쓰기(서명 세션 발급) 차단. 서버 게이트.
+        if ($this->isViewingOther()) {
+            $this->shipNote = __('portal.flash_view_only_docs');
+
+            return;
+        }
+        $ids = array_values(array_map('intval', $vehicleIds));
+        if ($ids === []) {
+            $this->shipNote = __('portal.flash_select_vehicle_docs');
+
+            return;
+        }
+
+        $res = $this->svc()->requestSigningSession($this->salesmanEmail(), $ids);
+        if (! ($res['ok'] ?? false) || empty(data_get($res, 'data.signed_url'))) {
+            // 422 = 혼합 바이어/통화·non-export(판매계약서와 동일 조건) → 같은 힌트. 그 외 = 발급 불가.
+            $this->shipNote = ($res['status'] ?? 0) === 422
+                ? __('portal.flash_docs_sales_contract_failed')
+                : __('portal.flash_sign_failed');
+
+            return;
+        }
+
+        $key = $batchId ?: implode('-', $ids);
+        $this->signResults[$key] = [
+            'signed_url' => data_get($res, 'data.signed_url'),
+            'contract_no' => data_get($res, 'data.contract_no'),
+            'buyer' => data_get($res, 'data.buyer.name'),
+            'expires_at' => data_get($res, 'data.expires_at'),
+            'status' => data_get($res, 'data.status'),
+        ];
+        $this->shipNote = null;
+    }
+
     /** 한글 축약 금액 (요약 탭 전용): 704369898 → "7억 436만원". */
     public function abbrevKrw(int|float|null $won): string
     {
@@ -778,7 +822,32 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'contract')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_contract') }}</button>
                                 <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'invoice_packing')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_invoice_packing') }}</button>
                                 <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'sales_contract')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_sales_contract') }}</button>
+                                <button wire:click="requestSignature({{ json_encode($vIds) }}, '{{ $batchId }}')"
+                                    wire:confirm="{{ __('portal.sign_request_confirm') }}" class="btn-ghost btn-sm">✍️ {{ __('portal.sign_request_btn') }}</button>
                             </div>
+                            {{-- §10 전자서명 세션 발급 결과 — signed_url 을 바이어에게 직접 전달(카톡/SNS/이메일). ERP 는 전달 대행 안 함. --}}
+                            @php $sign = $signResults[$batchId ?: implode('-', array_values(array_map('intval', $vIds)))] ?? null; @endphp
+                            @if ($sign)
+                                <div class="mt-2 rounded-md border border-blue-200 bg-blue-50 p-2.5 text-[12px]" x-data="{ copied: false }" wire:key="sign-{{ $batchId }}">
+                                    <p class="mb-1 font-semibold text-blue-800">
+                                        ✍️ {{ __('portal.sign_ready_title') }}
+                                        @if ($sign['contract_no'])<span class="ml-1 font-normal text-blue-600">{{ $sign['contract_no'] }}</span>@endif
+                                    </p>
+                                    <p class="mb-1.5 text-[11px] text-blue-600">{{ __('portal.sign_ready_hint') }}</p>
+                                    <div class="flex items-center gap-1.5">
+                                        <input type="text" readonly x-ref="signurl" value="{{ $sign['signed_url'] }}"
+                                            @focus="$event.target.select()" class="input-base flex-1 bg-white text-[11px]">
+                                        <button type="button" class="btn-ghost btn-sm shrink-0"
+                                            @click="navigator.clipboard.writeText($refs.signurl.value); copied = true; setTimeout(() => copied = false, 1500)">
+                                            <span x-show="!copied">📋 {{ __('portal.sign_copy_btn') }}</span>
+                                            <span x-show="copied" x-cloak class="text-green-600">✅ {{ __('portal.sign_copied') }}</span>
+                                        </button>
+                                    </div>
+                                    @if ($sign['expires_at'])
+                                        <p class="mt-1 text-[11px] text-gray-500">{{ __('portal.sign_expires', ['at' => \Illuminate\Support\Carbon::parse($sign['expires_at'])->format('Y-m-d H:i')]) }}</p>
+                                    @endif
+                                </div>
+                            @endif
                             {{-- 변경요청 (in_progress = 관리 착수 → 자동변경 불가, 명시 요청만) --}}
                             @if ($busy)
                                 <div class="mt-2 border-t border-gray-200 pt-2">
