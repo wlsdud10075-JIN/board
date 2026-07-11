@@ -46,6 +46,21 @@ return [
     'flash_select_vehicle_docs' => 'Select the vehicle(s) to get documents for.',
     'flash_docs_failed' => 'Could not load documents. (Check the car-erp integration)',
     'flash_docs_sales_contract_failed' => 'Could not issue the sales contract. Only vehicles with the same buyer and single currency can be issued together. (Check bundle composition / integration)',
+    'flash_sign_failed' => 'Could not issue the e-signature session. Please try again shortly. (Check the car-erp integration)',
+
+    // §10 E-signature request (ERP issues → board only relays the signing URL)
+    'sign_request_btn' => 'Request E-Signature',
+    'sign_request_confirm' => 'Issue an e-signature session for this bundle\'s sales contract. Send the generated signing link to the buyer.',
+    'sign_ready_title' => 'Signing link issued',
+    'sign_ready_hint' => 'Copy the link below and send it to the buyer yourself (KakaoTalk / SNS / email). The buyer completes signing on this link.',
+    'sign_copy_btn' => 'Copy',
+    'sign_copied' => 'Copied',
+    'sign_expires' => 'Expires: :at',
+    // Signing status chip (§10-2 polling) — none=request / pending·viewed=waiting / signed=done
+    'sign_st_pending' => 'Awaiting signature',
+    'sign_st_signed' => 'Signed',
+    'sign_reissue_btn' => 'Re-request',
+    'sign_reissue_confirm' => 'Re-issue the signing link? The existing unsigned link is revoked and a new one is created. Continue?',
 
     // Summary (finance) KPIs
     'kpi_unpaid_total' => 'Total receivables',

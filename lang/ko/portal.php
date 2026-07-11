@@ -46,6 +46,21 @@ return [
     'flash_select_vehicle_docs' => '서류 받을 차량을 선택하세요.',
     'flash_docs_failed' => '서류를 불러올 수 없습니다. (car-erp 연동 확인)',
     'flash_docs_sales_contract_failed' => '판매계약서를 발급할 수 없습니다. 동일 바이어·단일 통화 차량만 함께 발급됩니다. (묶음 구성/연동 확인)',
+    'flash_sign_failed' => '전자서명 세션을 발급할 수 없습니다. 잠시 후 다시 시도하세요. (car-erp 연동 확인)',
+
+    // §10 전자서명 요청 (ERP 발급 → board 는 서명 URL 전달만)
+    'sign_request_btn' => '전자서명 요청',
+    'sign_request_confirm' => '이 묶음의 판매계약서 전자서명 세션을 발급합니다. 발급된 서명 링크를 바이어에게 전달하세요.',
+    'sign_ready_title' => '서명 링크 발급됨',
+    'sign_ready_hint' => '아래 링크를 복사해 바이어에게 직접 전달하세요(카톡·SNS·이메일). 서명은 바이어가 이 링크에서 완료합니다.',
+    'sign_copy_btn' => '복사',
+    'sign_copied' => '복사됨',
+    'sign_expires' => '만료: :at',
+    // 서명 상태 칩(§10-2 폴링) — none=요청 / pending·viewed=대기 / signed=완료
+    'sign_st_pending' => '서명 대기',
+    'sign_st_signed' => '서명완료',
+    'sign_reissue_btn' => '재요청',
+    'sign_reissue_confirm' => '서명 링크를 다시 발급합니다. 기존 미서명 링크는 무효가 되고 새 링크가 만들어집니다. 계속할까요?',
 
     // 요약(재무) KPI
     'kpi_unpaid_total' => '미수금 합계',
