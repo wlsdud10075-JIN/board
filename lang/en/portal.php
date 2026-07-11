@@ -56,6 +56,11 @@ return [
     'sign_copy_btn' => 'Copy',
     'sign_copied' => 'Copied',
     'sign_expires' => 'Expires: :at',
+    // Signing status chip (§10-2 polling) — none=request / pending·viewed=waiting / signed=done
+    'sign_st_pending' => 'Awaiting signature',
+    'sign_st_signed' => 'Signed',
+    'sign_reissue_btn' => 'Re-request',
+    'sign_reissue_confirm' => 'Re-issue the signing link? The existing unsigned link is revoked and a new one is created. Continue?',
 
     // Summary (finance) KPIs
     'kpi_unpaid_total' => 'Total receivables',

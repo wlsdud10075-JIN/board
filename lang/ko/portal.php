@@ -56,6 +56,11 @@ return [
     'sign_copy_btn' => '복사',
     'sign_copied' => '복사됨',
     'sign_expires' => '만료: :at',
+    // 서명 상태 칩(§10-2 폴링) — none=요청 / pending·viewed=대기 / signed=완료
+    'sign_st_pending' => '서명 대기',
+    'sign_st_signed' => '서명완료',
+    'sign_reissue_btn' => '재요청',
+    'sign_reissue_confirm' => '서명 링크를 다시 발급합니다. 기존 미서명 링크는 무효가 되고 새 링크가 만들어집니다. 계속할까요?',
 
     // 요약(재무) KPI
     'kpi_unpaid_total' => '미수금 합계',

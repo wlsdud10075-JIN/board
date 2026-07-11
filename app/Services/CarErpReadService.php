@@ -204,6 +204,22 @@ class CarErpReadService
     }
 
     /**
+     * §10-2 서명 상태 조회 (GET) — 그 묶음 차량 set 의 현 세션 상태(signed 우선, revoked 제외). 본인 차만(403).
+     * vehicle_ids = 콤마구분(document() 의 ids 패턴 동일 — http_build_query 로 urlencode 서명, 검증됨).
+     * data = {status: none|pending|viewed|signed, contract_no?, vehicle_count?, sent_at?, viewed_at?, signed_at?}.
+     * PII·서명본 파일 미포함(상태 메타만). 미설정/401/403/5xx → ok=false degrade(칩 미표시). 권위 = §10-2.
+     *
+     * @param  list<int>  $vehicleIds
+     */
+    public function signingStatus(string $email, array $vehicleIds): array
+    {
+        return $this->get('/signing-requests', [
+            'salesman_email' => $email,
+            'vehicle_ids' => implode(',', array_values(array_map('intval', $vehicleIds))),
+        ]);
+    }
+
+    /**
      * ①② 서류 프록시 — xlsx 바이트 스트림. 4종 화이트리스트 board 측 강제.
      *
      * @return array{ok:bool, status:int, body:?string, content_type:?string, reason:?string}

@@ -494,6 +494,30 @@ class BoardTest extends TestCase
         $this->assertSame('not_configured', $down['reason']);
     }
 
+    /** §10-2 서명 상태 조회 client — GET vehicle_ids 콤마쿼리 + 서명헤더 + status 반환. */
+    public function test_car_erp_read_service_signing_status(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        Http::fake([
+            '*/api/internal/board/signing-requests*' => Http::response([
+                'status' => 'signed', 'contract_no' => 'SC2607-01215', 'vehicle_count' => 2,
+                'sent_at' => '2026-07-10T00:00:00+09:00', 'viewed_at' => '2026-07-10T01:00:00+09:00',
+                'signed_at' => '2026-07-10T02:00:00+09:00',
+            ], 200),
+        ]);
+        $svc = app(CarErpReadService::class);
+
+        $res = $svc->signingStatus('s@erp.test', [1215, 1216]);
+        $this->assertTrue($res['ok']);
+        $this->assertSame('signed', $res['data']['status']);
+
+        // GET — salesman_email + vehicle_ids(콤마, urlencode) 쿼리 + 서명헤더, 빈 바디.
+        Http::assertSent(fn ($r) => $r->method() === 'GET'
+            && str_contains($r->url(), '/api/internal/board/signing-requests')
+            && str_contains($r->url(), 'vehicle_ids=1215%2C1216')
+            && str_starts_with($r->header('X-Board-Signature')[0], 'sha256='));
+    }
+
     /** 영업이 집행화면(구매확정/경매) 접근 + SalesmanScope 로 본인 딜만 보이고 won 까지 집행. */
     public function test_sales_can_conclude_own_deal_and_is_scoped(): void
     {
@@ -3013,6 +3037,29 @@ class BoardTest extends TestCase
             ->assertHasNoErrors()
             ->assertSee('SC2607-00001')
             ->assertSee('https://heysellcar.com/sign/tok?expires=1&signature=ab');
+    }
+
+    /** §10-2 서명 상태 칩 — signed 폴링 시 묶음 카드에 「서명완료」 녹색 칩 노출. */
+    public function test_portal_shows_signed_chip_from_status_poll(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
+                'batch_id' => 'B1', 'ship_status' => 'requested', 'bl_status' => 'none', 'bl_type' => null,
+                'shipping_method' => 'RORO', 'buyer' => ['id' => 5, 'name' => 'BuyerZ'],
+                'vehicles' => [['vehicle_id' => 1, 'vehicle_number' => 'CAR001']],
+            ]]], 200),
+            '*/api/internal/board/signing-requests*' => Http::response([
+                'status' => 'signed', 'contract_no' => 'SC2607-00001', 'signed_at' => '2026-07-10T02:00:00+09:00',
+            ], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'shipping')
+            ->assertSee('서명완료')          // signed 칩
+            ->assertSee('SC2607-00001')
+            ->assertDontSee('전자서명 요청');   // signed 면 요청 버튼 대신 재요청
     }
 
     public function test_portal_finance_abbreviates_amounts(): void

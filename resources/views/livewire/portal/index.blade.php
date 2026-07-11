@@ -38,6 +38,9 @@ new #[Layout('components.layouts.app')] class extends Component {
     // §10 전자서명 — [batchId(또는 ids) => {signed_url,contract_no,buyer,expires_at,status}]. ERP 가 발급, board 는 URL 전달만.
     public array $signResults = [];
 
+    // §10-2 서명 상태 폴링(칩 색) — [batchId(또는 ids) => {status,contract_no,signed_at}]. 진입/새로고침 기준(실시간 push 없음).
+    public array $signStatus = [];
+
     // 미수금 정렬/필터
     public string $recvSort = 'unpaid_krw';   // 기본 = 미수금 많은 순
 
@@ -184,7 +187,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
         $this->viewUserId = ($id !== null && $this->portalUsers->contains('id', $id)) ? $id : null;
         // 대상이 바뀌면 선적 편집상태(이전 사용자 차량 id)를 초기화.
-        $this->reset(['bundles', 'shippablePool', 'desired', 'syncResult', 'shipNote', 'changeNote', 'signResults']);
+        $this->reset(['bundles', 'shippablePool', 'desired', 'syncResult', 'shipNote', 'changeNote', 'signResults', 'signStatus']);
         $this->load();
     }
 
@@ -218,6 +221,25 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $env = $svc->bundles($email);
         $this->bundles = ($env['ok'] ?? false) ? (array) data_get($env['data'], 'data', []) : [];
+
+        // §10-2 각 묶음 전자서명 상태 폴링(칩) — 진입/새로고침 기준. degrade(미설정/403/5xx)면 그 묶음은 칩 없음("요청"만).
+        $this->signStatus = [];
+        foreach ($this->bundles as $b) {
+            $vids = collect(data_get($b, 'vehicles', []))->pluck('vehicle_id')->map(fn ($i) => (int) $i)->filter()->values()->all();
+            if ($vids === []) {
+                continue;
+            }
+            $sres = $svc->signingStatus($email, $vids);
+            $status = ($sres['ok'] ?? false) ? data_get($sres, 'data.status') : null;
+            if ($status && $status !== 'none') {
+                $key = ($b['batch_id'] ?? null) ?: implode('-', $vids);
+                $this->signStatus[$key] = [
+                    'status' => $status,
+                    'contract_no' => data_get($sres, 'data.contract_no'),
+                    'signed_at' => data_get($sres, 'data.signed_at'),
+                ];
+            }
+        }
 
         $shipEnv = $svc->shippable($email);
         $this->shippablePool = ($shipEnv['ok'] ?? false) ? (array) data_get($shipEnv['data'], 'data', []) : [];
@@ -816,17 +838,31 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     @endif
                                 </div>
                             @endif
-                            {{-- 서류 (4종 중 method별 2종) --}}
+                            {{-- 서류 (4종 중 method별 2종) + 전자서명 칩(§10-2 상태 폴링) --}}
+                            @php
+                                $signKey = $batchId ?: implode('-', array_values(array_map('intval', $vIds)));
+                                $signSt = $signStatus[$signKey]['status'] ?? 'none';   // none|pending|viewed|signed
+                                $signContractNo = $signStatus[$signKey]['contract_no'] ?? null;
+                            @endphp
                             <div class="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
                                 <span class="text-gray-400">{{ __('portal.docs_label', ['method' => $method ?: 'RORO']) }}</span>
                                 <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'contract')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_contract') }}</button>
                                 <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'invoice_packing')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_invoice_packing') }}</button>
                                 <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'sales_contract')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_sales_contract') }}</button>
-                                <button wire:click="requestSignature({{ json_encode($vIds) }}, '{{ $batchId }}')"
-                                    wire:confirm="{{ __('portal.sign_request_confirm') }}" class="btn-ghost btn-sm">✍️ {{ __('portal.sign_request_btn') }}</button>
+                                @if ($signSt === 'signed')
+                                    {{-- 서명완료(녹색) — ERP 칩과 동일 그림. 가격정정 재서명은 재요청으로. --}}
+                                    <span class="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-[11px] font-bold text-green-700">✓ {{ __('portal.sign_st_signed') }}@if ($signContractNo)<span class="font-normal">· {{ $signContractNo }}</span>@endif</span>
+                                    <button wire:click="requestSignature({{ json_encode($vIds) }}, '{{ $batchId }}')" wire:confirm="{{ __('portal.sign_reissue_confirm') }}" class="btn-ghost btn-sm">↻ {{ __('portal.sign_reissue_btn') }}</button>
+                                @elseif ($signSt === 'pending' || $signSt === 'viewed')
+                                    {{-- 서명 대기 — 링크 재발급(바이어 재전송)은 재요청. --}}
+                                    <span class="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-700">⏳ {{ __('portal.sign_st_pending') }}</span>
+                                    <button wire:click="requestSignature({{ json_encode($vIds) }}, '{{ $batchId }}')" wire:confirm="{{ __('portal.sign_reissue_confirm') }}" class="btn-ghost btn-sm">↻ {{ __('portal.sign_reissue_btn') }}</button>
+                                @else
+                                    <button wire:click="requestSignature({{ json_encode($vIds) }}, '{{ $batchId }}')" wire:confirm="{{ __('portal.sign_request_confirm') }}" class="btn-ghost btn-sm">✍️ {{ __('portal.sign_request_btn') }}</button>
+                                @endif
                             </div>
                             {{-- §10 전자서명 세션 발급 결과 — signed_url 을 바이어에게 직접 전달(카톡/SNS/이메일). ERP 는 전달 대행 안 함. --}}
-                            @php $sign = $signResults[$batchId ?: implode('-', array_values(array_map('intval', $vIds)))] ?? null; @endphp
+                            @php $sign = $signResults[$signKey] ?? null; @endphp
                             @if ($sign)
                                 <div class="mt-2 rounded-md border border-blue-200 bg-blue-50 p-2.5 text-[12px]" x-data="{ copied: false }" wire:key="sign-{{ $batchId }}">
                                     <p class="mb-1 font-semibold text-blue-800">
