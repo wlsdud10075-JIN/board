@@ -760,7 +760,25 @@ new #[Layout('components.layouts.app')] class extends Component {
 
             @if ($shipSubtab === 'bundles')
                 {{-- ── 내 선적묶음 (영속 뷰·모니터) — car-erp 값 그대로 표시(재계산·완납 coerce 금지 §5-4) ── --}}
-                @forelse ($bundles as $bd)
+                {{-- 상태별 접기/펼치기 그룹 — 표시 순서 고정(요청됨→진행중→완료→취소). car-erp 값 그대로(정렬가공·재계산 없음). --}}
+                @php
+                    $statusOrder = ['requested', 'in_progress', 'done', 'cancelled'];
+                    $grouped = collect($bundles)->groupBy(fn ($b) => $b['ship_status'] ?? $b['status'] ?? 'requested');
+                @endphp
+                @if ($bundles !== [])
+                    <div x-data="{ grpOpen: { requested: true, in_progress: true, done: false, cancelled: false } }">
+                    @foreach ($statusOrder as $stKey)
+                        @php $group = $grouped[$stKey] ?? collect(); @endphp
+                        @if ($group->isNotEmpty())
+                            <div class="mb-4" wire:key="ship-group-{{ $stKey }}">
+                                <button type="button" @click="grpOpen['{{ $stKey }}'] = !grpOpen['{{ $stKey }}']"
+                                    class="mb-2 flex w-full items-center gap-2 rounded-md bg-gray-50 px-3 py-2 text-left font-bold text-gray-700 hover:bg-gray-100">
+                                    <span class="text-[11px] text-gray-400" x-text="grpOpen['{{ $stKey }}'] ? '▼' : '▶'"></span>
+                                    <span class="rounded-full px-2.5 py-1 text-[11px] font-bold {{ $stBadge[$stKey] ?? 'bg-gray-300 text-gray-600' }}">{{ $stLabel[$stKey] ?? $stKey }}</span>
+                                    <span class="text-[12px] font-semibold text-gray-400">{{ $group->count() }}</span>
+                                </button>
+                                <div x-show="grpOpen['{{ $stKey }}']" style="display:none">
+                    @foreach ($group as $bd)
                     @php
                         $st = $bd['ship_status'] ?? $bd['status'] ?? 'requested';   // car-erp 키 = ship_status
                         $buyerName = is_array($bd['buyer'] ?? null) ? data_get($bd, 'buyer.name') : ($bd['buyer'] ?? null);
@@ -900,9 +918,15 @@ new #[Layout('components.layouts.app')] class extends Component {
                             @endif
                         @endunless
                     </div>
-                @empty
+                    @endforeach
+                                </div>
+                            </div>
+                        @endif
+                    @endforeach
+                    </div>
+                @else
                     <p class="py-8 text-center text-gray-400">{{ __('portal.bundles_empty') }}</p>
-                @endforelse
+                @endif
 
             @else
                 {{-- ── 선적 계획 (바이어별 펼침 + 체크박스) ── --}}
