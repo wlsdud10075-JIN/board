@@ -2986,6 +2986,29 @@ class BoardTest extends TestCase
             ->assertSee('환율 미입력');        // fx_missing 경고(완납판정 불가)
     }
 
+    /** 선적묶음 상태별 접기/펼치기 그룹 — 상태 헤더별로 묶여 표시(요청됨/완료 등), 카드는 각 그룹 하위. */
+    public function test_portal_shipping_bundles_grouped_by_status(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 2, 'data' => [
+                ['batch_id' => 'B1', 'ship_status' => 'requested', 'shipping_method' => 'RORO',
+                    'buyer' => ['id' => 5, 'name' => 'BuyerReq'], 'vehicles' => [['vehicle_id' => 1, 'vehicle_number' => 'CARREQ']]],
+                ['batch_id' => 'B2', 'ship_status' => 'done', 'shipping_method' => 'RORO',
+                    'buyer' => ['id' => 6, 'name' => 'BuyerDone'], 'vehicles' => [['vehicle_id' => 2, 'vehicle_number' => 'CARDONE']]],
+            ]], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        // 두 상태 그룹 헤더(요청됨/완료) + 각 그룹의 카드가 모두 렌더(접힘은 client-side x-show라 HTML엔 존재).
+        Volt::test('portal.index')->call('setTab', 'shipping')
+            ->assertSee('요청됨')->assertSee('완료')
+            ->assertSee('BuyerReq')->assertSee('CARREQ')
+            ->assertSee('BuyerDone')->assertSee('CARDONE');
+    }
+
     /** v2 「선적 계획」 동기화 — desired(requested 묶음에서 차 제거) 전체를 /sync 로 전송. */
     public function test_portal_shipping_v2_sync_sends_full_desired(): void
     {
