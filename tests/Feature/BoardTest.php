@@ -13,6 +13,7 @@ use App\Models\PromotionRequest;
 use App\Models\PurchaseListing;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\BizmAlimtalkService;
 use App\Services\CarErpReadService;
 use App\Services\ExchangeRateService;
 use App\Services\ListingEnrichment;
@@ -3329,6 +3330,90 @@ class BoardTest extends TestCase
             ->set('sidebarBrand', str_repeat('가', 13))
             ->call('save')
             ->assertHasErrors(['sidebarBrand']);
+    }
+
+    /** 알림톡 발신기 — 미설정/off=skipped, 설정+enabled=발송(페이로드·헤더·본문 치환), 실패응답=failed. 전부 AlimtalkLog 기록. */
+    public function test_alimtalk_service_sends_and_logs(): void
+    {
+        // 미설정 → skipped (게이트 off)
+        $log = BizmAlimtalkService::active()->send('board_region_inspection', '010-0000-0000',
+            ['지역' => '경기', '건수' => '1', '차량목록' => '12가3456']);
+        $this->assertSame('skipped', $log->status);
+        $this->assertSame('disabled_or_unconfigured', $log->error);
+
+        // 계정 + enabled + tmplId 설정
+        Setting::create(['key' => 'alimtalk_userid', 'value' => 'uid', 'type' => 'string']);
+        Setting::create(['key' => 'alimtalk_profile', 'value' => 'prof', 'type' => 'string']);
+        Setting::create(['key' => 'alimtalk_enabled', 'value' => '1', 'type' => 'boolean']);
+        Setting::create(['key' => 'alimtalk_tmpl_board_region_inspection', 'value' => 'TMPL1', 'type' => 'string']);
+
+        // 순차 응답 — 1차 success, 2차 fail (같은 패턴 fake 2회는 병합돼 첫 stub 이 계속 매칭되므로 sequence 사용).
+        Http::fakeSequence('*bizmsg.kr*')
+            ->push([['code' => 'success', 'data' => ['msgid' => 'WEB1'], 'message' => 'K000']], 200)
+            ->push([['code' => 'fail', 'message' => 'K108', 'data' => ['msgid' => 'X']]], 200);
+        $log = BizmAlimtalkService::active()->send('board_region_inspection', '010-1234-5678',
+            ['지역' => '경기 화성', '건수' => '2', '차량목록' => "12가3456\n34나5678"], ['region' => '경기 화성']);
+        $this->assertSame('sent', $log->status);
+        $this->assertSame('WEB1', $log->msgid);
+        $this->assertSame('경기 화성', $log->region);
+
+        Http::assertSent(function ($r) {
+            $item = $r->data()[0] ?? [];
+
+            return str_contains($r->url(), 'bizmsg.kr')
+                && $r->hasHeader('userid', 'uid')
+                && ($item['tmplId'] ?? '') === 'TMPL1'
+                && ($item['profile'] ?? '') === 'prof'
+                && str_contains($item['msg'] ?? '', '경기 화성')
+                && str_contains($item['msg'] ?? '', '12가3456');
+        });
+
+        // 실패 응답(code != success 인데 msgid 는 옴) → failed (오기록 방지) — sequence 2차
+        $log = BizmAlimtalkService::active()->send('board_region_inspection', '01011112222',
+            ['지역' => 'x', '건수' => '1', '차량목록' => 'a']);
+        $this->assertSame('failed', $log->status);
+
+        // no_phone → skipped
+        $log = BizmAlimtalkService::active()->send('board_region_inspection', '', ['지역' => 'x']);
+        $this->assertSame('skipped', $log->status);
+        $this->assertSame('no_phone', $log->error);
+    }
+
+    /** super 가 알림톡 설정 저장 — 계정·tmplId·스케줄 시각·토글 persist. */
+    public function test_super_saves_alimtalk_settings(): void
+    {
+        $this->actingAs($this->mkUser('manager', null, 'super'));
+
+        Volt::test('admin.settings')
+            ->set('alimtalkUserid', 'uid')->set('alimtalkProfile', 'prof')
+            ->set('alimtalkEnabled', true)->set('alimtalkTmpl', 'TMPL1')
+            ->set('alimtalkToggle', true)->set('alimtalkScheduleTime', '08:00')
+            ->call('saveAlimtalk')->assertHasNoErrors();
+
+        $this->assertSame('uid', Setting::get('alimtalk_userid'));
+        $this->assertSame('prof', Setting::get('alimtalk_profile'));
+        $this->assertTrue((bool) Setting::get('alimtalk_enabled'));
+        $this->assertSame('TMPL1', Setting::get('alimtalk_tmpl_board_region_inspection'));
+        $this->assertSame('08:00', Setting::get('alimtalk_region_schedule_time'));
+
+        // 잘못된 시각 형식 거부
+        Volt::test('admin.settings')->set('alimtalkScheduleTime', '25:99')
+            ->call('saveAlimtalk')->assertHasErrors(['alimtalkScheduleTime']);
+    }
+
+    /** /users 에서 phone 저장·수정 (알림톡 수신번호). */
+    public function test_user_phone_is_saved(): void
+    {
+        $this->actingAs($this->mkUser('manager', null, 'super'));
+
+        Volt::test('users.index')
+            ->call('openCreate')
+            ->set('name', '검차원A')->set('email', 'insp@board.test')
+            ->set('phone', '010-9999-8888')->set('role', 'inspection')
+            ->set('password', 'password')
+            ->call('save')->assertHasNoErrors();
+
+        $this->assertSame('010-9999-8888', User::where('email', 'insp@board.test')->value('phone'));
     }
 
     /** 배포 순간 settings 테이블이 아직 없어도 로그인 화면이 500 나지 않고 기본 브랜드로 degrade. */

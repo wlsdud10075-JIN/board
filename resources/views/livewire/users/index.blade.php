@@ -12,6 +12,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public ?int $editingId = null;
     public string $name = '';
     public string $email = '';
+    public string $phone = '';           // 알림톡 수신번호(검차 담당자 지역 검차 안내 등)
     public string $role = 'sales';
     public bool $is_super = false;
     public bool $is_active = true;
@@ -33,7 +34,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function openCreate(): void
     {
-        $this->reset(['editingId', 'name', 'email', 'password', 'is_super', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email']);
+        $this->reset(['editingId', 'name', 'email', 'phone', 'password', 'is_super', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email']);
         $this->role = 'sales';
         $this->is_active = true;
         $this->showForm = true;
@@ -46,6 +47,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->editingId = $u->id;
         $this->name = $u->name;
         $this->email = $u->email;
+        $this->phone = $u->phone ?? '';
         $this->role = $u->role;
         $this->is_super = $u->isSuper();
         $this->is_active = $u->is_active;
@@ -59,7 +61,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function close(): void
     {
-        $this->reset(['showForm', 'editingId', 'name', 'email', 'password', 'is_super', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email']);
+        $this->reset(['showForm', 'editingId', 'name', 'email', 'phone', 'password', 'is_super', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email']);
         $this->role = 'sales';
         $this->is_active = true;
     }
@@ -69,6 +71,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $rules = [
             'name' => 'required|string|max:50',
             'email' => ['required', 'email', 'max:100', Rule::unique('users', 'email')->ignore($this->editingId)],
+            'phone' => 'nullable|string|max:20',
             'role' => 'required|in:'.implode(',', User::ROLES),
             'car_erp_salesman_id' => 'nullable|integer|min:1',
             'car_erp_salesman_email' => 'nullable|email|max:100',
@@ -92,6 +95,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $data = [
             'name' => $this->name,
             'email' => $this->email,
+            'phone' => $this->phone ?: null,
             'role' => $this->role,
             'permission' => $this->is_super ? 'super' : 'user',
             'is_active' => $this->is_active,
@@ -202,6 +206,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <label class="label-base mt-3">{{ __('users.label_email') }}</label>
                 <input class="input-base" wire:model="email" type="email" placeholder="{{ __('users.ph_email') }}">
                 @error('email') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+
+                <label class="label-base mt-3">{{ __('users.label_phone') }}</label>
+                <input class="input-base" wire:model="phone" type="tel" placeholder="{{ __('users.ph_phone') }}">
+                @error('phone') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 <label class="label-base mt-3">{{ __('users.label_role') }}</label>
                 <select class="input-base" wire:model.live="role">

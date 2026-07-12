@@ -27,6 +27,8 @@ return [
     'ph_name' => '홍길동',
     'label_email' => '이메일 (로그인 ID)',
     'ph_email' => 'user@board.test',
+    'label_phone' => '휴대폰 (알림톡 수신)',
+    'ph_phone' => '010-1234-5678',
     'label_role' => '역할',
     'label_car_erp_email' => 'car-erp 영업 이메일',
     'optional_only_if_different' => '(선택 · 로그인과 다를 때만)',

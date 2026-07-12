@@ -27,6 +27,8 @@ return [
     'ph_name' => 'John Doe',
     'label_email' => 'Email (login ID)',
     'ph_email' => 'user@board.test',
+    'label_phone' => 'Mobile (AlimTalk recipient)',
+    'ph_phone' => '010-1234-5678',
     'label_role' => 'Role',
     'label_car_erp_email' => 'car-erp sales email',
     'optional_only_if_different' => '(optional · only if different from login)',
