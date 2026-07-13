@@ -13,6 +13,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $name = '';
     public string $email = '';
     public string $phone = '';           // 알림톡 수신번호(검차 담당자 지역 검차 안내 등)
+    public string $region = '';          // 검차원 담당 지역(고정 로스터) — 지역 검차 알림톡 수신 기준
     public string $role = 'sales';
     public bool $is_super = false;
     public bool $is_active = true;
@@ -34,7 +35,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function openCreate(): void
     {
-        $this->reset(['editingId', 'name', 'email', 'phone', 'password', 'is_super', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email']);
+        $this->reset(['editingId', 'name', 'email', 'phone', 'region', 'password', 'is_super', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email']);
         $this->role = 'sales';
         $this->is_active = true;
         $this->showForm = true;
@@ -48,6 +49,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->name = $u->name;
         $this->email = $u->email;
         $this->phone = $u->phone ?? '';
+        $this->region = $u->region ?? '';
         $this->role = $u->role;
         $this->is_super = $u->isSuper();
         $this->is_active = $u->is_active;
@@ -61,7 +63,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function close(): void
     {
-        $this->reset(['showForm', 'editingId', 'name', 'email', 'phone', 'password', 'is_super', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email']);
+        $this->reset(['showForm', 'editingId', 'name', 'email', 'phone', 'region', 'password', 'is_super', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email']);
         $this->role = 'sales';
         $this->is_active = true;
     }
@@ -72,6 +74,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'name' => 'required|string|max:50',
             'email' => ['required', 'email', 'max:100', Rule::unique('users', 'email')->ignore($this->editingId)],
             'phone' => 'nullable|string|max:20',
+            'region' => 'nullable|string|max:60',
             'role' => 'required|in:'.implode(',', User::ROLES),
             'car_erp_salesman_id' => 'nullable|integer|min:1',
             'car_erp_salesman_email' => 'nullable|email|max:100',
@@ -96,6 +99,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'name' => $this->name,
             'email' => $this->email,
             'phone' => $this->phone ?: null,
+            'region' => $this->role === 'inspection' ? ($this->region ?: null) : null,   // 지역은 검차원만
             'role' => $this->role,
             'permission' => $this->is_super ? 'super' : 'user',
             'is_active' => $this->is_active,
@@ -231,6 +235,14 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <input class="input-base" wire:model="respond_agent_email" type="email" placeholder="{{ __('users.ph_respond_email') }}">
                     <p class="mt-1 text-xs text-gray-400">{!! __('users.hint_respond_email') !!}</p>
                     @error('respond_agent_email') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                @endif
+
+                {{-- 검차원만 담당 지역(고정 로스터) — 지역 검차 알림톡 수신 기준 --}}
+                @if ($role === 'inspection')
+                    <label class="label-base mt-3">{{ __('users.label_region') }} <span class="text-xs font-normal text-gray-400">{{ __('users.region_hint') }}</span></label>
+                    <input class="input-base" wire:model="region" list="userRegionList" placeholder="{{ __('users.ph_region') }}">
+                    <datalist id="userRegionList">@foreach (config('board.regions') as $r)<option value="{{ $r }}">@endforeach</datalist>
+                    @error('region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 @endif
 
                 <label class="label-base mt-3">{{ __('users.label_password') }} {{ $editingId ? __('users.label_password_edit_suffix') : '' }}</label>

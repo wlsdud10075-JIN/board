@@ -163,6 +163,18 @@ new #[Layout('components.layouts.app')] class extends Component {
         unset($this->assignmentsByRegion, $this->regionGroups, $this->assignmentSummary);
     }
 
+    /**
+     * 수동 발송 — 관리가 배정 후 그 날짜(assignDate) 기준 지역 검차 안내 알림톡을 지금 발송.
+     * 대상 = 미통보 draft 차량(스케줄과 동일 dedup). 알림톡 off/미승인이면 skipped(no-op).
+     */
+    public function sendRegionInspectionAlimtalk(): void
+    {
+        abort_unless($this->canAssign(), 403);
+        $r = app(\App\Services\RegionInspectionNotifier::class)->run($this->assignDate);
+        unset($this->regionGroups);
+        session()->flash('ok', __('inspection.alimtalk_sent', ['sent' => $r['sent'], 'regions' => $r['regions'], 'skipped' => $r['skipped']]));
+    }
+
     #[Computed]
     public function editing(): ?PurchaseListing
     {
@@ -310,9 +322,13 @@ new #[Layout('components.layouts.app')] class extends Component {
     {{-- ─────────── 지역 배정 패널 (관리/super) ─────────── --}}
     @if ($this->canAssign())
         <div class="card mb-3" style="background:#f8f9fb">
-            <div class="mb-2 flex items-center justify-between">
+            <div class="mb-2 flex items-center justify-between gap-2">
                 <h2 class="font-bold text-gray-800">📋 {{ __('inspection.assign_panel_title') }} <span class="text-xs font-normal text-gray-400">({{ $assignDate }})</span></h2>
-                <span class="text-xs text-gray-400">{{ __('inspection.max_per_region', ['max' => \App\Models\InspectionAssignment::MAX_PER_REGION]) }}</span>
+                <div class="flex items-center gap-2">
+                    <span class="hidden text-xs text-gray-400 sm:inline">{{ __('inspection.max_per_region', ['max' => \App\Models\InspectionAssignment::MAX_PER_REGION]) }}</span>
+                    <button class="btn-ghost btn-sm shrink-0" wire:click="sendRegionInspectionAlimtalk"
+                        wire:confirm="{{ __('inspection.alimtalk_confirm', ['date' => $assignDate]) }}">📨 {{ __('inspection.alimtalk_send_btn') }}</button>
+                </div>
             </div>
             <div class="flex flex-wrap items-end gap-2">
                 <div class="min-w-[160px] flex-1">

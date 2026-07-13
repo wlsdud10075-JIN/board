@@ -10,6 +10,9 @@ return [
 
     // 지역 배정 패널
     'assign_panel_title' => '오늘 지역 배정',
+    'alimtalk_send_btn' => '지역 검차 알림톡 발송',
+    'alimtalk_confirm' => ':date 기준으로 지역별 검차 대상 차량 목록을 담당 검차원에게 알림톡으로 지금 보냅니다. 계속할까요?',
+    'alimtalk_sent' => '지역 검차 알림톡: :regions개 지역 · :sent건 발송 (skip :skipped).',
     'max_per_region' => '지역당 최대 :max인',
     'region' => '지역',
     'region_select' => '지역 선택',

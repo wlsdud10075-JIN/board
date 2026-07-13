@@ -56,6 +56,12 @@ ssancar.com inspected 에 사진/영상 올라가 **자동 전달대기 전이**
   ```
 - 초안 원본 board 보관 = `docs/operations/alimtalk-templates-draft.md`(신설, car-erp 관례 미러). 문구 수정 시 Bizm·코드 동시 반영.
 
+## ✅ 슬라이스 2 구현 완료 (2026-07-13, dev)
+- **A(지역검차)**: `users.region` 마이그 + /users 검차원 지역 드롭다운(검차 role 만 저장) + `RegionInspectionNotifier`(수신자 resolver: per-date 배정 override→지역 로스터 / region 별 digest / **실발송 성공 시에만 region_notified_at stamp**=off·no_phone 상태 stamp 방지) + `AlimtalkRegionInspection` 커맨드(`--date`, 기본=내일) + routes/console.php **조건부 스케줄**(Setting `alimtalk_region_schedule_time` 유효 HH:MM 일 때만 dailyAt 등록) + inspection 배정패널 **「지역 검차 알림톡 발송」 수동버튼**(canAssign, assignDate 기준).
+- **B(전달대기)**: `PollSsancarMedia` draft→inspected 전이 직후 `creator`(작성 영업) phone 에 `board_forward_ready` fire-and-forget.
+- ⚠️ **컨테이너 바인딩**: `BizmAlimtalkService` 는 `AlimtalkConfig`(스칼라 생성자)라 오토와이어 불가 → `AppServiceProvider::register` 에서 `bind(BizmAlimtalkService::class, fn()=>::active())`. 커맨드/서비스 주입은 **매 resolve 시 Setting 기반 fresh**(테스트도 설정 변경 후 fresh resolve 필요).
+- 테스트 4종(roster·dedup·off-미stamp / override / B훅 / users.region). 196 통과.
+
 ## 빌드 슬라이스 (Bizm 승인과 병렬 진행)
 - **슬라이스 1 (스키마+플럼빙, 승인 불필요)**: 마이그(users.phone·region_notified_at·alimtalk_logs) + BizmAlimtalkService/AlimtalkConfig/AlimtalkTemplates(1종)/AlimtalkLog 이식 + Setting UI(Bizm 계정·토글·테스트발송) + /users phone 입력칸. placeholder tmplId 로 스캐폴딩(canSend 게이트로 실발송 차단).
 - **슬라이스 2 (트리거)**: 스케줄 커맨드(지역별 digest, 차량당 1회 dedup) + 관리 배정화면 「저장/반영→발송」 버튼. 수신자 해석(InspectionAssignment→user.phone).
