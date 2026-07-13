@@ -18,7 +18,7 @@ ssancar.com inspected 에 사진/영상 올라가 **자동 전달대기 전이**
 - 수신자 = 그 매물 **작성 영업**(`purchase_listings.created_by_user_id` → user.phone).
 - 템플릿 `board_forward_ready`(신규), 변수 `#{차량번호}`.
 - **dedup 불필요** — draft→inspected 는 1회성 단방향(폴러 쿼리도 draft 만). 전이 시 1건만 발송.
-- ⚠️ **열린 항목**: 자동전이(PollSsancarMedia)만 알릴지 vs board 현지확인 화면 **수동 전이**도 알릴지. Jin 확인(기본안 = 전이 지점 단일 choke로 auto+manual 공통 발송이 일관적). 현재 Jin 명시 = 자동 케이스.
+- ✅ **자동전이만(Jin 2026-07-13)**: 검차하면 inspected 에 사진/영상이 **무조건** 올라감 → 전달대기 전이는 항상 자동 경로(PollSsancarMedia). **수동 전환 케이스 없음** → B 는 이 훅 하나만. 수동전이 발송 불필요.
 - ⚠️ **새로 만드는 것 = 알림톡 발송뿐.** 자동전이(전달대기)·미러링 꼬리는 **이미 운영 중**([[board-ssancar-auto-forward]]). 재구축 금지.
 
 ## 확정 결정 (Jin, 2026-07-12)
