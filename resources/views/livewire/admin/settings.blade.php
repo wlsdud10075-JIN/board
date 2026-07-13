@@ -24,7 +24,11 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public string $alimtalkTmpl = '';          // board_region_inspection BizM 발급코드
 
+    public string $alimtalkTmplForward = '';   // board_forward_ready BizM 발급코드
+
     public bool $alimtalkToggle = true;        // 지역검차 알림 개별 on/off
+
+    public bool $alimtalkToggleForward = true; // 전달대기 알림 개별 on/off
 
     public string $alimtalkScheduleTime = '';  // 스케줄 사전알림 시각(HH:MM, Asia/Seoul). 비우면 스케줄 미발송.
 
@@ -46,6 +50,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->alimtalkEnabled = (bool) Setting::get('alimtalk_enabled', false);
         $this->alimtalkTmpl = (string) (Setting::get('alimtalk_tmpl_board_region_inspection', '') ?: '');
         $this->alimtalkToggle = (bool) Setting::get('alimtalk_toggle_board_region_inspection', true);
+        $this->alimtalkTmplForward = (string) (Setting::get('alimtalk_tmpl_board_forward_ready', '') ?: '');
+        $this->alimtalkToggleForward = (bool) Setting::get('alimtalk_toggle_board_forward_ready', true);
         $this->alimtalkScheduleTime = (string) (Setting::get('alimtalk_region_schedule_time', '') ?: '');
         // userkey 는 보안상 로드하지 않음(설정돼 있으면 placeholder 로만 안내).
     }
@@ -61,6 +67,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'alimtalkProfile' => ['nullable', 'string', 'max:100'],
             'alimtalkUserkey' => ['nullable', 'string', 'max:200'],
             'alimtalkTmpl' => ['nullable', 'string', 'max:100'],
+            'alimtalkTmplForward' => ['nullable', 'string', 'max:100'],
             'alimtalkScheduleTime' => ['nullable', 'date_format:H:i'],
         ]);
 
@@ -73,6 +80,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $put('alimtalk_enabled', $this->alimtalkEnabled ? '1' : '0', 'boolean', '알림톡 마스터 on/off');
         $put('alimtalk_tmpl_board_region_inspection', trim($this->alimtalkTmpl), 'string', '지역 검차 안내 템플릿 코드');
         $put('alimtalk_toggle_board_region_inspection', $this->alimtalkToggle ? '1' : '0', 'boolean', '지역 검차 알림 개별 on/off');
+        $put('alimtalk_tmpl_board_forward_ready', trim($this->alimtalkTmplForward), 'string', '전달 대기 안내 템플릿 코드');
+        $put('alimtalk_toggle_board_forward_ready', $this->alimtalkToggleForward ? '1' : '0', 'boolean', '전달 대기 알림 개별 on/off');
         $put('alimtalk_region_schedule_time', trim($this->alimtalkScheduleTime), 'string', '지역 검차 사전알림 스케줄 시각(HH:MM KST)');
 
         // userkey 는 채웠을 때만 암호화 갱신(빈칸이면 기존 유지).
@@ -225,6 +234,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             <flux:input wire:model="alimtalkProfile" :label="__('settings.alimtalk.profile_label')" :description="__('settings.alimtalk.shared_hint')" maxlength="100" />
             <flux:input wire:model="alimtalkTmpl" :label="__('settings.alimtalk.tmpl_label')" :description="__('settings.alimtalk.tmpl_hint')" maxlength="100" />
             <flux:switch wire:model="alimtalkToggle" :label="__('settings.alimtalk.toggle_label')" />
+            <flux:input wire:model="alimtalkTmplForward" :label="__('settings.alimtalk.tmpl_forward_label')" :description="__('settings.alimtalk.tmpl_forward_hint')" maxlength="100" />
+            <flux:switch wire:model="alimtalkToggleForward" :label="__('settings.alimtalk.toggle_forward_label')" />
             <flux:input wire:model="alimtalkScheduleTime" :label="__('settings.alimtalk.schedule_label')" :description="__('settings.alimtalk.schedule_hint')" type="time" />
             <flux:input wire:model="alimtalkUserkey" :label="__('settings.alimtalk.userkey_label')" :description="__('settings.alimtalk.userkey_hint')" type="password" maxlength="200" />
 

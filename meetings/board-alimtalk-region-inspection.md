@@ -32,6 +32,14 @@ ssancar.com inspected 에 사진/영상 올라가 **자동 전달대기 전이**
 - `alimtalk_logs` 테이블 신설 (car-erp AlimtalkLog 미러: template_code·phone·status(sent/failed/skipped)·msgid·error·맥락). append-only.
 - Setting 키: `alimtalk_userid`·`alimtalk_profile`·`alimtalk_enabled`·`alimtalk_tmpl_board_region_inspection`·`alimtalk_toggle_*`·(선택)`alimtalk_recipients_*`. car-erp AlimtalkConfig 패턴.
 
+## Bizm 대량등록 파일 (2026-07-13, Jin ERP 아이템리스트 전환에 맞춤)
+- ERP 가 `upload_erp_헤이맨_아이템리스트.xlsx`(Desktop\알림톡) 대량등록 양식으로 전환 중. board 도 같은 양식으로 2종 등록 파일 생성.
+- **board 산출물 = `Desktop\알림톡\upload_board_헤이맨.xlsx`** (ERP 파일을 서식·검증째로 복제 후 데이터행만 board 2종으로 교체, car-erp PhpSpreadsheet 사용). 헤더행(1-5) 보존, 데이터행 6~.
+- 컬럼: A=발신프로필(`@헤이맨___`, ERP 와 **공유** — 원본에서 그대로 복사) · B=코드 · C=명 · D=메시지유형 **BA(기본형)** · E=본문(코드 AlimtalkTemplates 와 char-for-char 일치) · H=FALSE · I=카테고리 **008002(내부 업무 알림)** · J=강조유형 **선택안함**.
+- ⚠️ **board 2종 = "선택안함"(아이템리스트형 아님)** 결정: ① `#{차량목록}` 가변길이 → 아이템리스트 고정슬롯(2~10) 부적합 ② 현 발송기(BizmAlimtalkService)는 본문 msg 만 전송 → 아이템리스트형은 아이템 변수 전송 별도 필요(ERP 도 전환 작업 중, 미검증) ③ ERP 도 목록형(판매미입금 등)은 선택안함 사용. board 내용(가변목록/단일필드)엔 선택안함이 정합.
+- ⚠️ **ssancarboard**: 같은 2종을 **ssancar 발신프로필**로 별도 등록 필요(A열만 교체). ssancar 프로필 값 확보 후 동일 스크립트로 생성.
+- 생성 스크립트 = 세션 scratchpad `gen_board.php`(car-erp autoload). 문구 수정 시 파일·코드·초안(docs) 3곳 동시.
+
 ## 템플릿 (Bizm 사전등록·승인 필요 = 외부 의존성·리드타임)
 - 코드 `board_region_inspection`, 변수 `#{지역}` · `#{건수}` · `#{차량목록}`(가변, 개행 목록 — 길이/포맷 검수 주의).
 - 초안(등록 시 글자까지 동일):
