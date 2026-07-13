@@ -57,7 +57,7 @@ return [
     'ssancar_poll_max_age_days' => (int) env('BOARD_SSANCAR_POLL_MAX_AGE_DAYS', 3),
 
     // 업무 가이드(Notion 등 외부) — 사이드바 하단 링크. 비우면 미노출.
-    'work_guide_url' => env('BOARD_WORK_GUIDE_URL', 'https://app.notion.com/p/37345d82bd838108a418c76a210f1854'),
+    'work_guide_url' => env('BOARD_WORK_GUIDE_URL', 'https://dashing-stick-008.notion.site/37345d82bd838108a418c76a210f1854'),
 
     // 검사지역 자동완성 — 한국 도+주요 시 (정적 번들, 외부 API 미사용)
     'regions' => [

@@ -3424,6 +3424,15 @@ class BoardTest extends TestCase
         $this->get('/login')->assertOk()->assertSee('HeymanBoard', false);
     }
 
+    public function test_sidebar_work_guide_uses_public_notion_url(): void
+    {
+        $this->actingAs($this->mkUser('manager', null, 'super'))
+            ->get('/manage')
+            ->assertOk()
+            ->assertSee('https://dashing-stick-008.notion.site/37345d82bd838108a418c76a210f1854', false)
+            ->assertDontSee('https://app.notion.com/p/37345d82bd838108a418c76a210f1854', false);
+    }
+
     // ─────────────────────── i18n Phase 0 (한글/영어) ───────────────────────
 
     private function enableEnglish(): void
