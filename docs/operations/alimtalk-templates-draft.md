@@ -34,3 +34,16 @@ ssancar.com 에 검차 결과를 등록해 주세요.
 
 ssancar.com 에 검차 결과를 등록해 주세요.
 ```
+
+## board_forward_ready — 사진/영상 완료·전달대기 (→ 영업담당자)
+- 수신자: 그 매물 작성 영업(`purchase_listings.created_by_user_id`).
+- 트리거: ssancar 자동전이(draft→inspected/전달대기) 직후. 변수: `#{차량번호}`.
+- 유형: 기본형. title 미사용.
+
+```
+[전달 대기] #{차량번호}
+
+#{차량번호} 사진/영상 업로드가 완료되어 바이어 전달 대기 상태입니다.
+
+board 에서 확인 후 바이어에게 전달해 주세요.
+```

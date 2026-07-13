@@ -3,14 +3,23 @@
 > 상태: **설계 확정 대기 → 슬라이스 빌드.** 코드 미착수(발송 코드는 Bizm 템플릿 승인 전 금지, 스캐폴딩은 placeholder tmplId 로 가능).
 > car-erp 알림톡(Bizm/스윗트래커)을 **board 가 직접 발송**하는 방식으로 도입. 권위 소스(이식 대상) = car-erp `app/Services/BizmAlimtalkService.php` · `app/Support/{AlimtalkConfig,AlimtalkTemplates,AlimtalkRecipients}.php` · `app/Models/AlimtalkLog.php` · `docs/operations/alimtalk-templates-draft.md`.
 
-## 목적 / 흐름
-지역별 검차 담당자에게 **「지역명 + 검차 대상 차량번호 목록」** 을 카카오 알림톡으로 보내, 검차원이 그걸 보고 검차 → ssancar.com 등록 → (기존) 자동 미러링 → 전달대기.
-- ⚠️ **새로 만드는 것 = 알림톡 트리거뿐.** 검차→ssancar.com→자동미러링→전달대기 꼬리는 **이미 운영 중**(ssancar.com 검차영상 자동전달 기능). 재구축 금지.
+## 알림톡 종류 = 2종 (Jin 2026-07-13 확장)
+검차 워크플로우 양끝에 알림톡. 발송기·설정·로그·users.phone 인프라는 공유, **템플릿·수신자·트리거만 다름**(Bizm 템플릿도 각각 등록 = 2번 연계).
 
-## 트리거 (2종, 같은 발송 경로로 수렴)
-1. **지역 기정(사전 알림)** — `region` 이 이미 정해진 draft 차량들 → **스케줄 시각**(Setting, Asia/Seoul, 기본 08:00 제안)에 지역별 digest 발송. board `schedule:run` cron 이미 가동.
-2. **지역 미정(배정 직후)** — [관리]가 지역×날짜 배정(InspectionAssignment) 후 **저장/반영 버튼** 클릭 → 그 시점 즉시 발송.
-- 둘 다 **동일 템플릿·동일 수신자 해석·동일 발송기**. 진입점만 다름.
+### A. 지역 검차 안내 (→ 검차원) — 워크플로우 진입
+지역별 **「지역명 + 검차 대상 차량번호 목록」** 을 담당 검차원에게 → 검차원이 보고 검차 → ssancar.com 등록.
+- 트리거 A-1 **스케줄 사전알림**: 내일 배정분을 전날 저녁(Setting 시각) 지역별 digest. board `schedule:run` cron 이미 가동.
+- 트리거 A-2 **관리 수동발송 버튼**: 스케줄 외 즉시. 진입점만 다르고 템플릿·수신자·발송기 동일.
+- 템플릿 `board_region_inspection`, 수신자 = region 고정 로스터(users.region) 또는 per-date 배정 override.
+
+### B. 사진/영상 완료·전달대기 (→ 영업담당자) — 워크플로우 출구
+ssancar.com inspected 에 사진/영상 올라가 **자동 전달대기 전이**되면, 그 차 **영업담당자**에게 "OO차량 사진/영상 업로드 완료, 바이어 전달 대기".
+- 트리거 = **`PollSsancarMedia` 의 `draft → inspected(전달대기)` 전이 직후**(`app/Console/Commands/PollSsancarMedia.php:63-80`). fire-and-forget.
+- 수신자 = 그 매물 **작성 영업**(`purchase_listings.created_by_user_id` → user.phone).
+- 템플릿 `board_forward_ready`(신규), 변수 `#{차량번호}`.
+- **dedup 불필요** — draft→inspected 는 1회성 단방향(폴러 쿼리도 draft 만). 전이 시 1건만 발송.
+- ⚠️ **열린 항목**: 자동전이(PollSsancarMedia)만 알릴지 vs board 현지확인 화면 **수동 전이**도 알릴지. Jin 확인(기본안 = 전이 지점 단일 choke로 auto+manual 공통 발송이 일관적). 현재 Jin 명시 = 자동 케이스.
+- ⚠️ **새로 만드는 것 = 알림톡 발송뿐.** 자동전이(전달대기)·미러링 꼬리는 **이미 운영 중**([[board-ssancar-auto-forward]]). 재구축 금지.
 
 ## 확정 결정 (Jin, 2026-07-12)
 1. **발송 방식 = board 직접.** car-erp 11종 커맨드 이식 아님 — 얇은 발신기 1개 + 템플릿 1종만. car-erp 가동여부와 무관(heyman 쌍 박스 분리 → 디커플링 이점). **발신프로필은 car-erp 와 공유 전제**(⚠️ Jin 확인 필요 — Bizm 콘솔).
