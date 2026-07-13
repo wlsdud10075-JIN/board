@@ -56,6 +56,15 @@
 - **덮어쓰기 = per-date 배정**: 필요한 날만 기존 `InspectionAssignment`(date×region×user_id, ≤3)으로 override. 있으면 그 날은 배정자에게, 없으면 고정 로스터로.
 - **수신자 resolver(내일 날짜 기준)**: `InspectionAssignment(date=내일, region=R)` 있으면 그 user 들, 없으면 region=R 고정 로스터 user 들 → 각자 user.phone.
 
-### ⚠️ 슬라이스 2 착수 전 확정할 작은 스키마 결정
-1. **검차원 담당 지역 = 1개 vs 여러 개?** 1개면 `users.region`(string). 여러 개면 `user_regions` 피벗(또는 JSON). 검차원이 인접 여러 지역 커버 가능성 → **다중**이 현실적이나 UI 복잡. Jin 확정 필요.
-2. **override 의미**: per-date 배정이 그 날 그 지역 로스터를 **완전 대체**(기본) vs 추가. 기본 = 대체.
+### ✅ 스키마 확정 (Jin 2026-07-13)
+- **검차원 1명 = 1지역**(N명당 1지역 = 한 지역에 여러 검차원, 다대일) → **`users.region`(string, nullable)** 단일 컬럼. `user_regions` 피벗 불필요.
+- **override = 완전 대체**: per-date `InspectionAssignment` 있으면 그 날 그 지역은 배정자로 대체, 없으면 고정 로스터.
+
+## 슬라이스 2 스펙 (착수 준비 완료 — 결정 전부 확정)
+1. **마이그**: `users.region`(string, nullable) — 검차원 담당 지역.
+2. **/users UI**: 지역 드롭다운(`config('board.regions')` datalist, manage 화면과 동일 패턴). inspection role 위주지만 전 role 노출 무방.
+3. **수신자 resolver(내일 날짜, region R)**: `InspectionAssignment(date=내일, region=R)` 있으면 그 user 들(override), 없으면 `User::where('region',R)->where('role','inspection')->where('is_active',true)`(고정 로스터) → 각 user.phone(빈 값 제외).
+4. **스케줄 커맨드**(예 `alimtalk:region-inspection`): 내일 날짜 기준, region 있는 draft 차량 중 `region_notified_at` NULL 인 것 → region 별 그룹 → resolver 로 수신자 → digest(지역·건수·차량목록) 각 수신자 발송 → 성공 시 그 차량들 `region_notified_at` stamp(차량당 1회). schedule 등록 = Setting `alimtalk_region_schedule_time`(비면 미실행).
+5. **관리 수동 버튼**(하이브리드): inspection/배정 화면에서 "지금 발송"(오늘/내일 선택) — 스케줄 외 즉시 발송용. fire-and-forget.
+6. 테스트: resolver(override/roster 분기)·커맨드(dedup·그룹핑)·수동버튼.
+- ⚠️ 슬라이스 3(Bizm 템플릿 등록·승인) 보류 유지 — enabled off 라 슬라이스 2 배포해도 무발송(안전).
