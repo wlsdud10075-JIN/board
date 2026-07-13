@@ -15,7 +15,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // 알림톡 발송기 = Setting 기반 config(::active())로만 생성 가능(AlimtalkConfig 는 스칼라 생성자라
+        // 오토와이어 불가). 컨테이너 주입(커맨드 handle·Notifier 생성자)이 이 팩토리를 쓰게 바인딩.
+        $this->app->bind(
+            \App\Services\BizmAlimtalkService::class,
+            fn () => \App\Services\BizmAlimtalkService::active(),
+        );
     }
 
     /**

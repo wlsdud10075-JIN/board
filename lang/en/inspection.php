@@ -10,6 +10,11 @@ return [
 
     // Region assignment panel
     'assign_panel_title' => "Today's region assignment",
+    'alimtalk_send_btn' => 'Send region inspection AlimTalk',
+    'alimtalk_sending' => 'Sending…',
+    'alimtalk_send_hint' => 'Sends the per-region inspection vehicle list to assigned inspectors. (Vehicles already sent are not re-sent.)',
+    'alimtalk_confirm' => 'Send the per-region inspection vehicle list to the assigned inspectors now (based on :date). Continue?',
+    'alimtalk_sent' => 'Region inspection AlimTalk: :regions region(s) · :sent sent (skipped :skipped).',
     'max_per_region' => 'Up to :max per region',
     'region' => 'Region',
     'region_select' => 'Select region',

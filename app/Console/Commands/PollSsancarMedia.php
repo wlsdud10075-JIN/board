@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\IntegrationEvent;
 use App\Models\PurchaseListing;
+use App\Services\BizmAlimtalkService;
 use App\Services\SsancarMediaService;
 use Illuminate\Console\Command;
 
@@ -21,7 +22,7 @@ class PollSsancarMedia extends Command
 
     protected $description = 'ssancar 검차영상 감지 → draft 매물 자동 전달대기(inspected) 전이';
 
-    public function handle(SsancarMediaService $ssancar): int
+    public function handle(SsancarMediaService $ssancar, BizmAlimtalkService $alimtalk): int
     {
         // 미디어 설정 + 자동전이 플래그 둘 다여야 동작. 플래그(기본 off)는 ssancar 폴링 계약 확인 후 opt-in.
         if (! $ssancar->configured() || ! config('board.ssancar_auto_forward')) {
@@ -76,6 +77,15 @@ class PollSsancarMedia extends Command
                 'response_status' => 200,
                 'response_body' => 'advanced:'.$d['reason'],
             ]);
+
+            // 알림톡 B(전달대기) — 그 매물 작성 영업에게 "사진/영상 업로드 완료, 바이어 전달 대기".
+            // fire-and-forget(발송기가 예외 안 던짐). 알림톡 off/미승인이면 skipped.
+            $creator = $listing->creator;
+            if ($creator && trim((string) $creator->phone) !== '') {
+                $alimtalk->send('board_forward_ready', $creator->phone,
+                    ['차량번호' => $listing->vehicle_number ?: '(번호미정)'],
+                    ['user_id' => $creator->id]);
+            }
 
             $advanced++;
         }

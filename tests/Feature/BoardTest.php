@@ -13,9 +13,11 @@ use App\Models\PromotionRequest;
 use App\Models\PurchaseListing;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\BizmAlimtalkService;
 use App\Services\CarErpReadService;
 use App\Services\ExchangeRateService;
 use App\Services\ListingEnrichment;
+use App\Services\RegionInspectionNotifier;
 use App\Services\RespondIoService;
 use App\Services\VerdictService;
 use App\Support\ListingLink;
@@ -3331,12 +3333,209 @@ class BoardTest extends TestCase
             ->assertHasErrors(['sidebarBrand']);
     }
 
+    /** 알림톡 발신기 — 미설정/off=skipped, 설정+enabled=발송(페이로드·헤더·본문 치환), 실패응답=failed. 전부 AlimtalkLog 기록. */
+    public function test_alimtalk_service_sends_and_logs(): void
+    {
+        // 미설정 → skipped (게이트 off)
+        $log = BizmAlimtalkService::active()->send('board_region_inspection', '010-0000-0000',
+            ['지역' => '경기', '건수' => '1', '차량목록' => '12가3456']);
+        $this->assertSame('skipped', $log->status);
+        $this->assertSame('disabled_or_unconfigured', $log->error);
+
+        // 계정 + enabled + tmplId 설정
+        Setting::create(['key' => 'alimtalk_userid', 'value' => 'uid', 'type' => 'string']);
+        Setting::create(['key' => 'alimtalk_profile', 'value' => 'prof', 'type' => 'string']);
+        Setting::create(['key' => 'alimtalk_enabled', 'value' => '1', 'type' => 'boolean']);
+        Setting::create(['key' => 'alimtalk_tmpl_board_region_inspection', 'value' => 'TMPL1', 'type' => 'string']);
+
+        // 순차 응답 — 1차 success, 2차 fail (같은 패턴 fake 2회는 병합돼 첫 stub 이 계속 매칭되므로 sequence 사용).
+        Http::fakeSequence('*bizmsg.kr*')
+            ->push([['code' => 'success', 'data' => ['msgid' => 'WEB1'], 'message' => 'K000']], 200)
+            ->push([['code' => 'fail', 'message' => 'K108', 'data' => ['msgid' => 'X']]], 200);
+        $log = BizmAlimtalkService::active()->send('board_region_inspection', '010-1234-5678',
+            ['지역' => '경기 화성', '건수' => '2', '차량목록' => "12가3456\n34나5678"], ['region' => '경기 화성']);
+        $this->assertSame('sent', $log->status);
+        $this->assertSame('WEB1', $log->msgid);
+        $this->assertSame('경기 화성', $log->region);
+
+        Http::assertSent(function ($r) {
+            $item = $r->data()[0] ?? [];
+
+            return str_contains($r->url(), 'bizmsg.kr')
+                && $r->hasHeader('userid', 'uid')
+                && ($item['tmplId'] ?? '') === 'TMPL1'
+                && ($item['profile'] ?? '') === 'prof'
+                && str_contains($item['msg'] ?? '', '경기 화성')
+                && str_contains($item['msg'] ?? '', '12가3456');
+        });
+
+        // 실패 응답(code != success 인데 msgid 는 옴) → failed (오기록 방지) — sequence 2차
+        $log = BizmAlimtalkService::active()->send('board_region_inspection', '01011112222',
+            ['지역' => 'x', '건수' => '1', '차량목록' => 'a']);
+        $this->assertSame('failed', $log->status);
+
+        // no_phone → skipped
+        $log = BizmAlimtalkService::active()->send('board_region_inspection', '', ['지역' => 'x']);
+        $this->assertSame('skipped', $log->status);
+        $this->assertSame('no_phone', $log->error);
+    }
+
+    /** super 가 알림톡 설정 저장 — 계정·tmplId·스케줄 시각·토글 persist. */
+    public function test_super_saves_alimtalk_settings(): void
+    {
+        $this->actingAs($this->mkUser('manager', null, 'super'));
+
+        Volt::test('admin.settings')
+            ->set('alimtalkUserid', 'uid')->set('alimtalkProfile', 'prof')
+            ->set('alimtalkEnabled', true)->set('alimtalkTmpl', 'TMPL1')
+            ->set('alimtalkToggle', true)->set('alimtalkScheduleTime', '08:00')
+            ->call('saveAlimtalk')->assertHasNoErrors();
+
+        $this->assertSame('uid', Setting::get('alimtalk_userid'));
+        $this->assertSame('prof', Setting::get('alimtalk_profile'));
+        $this->assertTrue((bool) Setting::get('alimtalk_enabled'));
+        $this->assertSame('TMPL1', Setting::get('alimtalk_tmpl_board_region_inspection'));
+        $this->assertSame('08:00', Setting::get('alimtalk_region_schedule_time'));
+
+        // 잘못된 시각 형식 거부
+        Volt::test('admin.settings')->set('alimtalkScheduleTime', '25:99')
+            ->call('saveAlimtalk')->assertHasErrors(['alimtalkScheduleTime']);
+    }
+
+    /** /users 에서 phone 저장·수정 (알림톡 수신번호). */
+    public function test_user_phone_is_saved(): void
+    {
+        $this->actingAs($this->mkUser('manager', null, 'super'));
+
+        Volt::test('users.index')
+            ->call('openCreate')
+            ->set('name', '검차원A')->set('email', 'insp@board.test')
+            ->set('phone', '010-9999-8888')->set('role', 'inspection')
+            ->set('password', 'password')
+            ->call('save')->assertHasNoErrors();
+
+        $this->assertSame('010-9999-8888', User::where('email', 'insp@board.test')->value('phone'));
+    }
+
+    /** 알림톡 발송 가능 상태(계정+enabled+tmplId 2종) 세팅. */
+    private function alimtalkOn(): void
+    {
+        Setting::create(['key' => 'alimtalk_userid', 'value' => 'uid', 'type' => 'string']);
+        Setting::create(['key' => 'alimtalk_profile', 'value' => 'prof', 'type' => 'string']);
+        Setting::create(['key' => 'alimtalk_enabled', 'value' => '1', 'type' => 'boolean']);
+        Setting::create(['key' => 'alimtalk_tmpl_board_region_inspection', 'value' => 'T1', 'type' => 'string']);
+        Setting::create(['key' => 'alimtalk_tmpl_board_forward_ready', 'value' => 'T2', 'type' => 'string']);
+    }
+
+    /** §Slice2 A — 지역 로스터로 digest 발송 + 차량당 1회 dedup + off 면 stamp 안 함(활성화 안전). */
+    public function test_region_inspection_notifier_roster_dedup_and_off(): void
+    {
+        $insp = $this->mkUser('inspection');
+        $insp->update(['phone' => '01011112222', 'region' => '경기 화성']);
+        $l1 = $this->mkListing($this->mkUser('sales'), ['status' => 'draft', 'region' => '경기 화성', 'vehicle_number' => '11가1111']);
+        $this->mkListing($this->mkUser('sales'), ['status' => 'draft', 'region' => '경기 화성', 'vehicle_number' => '22나2222']);
+        $date = now()->addDay()->toDateString();
+
+        // off(미설정) → 발송기 skipped, stamp 안 됨(활성화 후 누락 방지). ⚠️실운영은 커맨드가 매 실행 fresh resolve.
+        $r = app(RegionInspectionNotifier::class)->run($date);
+        $this->assertSame(0, $r['sent']);
+        $this->assertNull($l1->fresh()->region_notified_at);
+
+        // on → 로스터 1명에게 지역 digest(두 차량 목록 포함), stamp. (설정 후 fresh 인스턴스)
+        $this->alimtalkOn();
+        Http::fake(['*bizmsg.kr*' => Http::response([['code' => 'success', 'data' => ['msgid' => 'M']]], 200)]);
+        $r = app(RegionInspectionNotifier::class)->run($date);
+        $this->assertSame(1, $r['sent']);
+        $this->assertSame(1, $r['regions']);
+        $this->assertNotNull($l1->fresh()->region_notified_at);
+        Http::assertSent(function ($req) {
+            $msg = $req->data()[0]['msg'] ?? '';
+
+            return str_contains($req->url(), 'bizmsg.kr') && str_contains($msg, '경기 화성')
+                && str_contains($msg, '11가1111') && str_contains($msg, '22나2222');
+        });
+
+        // dedup — 재실행 시 이미 stamp 라 새 발송 없음
+        $r2 = app(RegionInspectionNotifier::class)->run($date);
+        $this->assertSame(0, $r2['sent']);
+    }
+
+    /** §Slice2 A — per-date 배정(override)이 지역 고정 로스터를 이긴다. */
+    public function test_region_inspection_override_beats_roster(): void
+    {
+        $this->alimtalkOn();
+        Http::fake(['*bizmsg.kr*' => Http::response([['code' => 'success', 'data' => ['msgid' => 'M']]], 200)]);
+        $roster = $this->mkUser('inspection');
+        $roster->update(['phone' => '01011110000', 'region' => '인천']);
+        $assigned = $this->mkUser('inspection');
+        $assigned->update(['phone' => '01022220000', 'region' => '서울']);   // 본인 지역은 서울이지만
+        $date = now()->addDay()->toDateString();
+        InspectionAssignment::create(['date' => $date, 'region' => '인천', 'user_id' => $assigned->id]);
+        $this->mkListing($this->mkUser('sales'), ['status' => 'draft', 'region' => '인천', 'vehicle_number' => '33다3333']);
+
+        $r = app(RegionInspectionNotifier::class)->run($date);
+        $this->assertSame(1, $r['sent']);
+        Http::assertSent(fn ($req) => ($req->data()[0]['phn'] ?? '') === '01022220000');   // 배정자
+        Http::assertNotSent(fn ($req) => ($req->data()[0]['phn'] ?? '') === '01011110000'); // 로스터 아님
+    }
+
+    /** §Slice2 B — ssancar 자동전이 시 그 매물 작성 영업에게 전달대기 알림톡. */
+    public function test_auto_forward_notifies_sales_rep(): void
+    {
+        $this->ssancarMediaConfig();
+        $this->alimtalkOn();
+        Http::fake([
+            '*api_car_media.php*' => Http::response($this->ssancarResp(1, 0, 0), 200),
+            '*bizmsg.kr*' => Http::response([['code' => 'success', 'data' => ['msgid' => 'M']]], 200),
+        ]);
+        $sales = $this->mkUser('sales');
+        $sales->update(['phone' => '01099998888']);
+        $l = $this->mkListing($sales, ['status' => 'draft', 'vehicle_number' => '44라4444']);
+
+        $this->artisan('board:poll-ssancar-media')->assertExitCode(0);
+
+        $this->assertSame('inspected', $l->fresh()->status);
+        Http::assertSent(function ($req) {
+            $item = $req->data()[0] ?? [];
+
+            return str_contains($req->url(), 'bizmsg.kr') && ($item['phn'] ?? '') === '01099998888'
+                && str_contains($item['msg'] ?? '', '44라4444') && ($item['tmplId'] ?? '') === 'T2';
+        });
+    }
+
+    /** §Slice2 — /users 지역은 검차원만 저장(다른 role 은 null). */
+    public function test_user_region_saved_for_inspection_only(): void
+    {
+        $this->actingAs($this->mkUser('manager', null, 'super'));
+
+        Volt::test('users.index')->call('openCreate')
+            ->set('name', '검차원')->set('email', 'r@board.test')->set('role', 'inspection')
+            ->set('region', '경기 화성')->set('password', 'password')
+            ->call('save')->assertHasNoErrors();
+        $this->assertSame('경기 화성', User::where('email', 'r@board.test')->value('region'));
+
+        Volt::test('users.index')->call('openCreate')
+            ->set('name', '영업')->set('email', 's@board.test')->set('role', 'sales')
+            ->set('region', '경기 화성')->set('password', 'password')
+            ->call('save')->assertHasNoErrors();
+        $this->assertNull(User::where('email', 's@board.test')->value('region'));   // 검차 아니면 미저장
+    }
+
     /** 배포 순간 settings 테이블이 아직 없어도 로그인 화면이 500 나지 않고 기본 브랜드로 degrade. */
     public function test_login_survives_missing_settings_table(): void
     {
         Schema::drop('settings');
 
         $this->get('/login')->assertOk()->assertSee('HeymanBoard', false);
+    }
+
+    public function test_sidebar_work_guide_uses_public_notion_url(): void
+    {
+        $this->actingAs($this->mkUser('manager', null, 'super'))
+            ->get('/manage')
+            ->assertOk()
+            ->assertSee('https://dashing-stick-008.notion.site/37345d82bd838108a418c76a210f1854', false)
+            ->assertDontSee('https://app.notion.com/p/37345d82bd838108a418c76a210f1854', false);
     }
 
     // ─────────────────────── i18n Phase 0 (한글/영어) ───────────────────────

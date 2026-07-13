@@ -56,6 +56,12 @@ return [
         'read_hmac_secret' => env('CAR_ERP_READ_HMAC_SECRET'),
     ],
 
+    // 카카오 알림톡(BizM) — 발송 계정(userid·profile·tmplId·on/off)은 기능설정(admin/settings) DB 저장.
+    // test_phone: local 환경에서만 모든 발송 수신자를 이 번호로 강제(실수신자 사고 차단). production 은 무시.
+    'alimtalk' => [
+        'test_phone' => env('ALIMTALK_TEST_PHONE', ''),
+    ],
+
     // 연동 A — respond.io (Developer API 폴링 + inbound webhook + outbound).
     'respond_io' => [
         'base_url' => env('RESPOND_BASE_URL', 'https://api.respond.io'),

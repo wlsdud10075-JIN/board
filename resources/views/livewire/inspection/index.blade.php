@@ -163,6 +163,18 @@ new #[Layout('components.layouts.app')] class extends Component {
         unset($this->assignmentsByRegion, $this->regionGroups, $this->assignmentSummary);
     }
 
+    /**
+     * 수동 발송 — 관리가 배정 후 그 날짜(assignDate) 기준 지역 검차 안내 알림톡을 지금 발송.
+     * 대상 = 미통보 draft 차량(스케줄과 동일 dedup). 알림톡 off/미승인이면 skipped(no-op).
+     */
+    public function sendRegionInspectionAlimtalk(): void
+    {
+        abort_unless($this->canAssign(), 403);
+        $r = app(\App\Services\RegionInspectionNotifier::class)->run($this->assignDate);
+        unset($this->regionGroups);
+        session()->flash('ok', __('inspection.alimtalk_sent', ['sent' => $r['sent'], 'regions' => $r['regions'], 'skipped' => $r['skipped']]));
+    }
+
     #[Computed]
     public function editing(): ?PurchaseListing
     {
@@ -310,9 +322,9 @@ new #[Layout('components.layouts.app')] class extends Component {
     {{-- ─────────── 지역 배정 패널 (관리/super) ─────────── --}}
     @if ($this->canAssign())
         <div class="card mb-3" style="background:#f8f9fb">
-            <div class="mb-2 flex items-center justify-between">
+            <div class="mb-2 flex items-center justify-between gap-2">
                 <h2 class="font-bold text-gray-800">📋 {{ __('inspection.assign_panel_title') }} <span class="text-xs font-normal text-gray-400">({{ $assignDate }})</span></h2>
-                <span class="text-xs text-gray-400">{{ __('inspection.max_per_region', ['max' => \App\Models\InspectionAssignment::MAX_PER_REGION]) }}</span>
+                <span class="hidden text-xs text-gray-400 sm:inline">{{ __('inspection.max_per_region', ['max' => \App\Models\InspectionAssignment::MAX_PER_REGION]) }}</span>
             </div>
             <div class="flex flex-wrap items-end gap-2">
                 <div class="min-w-[160px] flex-1">
@@ -336,6 +348,17 @@ new #[Layout('components.layouts.app')] class extends Component {
             @if ($this->pendingRegions->isEmpty())
                 <p class="mt-2 text-xs text-gray-400">{!! __('inspection.assign_hint', ['region' => '<b>'.__('inspection.assign_hint_region_word').'</b>']) !!}</p>
             @endif
+
+            {{-- 지역 검차 알림톡 발송 — 크게 강조(관리가 배정 후 누르는 주 액션) --}}
+            <div class="mt-3 border-t border-gray-200 pt-3">
+                <button wire:click="sendRegionInspectionAlimtalk"
+                    wire:confirm="{{ __('inspection.alimtalk_confirm', ['date' => $assignDate]) }}"
+                    class="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-indigo-700 sm:w-auto">
+                    <span wire:loading.remove wire:target="sendRegionInspectionAlimtalk">📨 {{ __('inspection.alimtalk_send_btn') }}</span>
+                    <span wire:loading wire:target="sendRegionInspectionAlimtalk">⏳ {{ __('inspection.alimtalk_sending') }}</span>
+                </button>
+                <p class="mt-1.5 text-xs text-gray-400">{{ __('inspection.alimtalk_send_hint') }}</p>
+            </div>
 
             {{-- 배정 현황 요약 (정렬 가능) --}}
             @if ($this->assignmentSummary->isNotEmpty())
