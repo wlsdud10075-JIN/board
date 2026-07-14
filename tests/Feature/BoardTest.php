@@ -2802,9 +2802,11 @@ class BoardTest extends TestCase
         $this->actingAs($this->mkUser('sales'));
 
         Volt::test('listings.index')
+            ->set('showAdd', true)
             ->set('ssancarLink', 'https://www.ssancar.com/x?wr_id=786')
             ->call('parseLink', 'ssancar')
-            ->assertSet('encar_id', '999');
+            ->assertSet('encar_id', '999')
+            ->assertSee(__('listings.history.view'));   // 싼카 추출 후 '이력 조회' 버튼 노출(추출됨 영역)
     }
 
     public function test_enrichment_ssancar_money_block_three_currencies(): void
