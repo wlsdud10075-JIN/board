@@ -126,6 +126,8 @@ input, textarea, select { color: #1f2937; background-color: #ffffff; }
 .badge-gray   { background:#f3f4f6; color:#6b7280; }
 .badge-encar  { background:#dbeafe; color:#1d4ed8; }
 .badge-auction{ background:#fef3c7; color:#b45309; }
+.badge-brown  { background:#eaddd0; color:#7c4a2d; }
+.badge-khaki  { background:#e8e4c9; color:#6b6220; }
 
 /* ── 입력 ── */
 .input-base { width:100%; border:1px solid #d1d5db; border-radius:6px; padding:6px 10px; font-size:13px; background:#fff; color:#111827; transition:border-color .15s, box-shadow .15s; }
