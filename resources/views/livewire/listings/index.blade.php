@@ -745,11 +745,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <input class="input-base flex-1" wire:model="encarLink" wire:keydown.enter.prevent="parseLink('encar')"
                                placeholder="{{ __('listings.links.encar_ph') }}">
                         <button type="button" class="btn-primary btn-sm shrink-0" wire:click="parseLink('encar')">{{ __('listings.links.extract') }}</button>
-                        <button type="button" class="btn-outline btn-sm shrink-0" wire:click="loadEncarHistory" wire:loading.attr="disabled" wire:target="loadEncarHistory">{{ __('listings.history.view') }}</button>
                     </div>
                     @error('encarLink') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-
-                    @include('livewire.listings._encar-history')
 
                     <label class="label-base mt-2">{{ __('listings.links.ssancar_label') }} <span class="text-gray-400">{{ __('listings.links.ssancar_hint') }}</span></label>
                     <div class="flex gap-2">
@@ -764,8 +761,14 @@ new #[Layout('components.layouts.app')] class extends Component {
                             @if ($encar_id)<span class="badge badge-encar">encar #{{ $encar_id }}</span>@endif
                             @if ($c_no)<span class="badge badge-blue">c_no {{ $c_no }}</span>@endif
                             @if ($ssancar_ref)<span class="badge badge-gray">{{ $ssancar_ref }}</span>@endif
+                            {{-- 이력 조회 = 엔카/싼카 어느 링크로 추출했든 엔카 id 잡히면 노출 --}}
+                            @if ($encar_id)
+                                <button type="button" class="btn-outline btn-sm shrink-0" wire:click="loadEncarHistory" wire:loading.attr="disabled" wire:target="loadEncarHistory">{{ __('listings.history.view') }}</button>
+                            @endif
                         </div>
                     @endif
+
+                    @include('livewire.listings._encar-history')
                     <label class="label-base mt-2">{{ __('listings.links.price_label') }} <span class="text-gray-400">{{ __('listings.links.price_hint') }}</span></label>
                     <div class="flex gap-2">
                         <input class="input-base flex-1" wire:model="expected_price" inputmode="numeric" placeholder="{{ __('listings.links.price_ph') }}">
