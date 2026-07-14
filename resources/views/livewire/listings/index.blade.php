@@ -356,6 +356,10 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         // 매물 자동채움(enrichment) — 빈 칸만 prefill, 영업이 확인 후 저장(IDENTITY_LOCKED 자동확정 금지).
         $e = app(\App\Services\ListingEnrichment::class)->enrich($r, $url);
+        // 검차 싼카 링크는 원본 엔카 id 를 품고 있음 → 폼에 채워 '이력 조회' 가능하게.
+        if (! empty($e['encar_id']) && $this->encar_id === '') {
+            $this->encar_id = (string) $e['encar_id'];
+        }
         $filled = [];
         if (! empty($e['vehicle_number']) && $this->vehicle_number === '') {
             $this->vehicle_number = $e['vehicle_number'];

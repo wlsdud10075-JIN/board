@@ -2789,6 +2789,22 @@ class BoardTest extends TestCase
         $this->assertSame('55오5555', $r['vehicle_number']);   // 검차매물 = encar 우회로 KRW·지역 확보
         $this->assertSame(7000000, $r['prices']['KRW']);
         $this->assertSame('서울', $r['region']);
+        $this->assertSame('999', $r['encar_id']);              // 원본 엔카 id 반환 → '이력 조회'에 사용
+    }
+
+    public function test_ssancar_inspected_link_populates_encar_id_for_history(): void
+    {
+        // 검차 싼카 링크만 붙여도 원본 엔카 id 가 폼에 채워져 '이력 조회'가 작동해야 함.
+        Http::fake([
+            '*api.encar.com*' => Http::response(['vehicleNo' => '55오5555'], 200),
+            '*ssancar.com*' => Http::response('<a href="https://fem.encar.com/cars/detail/999">원본</a>', 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('ssancarLink', 'https://www.ssancar.com/x?wr_id=786')
+            ->call('parseLink', 'ssancar')
+            ->assertSet('encar_id', '999');
     }
 
     public function test_enrichment_ssancar_money_block_three_currencies(): void

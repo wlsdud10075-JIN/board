@@ -65,6 +65,7 @@ class ListingEnrichment
         // 차량번호·지역·VIN — 검차매물은 원본 encar 링크로 우회(차량번호·지역·VIN·KRW).
         if (preg_match('#encar\.com/cars/detail/(\d+)#i', $html, $m)) {
             $out = $this->byEncarId($m[1]);
+            $out['encar_id'] = $m[1];   // 검차매물의 원본 엔카 id — 폼에 되돌려 '이력 조회'에 사용
         }
         // encar 우회가 비었으면(=검차매물 엔카 내려감/404) 또는 링크 없으면 → 페이지 자체 패턴으로 빈 필드만 폴백.
         if (empty($out['vin']) && preg_match('/id=["\']copy_txt["\'][^>]*>\s*([^<\s][^<]*?)\s*</u', $html, $m)) {
