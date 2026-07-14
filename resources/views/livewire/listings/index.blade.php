@@ -37,6 +37,8 @@ new #[Layout('components.layouts.app')] class extends Component {
     public ?string $expected_price = null;  // 매물 표시가 (enrichment 자동채움 · 표시용, KRW 값은 car_cost 에도 자동 매핑)
     public string $expected_price_currency = 'KRW';   // 매물 표시가 통화 (원/미/유로 토글)
     public array $priceOptions = [];        // enrichment 통화별 금액 {KRW,USD,EUR} — 토글 시 금액 변경
+    public array $encarHistory = [];        // 엔카 차량이력(보험/성능점검/진단) 조회결과 — 조회전용, 저장 안 함
+    public bool $showHistory = false;       // 이력 패널 표시
     public ?string $car_cost = null;        // 차값 (KRW)
     public ?string $discount_rate = null;   // 할인율 (%)
     public ?int $shipping_usd = null;       // 배송금액 (USD 고정 택1)
@@ -392,6 +394,23 @@ new #[Layout('components.layouts.app')] class extends Component {
         session()->flash('ok', __('listings.links.enrich_category', ['cat' => $cat]).implode(' · ', $bits).$name.$auto.__('listings.links.enrich_suffix'));
     }
 
+    /** 엔카 차량이력(보험이력/성능점검/엔카진단) on-demand 조회 — 조회전용, board 저장 안 함. */
+    public function loadEncarHistory(): void
+    {
+        $id = $this->encar_id !== '' ? $this->encar_id
+            : (string) (\App\Support\ListingLink::parse(trim($this->encarLink))['encar_id'] ?? '');
+        if ($id === '') {
+            $this->addError('encarLink', __('listings.history.need_link'));
+
+            return;
+        }
+        $this->encarHistory = app(\App\Services\ListingEnrichment::class)->encarHistory($id);
+        $this->showHistory = true;
+        if ($this->encarHistory === []) {
+            session()->flash('ok', __('listings.history.none'));
+        }
+    }
+
     /** 통화 토글(매물표시가) — 그 통화로 차값을 "그대로" 가져옴(외화 그대로 고정). 추출된 통화만. */
     public function pickCurrency(string $cur): void
     {
@@ -622,7 +641,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     private function resetForm(): void
     {
-        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'encarLink', 'ssancarLink', 'promotingId', 'expected_price', 'expected_price_currency', 'priceOptions', 'payee_name', 'payee_bank', 'payee_account', 'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number', 'salesFiles']);
+        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'encarLink', 'ssancarLink', 'promotingId', 'expected_price', 'expected_price_currency', 'priceOptions', 'encarHistory', 'showHistory', 'payee_name', 'payee_bank', 'payee_account', 'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number', 'salesFiles']);
         $this->origin = 'encar';
         $this->source = 'encar';
         $this->resetErrorBag();
@@ -722,8 +741,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <input class="input-base flex-1" wire:model="encarLink" wire:keydown.enter.prevent="parseLink('encar')"
                                placeholder="{{ __('listings.links.encar_ph') }}">
                         <button type="button" class="btn-primary btn-sm shrink-0" wire:click="parseLink('encar')">{{ __('listings.links.extract') }}</button>
+                        <button type="button" class="btn-outline btn-sm shrink-0" wire:click="loadEncarHistory" wire:loading.attr="disabled" wire:target="loadEncarHistory">{{ __('listings.history.view') }}</button>
                     </div>
                     @error('encarLink') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+
+                    @include('livewire.listings._encar-history')
 
                     <label class="label-base mt-2">{{ __('listings.links.ssancar_label') }} <span class="text-gray-400">{{ __('listings.links.ssancar_hint') }}</span></label>
                     <div class="flex gap-2">

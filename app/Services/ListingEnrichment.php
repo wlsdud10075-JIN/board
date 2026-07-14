@@ -16,6 +16,18 @@ use Illuminate\Support\Facades\Http;
  */
 class ListingEnrichment
 {
+    /** 엔카진단 부위코드(name) → 한글 라벨. 미매칭은 원본 name 그대로 표시. */
+    private const DIAGNOSIS_LABELS = [
+        'HOOD' => '후드',
+        'ROOF' => '루프', 'ROOF_PANEL' => '루프',
+        'TRUNK_LID' => '트렁크', 'TRUNK' => '트렁크',
+        'FRONT_FENDER_LEFT' => '앞펜더(좌)', 'FRONT_FENDER_RIGHT' => '앞펜더(우)',
+        'FRONT_DOOR_LEFT' => '앞문(좌)', 'FRONT_DOOR_RIGHT' => '앞문(우)',
+        'BACK_DOOR_LEFT' => '뒷문(좌)', 'BACK_DOOR_RIGHT' => '뒷문(우)',
+        'QUARTER_PANEL_LEFT' => '쿼터패널(좌)', 'QUARTER_PANEL_RIGHT' => '쿼터패널(우)',
+        'SIDE_SILL_LEFT' => '사이드실(좌)', 'SIDE_SILL_RIGHT' => '사이드실(우)',
+    ];
+
     /** ListingLink::parse 결과(+ 원본 URL)로 enrich. encar_id=API / ssancar=페이지 파싱. */
     public function enrich(array $parsed, string $url = ''): array
     {
@@ -150,5 +162,205 @@ class ListingEnrichment
         }
 
         return preg_replace('/(특별자치시|특별자치도|특별시|광역시|시)$/u', '', $parts[0]);   // 대구광역시 → 대구
+    }
+
+    /**
+     * 엔카 차량이력 3종 on-demand 조회 — **조회 전용, board 저장 안 함**(PII 최소보유).
+     *  - record     = 보험이력(카히스토리): 사고건수·보험금·소유자변경·전손/침수. `vehicleNo` 필요 → base 로 먼저 획득.
+     *  - inspection = 성능점검 + 성능점검내역(엔드포인트 하나: master=요약, inners/outers=내역).
+     *  - diagnosis  = 엔카진단(엔카가 진단한 차만 존재 — 미진단차는 null).
+     * base 실패면 [](전체 없음). 각 항목은 실패/미존재 시 개별 null(다른 항목엔 영향 없음).
+     */
+    public function encarHistory(string $id): array
+    {
+        $base = $this->fetchJson('/v1/readside/vehicle/'.$id);
+        if ($base === null) {
+            return [];
+        }
+        $vehicleNo = (string) data_get($base, 'vehicleNo', '');
+
+        return [
+            'vehicle_number' => $vehicleNo,
+            'record' => $vehicleNo !== '' ? $this->encarRecord($id, $vehicleNo) : null,
+            'inspection' => $this->encarInspection($id),
+            'diagnosis' => $this->encarDiagnosis($id),
+        ];
+    }
+
+    /** 보험이력(카히스토리). 미공개(openData=false)/실패 = null. 엔카 원본 키 그대로 미러. */
+    public function encarRecord(string $id, string $vehicleNo): ?array
+    {
+        $j = $this->fetchJson('/v1/readside/record/vehicle/'.$id.'/open?vehicleNo='.urlencode($vehicleNo));
+        if ($j === null || ! data_get($j, 'openData')) {
+            return null;
+        }
+
+        $accidents = [];
+        foreach ((array) data_get($j, 'accidents', []) as $a) {
+            $accidents[] = [
+                'date' => data_get($a, 'date'),
+                'insuranceBenefit' => (int) data_get($a, 'insuranceBenefit', 0),
+                'partCost' => (int) data_get($a, 'partCost', 0),
+                'laborCost' => (int) data_get($a, 'laborCost', 0),
+                'paintingCost' => (int) data_get($a, 'paintingCost', 0),
+            ];
+        }
+
+        return [
+            'title' => trim(implode(' ', array_filter([data_get($j, 'year'), data_get($j, 'maker'), data_get($j, 'model')]))),
+            'myAccidentCnt' => (int) data_get($j, 'myAccidentCnt', 0),
+            'myAccidentCost' => (int) data_get($j, 'myAccidentCost', 0),
+            'otherAccidentCnt' => (int) data_get($j, 'otherAccidentCnt', 0),
+            'otherAccidentCost' => (int) data_get($j, 'otherAccidentCost', 0),
+            'ownerChangeCnt' => (int) data_get($j, 'ownerChangeCnt', 0),
+            'totalLossCnt' => (int) data_get($j, 'totalLossCnt', 0),
+            'floodCnt' => (int) data_get($j, 'floodTotalLossCnt', 0) + (int) data_get($j, 'floodPartLossCnt', 0),
+            'robberCnt' => (int) data_get($j, 'robberCnt', 0),
+            'specialUse' => (int) data_get($j, 'government', 0) + (int) data_get($j, 'business', 0),
+            'accidents' => $accidents,
+        ];
+    }
+
+    /** 성능점검(+내역). master 없으면(비-표준 포맷/실패) null. `accdient` 는 엔카 원본 오타 키. */
+    public function encarInspection(string $id): ?array
+    {
+        $j = $this->fetchJson('/v1/readside/inspection/vehicle/'.$id);
+        if ($j === null || ! data_get($j, 'master')) {
+            return null;
+        }
+
+        // 자기진단·내부: 미점검(status null)은 생략, 정상은 초록·이상만 눈에 띄게(엔카식).
+        $goodStates = ['양호', '적정', '없음'];   // '없음' = 누유/누수 없음 = 정상
+        $inners = [];
+        foreach ((array) data_get($j, 'inners', []) as $sec) {
+            $children = [];
+            foreach ((array) data_get($sec, 'children', []) as $c) {
+                $status = data_get($c, 'statusType.title');
+                if ($status === null || $status === '') {
+                    continue;   // 미점검 — 표시 안 함
+                }
+                $children[] = [
+                    'title' => data_get($c, 'type.title'),
+                    'status' => $status,
+                    'ok' => in_array($status, $goodStates, true),   // false = 실제 이상(불량·누수·부족 등)
+                ];
+            }
+            if ($children) {
+                $inners[] = ['title' => data_get($sec, 'type.title'), 'children' => $children];
+            }
+        }
+
+        $outers = [];
+        foreach ((array) data_get($j, 'outers', []) as $o) {
+            $titles = [];
+            $codes = [];
+            foreach ((array) data_get($o, 'statusTypes', []) as $s) {
+                $titles[] = data_get($s, 'title');
+                $codes[] = (string) data_get($s, 'code');
+            }
+            $outers[] = [
+                'title' => data_get($o, 'type.title'),
+                'status' => implode(', ', array_filter($titles)),
+                'color' => $this->inspectionColor($codes),   // 엔카 상태부호 심각도 색
+            ];
+        }
+
+        return [
+            'mileage' => (int) data_get($j, 'master.detail.mileage', 0),
+            'accident' => (bool) data_get($j, 'master.accdient', false),
+            'simpleRepair' => (bool) data_get($j, 'master.simpleRepair', false),
+            'waterlog' => (bool) data_get($j, 'master.detail.waterlog', false),
+            'recall' => (bool) data_get($j, 'master.detail.recall', false),
+            'recallStatus' => data_get($j, 'master.detail.recallFullFillTypes.0.title'),
+            'transmission' => data_get($j, 'master.detail.transmissionType.title'),
+            'inspName' => data_get($j, 'master.detail.inspName'),
+            'comments' => data_get($j, 'master.detail.comments'),
+            'inners' => $inners,
+            'outers' => $outers,
+        ];
+    }
+
+    /**
+     * 엔카진단. 미진단차(items 없음)/실패 = null.
+     *  - *_COMMENT 항목(CHECKER_COMMENT=무사고 판정 등)은 부위가 아니라 **판정문구** → verdicts 로 분리(첫 줄만, 표준 고지문 제외).
+     *  - 부위 항목은 **정상(NORMAL) 숨기고 이상만** items 에(해당없는 부위 노출 안 함).
+     */
+    public function encarDiagnosis(string $id): ?array
+    {
+        $j = $this->fetchJson('/v1/readside/diagnosis/vehicle/'.$id);
+        $items = data_get($j, 'items');
+        if ($j === null || ! is_array($items) || $items === []) {
+            return null;
+        }
+
+        $verdicts = [];
+        $panels = [];
+        foreach ($items as $it) {
+            $name = (string) data_get($it, 'name');
+            $result = trim((string) data_get($it, 'result'));
+            if (str_ends_with($name, 'COMMENT')) {
+                $line = trim(explode("\n", $result)[0]);   // 첫 줄 = 판정, 뒤 표준 고지문은 버림
+                if ($line !== '') {
+                    $verdicts[] = $line;
+                }
+
+                continue;
+            }
+            if (data_get($it, 'resultCode') === 'NORMAL') {
+                continue;   // 정상 부위 숨김 — 이상만
+            }
+            $panels[] = [
+                'name' => self::DIAGNOSIS_LABELS[$name] ?? $name,
+                'result' => $result,
+            ];
+        }
+
+        return [
+            'date' => substr((string) data_get($j, 'diagnosisDate'), 0, 10),
+            'center' => data_get($j, 'reservationCenterName'),
+            'verdicts' => $verdicts,   // 무사고 판정 등 헤드라인
+            'items' => $panels,        // 이상 부위만
+        ];
+    }
+
+    /**
+     * 엔카 외판·골격 상태부호(X교환·W판금용접·C부식·A흠집·U요철·T손상) → 뱃지 색(Jin 지정).
+     * 한 부위에 상태 여러 개면 심각도 우선순위(교환>손상>부식>판금용접>요철>흠집)로 대표색 1개.
+     */
+    private const OUTER_COLORS = [
+        'X' => 'red',    // 교환 = 빨강
+        'T' => 'brown',  // 손상 = 갈색
+        'C' => 'amber',  // 부식 = 노랑
+        'W' => 'blue',   // 판금/용접 = 파랑
+        'U' => 'khaki',  // 요철 = 카키
+        'A' => 'gray',   // 흠집 = 회색
+    ];
+
+    private function inspectionColor(array $codes): string
+    {
+        foreach (self::OUTER_COLORS as $code => $color) {   // 배열 순서 = 심각도 우선순위
+            if (in_array($code, $codes, true)) {
+                return $color;
+            }
+        }
+
+        return 'gray';   // 미지의 코드 = 회색
+    }
+
+    /** 엔카 API GET → 배열 or null(예외·실패·비-JSON). byEncarId 와 동일 정책, 이력 메서드 공용. */
+    private function fetchJson(string $path): ?array
+    {
+        $base = rtrim((string) config('services.encar.base_url', 'https://api.encar.com'), '/');
+        try {
+            $res = Http::timeout(8)->get($base.$path);
+        } catch (\Throwable) {
+            return null;
+        }
+        if ($res->failed()) {
+            return null;
+        }
+        $j = $res->json();
+
+        return is_array($j) ? $j : null;
     }
 }

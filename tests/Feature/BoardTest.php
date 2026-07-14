@@ -2564,6 +2564,111 @@ class BoardTest extends TestCase
         $this->assertSame([], (new ListingEnrichment)->byEncarId('1'));   // throw 안 함, prefill 없음
     }
 
+    public function test_encar_history_maps_all_three(): void
+    {
+        Http::fake([
+            '*/v1/readside/vehicle/*' => Http::response(['vehicleNo' => '66머0996'], 200),
+            '*/v1/readside/record/vehicle/*' => Http::response([
+                'openData' => true, 'year' => '2019', 'maker' => '포드', 'model' => '익스플로러',
+                'myAccidentCnt' => 2, 'myAccidentCost' => 11568500, 'otherAccidentCnt' => 1,
+                'accidents' => [['date' => '2025-09-14', 'insuranceBenefit' => 450000, 'partCost' => 23750, 'laborCost' => 0, 'paintingCost' => 279438]],
+            ], 200),
+            '*/v1/readside/inspection/vehicle/*' => Http::response([
+                'master' => ['accdient' => false, 'simpleRepair' => true, 'detail' => ['mileage' => 189165, 'recall' => true, 'recallFullFillTypes' => [['title' => '미이행']]]],
+                'inners' => [['type' => ['title' => '자기진단'], 'children' => [
+                    ['type' => ['title' => '원동기'], 'statusType' => ['title' => '양호']],       // 정상 → ok
+                    ['type' => ['title' => '오일누유'], 'statusType' => ['title' => '누수']],       // 문제 → !ok
+                    ['type' => ['title' => '자동변속기'], 'statusType' => null],                    // 미점검 → 생략
+                ]]],
+                'outers' => [
+                    ['type' => ['title' => '후드'], 'statusTypes' => [['code' => 'W', 'title' => '판금/용접']]],   // amber
+                    ['type' => ['title' => '프론트펜더'], 'statusTypes' => [['code' => 'X', 'title' => '교환']]],  // red
+                ],
+            ], 200),
+            '*/v1/readside/diagnosis/vehicle/*' => Http::response([
+                'diagnosisDate' => '2026-05-27T00:00:00', 'reservationCenterName' => '부천 서운',
+                'items' => [
+                    ['name' => 'FRONT_DOOR_LEFT', 'result' => '정상', 'resultCode' => 'NORMAL'],   // 정상 → 숨김
+                    ['name' => 'HOOD', 'result' => '교환', 'resultCode' => 'EXCHANGE'],             // 이상 → 표시
+                    ['name' => 'CHECKER_COMMENT', 'result' => "'무사고' 차량으로 판정합니다.\n표준 고지문 생략", 'resultCode' => null],
+                ],
+            ], 200),
+        ]);
+
+        $h = (new ListingEnrichment)->encarHistory('42080261');
+
+        $this->assertSame('66머0996', $h['vehicle_number']);
+        $this->assertSame('2019 포드 익스플로러', $h['record']['title']);
+        $this->assertSame(2, $h['record']['myAccidentCnt']);
+        $this->assertCount(1, $h['record']['accidents']);
+        $this->assertSame(189165, $h['inspection']['mileage']);
+        $this->assertFalse($h['inspection']['accident']);            // accdient(엔카 원본 오타키) 매핑
+        $this->assertSame('미이행', $h['inspection']['recallStatus']);
+        // 자기진단: 미점검(null) 생략 → 원동기(ok)·오일누유(!ok) 2개만
+        $kids = $h['inspection']['inners'][0]['children'];
+        $this->assertCount(2, $kids);
+        $this->assertTrue($kids[0]['ok']);            // 원동기 양호
+        $this->assertFalse($kids[1]['ok']);           // 오일누유 누수 = 문제
+        // 외판·골격 상태부호별 색(Jin 지정): W=파랑, X=빨강
+        $this->assertSame('blue', $h['inspection']['outers'][0]['color']);   // 판금/용접
+        $this->assertSame('red', $h['inspection']['outers'][1]['color']);    // 교환
+        // 엔카진단: 판정문구 분리(첫 줄만) + 정상 숨김, 이상만
+        $this->assertSame(["'무사고' 차량으로 판정합니다."], $h['diagnosis']['verdicts']);
+        $this->assertCount(1, $h['diagnosis']['items']);              // 정상(FRONT_DOOR_LEFT) 숨김
+        $this->assertSame('후드', $h['diagnosis']['items'][0]['name']);   // 이상(HOOD 교환), 코드→한글
+    }
+
+    public function test_encar_history_diagnosis_absent_is_null(): void
+    {
+        Http::fake([
+            '*/v1/readside/vehicle/*' => Http::response(['vehicleNo' => '66머0996'], 200),
+            '*/v1/readside/record/vehicle/*' => Http::response(['openData' => true], 200),
+            '*/v1/readside/inspection/vehicle/*' => Http::response(['master' => ['detail' => []]], 200),
+            '*/v1/readside/diagnosis/vehicle/*' => Http::response('', 404),   // 엔카 미진단차
+        ]);
+
+        $h = (new ListingEnrichment)->encarHistory('1');
+
+        $this->assertNotNull($h['record']);
+        $this->assertNotNull($h['inspection']);
+        $this->assertNull($h['diagnosis']);   // 개별 null, 나머진 살아있음
+    }
+
+    public function test_encar_history_base_failure_is_empty(): void
+    {
+        Http::fake(['*api.encar.com*' => Http::response('', 500)]);
+        $this->assertSame([], (new ListingEnrichment)->encarHistory('1'));   // base 실패=전체 []
+    }
+
+    public function test_listings_history_button_renders_panel(): void
+    {
+        Http::fake([
+            '*/v1/readside/vehicle/*' => Http::response(['vehicleNo' => '66머0996'], 200),
+            '*/v1/readside/record/vehicle/*' => Http::response(['openData' => true, 'myAccidentCnt' => 2], 200),
+            '*/v1/readside/inspection/vehicle/*' => Http::response(['master' => ['detail' => ['mileage' => 189165]]], 200),
+            '*/v1/readside/diagnosis/vehicle/*' => Http::response('', 404),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('showAdd', true)          // 이력 패널은 추가폼 안에 있음
+            ->set('encar_id', '42080261')
+            ->call('loadEncarHistory')
+            ->assertHasNoErrors()
+            ->assertSet('showHistory', true)
+            ->assertSee('보험이력')          // record 라벨
+            ->assertSee('성능점검')          // inspection 라벨
+            ->assertSee('189,165');          // 주행거리 실값 렌더
+    }
+
+    public function test_listings_history_needs_link(): void
+    {
+        $this->actingAs($this->mkUser('sales'));
+        Volt::test('listings.index')
+            ->call('loadEncarHistory')      // encar_id·링크 없음
+            ->assertHasErrors('encarLink');
+    }
+
     public function test_listings_link_prefills_from_encar(): void
     {
         Http::fake(['*api.encar.com/v1/readside/vehicle/*' => Http::response([
