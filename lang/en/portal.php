@@ -160,6 +160,7 @@ return [
     'recv_empty_hidden' => ' (fully-paid hidden)',
     'fx_missing' => 'FX rate missing',
     'fx_rate_label' => 'FX rate',
+    'recv_unpaid_pct' => ':pct% unpaid',
     'col_vehicle' => 'Vehicle',
     'col_currency' => 'Currency',
     'col_exchange_rate' => 'FX rate',

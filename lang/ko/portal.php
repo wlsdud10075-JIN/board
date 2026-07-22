@@ -160,6 +160,7 @@ return [
     'recv_empty_hidden' => ' (완납 숨김 적용 중)',
     'fx_missing' => '환율 미입력',
     'fx_rate_label' => '환율',
+    'recv_unpaid_pct' => '미납 :pct%',
     'col_vehicle' => '차량',
     'col_currency' => '통화',
     'col_exchange_rate' => '환율',
