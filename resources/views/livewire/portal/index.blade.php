@@ -1057,7 +1057,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                 $byBuyer = $items->groupBy(fn ($r) => data_get($r, 'buyer') ?: __('portal.buyer_unassigned_paren'));
                 // 바이어 비중 막대 분모 = 필터(완납숨김) 후 전체 미수 합계. fx_missing(null)은 0 기여. 0가드 아래.
                 $grandUnpaid = $items->sum(fn ($r) => (float) (data_get($r, 'unpaid_krw') ?? 0));
-                $cols = ['vehicle_number' => __('portal.col_vehicle'), 'currency' => __('portal.col_currency'), 'exchange_rate' => __('portal.col_exchange_rate'), 'unpaid_krw' => __('portal.col_unpaid_krw')];
+                // 미수금 컬럼 = 네이티브 통화 표시(외화). currency 는 금액에 인라인이라 별도 컬럼 제거. KRW 는 바이어 헤더 묶음합계.
+                $cols = ['vehicle_number' => __('portal.col_vehicle'), 'exchange_rate' => __('portal.col_exchange_rate'), 'unpaid_krw' => __('portal.col_unpaid_krw')];
             @endphp
             <label class="mb-2 flex items-center gap-2 text-[12px] text-gray-500">
                 <input type="checkbox" wire:model.live="hidePaid"> {{ __('portal.hide_paid') }}
@@ -1068,12 +1069,19 @@ new #[Layout('components.layouts.app')] class extends Component {
                         $sum = $rows->sum(fn ($r) => (float) (data_get($r, 'unpaid_krw') ?? 0));
                         // 전체 미수 대비 이 바이어 비중(share-of-total). grand=0(전원 완납·환율미입력)이면 0폭.
                         $share = $grandUnpaid > 0 ? max(0, min(100, $sum / $grandUnpaid * 100)) : 0;
+                        // KRW 묶음합계는 환율 미입력(unpaid_krw null) 차량을 못 더함 → 있으면 헤더에 플래그.
+                        $fxMiss = $rows->filter(fn ($r) => data_get($r, 'unpaid_krw') === null)->count();
                     @endphp
                     <button type="button" class="w-full text-left" @click="open = !open">
                         <div class="flex items-center gap-2 font-bold text-gray-800">
                             <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span>
                             🧑 {{ $buyer }} <span class="text-xs font-normal text-gray-400">· {{ __('portal.unit_vehicles', ['count' => $rows->count()]) }}</span>
-                            <span class="ml-auto text-[13px] font-bold text-[var(--color-primary-text)]">{{ number_format($sum) }}{{ __('common.won_currency') }}</span>
+                            <span class="ml-auto flex items-center gap-1.5">
+                                @if ($fxMiss > 0)
+                                    <span class="text-[10px] font-semibold text-amber-600" title="{{ __('portal.fx_missing') }}">⚠ {{ __('portal.recv_fx_excluded', ['count' => $fxMiss]) }}</span>
+                                @endif
+                                <span class="text-[13px] font-bold text-[var(--color-primary-text)]">{{ number_format($sum) }}{{ __('common.won_currency') }}</span>
+                            </span>
                         </div>
                         {{-- 미수 비중 게이지 — 선적 탭 관용구 재사용(트랙+amber fill). 바이어 간 미수 규모 한눈 비교. --}}
                         <div class="mt-1.5 flex items-center gap-2 pl-5">
@@ -1095,17 +1103,21 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     @foreach ($sortRows($rows) as $row)
                                         <tr>
                                             @foreach ($cols as $k => $label)
-                                                @php $val = data_get($row, $k); @endphp
-                                                <td class="whitespace-nowrap {{ $val === null ? 'text-amber-600' : 'text-gray-700' }}">
-                                                    @if ($val === null)
-                                                        {{ $k === 'unpaid_krw' ? __('portal.fx_missing') : '—' }}
-                                                    @elseif ($k === 'unpaid_krw' && is_numeric($val))
-                                                        <div class="font-semibold text-gray-800">{{ number_format((float) $val) }}</div>
-                                                        {{-- 차량 미납률 게이지 = ERP unpaid_ratio(sale_unpaid÷sale_total, 통화 비의존). null=필드 미도착/판매가 미입력 → 게이지 없음. --}}
-                                                        @php $ratio = data_get($row, 'unpaid_ratio'); @endphp
-                                                        @if ($ratio !== null && is_numeric($ratio))
+                                                @if ($k === 'unpaid_krw')
+                                                    @php
+                                                        // 네이티브 미수금 = 미납률 × 총판매가(외화). FX 미사용 → 환율 미입력이어도 산출. KRW 는 헤더 묶음합계.
+                                                        $curr = data_get($row, 'currency');
+                                                        $rC = data_get($row, 'unpaid_ratio');
+                                                        $sTot = data_get($row, 'sale_total');
+                                                        $native = ($rC !== null && is_numeric($rC) && $sTot !== null && is_numeric($sTot)) ? (float) $rC * (float) $sTot : null;
+                                                    @endphp
+                                                    <td class="whitespace-nowrap {{ $native === null ? 'text-gray-400' : 'text-gray-800' }}">
+                                                        @if ($native === null)
+                                                            —
+                                                        @else
+                                                            <div class="font-semibold">{{ $curr }} {{ number_format($native, 0) }}</div>
                                                             @php
-                                                                $pct = max(0, min(100, (float) $ratio * 100));
+                                                                $pct = max(0, min(100, (float) $rC * 100));
                                                                 // ERP app.js ratioToColor 패리티 — 초록(120)→노랑(50)→빨강(0), hsl 65% 50%.
                                                                 $hue = $pct <= 50 ? 120 - ($pct / 50) * 70 : 50 - (($pct - 50) / 50) * 50;
                                                             @endphp
@@ -1114,10 +1126,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                                                                 <span class="text-[10px] text-gray-500">{{ __('portal.recv_unpaid_pct', ['pct' => number_format($pct, 0)]) }}</span>
                                                             </div>
                                                         @endif
-                                                    @else
-                                                        {{ $val }}
-                                                    @endif
-                                                </td>
+                                                    </td>
+                                                @else
+                                                    @php $val = data_get($row, $k); @endphp
+                                                    <td class="whitespace-nowrap {{ $val === null ? 'text-amber-600' : 'text-gray-700' }}">{{ $val === null ? '—' : $val }}</td>
+                                                @endif
                                             @endforeach
                                         </tr>
                                     @endforeach
@@ -1126,15 +1139,21 @@ new #[Layout('components.layouts.app')] class extends Component {
                         </div>
                         <div class="space-y-1.5 sm:hidden">
                             @foreach ($sortRows($rows) as $row)
-                                @php $unpaid = data_get($row, 'unpaid_krw'); @endphp
+                                @php
+                                    $curr = data_get($row, 'currency');
+                                    $rC = data_get($row, 'unpaid_ratio');
+                                    $sTot = data_get($row, 'sale_total');
+                                    // 네이티브 미수금 = 미납률 × 총판매가(외화). FX 미사용. KRW 는 바이어 헤더 묶음합계.
+                                    $native = ($rC !== null && is_numeric($rC) && $sTot !== null && is_numeric($sTot)) ? (float) $rC * (float) $sTot : null;
+                                @endphp
                                 <div class="rounded-md border border-gray-100 bg-gray-50 px-2.5 py-2">
                                     <div class="flex items-center justify-between gap-2">
                                         <div class="min-w-0">
                                             <div class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') ?: '—' }}</div>
-                                            <div class="text-[11px] text-gray-400">{{ data_get($row, 'currency') ?: '—' }} · {{ __('portal.fx_rate_label') }} {{ data_get($row, 'exchange_rate') ?? '—' }}</div>
+                                            <div class="text-[11px] text-gray-400">{{ __('portal.fx_rate_label') }} {{ data_get($row, 'exchange_rate') ?? '—' }}</div>
                                         </div>
-                                        <div class="shrink-0 text-right text-sm font-bold {{ $unpaid === null ? 'text-amber-600' : 'text-gray-800' }}">
-                                            {{ $unpaid === null ? __('portal.fx_missing') : number_format((float) $unpaid).__('common.won_currency') }}
+                                        <div class="shrink-0 text-right text-sm font-bold {{ $native === null ? 'text-gray-400' : 'text-gray-800' }}">
+                                            {{ $native === null ? '—' : $curr.' '.number_format($native, 0) }}
                                         </div>
                                     </div>
                                     {{-- 차량 미납률 게이지 = ERP unpaid_ratio(통화 비의존). null=필드 미도착/판매가 미입력·fx_missing → 게이지 없음. --}}

@@ -161,10 +161,11 @@ return [
     'fx_missing' => 'FX rate missing',
     'fx_rate_label' => 'FX rate',
     'recv_unpaid_pct' => ':pct% unpaid',
+    'recv_fx_excluded' => ':count no FX',
     'col_vehicle' => 'Vehicle',
     'col_currency' => 'Currency',
     'col_exchange_rate' => 'FX rate',
-    'col_unpaid_krw' => 'Outstanding (KRW)',
+    'col_unpaid_krw' => 'Outstanding',
 
     // Sales tab
     'sales_empty' => 'No sales.',
