@@ -161,10 +161,11 @@ return [
     'fx_missing' => '환율 미입력',
     'fx_rate_label' => '환율',
     'recv_unpaid_pct' => '미납 :pct%',
+    'recv_fx_excluded' => ':count대 환율미입력',
     'col_vehicle' => '차량',
     'col_currency' => '통화',
     'col_exchange_rate' => '환율',
-    'col_unpaid_krw' => '미수금(원)',
+    'col_unpaid_krw' => '미수금',
 
     // 판매내역 탭
     'sales_empty' => '판매내역이 없습니다.',
