@@ -88,7 +88,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function kpi(): array
     {
         return [
-            'today' => PurchaseListing::whereDate('created_at', today())->count(),
+            'today' => PurchaseListing::whereBetween('created_at', [today()->startOfDay(), today()->endOfDay()])->count(),
             'encar' => PurchaseListing::where('source', 'encar')->count(),
             'auction' => PurchaseListing::where('source', 'auction')->count(),
             'accepted' => PurchaseListing::where('buyer_verdict', 'accepted')->count(),
@@ -103,7 +103,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             ->when($this->fStatus !== '', fn ($q) => $q->where('status', $this->fStatus))
             ->when($this->fSource !== '', fn ($q) => $q->where('source', $this->fSource))
             ->when($this->fVerdict !== '', fn ($q) => $q->where('buyer_verdict', $this->fVerdict))
-            ->when($this->fToday, fn ($q) => $q->whereDate('created_at', today()))
+            ->when($this->fToday, fn ($q) => $q->whereBetween('created_at', [today()->startOfDay(), today()->endOfDay()]))
             ->when($this->search !== '', fn ($q) => $q->where(fn ($w) => $w
                 ->where('vehicle_number', 'like', '%'.$this->search.'%')
                 ->orWhere('c_no', 'like', '%'.$this->search.'%')
