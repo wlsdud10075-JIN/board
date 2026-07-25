@@ -162,6 +162,8 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
 
 ## ⏭️ 남은 작업 (미완)
 
-- **알림톡 2종**(지역검차·전달대기, Bizm): dev 완료·미배포. 남음 = 슬라이스3(Jin Bizm 2종 승인 + tmplId + enable + 스케줄시각). enabled off 라 실발송 0. [board-alimtalk-region-inspection]
-- **판매계약서 전자서명 요청**: board 측 dev 커밋. master 미머지 + e2e 미검증(ERP §10 master 배포 대기). [board-esignature-request]
+- **알림톡 2종**(지역검차·전달대기, Bizm): 코드 **운영 배포 완료**(master `77738a3`, 2026-07-13, 두 박스). 남음 = 슬라이스3(**Jin**: Bizm 템플릿 2종 승인 → tmplId 2개 입력 + enabled on + 스케줄시각). 현재 enabled off 라 실발송 0 — 켜는 순간 가동. [board-alimtalk-region-inspection]
+- **판매계약서 전자서명 요청**: board **운영 배포 완료**(master `f807ed7`, 2026-07-11) + car-erp §10/§10-2 엔드포인트도 배포됨. 남음 = **실거래 e2e 검증**(발급→전달→바이어서명→증거메일). [board-esignature-request]
+- **차감액 외화 입력**: `sale_discount_amount` 는 **KRW 절대금액 고정**(통화 컬럼 없음 — 마이그 `2026_07_06_133348` 단독). 바이어 통화로 차감액을 넣는 건 미착수. Model A 후속 ③. [board-flow-model-a-deployed]
+- **board 앱 챗봇 통합**: 로컬 LLM 업무 Q&A 가 **car-erp 앱 `assistant` 로만 실통합·배포**됨. 색인은 이미 물리분리(board 몫 = `index-board.json`)돼 있으나 **board 쪽 소비자 코드는 아직 없음**. 별건으로 실도입용 사무실 GPU 박스 상시가동 대기. [local-llm-chatbot-poc]
 - (저우선) TimeGate **관리자 전역 해제 UI**(현재 등록잠금만; 편집은 이미 우회) · 퇴사자 계정 양쪽 동시정지 절차 **문서화**.
