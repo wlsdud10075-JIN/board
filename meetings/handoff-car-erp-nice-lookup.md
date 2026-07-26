@@ -11,7 +11,8 @@ Jin 요청: board 매입예정 등록 폼에서 **차량번호 아래 「원부�
 원부조회 본체(`NiceApiService::lookupVehicle`)는 이미 ERP 에 있고 잘 돈다. 문제는 board 가 그걸 **직접 쓸 수 없다**는 것:
 
 1. **IP 화이트리스트** — NICE 실호출은 `54.116.7.83` 경유만 가능. board 박스는 화이트리스트 밖.
-2. **PII 계약** — `lookupVehicle()` 응답에는 **소유자명·주소·RRN** 이 들어있다. board 는 이것들을 보유하지 않는 앱이고, `docs/integration/board-portal-api.md:35` 에 이미 **"`nice_reg_owner_rrn`·`nice_reg_owner_name/addr` — 어떤 응답에도 미포함"** 이 계약으로 박혀 있다.
+2. **PII 계약** — `lookupVehicle()` 응답에는 **소유자명·주소·RRN** 이 들어있다. board 는 이것들을 보유하지 않는 앱이고, `docs/integration/board-portal-api.md` 의 PII 제외 조항(2026-07-26 기준 35행)에 이미 이렇게 박혀 있다:
+   > ⛔ `nice_reg_owner_rrn`(RRN)·`nice_reg_owner_name/addr`·`purchase_seller_account`(계좌)·`purchase_seller_holder` — **어떤 응답에도 미포함**.
 3. **drift 금지** — board 가 `/provide` 를 직접 때리면 `transform()` 을 board 에 복제해야 한다. 금지된 패턴.
 
 ⇒ **ERP 가 PII 를 걷어내고 돌려주는 얇은 엔드포인트 하나**가 답이다.
@@ -24,6 +25,8 @@ Jin 요청: board 매입예정 등록 폼에서 **차량번호 아래 「원부�
 POST /api/internal/board/nice-lookup
 인증: 기존 CAR_ERP_READ_HMAC_SECRET (POST = raw JSON 바이트 서명, §10 signing-requests 와 동일 방식)
 ```
+
+⚠️ **ERP 인스턴스 전부에 배포해야 한다** — board 는 인스턴스 쌍으로 붙으므로 **ssancarboard → ssancarerp**, **heymanboard → heymanerp** 두 경로가 다 이 엔드포인트를 부른다(각자 자기 짝 ERP 의 `CAR_ERP_BASE_URL` 로). ssancarerp 에만 넣으면 heymanboard 는 404 degrade 상태로 남는다. (NICE 실호출은 그 뒤 `heymancar.com/provide` 한 곳으로 모이지만, **엔드포인트 자체는 쌍마다 필요**하다.)
 
 **요청**
 ```json
@@ -54,7 +57,7 @@ POST /api/internal/board/nice-lookup
 ### ⛔ 응답에서 반드시 빠져야 할 것
 | 필드 | 이유 |
 |---|---|
-| `nice_reg_owner_name` | 계약 `board-portal-api.md:35` |
+| `nice_reg_owner_name` | 위 PII 제외 조항 |
 | `nice_reg_owner_addr` | 〃 |
 | `nice_reg_owner_rrn` | 〃 (RRN — board 는 절대 보유 안 함) |
 | `raw` | NICE 원본. **위 3개가 그대로 들어있다.** 통째로 빼야 한다 |
@@ -133,5 +136,5 @@ board 측이 지킬 것(이 문서의 약속):
 
 - 원본 구현: `car-erp/app/Services/NiceApiService.php` (`lookupVehicle` / `transform` / `humanizeError`)
 - 게이트웨이: `car-erp/routes/web.php:19` → `ProvideNiceLookupController` → `NiceDirectClient`
-- 계약 권위: `car-erp/docs/integration/board-portal-api.md` (§35행 PII 제외 조항)
+- 계약 권위: `car-erp/docs/integration/board-portal-api.md` — 문서 앞부분 **PII 제외 조항**(2026-07-26 기준 35행, `⛔ nice_reg_owner_rrn…어떤 응답에도 미포함`)
 - 인프라 전제: `board/meetings/handoff-car-erp-infra-fpm-2026-07-26.md`
