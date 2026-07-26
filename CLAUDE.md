@@ -166,4 +166,5 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
 - **판매계약서 전자서명 요청**: board **운영 배포 완료**(master `f807ed7`, 2026-07-11) + car-erp §10/§10-2 엔드포인트도 배포됨. 남음 = **실거래 e2e 검증**(발급→전달→바이어서명→증거메일). [board-esignature-request]
 - **차감액 외화 입력**: `sale_discount_amount` 는 **KRW 절대금액 고정**(통화 컬럼 없음 — 마이그 `2026_07_06_133348` 단독). 바이어 통화로 차감액을 넣는 건 미착수. Model A 후속 ③. [board-flow-model-a-deployed]
 - **board 앱 챗봇 통합**: 로컬 LLM 업무 Q&A 가 **car-erp 앱 `assistant` 로만 실통합·배포**됨. 색인은 이미 물리분리(board 몫 = `index-board.json`)돼 있으나 **board 쪽 소비자 코드는 아직 없음**. 별건으로 실도입용 사무실 GPU 박스 상시가동 대기. [local-llm-chatbot-poc]
+- **원부조회(압류/저당/구조) board 확장**: 🅿️ **보류**(2026-07-26 Jin). ⛔ **board 사용자 개인 carmodoo 계정을 ERP 경유 우리 고정 IP 로 프록시하는 구현 금지** — "여러 계정이 한 IP" = 조합 IP제한 시스템의 계정도용/봇 패턴 → 그 IP 차단 시 **3사 ERP 원부조회 동반 사망**. 재개 시 방향은 (A) 우리 단일계정·우리 IP 로만, 또는 (B) 사용자가 자기 앱·자기 IP 로 조회하고 board 엔 결과만 담기 — **설계·인계는 car-erp 세션**. 상세 = `meetings/handoff-from-carerp-2026-07-26.md`.
 - (저우선) TimeGate **관리자 전역 해제 UI**(현재 등록잠금만; 편집은 이미 우회) · 퇴사자 계정 양쪽 동시정지 절차 **문서화**.
