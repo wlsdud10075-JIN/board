@@ -165,6 +165,7 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
 - **알림톡 2종**(지역검차·전달대기, Bizm): 코드 **운영 배포 완료**(master `77738a3`, 2026-07-13, 두 박스). 현재 enabled off 라 실발송 0 — 켜는 순간 가동.
   - **2026-07-27 BizM 1차 반려**("수신 대상 불명확") → **개정 문구 dev 반영 완료**(`AlimtalkTemplates.php` + `docs/operations/alimtalk-templates-draft.md`). 개정점 = `[사내 업무용]` 접두 · "회원님"→"담당자님" · `ssancar.com`/`board`→"사내 업무 시스템(board)". 템플릿코드·명·프로필·카테고리·변수는 불변(재검수라 기존과 매칭돼야 함).
   - 남음 = ① **Jin**: BizM 재검수 요청(+검수팀 회신문) → ② **승인 나면 master 머지·배포**(Jin 지시 2026-07-27 — 승인이 배포 트리거) → ③ tmplId 2개 입력 + enabled on + 스케줄시각.
+  - ⚠️ **재검수 대상 = 2프로필 × 2템플릿 = 4건**. 코드 `body` 는 하나인데 발신프로필은 heymanboard/ssancarboard 각각 별도 등록이다(`upload_board_헤이맨.xlsx` A열 교체본). **heyman 것만 재승인하면** master 머지가 두 박스에 동시배포되므로 ssancarboard 는 옛 승인문구 ↔ 새 코드 불일치 → enabled on 하는 순간 발송 실패. 설정(tmplId·enabled)도 **인스턴스별로 각각**.
   - ⚠️ 승인 문구가 위 개정본과 **한 글자라도 다르게** 확정되면 코드 `body` 를 그 확정본으로 먼저 맞춘 뒤 배포(불일치 = 발송 실패). [board-alimtalk-region-inspection]
 - **판매계약서 전자서명 요청**: board **운영 배포 완료**(master `f807ed7`, 2026-07-11) + car-erp §10/§10-2 엔드포인트도 배포됨. 남음 = **실거래 e2e 검증**(발급→전달→바이어서명→증거메일). [board-esignature-request]
 - **차감액 외화 입력**: `sale_discount_amount` 는 **KRW 절대금액 고정**(통화 컬럼 없음 — 마이그 `2026_07_06_133348` 단독). 바이어 통화로 차감액을 넣는 건 미착수. Model A 후속 ③. [board-flow-model-a-deployed]
