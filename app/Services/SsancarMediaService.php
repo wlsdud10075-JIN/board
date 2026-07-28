@@ -65,7 +65,8 @@ class SsancarMediaService
      */
     public function pollDecision(PurchaseListing $l): array
     {
-        $src = $this->fetchByVehicle($l->vin, $l->vehicle_number)['sources'] ?? [];
+        // 폴러 전용 타임아웃 — 바이어페이지(4초)와 분리. 짧으면 지연 시 조용히 전이 실패한다.
+        $src = $this->fetchByVehicle($l->vin, $l->vehicle_number, (int) config('board.ssancar_poll_timeout', 15))['sources'] ?? [];
         $inspVideos = count($src['inspected']['videos'] ?? []);
         $inspPhotos = count($src['inspected']['photos'] ?? []);
         $stockPhotos = count($src['stock']['photos'] ?? []);
@@ -91,7 +92,7 @@ class SsancarMediaService
      * (B) vin/번호판 교차매칭 — ssancar id 없는 차(엔카 등) 폴백.
      * 둘 다 전송(ssancar OR 매칭) — 검차 entry 는 vin 이 비어 번호판으로만 잡히는 경우가 있어 양쪽 다 넘김.
      */
-    public function fetchByVehicle(?string $vin, ?string $carNo): array
+    public function fetchByVehicle(?string $vin, ?string $carNo, ?int $timeout = null): array
     {
         $vin = trim((string) $vin);
         $carNo = trim((string) $carNo);
@@ -106,11 +107,11 @@ class SsancarMediaService
             return self::EMPTY;
         }
 
-        return $this->request('b:'.md5($vin.'|'.$carNo), $query);
+        return $this->request('b:'.md5($vin.'|'.$carNo), $query, $timeout);
     }
 
     /** @return array{videos: list<array<string,?string>>, photos: list<string>} */
-    private function request(string $cacheSuffix, array $query): array
+    private function request(string $cacheSuffix, array $query, ?int $timeout = null): array
     {
         $base = (string) config('services.ssancar_media.base_url');
         $key = (string) config('services.ssancar_media.api_key');
@@ -125,7 +126,7 @@ class SsancarMediaService
 
         try {
             $res = Http::withHeaders(['X-Api-Key' => $key])
-                ->timeout(4)   // 공개 바이어페이지 — ssancar 지연 시 미디어 없이 빠른 렌더 우선
+                ->timeout($timeout ?? 4)   // 기본 4초 = 공개 바이어페이지(지연 시 미디어 없이 빠른 렌더 우선). 폴러는 넉넉히(pollDecision)
                 ->get($base, $query);
         } catch (\Throwable) {
             return self::EMPTY;   // 일시장애는 캐시 안 함(다음 조회에서 재시도)

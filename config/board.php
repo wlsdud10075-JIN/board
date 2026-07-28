@@ -56,6 +56,12 @@ return [
     // 폴링 제외(죽은 draft=엔카 등 무한폴링 방지). 단 한 번이라도 미디어 받으면(연결됨) 이후 계속 폴링.
     'ssancar_poll_max_age_days' => (int) env('BOARD_SSANCAR_POLL_MAX_AGE_DAYS', 3),
 
+    // ssancar 미디어 조회 타임아웃(초) — **폴러 전용**(바이어페이지는 4초 고정, 가용성 우선).
+    // ssancar 박스가 2코어라 크롤러·배치와 겹치면 순간 지연(교차매칭 4.8초 실측, 평시 0.2초대).
+    // 4초로는 타임아웃 → 빈 배열 → advance=false → **조용히 전이 실패**. 폴러는 백그라운드라
+    // 기다리는 사용자가 없으므로 넉넉히 잡는다(ssancar 권고 15초).
+    'ssancar_poll_timeout' => (int) env('BOARD_SSANCAR_POLL_TIMEOUT', 15),
+
     // 업무 가이드(Notion 등 외부) — 사이드바 하단 링크. 비우면 미노출.
     'work_guide_url' => env('BOARD_WORK_GUIDE_URL', 'https://dashing-stick-008.notion.site/37345d82bd838108a418c76a210f1854'),
 
