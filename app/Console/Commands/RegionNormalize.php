@@ -32,6 +32,7 @@ class RegionNormalize extends Command
         $apply = (bool) $this->option('apply');
         $changed = 0;
         $ambiguous = [];
+        $alreadyNotified = 0;
 
         foreach (self::TABLES as $table) {
             $rows = DB::table($table)
@@ -55,6 +56,13 @@ class RegionNormalize extends Command
                 $this->line(sprintf('  %-22s %s → %s (%d건)', $table, $from, $to, $row->cnt));
                 $changed += $row->cnt;
 
+                // 지역 검차 알림톡은 차량당 1회(region_notified_at) — 지역명이 틀린 채 stamp 된 차량은
+                // 정규화해도 재발송되지 않는다. 몇 건인지 알려야 Jin 이 stamp 해제 여부를 정할 수 있다.
+                if ($table === 'purchase_listings') {
+                    $alreadyNotified += DB::table($table)
+                        ->where('region', $from)->whereNotNull('region_notified_at')->count();
+                }
+
                 if ($apply) {
                     DB::table($table)->where('region', $from)->update(['region' => $to]);
                 }
@@ -67,6 +75,12 @@ class RegionNormalize extends Command
             foreach ($ambiguous as $line) {
                 $this->line('  '.$line);
             }
+        }
+
+        if ($alreadyNotified) {
+            $this->newLine();
+            $this->warn("이 중 {$alreadyNotified}건은 이미 지역 검차 알림톡이 발송된 것으로 기록돼 있어(region_notified_at) "
+                .'지역명을 고쳐도 다시 발송되지 않습니다. 재발송이 필요하면 해당 차량의 stamp 를 지워야 합니다.');
         }
 
         $this->newLine();
