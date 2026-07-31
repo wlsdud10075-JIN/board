@@ -410,8 +410,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 </select>
 
                 <label class="label-base mt-3">{{ __('manage.region') }}</label>
-                <input class="input-base" wire:model="region" list="regionListManage" placeholder="{{ __('manage.region_placeholder') }}">
-                <datalist id="regionListManage">@foreach (config('board.regions') as $r)<option value="{{ $r }}">@endforeach</datalist>
+                <x-region-input model="region" :placeholder="__('manage.region_placeholder')" />
                 @error('region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 <div class="mt-3 grid grid-cols-3 gap-2">

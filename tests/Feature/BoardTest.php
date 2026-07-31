@@ -21,6 +21,7 @@ use App\Services\RegionInspectionNotifier;
 use App\Services\RespondIoService;
 use App\Services\VerdictService;
 use App\Support\ListingLink;
+use App\Support\Region;
 use App\Support\TimeGate;
 use App\Support\UploadGuard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -28,6 +29,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -2546,15 +2548,16 @@ class BoardTest extends TestCase
 
         $this->assertSame('12가3456', $r['vehicle_number']);
         $this->assertSame(6500000, $r['prices']['KRW']);   // 650만 ×10000, encar=원화
-        $this->assertSame('대구', $r['region']);
+        $this->assertSame('대구광역시', $r['region']);
         $this->assertSame('VINX', $r['vin']);
     }
 
     public function test_enrichment_city_parser(): void
     {
+        // 크롤링 주소도 users.region 과 같은 정식 라벨로 나와야 조인된다(축약형 금지 — Region 참조).
         $s = new ListingEnrichment;
-        $this->assertSame('대구', $s->city('대구 서구 문화로 37'));     // 광역시
-        $this->assertSame('안산', $s->city('경기 안산시 단원구 원포공원1로 16'));   // 도+시
+        $this->assertSame('대구광역시', $s->city('대구 서구 문화로 37'));     // 광역시
+        $this->assertSame('경기 안산시', $s->city('경기 안산시 단원구 원포공원1로 16'));   // 도+시
         $this->assertNull($s->city(''));
     }
 
@@ -2685,7 +2688,7 @@ class BoardTest extends TestCase
             ->assertSet('expected_price', '66660000')   // 6666만 ×10000
             ->assertSet('expected_price_currency', 'KRW')
             ->assertSet('car_cost', '66660000')         // 크롤링 KRW → 차값 자동매핑(금액산정 입력)
-            ->assertSet('region', '안산')
+            ->assertSet('region', '경기 안산시')
             ->assertSet('vin', 'WMW21GA04S7R38829');
     }
 
@@ -2788,7 +2791,7 @@ class BoardTest extends TestCase
 
         $this->assertSame('55오5555', $r['vehicle_number']);   // 검차매물 = encar 우회로 KRW·지역 확보
         $this->assertSame(7000000, $r['prices']['KRW']);
-        $this->assertSame('서울', $r['region']);
+        $this->assertSame('서울특별시', $r['region']);
         $this->assertSame('999', $r['encar_id']);              // 원본 엔카 id 반환 → '이력 조회'에 사용
     }
 
@@ -3635,7 +3638,8 @@ class BoardTest extends TestCase
             ->set('name', '검차원')->set('email', 'r@board.test')->set('role', 'inspection')
             ->set('region', '경기 화성')->set('password', 'password')
             ->call('save')->assertHasNoErrors();
-        $this->assertSame('경기 화성', User::where('email', 'r@board.test')->value('region'));
+        // 입력이 "경기 화성" 이어도 정식 라벨로 저장 — listings.region 과 표기가 같아야 조인된다.
+        $this->assertSame('경기 화성시', User::where('email', 'r@board.test')->value('region'));
 
         Volt::test('users.index')->call('openCreate')
             ->set('name', '영업')->set('email', 's@board.test')->set('role', 'sales')
@@ -3746,5 +3750,112 @@ class BoardTest extends TestCase
 
         // 영어 chrome 실제 적용 확인(샘플)
         $this->get('/manage')->assertSee('Feature Settings', false)->assertSee('Audit Log', false);
+    }
+
+    // ─────────────────────── 지역명 정합성 ───────────────────────
+
+    /** 크롤링 축약형·표기 변형이 전부 정식 라벨 하나로 모여야 세 테이블이 조인된다. */
+    public function test_region_canonicalizes_variants(): void
+    {
+        $this->assertSame('경기 안산시', Region::canonical('안산'));            // 축약형 복원
+        $this->assertSame('경기 안산시', Region::canonical('경기 안산시 단원구'));  // 주소 → 시 단위
+        $this->assertSame('경남 창원시', Region::canonical('경상남도 창원시'));   // 도 정식표기
+        $this->assertSame('서울특별시', Region::canonical('서울'));
+        $this->assertNull(Region::canonical('  '));
+    }
+
+    /** ⚠️ 축약형으로 통일하면 안 되는 이유 — 광주광역시와 경기 광주시가 같은 키로 뭉개진다. */
+    public function test_region_keeps_distinct_gwangju(): void
+    {
+        $this->assertSame('광주광역시', Region::canonical('광주광역시'));
+        $this->assertSame('경기 광주시', Region::canonical('경기 광주시'));
+        $this->assertTrue(Region::isAmbiguous('광주'));    // 도 없는 "광주" 는 사람이 정해야
+        $this->assertTrue(Region::isAmbiguous('고성'));    // 강원·경남 둘 다 존재
+        $this->assertSame('고성', Region::canonical('고성'));   // 추측하지 않고 원본 유지
+    }
+
+    /** 정식 목록은 그대로여야 한다(멱등) — 백필을 여러 번 돌려도 안전. */
+    public function test_region_canonical_is_idempotent(): void
+    {
+        foreach (config('board.regions') as $label) {
+            $this->assertSame($label, Region::canonical($label));
+        }
+    }
+
+    /** 입력 화면이 5곳이라 모델에서 정규화한다 — 어느 경로로 들어와도 같은 표기. */
+    public function test_models_normalize_region_on_save(): void
+    {
+        $sales = $this->mkUser('sales');
+
+        $listing = $this->mkListing($sales, ['region' => '안산']);
+        $this->assertSame('경기 안산시', $listing->fresh()->region);
+
+        $inspector = $this->mkUser('inspection');
+        $inspector->update(['region' => '안산시']);
+        $this->assertSame('경기 안산시', $inspector->fresh()->region);
+
+        $a = InspectionAssignment::create(['date' => now()->toDateString(), 'region' => '안산', 'user_id' => $inspector->id]);
+        $this->assertSame('경기 안산시', $a->fresh()->region);
+    }
+
+    /** 사용자관리에 지역만 넣으면 그날 배정 없이도 검차 화면에 그 지역 차량이 뜬다. */
+    public function test_inspector_sees_region_from_user_roster_without_assignment(): void
+    {
+        $sales = $this->mkUser('sales');
+        $this->mkListing($sales, ['status' => 'draft', 'region' => '경기 수원시']);
+
+        $inspector = $this->mkUser('inspection');
+        $inspector->update(['region' => '경기 수원시']);
+
+        $this->actingAs($inspector->fresh());
+        Volt::test('inspection.index')->assertSee('경기 수원시');
+    }
+
+    /** 그날 배정이 있으면 그것만(덮어쓰기) — 파견 나간 날 원래 지역이 겹쳐 뜨면 업무량이 두 배가 된다. */
+    public function test_per_date_assignment_overrides_user_roster(): void
+    {
+        $sales = $this->mkUser('sales');
+        $this->mkListing($sales, ['status' => 'draft', 'region' => '경기 수원시']);
+        $this->mkListing($sales, ['status' => 'draft', 'region' => '부산광역시', 'vehicle_number' => '99가1234']);
+
+        $inspector = $this->mkUser('inspection');
+        $inspector->update(['region' => '경기 수원시']);
+        InspectionAssignment::create([
+            'date' => now()->toDateString(), 'region' => '부산광역시', 'user_id' => $inspector->id,
+        ]);
+
+        $this->actingAs($inspector->fresh());
+        Volt::test('inspection.index')
+            ->assertSee('부산광역시')
+            ->assertDontSee('경기 수원시');
+    }
+
+    /** 지역 입력은 datalist(모바일에서 안 뜬다) 대신 Alpine 자동완성이어야 한다 — 되돌아가는 것 방지. */
+    public function test_region_inputs_use_mobile_autocomplete(): void
+    {
+        $this->actingAs($this->mkUser('manager', null, 'super'));
+
+        foreach (['/listings', '/inspection', '/manage', '/users'] as $url) {
+            $this->assertStringNotContainsString('<datalist', $this->get($url)->assertOk()->getContent(), $url);
+        }
+
+        // 자동완성이 Livewire 프로퍼티와 양방향으로 묶여야 한다(링크 자동채움 같은 서버 변경도 반영).
+        // 후보는 @js 가 유니코드 이스케이프하므로 평문 대신 이스케이프 형태로 확인.
+        // 자동완성이 Livewire 프로퍼티와 양방향으로 묶여야 한다 — 끊기면 서버가 채운 값(링크 자동채움)이 인풋에 안 뜬다.
+        $this->assertStringContainsString('$wire.entangle', Volt::test('listings.index')->set('showAdd', true)->html());
+    }
+
+    /** 백필은 기본이 dry-run — 실수로 데이터가 바뀌면 안 된다. --apply 에서만 반영. */
+    public function test_region_normalize_command_dry_run_then_apply(): void
+    {
+        $sales = $this->mkUser('sales');
+        $listing = $this->mkListing($sales, ['region' => '경기 수원시']);
+        DB::table('purchase_listings')->where('id', $listing->id)->update(['region' => '수원']);   // 모델 우회 = 과거 데이터 재현
+
+        $this->artisan('board:region-normalize')->assertSuccessful();
+        $this->assertSame('수원', DB::table('purchase_listings')->where('id', $listing->id)->value('region'));
+
+        $this->artisan('board:region-normalize', ['--apply' => true])->assertSuccessful();
+        $this->assertSame('경기 수원시', DB::table('purchase_listings')->where('id', $listing->id)->value('region'));
     }
 }

@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\NormalizesRegion;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class InspectionAssignment extends Model
 {
+    use NormalizesRegion;
+
     /** 지역×날짜에 배정 가능한 최대 인원 (§6c). */
     public const MAX_PER_REGION = 3;
 

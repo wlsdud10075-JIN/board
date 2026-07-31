@@ -240,8 +240,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 {{-- 검차원만 담당 지역(고정 로스터) — 지역 검차 알림톡 수신 기준 --}}
                 @if ($role === 'inspection')
                     <label class="label-base mt-3">{{ __('users.label_region') }} <span class="text-xs font-normal text-gray-400">{{ __('users.region_hint') }}</span></label>
-                    <input class="input-base" wire:model="region" list="userRegionList" placeholder="{{ __('users.ph_region') }}">
-                    <datalist id="userRegionList">@foreach (config('board.regions') as $r)<option value="{{ $r }}">@endforeach</datalist>
+                    <x-region-input model="region" :placeholder="__('users.ph_region')" />
                     @error('region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 @endif
 

@@ -32,6 +32,7 @@ return [
     'col_people' => '배정 인원',
     'col_cars' => '차량 수',
     'unassigned' => '미배정',
+    'standby_label' => '상시',   // 그날 배정 대신 사용자관리 담당지역(users.region)으로 커버되는 검차원
     'cars_count' => ':count건',
 
     // 지역별 차량 목록

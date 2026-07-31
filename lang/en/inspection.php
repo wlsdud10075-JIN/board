@@ -32,6 +32,7 @@ return [
     'col_people' => 'Assigned people',
     'col_cars' => 'Vehicles',
     'unassigned' => 'Unassigned',
+    'standby_label' => 'standing',   // Covered by users.region roster instead of a per-date assignment
     'cars_count' => ':count',
 
     // Region vehicle list
