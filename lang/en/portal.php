@@ -46,6 +46,8 @@ return [
     'flash_select_vehicle_docs' => 'Select the vehicle(s) to get documents for.',
     'flash_docs_failed' => 'Could not load documents. (Check the car-erp integration)',
     'flash_docs_sales_contract_failed' => 'Could not issue the sales contract. Only vehicles with the same buyer and single currency can be issued together. (Check bundle composition / integration)',
+    // car-erp 403 = this document type is not opened to board yet (BOARD_ALLOWED_TYPES). Not a bundle problem.
+    'flash_docs_not_allowed' => 'This document cannot be downloaded from board yet — car-erp must allow this type first. (Not a bundle composition issue)',
     'flash_sign_failed' => 'Could not issue the e-signature session. Please try again shortly. (Check the car-erp integration)',
 
     // §10 E-signature request (ERP issues → board only relays the signing URL)

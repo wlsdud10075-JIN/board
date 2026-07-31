@@ -531,10 +531,14 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $res = $this->svc()->document($type, $ids, $this->salesmanEmail());
         if (! ($res['ok'] ?? false)) {
-            // sales_contract 는 동일 바이어·단일 통화 차량만 함께 발급 가능 → car-erp 거부(대개 이 조건)면 그 안내로.
-            $this->shipNote = $type === 'sales_contract'
-                ? __('portal.flash_docs_sales_contract_failed')
-                : __('portal.flash_docs_failed');
+            // 실패 이유를 car-erp 응답 코드 그대로 구분한다(§10 서명요청과 같은 방식).
+            // ⚠️ 예전엔 sales_contract 실패를 전부 "동일 바이어" 로 안내했는데, 실제로는 403(car-erp
+            //    BOARD_ALLOWED_TYPES 미등록)이 오고 있어 원인을 잘못 짚게 만들었다.
+            $this->shipNote = match ((int) ($res['status'] ?? 0)) {
+                403 => __('portal.flash_docs_not_allowed'),
+                422 => __('portal.flash_docs_sales_contract_failed'),
+                default => __('portal.flash_docs_failed'),
+            };
 
             return null;
         }

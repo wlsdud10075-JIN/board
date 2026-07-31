@@ -46,6 +46,8 @@ return [
     'flash_select_vehicle_docs' => '서류 받을 차량을 선택하세요.',
     'flash_docs_failed' => '서류를 불러올 수 없습니다. (car-erp 연동 확인)',
     'flash_docs_sales_contract_failed' => '판매계약서를 발급할 수 없습니다. 동일 바이어·단일 통화 차량만 함께 발급됩니다. (묶음 구성/연동 확인)',
+    // car-erp 가 403 = 그 서류 타입을 board 에 아직 열어주지 않음(BOARD_ALLOWED_TYPES). 묶음 구성 문제가 아니다.
+    'flash_docs_not_allowed' => '이 서류는 아직 board 에서 내려받을 수 없습니다. car-erp 쪽에서 허용해야 하는 항목입니다. (묶음 구성 문제 아님)',
     'flash_sign_failed' => '전자서명 세션을 발급할 수 없습니다. 잠시 후 다시 시도하세요. (car-erp 연동 확인)',
 
     // §10 전자서명 요청 (ERP 발급 → board 는 서명 URL 전달만)
