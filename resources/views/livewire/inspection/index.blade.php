@@ -60,7 +60,14 @@ new #[Layout('components.layouts.app')] class extends Component {
             ->groupBy('region');
     }
 
-    /** 현지확인 대상 차량을 지역별로 그룹. 담당자(비관리)는 본인 오늘 배정 지역만. */
+    /**
+     * 현지확인 대상 차량을 지역별로 그룹. 담당자(비관리)는 본인 담당 지역만.
+     *
+     * 담당 지역 = **그날 배정(InspectionAssignment) 있으면 그것만(덮어쓰기), 없으면 사용자관리에
+     * 등록된 상시 담당지역(users.region)**. 알림톡 수신자 규칙(RegionInspectionNotifier::recipientsFor)과
+     * 같은 규칙이어야 "알림톡 받은 사람 = 화면에 보이는 사람" 이 성립한다.
+     * 덮어쓰기인 이유: 임시로 다른 지역에 파견된 날 원래 지역까지 겹쳐 뜨면 업무량이 두 배가 된다.
+     */
     #[Computed]
     public function regionGroups()
     {
@@ -73,10 +80,20 @@ new #[Layout('components.layouts.app')] class extends Component {
             $myRegions = InspectionAssignment::where('date', $this->assignDate)
                 ->where('user_id', Auth::id())
                 ->pluck('region')->all();
+            if ($myRegions === []) {
+                $myRegions = array_filter([Auth::user()->region]);
+            }
             $listings = $listings->filter(fn ($l) => in_array($l->region, $myRegions, true));
         }
 
         return $listings->groupBy(fn ($l) => $l->region ?: __('inspection.region_unset'));
+    }
+
+    /** 상시 담당(users.region) — 지역별 검차원. 그날 배정이 없는 지역을 이들이 커버한다. */
+    #[Computed]
+    public function rosterByRegion()
+    {
+        return $this->inspectors->filter(fn (User $u) => filled($u->region))->groupBy('region');
     }
 
     /** 배정 대상 지역 후보 = 현재 검차대기 차량이 있는 지역(미지정 제외). */
@@ -102,20 +119,31 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
     }
 
-    /** 관리용 배정 현황 요약: 지역별 [배정인원 · 차량수] (정렬 가능). */
+    /**
+     * 관리용 배정 현황 요약: 지역별 [담당인원 · 차량수] (정렬 가능).
+     * people = 그날 배정 / standby = 상시 담당(그날 배정이 없어 이들이 커버하는 경우만).
+     * 둘을 합쳐 세야 "커버되는 지역인가"를 표가 사실대로 말한다.
+     */
     #[Computed]
     public function assignmentSummary()
     {
         $cars = $this->regionGroups;            // 관리/super = 전체 지역
         $assign = $this->assignmentsByRegion;
-        $regions = $cars->keys()->merge($assign->keys())->unique()->values();
+        $roster = $this->rosterByRegion;
+        $regions = $cars->keys()->merge($assign->keys())->merge($roster->keys())->unique()->values();
 
-        $rows = $regions->map(fn ($r) => [
-            'region' => $r,
-            'cars' => $cars->get($r)?->count() ?? 0,
-            'people' => $assign->get($r)?->pluck('user.name')->all() ?? [],
-            'peopleCount' => $assign->get($r)?->count() ?? 0,
-        ]);
+        $rows = $regions->map(function ($r) use ($cars, $assign, $roster) {
+            $people = $assign->get($r)?->pluck('user.name')->all() ?? [];
+            $standby = $people === [] ? ($roster->get($r)?->pluck('name')->all() ?? []) : [];
+
+            return [
+                'region' => $r,
+                'cars' => $cars->get($r)?->count() ?? 0,
+                'people' => $people,
+                'standby' => $standby,
+                'peopleCount' => count($people) + count($standby),
+            ];
+        });
 
         return $rows->sortBy(
             fn ($x) => $this->sortBy === 'cars' ? $x['cars'] : ($this->sortBy === 'people' ? $x['peopleCount'] : $x['region']),
@@ -380,7 +408,12 @@ new #[Layout('components.layouts.app')] class extends Component {
                                         @forelse ($row['people'] as $name)
                                             <span class="badge badge-blue">🧑‍🔧 {{ $name }}</span>
                                         @empty
-                                            <span class="text-xs text-amber-600">{{ __('inspection.unassigned') }}</span>
+                                            {{-- 그날 배정이 없으면 상시 담당(users.region)이 커버 --}}
+                                            @forelse ($row['standby'] as $name)
+                                                <span class="badge bg-gray-100 text-gray-600">🧑‍🔧 {{ $name }} <span class="text-[10px] text-gray-400">{{ __('inspection.standby_label') }}</span></span>
+                                            @empty
+                                                <span class="text-xs text-amber-600">{{ __('inspection.unassigned') }}</span>
+                                            @endforelse
                                         @endforelse
                                     </td>
                                     <td class="{{ $row['cars'] ? 'font-semibold text-gray-700' : 'text-gray-300' }}">{{ __('inspection.cars_count', ['count' => $row['cars']]) }}</td>
@@ -395,7 +428,11 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     {{-- ─────────── 지역별 차량 ─────────── --}}
     @forelse ($this->regionGroups as $region => $items)
-        @php $assigned = $this->assignmentsByRegion->get($region, collect()); @endphp
+        @php
+            $assigned = $this->assignmentsByRegion->get($region, collect());
+            // 그날 배정이 없는 지역은 상시 담당(users.region)이 커버 — 배정과 같은 덮어쓰기 규칙.
+            $standby = $assigned->isEmpty() ? $this->rosterByRegion->get($region, collect()) : collect();
+        @endphp
         <div class="card mb-3" x-data="{ open: false }">
             <div class="flex flex-wrap items-center gap-2">
                 <button type="button" class="flex items-center gap-2" @click="open = !open">
@@ -410,7 +447,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                             @if ($this->canAssign())<button wire:click="unassign({{ $a->id }})" class="text-blue-400 hover:text-blue-700">✕</button>@endif
                         </span>
                     @empty
-                        <span class="text-xs text-gray-400">{{ $this->canAssign() ? __('inspection.no_assignment_label') : '' }}</span>
+                        @forelse ($standby as $u)
+                            <span class="badge bg-gray-100 text-gray-600">🧑‍🔧 {{ $u->name }} <span class="text-[10px] text-gray-400">{{ __('inspection.standby_label') }}</span></span>
+                        @empty
+                            <span class="text-xs text-gray-400">{{ $this->canAssign() ? __('inspection.no_assignment_label') : '' }}</span>
+                        @endforelse
                     @endforelse
                 </span>
             </div>
@@ -519,10 +560,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 {{-- 검사지역 --}}
                 <div class="section-title-sm">{{ __('inspection.inspection_region_section') }}</div>
-                <input class="input-base" wire:model="region" list="regionList" placeholder="{{ __('inspection.region_placeholder') }}">
-                <datalist id="regionList">
-                    @foreach (config('board.regions') as $r)<option value="{{ $r }}">@endforeach
-                </datalist>
+                <x-region-input model="region" :placeholder="__('inspection.region_placeholder')" />
                 @error('region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 {{-- 메모 --}}

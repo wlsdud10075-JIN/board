@@ -808,7 +808,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     </div>
                     <div>
                         <label class="label-base">{{ __('listings.add_form.region') }}</label>
-                        <input class="input-base" wire:model="region" list="regionList" placeholder="{{ __('listings.add_form.region_ph') }}">
+                        <x-region-input model="region" :placeholder="__('listings.add_form.region_ph')" />
                         @error('region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                     <div>
@@ -817,9 +817,6 @@ new #[Layout('components.layouts.app')] class extends Component {
                         @error('c_no') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                 </div>
-                <datalist id="regionList">
-                    @foreach (config('board.regions') as $r)<option value="{{ $r }}">@endforeach
-                </datalist>
 
                 {{-- 경매 전용 식별 정보 --}}
                 @if ($source === 'auction')
@@ -918,10 +915,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <div class="card-sm mb-3 border-blue-100 bg-blue-50/50 text-[11px] text-gray-500">{{ __('listings.drawer.money_moved') }}</div>
 
                 <label class="label-base mt-3">{{ __('listings.add_form.region') }}</label>
-                <input class="input-base" wire:model="e_region" list="regionListEdit" placeholder="{{ __('listings.add_form.region_ph') }}" @unless ($canEdit) disabled @endunless>
-                <datalist id="regionListEdit">
-                    @foreach (config('board.regions') as $r)<option value="{{ $r }}">@endforeach
-                </datalist>
+                <x-region-input model="e_region" :placeholder="__('listings.add_form.region_ph')" :disabled="! $canEdit" />
                 @error('e_region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 <label class="label-base mt-3">{{ __('listings.add_form.owner') }} <span class="text-gray-400">{{ __('listings.add_form.owner_hint') }}</span></label>

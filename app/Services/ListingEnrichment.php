@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\Region;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -149,20 +150,15 @@ class ListingEnrichment
         return $out;
     }
 
-    /** 주소 → 시 단위. "대구 서구 …" → 대구 / "경기 안산시 …" → 안산. */
+    /**
+     * 주소 → 검사지역 정식 라벨. "대구 서구 …" → 대구광역시 / "경기 안산시 …" → 경기 안산시.
+     *
+     * ⚠️ 예전엔 접미사를 잘라 "안산"·"대구" 를 만들었는데, 그러면 users.region(정식형)과 조인이 안 되고
+     *    광주광역시·경기 광주시가 같은 "광주" 로 뭉개졌다. 정합성 기준 = App\Support\Region.
+     */
     public function city(?string $addr): ?string
     {
-        $addr = trim((string) $addr);
-        if ($addr === '') {
-            return null;
-        }
-        $parts = preg_split('/\s+/', $addr);
-        $provinces = ['경기', '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주', '세종', '충청북도', '충청남도', '전라북도', '전라남도', '경상북도', '경상남도'];
-        if (in_array($parts[0], $provinces, true) && isset($parts[1])) {
-            return preg_replace('/(시|군|구)$/u', '', $parts[1]);   // 안산시 → 안산
-        }
-
-        return preg_replace('/(특별자치시|특별자치도|특별시|광역시|시)$/u', '', $parts[0]);   // 대구광역시 → 대구
+        return Region::canonical($addr);
     }
 
     /**

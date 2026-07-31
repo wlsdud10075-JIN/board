@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Jobs\SyncWonListingToCarErp;
+use App\Models\Concerns\NormalizesRegion;
 use App\Models\Scopes\SalesmanScope;
 use App\Services\BoardAudit;
 use App\Support\Money;
@@ -16,7 +17,7 @@ use Illuminate\Support\Facades\Auth;
 #[ScopedBy([SalesmanScope::class])]
 class PurchaseListing extends Model
 {
-    use SoftDeletes;
+    use NormalizesRegion, SoftDeletes;
 
     protected $fillable = [
         'created_by_user_id', 'source', 'origin', 'region', 'c_no', 'ssancar_ref',
