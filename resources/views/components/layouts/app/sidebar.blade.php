@@ -95,7 +95,16 @@
         mobileOpen: false,
         isMobile: window.innerWidth < 768,
         openedAt: 0,
+        lastToggle: 0,
+        // 햄버거 한 번 탭에 이 핸들러가 두 번 실행되면 "열렸다가 즉시 접힘"으로 보인다.
+        // wire:navigate 로 화면을 오가다 보면 핸들러가 중복 실행되는 사례가 이 레이아웃에 있었다
+        // (전달대기 비프음 2회 울림·백드롭 ghost click 과 같은 계열). 새로고침하면 멀쩡한 것도 그 특징.
+        // 사람이 300ms 안에 두 번 토글할 일은 없으므로 그 구간의 두 번째 호출은 버린다.
         toggle() {
+            const now = Date.now();
+            if (now - this.lastToggle < 300) { return; }
+            this.lastToggle = now;
+
             if (this.isMobile) {
                 this.mobileOpen = !this.mobileOpen;
                 if (this.mobileOpen) { this.openedAt = Date.now(); }
