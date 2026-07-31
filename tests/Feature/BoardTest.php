@@ -3830,6 +3830,22 @@ class BoardTest extends TestCase
             ->assertDontSee('경기 수원시');
     }
 
+    /**
+     * 사이드바 x-data 가 끝까지 온전히 렌더되는지 — 큰따옴표 HTML 속성이라 안에 " 가 하나라도 들어가면
+     * 속성이 거기서 끊기고 Alpine 이 통째로 죽는다(사이드바가 아예 안 열림). 실제로 한 번 깨뜨렸다.
+     */
+    public function test_sidebar_alpine_data_attribute_is_not_truncated(): void
+    {
+        $this->actingAs($this->mkUser('manager'));
+        $html = $this->get('/listings')->assertOk()->getContent();
+
+        preg_match_all('/x-data="([^"]*)"/', $html, $m);
+        $this->assertNotEmpty(
+            array_filter($m[1], fn ($d) => str_contains($d, 'toggle()') && str_contains($d, 'closeMobile()')),
+            'x-data 가 중간에 잘렸다 — 안에 큰따옴표가 있는지 확인',
+        );
+    }
+
     /** 지역 입력은 datalist(모바일에서 안 뜬다) 대신 Alpine 자동완성이어야 한다 — 되돌아가는 것 방지. */
     public function test_region_inputs_use_mobile_autocomplete(): void
     {
