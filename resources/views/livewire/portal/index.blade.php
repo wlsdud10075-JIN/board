@@ -868,9 +868,12 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 $signContractNo = $signStatus[$signKey]['contract_no'] ?? null;
                             @endphp
                             <div class="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
+                                {{-- 버튼 이름은 car-erp 차량화면(vehicle.shipdoc.*)과 **같은 이름**을 쓴다.
+                                     board 에서 새로 짓지 말 것 — 이름이 갈리면 "ERP엔 그런 서류 없다" 가 된다. --}}
+                                @php $docMethod = strtolower($method ?: 'RORO') === 'container' ? 'container' : 'roro'; @endphp
                                 <span class="text-gray-400">{{ __('portal.docs_label', ['method' => $method ?: 'RORO']) }}</span>
-                                <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'contract')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_contract') }}</button>
-                                <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'invoice_packing')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_invoice_packing') }}</button>
+                                <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'contract')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_'.$docMethod.'_contract') }}</button>
+                                <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'invoice_packing')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_'.$docMethod.'_invoice_packing') }}</button>
                                 <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'sales_contract')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_sales_contract') }}</button>
                                 {{-- 프로포마 인보이스 — car-erp 타입명은 'invoice'(위 인보이스·패킹과 다른 서류). --}}
                                 <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'invoice')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_proforma_invoice') }}</button>

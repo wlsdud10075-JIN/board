@@ -2957,6 +2957,33 @@ class BoardTest extends TestCase
     }
 
     /**
+     * 서류 버튼 이름 = car-erp `vehicle.shipdoc.*` **그대로**(Jin 2026-08-01).
+     * board 에서 다시 지으면 "ERP엔 그런 서류 없다" 가 된다 — 실제로 '계약서' 라 불러서 그랬다.
+     * car-erp 가 라벨을 바꾸면 이 테스트가 먼저 깨져야 한다(양쪽 이름 갈림 감지).
+     */
+    public function test_portal_doc_labels_match_car_erp(): void
+    {
+        $expected = [
+            'docs_roro_contract' => 'RORO Contract',
+            'docs_container_contract' => '컨테이너 Contract',
+            'docs_roro_invoice_packing' => 'RORO Invoice&Packing',
+            'docs_container_invoice_packing' => '컨테이너 Invoice&Packing',
+            'docs_sales_contract' => '판매계약서',
+            'docs_proforma_invoice' => 'Proforma Invoice',
+        ];
+        app()->setLocale('ko');
+        foreach ($expected as $key => $label) {
+            $this->assertSame($label, __('portal.'.$key), $key);
+        }
+
+        // en 도 반드시 정의돼 있어야 한다(키 누락 시 raw 키가 그대로 노출된다).
+        app()->setLocale('en');
+        foreach (array_keys($expected) as $key) {
+            $this->assertNotSame('portal.'.$key, __('portal.'.$key), $key.' (en)');
+        }
+    }
+
+    /**
      * 판매계약서·프로포마 인보이스는 **리터럴 타입**이라 method 접두를 붙이면 안 된다.
      * 'roro_invoice' 로 나가면 car-erp 화이트리스트에 없는 이름이라 403 — 선적서류만 접두를 붙인다.
      * ⚠️ 프로포마 인보이스의 car-erp 타입명은 'invoice'(선적 'roro_invoice_packing' 과 다른 서류).
