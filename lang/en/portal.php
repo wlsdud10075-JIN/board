@@ -100,10 +100,14 @@ return [
     'consignee_select' => 'Select consignee',
     'ship_request_btn' => 'Shipping request',
     'docs_label' => 'Documents for selected vehicles (:method):',
-    'docs_contract' => 'Contract',
-    'docs_invoice_packing' => 'Invoice / Packing',
+    // ⚠️ Document names are copied verbatim from car-erp `vehicle.shipdoc.*` (Jin, 2026-08-01).
+    //    Do not invent or reword them here — divergent names make the doc look absent in ERP.
+    'docs_roro_contract' => 'RORO Contract',
+    'docs_container_contract' => 'Container Contract',
+    'docs_roro_invoice_packing' => 'RORO Invoice & Packing',
+    'docs_container_invoice_packing' => 'Container Invoice & Packing',
     'docs_sales_contract' => 'Sales Contract',
-    'docs_proforma_invoice' => 'Proforma Invoice',   // car-erp type 'invoice' — distinct from 'Invoice & Packing' (shipping doc)
+    'docs_proforma_invoice' => 'Proforma Invoice',   // car-erp type 'invoice' — distinct from shipping Invoice & Packing
     'ship_empty' => 'No shippable vehicles. (Only sold, export, not-yet-requested vehicles are shown)',
 
     // Shipping & B/L bundles v2

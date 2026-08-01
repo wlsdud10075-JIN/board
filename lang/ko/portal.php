@@ -100,10 +100,15 @@ return [
     'consignee_select' => '컨사이니 선택',
     'ship_request_btn' => '선적요청',
     'docs_label' => '선택 차량 서류(:method):',
-    'docs_contract' => '계약서',
-    'docs_invoice_packing' => '인보이스·패킹',
+    // ⚠️ 서류 이름은 **car-erp `vehicle.shipdoc.*` 그대로** 옮긴 것(2026-08-01 Jin 지시).
+    //    board 에서 새로 짓거나 다듬지 말 것 — 이름이 갈리면 "ERP엔 그런 서류 없다" 가 된다.
+    //    car-erp 가 라벨을 바꾸면 여기도 같이 바꾼다.
+    'docs_roro_contract' => 'RORO Contract',
+    'docs_container_contract' => '컨테이너 Contract',
+    'docs_roro_invoice_packing' => 'RORO Invoice&Packing',
+    'docs_container_invoice_packing' => '컨테이너 Invoice&Packing',
     'docs_sales_contract' => '판매계약서',
-    'docs_proforma_invoice' => '프로포마 인보이스',   // car-erp 타입 'invoice' — 위 '인보이스·패킹'(선적서류)과 다른 서류
+    'docs_proforma_invoice' => 'Proforma Invoice',   // car-erp 타입 'invoice' — 선적 Invoice&Packing 과 다른 서류
     'ship_empty' => '선적 가능한 차량이 없습니다. (판매완료·수출·미요청 차량만 표시)',
 
     // 선적·B/L 묶음 v2
