@@ -172,11 +172,16 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
 - **board 앱 챗봇 통합**: 로컬 LLM 업무 Q&A 가 **car-erp 앱 `assistant` 로만 실통합·배포**됨. 색인은 이미 물리분리(board 몫 = `index-board.json`)돼 있으나 **board 쪽 소비자 코드는 아직 없음**. 별건으로 실도입용 사무실 GPU 박스 상시가동 대기. [local-llm-chatbot-poc]
 - **원부조회(압류/저당/구조) board 확장**: 🅿️ **보류**(2026-07-26 Jin). ⛔ **board 사용자 개인 carmodoo 계정을 ERP 경유 우리 고정 IP 로 프록시하는 구현 금지** — "여러 계정이 한 IP" = 조합 IP제한 시스템의 계정도용/봇 패턴 → 그 IP 차단 시 **3사 ERP 원부조회 동반 사망**. 재개 시 방향은 (A) 우리 단일계정·우리 IP 로만, 또는 (B) 사용자가 자기 앱·자기 IP 로 조회하고 board 엔 결과만 담기 — **설계·인계는 car-erp 세션**. 상세 = `meetings/handoff-from-carerp-2026-07-26.md`.
 - ~~**ssancar 자동전달대기 전이 불발**~~ **✅ 2026-07-28 해소**(경위·검증 = `meetings/handoff-ssancar-media-merge.md`): ①ssancar 검차글이 차당 2개(영상글+사진전용글)인데 교차매칭이 `matched:1` 로 사진전용글을 물어 `videos:[]` → 전이 안 됐음. **ssancar 가 `ss_media_inspected()` 합산 배포**(4글=최신검차만/동일장수쌍=합산) → 쌍 케이스도 영상 8·사진 70 정상 수신 확인, **board 코드 변경 0**. ⭐**실거래 e2e 완료**(2026-07-28 heymanboard, 테스터 2명 모바일): 엔카링크 등록 → **59초 후 자동 전달대기** → 연동 B `purchase_sync` 201 → `synced`(erp_id 246·249). 쌍 케이스(02다3749=1038/1039)도 완주. ⚠️`?url=` 은 ssancar 페이지 URL 전용(엔카 URL 은 ok=0) — board 링크모드 우회는 불가. ②별개 경로 — `SsancarMediaService` `Http::timeout(4)` 인데 콜드 응답 4.8초 실측 → 빈 배열 → 조용히 전이 안 함. **✅ 해결: 폴러 전용 타임아웃 분리**(dev `4e0c598`, `BOARD_SSANCAR_POLL_TIMEOUT` 기본 15초 / 바이어페이지는 4초 유지) — **미배포, master 머지 대기**. [board-ssancar-inspected-duplicate-entries]
-- **지역명 정합성 + 지역 자동배정**: 코드 **dev 커밋 완료**(`1c68e56`·`5385266`, 2026-07-31) — **미배포, master 머지 대기**.
+- ~~**지역명 정합성 + 지역 자동배정**~~ **✅ 2026-08-01 운영 배포 완료**(master `01d2d8d`, 두 박스).
   - 문제 = 크롤링이 만든 축약형("안산")과 사람이 고른 정식형("경기 안산시")이 영영 안 만나 **배정·알림톡이 조용히 빗나감**(세 테이블 region 은 문자열 그대로 조인).
   - 해결 = **canonical = 풀네임**(축약으로 통일하면 `광주광역시`↔`경기 광주시` 가 뭉개짐 — 도 정보 손실). `App\Support\Region` 단일 경로 + 세 모델 mutator(`NormalizesRegion`)로 **저장 시점** 정규화(입력 화면 5곳·크롤링 1곳 누락 방지). `config('board.regions')` = 전국 시·군.
   - 검차화면 = 그날 배정 없으면 **`users.region` 로스터 폴백**(있으면 덮어쓰기 — `RegionInspectionNotifier::recipientsFor` 와 동일 규칙 ⇒ "알림톡 받은 사람 = 화면에 보이는 사람"). 배정 요약표는 상시 담당을 별도 배지로 계상.
   - 모바일 자동완성 = `<datalist>`(모바일 미지원) → Alpine `x-region-input` 컴포넌트로 5곳 교체.
-  - 남음 = ① master 머지·배포(Jin 허락) → ② **박스별** `php artisan board:region-normalize`(먼저 dry-run, 확인 후 `--apply`) — heymanboard·ssancarboard **각각**(DB 분리). dry-run 이 애매값(광주·고성)과 **알림톡 기발송 건수**(정규화해도 재발송 안 됨)를 보고.
+  - **기존 데이터 백필은 안 하기로 결정**(2026-08-01 Jin) — 실사용은 신규 등록 위주라 새로 들어오는 값은 이미 정식형이고, **기존 차량도 드로어에서 한 번 저장하면 mutator 가 자동 정규화**한다(`부산`→`부산광역시`). 명령어 `php artisan board:region-normalize` 는 남겨둠 — 나중에 필요하면 **박스별로 각각**(DB 분리) dry-run 후 `--apply`. dry-run 이 애매값(광주·고성)과 **알림톡 기발송 건수**(정규화해도 재발송 안 됨)를 보고.
   - ⚠️ 알려진 엣지(기존 동작, 이번에 안 건드림): 배정 select 후보(`pendingRegions`)는 **차량이 있는 지역만** → 로스터로만 커버되는 지역은 요약표엔 뜨지만 그 지역으로 per-date 배정을 걸 수 없다.
+- **선적요청 서류 다운로드**: ✅ **2026-08-01 배포 완료**(master `331a524`·`0c0d1a4`) — 판매계약서·**프로포마 인보이스**(car-erp 타입명 = **`invoice`**, `proforma_invoice` 아님) 추가.
+  - 경위 = board 는 `sales_contract` 를 허용목록에 넣어뒀는데 car-erp `BOARD_ALLOWED_TYPES` 엔 **애초에 없어서** 계속 403 이었다(board 주석이 ERP 자체화면 변경을 프록시 추가로 오독). 게다가 board 가 실패를 전부 "동일 바이어" 로 안내해 원인을 잘못 짚게 했다. → car-erp 가 §29 PII 재검토 후 `sales_contract`·`invoice` 개방(master `4d3959e`), board 는 403/422 분기 + 타입 추가. 인계 = `meetings/handoff-carerp-portal-documents.md`.
+  - ⚠️ **리터럴 타입** = `sales_contract`·`invoice`(method 접두 금지 — 붙이면 화이트리스트 밖 이름이라 403). 선적 4종만 `roro_`/`container_` 접두.
+  - ⚠️ 서류 **버튼 이름은 car-erp `vehicle.shipdoc.*` 그대로** 쓴다(Jin 2026-08-01). board 에서 새로 지으면 "ERP엔 그런 서류 없다" 가 된다 — 이름 핀 테스트가 지킨다.
+  - 남은 확인(car-erp 제기) = **ERP 로그인 계정 없이 salesmen 명부에만 있는 영업**도 board 로 여권 든 서류를 받게 된다. 실재 여부는 운영 DB 2개 대조 필요(쿼리는 인계문서에).
 - (저우선) TimeGate **관리자 전역 해제 UI**(현재 등록잠금만; 편집은 이미 우회) · 퇴사자 계정 양쪽 동시정지 절차 **문서화**.
