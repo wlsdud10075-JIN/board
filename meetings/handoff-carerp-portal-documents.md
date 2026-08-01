@@ -4,6 +4,57 @@
 > 작성 2026-07-31. 근거 = board `resources/views/livewire/portal/index.blade.php` · `app/Services/CarErpReadService.php`,
 > car-erp `app/Http/Controllers/Api/Internal/InternalDocumentController.php`(origin/master 확인).
 
+---
+
+## ✅ 종결 (2026-08-01) — car-erp 회신 + board 반영 완료
+
+car-erp 가 **`sales_contract`·`invoice` 둘 다 개방**(master `4d3959e`, 3사 배포). board 도 반영 완료.
+아래 원문은 이력으로 남긴다. 회신 요약과 실제 코드 대조 결과:
+
+| 회신 항목 | 결론 | board 대조 |
+|---|---|---|
+| ① 화이트리스트 누락 경위 | **되돌림 아님 — 애초에 안 올라감.** board 주석이 2026-07-01 `VehicleDocumentController`(ERP 화면) 변경을 프록시 추가로 오독 | 주석 정정 완료 |
+| ② `sales_contract` | **허용**(jin 결정). §29 근거 = 판매계약서엔 **RRN 없음**(여권·연락처·주소뿐), 4종 제한의 이유였던 말소서류 주민번호와 다름 | `BOARD_ALLOWED_TYPES` 에 존재 확인 |
+| ③ proforma invoice | **이미 존재**. 타입명 = **`invoice`**(`proforma_invoice` 아님) · **method 접두 없는 리터럴** · 1바이어·단일통화·export·최대 30대 | board 화이트리스트·버튼 추가 |
+
+**추가 확인한 것** — car-erp 가 board 프록시에도 동질성 가드를 신설:
+`HOMOGENEOUS_TYPES = ['sales_contract', 'invoice']` → 바이어 혼합/통화 혼합이면 **422**.
+(그전엔 매핑이 primary 로만 채워 **조용히 틀린 서류**가 나갈 수 있었다.) board 의 403/422 분기가 이제 정확히 대응한다.
+
+### board 반영 내역
+
+- `ALLOWED_DOC_TYPES` 에 `invoice` 추가 + 오독했던 주석 정정
+- `downloadDocs()` 리터럴 타입 = `['sales_contract', 'invoice']` (method 접두 금지 — 붙이면 403)
+- 프로포마 인보이스 버튼 추가 (`portal.docs_proforma_invoice`, ko·en)
+- 422 안내를 판매계약서 전용 문구에서 **서류 공통**(`flash_docs_homogeneous_required`)으로 일반화
+- 회귀 테스트: 리터럴 타입이 접두 없이 나가는지 + 선적서류는 접두가 붙는지
+
+### ⏳ 남은 확인 1건 (car-erp 제기 — board 단독으로 못 끝냄)
+
+> `SalesmanResolver` 가 명부로 매칭하므로, **ERP 계정 없이 salesmen 명부에만 있는 영업**도 board 를 통해
+> 여권 정보가 든 서류를 받게 된다. 그런 사람이 실제로 있는지 확인 필요.
+
+board 쪽 사실관계(코드 확인):
+
+- 서류를 받을 수 있는 계정 = board `role ∈ {sales, manager}` 또는 `super` (포털 접근 권한)
+- 조회 스코프 = `car_erp_salesman_email ?: email` → 이 값이 car-erp salesmen 명부와 매칭되면 그 영업의 차량 서류
+- **super 가 타인 포털을 열람 중일 땐 서류 다운로드가 서버에서 차단**된다(`isViewingOther()` 게이트) — 임퍼소네이션 경로로는 안 샌다
+
+→ 실제 대조는 **운영 DB 2개를 맞춰봐야** 한다(board `users` ↔ car-erp `salesmen`/`users`).
+board 운영에서 후보 목록 뽑는 쿼리:
+
+```sql
+SELECT email, COALESCE(car_erp_salesman_email, email) AS erp_key, role, permission, is_active
+FROM users
+WHERE is_active = 1 AND (role IN ('sales','manager') OR permission = 'super');
+```
+
+이 `erp_key` 목록을 car-erp 세션에 넘겨 **ERP 로그인 계정이 없는 사람**이 있는지 대조하면 끝난다.
+
+---
+
+## (이력) 최초 인계 원문 — 2026-07-31
+
 ## 한 줄 요약
 
 board 선적요청 화면의 **판매계약서 버튼은 지금 100% 실패**한다 — car-erp 가 `sales_contract` 를 board 에

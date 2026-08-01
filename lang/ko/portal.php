@@ -48,6 +48,8 @@ return [
     'flash_docs_sales_contract_failed' => '판매계약서를 발급할 수 없습니다. 동일 바이어·단일 통화 차량만 함께 발급됩니다. (묶음 구성/연동 확인)',
     // car-erp 가 403 = 그 서류 타입을 board 에 아직 열어주지 않음(BOARD_ALLOWED_TYPES). 묶음 구성 문제가 아니다.
     'flash_docs_not_allowed' => '이 서류는 아직 board 에서 내려받을 수 없습니다. car-erp 쪽에서 허용해야 하는 항목입니다. (묶음 구성 문제 아님)',
+    // 422 = car-erp 동질성 가드(HOMOGENEOUS_TYPES). 판매계약서·프로포마 인보이스 공통.
+    'flash_docs_homogeneous_required' => '이 서류는 동일 바이어·단일 통화 차량만 함께 발급됩니다. 묶음에 다른 바이어나 다른 통화가 섞여 있는지 확인해 주세요.',
     'flash_sign_failed' => '전자서명 세션을 발급할 수 없습니다. 잠시 후 다시 시도하세요. (car-erp 연동 확인)',
 
     // §10 전자서명 요청 (ERP 발급 → board 는 서명 URL 전달만)
@@ -101,6 +103,7 @@ return [
     'docs_contract' => '계약서',
     'docs_invoice_packing' => '인보이스·패킹',
     'docs_sales_contract' => '판매계약서',
+    'docs_proforma_invoice' => '프로포마 인보이스',   // car-erp 타입 'invoice' — 위 '인보이스·패킹'(선적서류)과 다른 서류
     'ship_empty' => '선적 가능한 차량이 없습니다. (판매완료·수출·미요청 차량만 표시)',
 
     // 선적·B/L 묶음 v2

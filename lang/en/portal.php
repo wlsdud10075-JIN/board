@@ -48,6 +48,8 @@ return [
     'flash_docs_sales_contract_failed' => 'Could not issue the sales contract. Only vehicles with the same buyer and single currency can be issued together. (Check bundle composition / integration)',
     // car-erp 403 = this document type is not opened to board yet (BOARD_ALLOWED_TYPES). Not a bundle problem.
     'flash_docs_not_allowed' => 'This document cannot be downloaded from board yet — car-erp must allow this type first. (Not a bundle composition issue)',
+    // 422 = car-erp homogeneity guard (HOMOGENEOUS_TYPES). Shared by sales contract and proforma invoice.
+    'flash_docs_homogeneous_required' => 'This document can only be issued for vehicles with the same buyer and a single currency. Check whether the bundle mixes buyers or currencies.',
     'flash_sign_failed' => 'Could not issue the e-signature session. Please try again shortly. (Check the car-erp integration)',
 
     // §10 E-signature request (ERP issues → board only relays the signing URL)
@@ -101,6 +103,7 @@ return [
     'docs_contract' => 'Contract',
     'docs_invoice_packing' => 'Invoice / Packing',
     'docs_sales_contract' => 'Sales Contract',
+    'docs_proforma_invoice' => 'Proforma Invoice',   // car-erp type 'invoice' — distinct from 'Invoice & Packing' (shipping doc)
     'ship_empty' => 'No shippable vehicles. (Only sold, export, not-yet-requested vehicles are shown)',
 
     // Shipping & B/L bundles v2

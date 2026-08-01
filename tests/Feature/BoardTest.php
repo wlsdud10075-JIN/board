@@ -2953,7 +2953,31 @@ class BoardTest extends TestCase
 
         Volt::test('portal.index')
             ->call('downloadDocs', [1, 2], 'RORO', 'sales_contract')
-            ->assertSet('shipNote', __('portal.flash_docs_sales_contract_failed'));
+            ->assertSet('shipNote', __('portal.flash_docs_homogeneous_required'));
+    }
+
+    /**
+     * 판매계약서·프로포마 인보이스는 **리터럴 타입**이라 method 접두를 붙이면 안 된다.
+     * 'roro_invoice' 로 나가면 car-erp 화이트리스트에 없는 이름이라 403 — 선적서류만 접두를 붙인다.
+     * ⚠️ 프로포마 인보이스의 car-erp 타입명은 'invoice'(선적 'roro_invoice_packing' 과 다른 서류).
+     */
+    public function test_portal_literal_doc_types_skip_method_prefix(): void
+    {
+        $this->carErpReadConfig();
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'doc@ce.test']);
+        $this->actingAs($sales);
+        Http::fake(['*/api/internal/board/documents/*' => Http::response('xlsx-bytes', 200)]);
+
+        Volt::test('portal.index')->call('downloadDocs', [7], 'CONTAINER', 'invoice');
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/documents/invoice?'));
+
+        Volt::test('portal.index')->call('downloadDocs', [7], 'CONTAINER', 'sales_contract');
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/documents/sales_contract?'));
+
+        // 선적서류는 반대로 method 접두가 붙어야 한다.
+        Volt::test('portal.index')->call('downloadDocs', [7], 'CONTAINER', 'contract');
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/documents/container_contract?'));
     }
 
     public function test_portal_uses_auth_email_override_and_renders(): void
