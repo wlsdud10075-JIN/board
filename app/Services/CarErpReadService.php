@@ -22,12 +22,17 @@ class CarErpReadService
 
     /**
      * 서류 화이트리스트 — board 측에서도 강제(car-erp 403 에만 의존 X). 말소서류 등 = PII.
-     * 선적 4종 + 판매계약서(sales_contract, 수출/바이어측·다중차량·동일바이어 필수, 2026-07-01 car-erp 추가).
+     * 선적 4종 + 판매계약서(sales_contract) + 프로포마 인보이스(**타입명이 `invoice`** — `proforma_invoice` 아님).
+     *
      * ⚠️ car-erp 의 board 화이트리스트(InternalDocumentController::BOARD_ALLOWED_TYPES)에도 있어야 실제 200.
+     *    2026-07-31 car-erp 가 sales_contract·invoice 를 개방(master `4d3959e`, 3사 배포). 그 전까지 이 목록에
+     *    sales_contract 가 있어도 car-erp 는 403 이었다 — **여기 있다고 되는 게 아니라 양쪽에 다 있어야 한다.**
+     * ⚠️ sales_contract·invoice 는 car-erp HOMOGENEOUS_TYPES = 1바이어·단일통화만 함께 발급(혼합이면 422).
+     *    매핑이 바이어블록·환율을 primary 로만 채워서, 막지 않으면 조용히 틀린 서류가 나간다.
      */
     public const ALLOWED_DOC_TYPES = [
         'roro_invoice_packing', 'roro_contract', 'container_invoice_packing', 'container_contract',
-        'sales_contract',
+        'sales_contract', 'invoice',
     ];
 
     private ?string $base;

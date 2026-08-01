@@ -524,17 +524,22 @@ new #[Layout('components.layouts.app')] class extends Component {
 
             return null;
         }
-        // sales_contract(판매계약서)는 method 접두사 없는 리터럴 타입 — roro_/container_ 조합 금지.
-        $type = $kind === 'sales_contract'
-            ? 'sales_contract'
+        // 판매계약서(sales_contract)·프로포마 인보이스(invoice)는 method 접두사 없는 **리터럴 타입** —
+        // roro_/container_ 를 붙이면 car-erp 화이트리스트에 없는 이름이 되어 403. 선적서류만 접두를 붙인다.
+        $type = in_array($kind, ['sales_contract', 'invoice'], true)
+            ? $kind
             : (strtolower($method) === 'container' ? 'container' : 'roro').'_'.$kind;   // roro_contract / container_invoice_packing ...
 
         $res = $this->svc()->document($type, $ids, $this->salesmanEmail());
         if (! ($res['ok'] ?? false)) {
-            // sales_contract 는 동일 바이어·단일 통화 차량만 함께 발급 가능 → car-erp 거부(대개 이 조건)면 그 안내로.
-            $this->shipNote = $type === 'sales_contract'
-                ? __('portal.flash_docs_sales_contract_failed')
-                : __('portal.flash_docs_failed');
+            // 실패 이유를 car-erp 응답 코드 그대로 구분한다(§10 서명요청과 같은 방식).
+            // ⚠️ 예전엔 sales_contract 실패를 전부 "동일 바이어" 로 안내했는데, 실제로는 403(car-erp
+            //    BOARD_ALLOWED_TYPES 미등록)이 오고 있어 원인을 잘못 짚게 만들었다.
+            $this->shipNote = match ((int) ($res['status'] ?? 0)) {
+                403 => __('portal.flash_docs_not_allowed'),
+                422 => __('portal.flash_docs_homogeneous_required'),   // 판매계약서·프로포마 인보이스 공통
+                default => __('portal.flash_docs_failed'),
+            };
 
             return null;
         }
@@ -867,6 +872,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'contract')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_contract') }}</button>
                                 <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'invoice_packing')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_invoice_packing') }}</button>
                                 <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'sales_contract')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_sales_contract') }}</button>
+                                {{-- 프로포마 인보이스 — car-erp 타입명은 'invoice'(위 인보이스·패킹과 다른 서류). --}}
+                                <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'invoice')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_proforma_invoice') }}</button>
                                 @if ($signSt === 'signed')
                                     {{-- 서명완료(녹색) — ERP 칩과 동일 그림. 가격정정 재서명은 재요청으로. --}}
                                     <span class="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-[11px] font-bold text-green-700">✓ {{ __('portal.sign_st_signed') }}@if ($signContractNo)<span class="font-normal">· {{ $signContractNo }}</span>@endif</span>
