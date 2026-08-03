@@ -50,6 +50,12 @@ if (Test-Path $idxB) {
 지적하신 "호스트별 scp 실패는 `PUSH FAILED` 만 찍고 넘어간다 → board 만 실패하면 옛 색인으로 계속 답한다" 는 맞습니다.
 `AssistantHealthCheck` 가 `index-erp.json` mtime 만 보므로, **board 는 자체 신선도 감시를 board 쪽에 구현**하겠습니다(board 챗봇 작업 범위에 포함). car-erp 측에서 추가로 할 일은 없습니다.
 
+## 3-1. board 쪽은 배포까지 끝났습니다 (2026-08-03)
+
+master `be425b5` → **두 박스 자동배포 성공**(heymanboard `/var/www/board` · ssancarboard `/var/www/board-ssancar`, db:backup 각각 정상). 마이그레이션 없음.
+
+⚠️ **다만 지금은 아무 변화도 없습니다** — 두 박스 `.env` 에 `ASSISTANT_*` 가 없어 `config('assistant.enabled')=false` → 위젯 비노출, 감시 커맨드 no-op. **색인이 도착한 뒤에 켭니다**(순서 의존, §5).
+
 ## 4. board 쪽 진행 상황 (참고)
 
 - board 챗봇 = **A(업무가이드 RAG) 만**. B(미수·자금)는 board 에 그 데이터가 없어 해당 없음.
@@ -57,12 +63,20 @@ if (Test-Path $idxB) {
 - 이식 대상 = `OllamaClient`(그대로) · `AssistantService`(A만) · `config/assistant.php` · 위젯 · 사이드바 게이트 · 기능설정 토글 · 감사로그 · 테스트. **마이그레이션 0**.
 - 색인은 이미 준비돼 있음: `index-board.json` 82청크(기능카드 38 + 기존 가이드 44). 기준선 44청크 대비 카드분 반영된 상태.
 
-## 5. 남은 것 (board 세션 몫)
+## 5. 남은 것 — 순서가 있습니다
 
-- board 앱 코드 이식 + `.env ASSISTANT_*` 5줄 × 2박스
-- 박스에서 GPU 도달 확인 (`curl 100.110.133.112:11434/api/tags`)
-- 색인 신선도 감시(§3)
-- 미발행 `scripts/notion-cards/cards.json` 수정분(분할 업로드 문구) → Notion 발행 = **Codex 위임**
+```
+① car-erp 세션: sync-and-push.ps1 에 §2 블록 추가        ← 지금 필요한 유일한 것
+② (자동) 회사 GPU PC 03:00 → index-board.json → scp → board 2박스
+③ board 세션: .env ASSISTANT_* 5줄 × 2박스 + 기능설정 토글 on
+      · GPU 도달 확인: 박스에서 curl 100.110.133.112:11434/api/tags
+      · ①이 안 되면 ③을 켜도 "색인 없음" 안내만 나옵니다 → 순서 지킬 것
+④ Codex: php scripts/notion-cards/publish.php --apply --replace   (카드 3장 갱신분 발행)
+      · board 가 재발행 모드를 새로 만들었습니다(dev `3782cc2`). 그 전엔 발행 경로가 없었음.
+      · 발행 후 다음 03:00 색인에 반영 → ②로 흘러갑니다.
+```
+
+**board 가 끝낸 것**: 앱 코드 이식·배포(§3-1), 자체 신선도 감시(§3), 재발행 모드(④). car-erp 측이 할 일은 **①뿐**입니다.
 
 ## 6. 별건 (동의)
 
