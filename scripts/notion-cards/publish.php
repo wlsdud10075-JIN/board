@@ -186,7 +186,7 @@ if ($existingParentId !== null) {
         if (($block['type'] ?? '') !== 'child_page') {
             continue;
         }
-        notion('PATCH', "https://api.notion.com/v1/blocks/{$block['id']}", ['archived' => true], $token, $notionVersion);
+        notion('PATCH', "https://api.notion.com/v1/pages/{$block['id']}", ['archived' => true], $token, $notionVersion);
         echo "   🗑 이전 그룹 보관: {$block['child_page']['title']}\n";
     }
 } else {
