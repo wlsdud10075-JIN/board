@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Services\Assistant\OllamaClient;
+use App\Services\BizmAlimtalkService;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -18,8 +20,15 @@ class AppServiceProvider extends ServiceProvider
         // 알림톡 발송기 = Setting 기반 config(::active())로만 생성 가능(AlimtalkConfig 는 스칼라 생성자라
         // 오토와이어 불가). 컨테이너 주입(커맨드 handle·Notifier 생성자)이 이 팩토리를 쓰게 바인딩.
         $this->app->bind(
-            \App\Services\BizmAlimtalkService::class,
-            fn () => \App\Services\BizmAlimtalkService::active(),
+            BizmAlimtalkService::class,
+            fn () => BizmAlimtalkService::active(),
+        );
+
+        // 챗봇 Ollama 클라이언트도 스칼라 생성자(baseUrl·timeout)라 오토와이어 불가.
+        // 테스트는 이 바인딩을 fake 로 덮어써 HTTP 를 발생시키지 않는다.
+        $this->app->bind(
+            OllamaClient::class,
+            fn () => OllamaClient::fromConfig(),
         );
     }
 

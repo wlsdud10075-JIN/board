@@ -13,6 +13,8 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public bool $localeEnEnabled = false;
 
+    public bool $assistantEnabled = false;   // 사내 업무 도우미(챗봇) 운영 on/off
+
     // 카카오 알림톡(BizM) — 발신프로필은 car-erp 와 공유. 코드=board_region_inspection.
     public string $alimtalkUserid = '';
 
@@ -44,6 +46,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->sidebarBrand = Setting::get('sidebar_brand', 'HeymanBoard') ?: 'HeymanBoard';
         $this->buyerCompanyName = Setting::get('buyer_company_name', 'SSANCAR') ?: 'SSANCAR';
         $this->localeEnEnabled = (bool) Setting::get('locale_en_enabled', false);
+        $this->assistantEnabled = (bool) Setting::get('assistant_enabled', false);
 
         $this->alimtalkUserid = (string) (Setting::get('alimtalk_userid', '') ?: '');
         $this->alimtalkProfile = (string) (Setting::get('alimtalk_profile', '') ?: '');
@@ -166,6 +169,40 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $this->redirect(route('admin.settings'), navigate: false);
     }
+
+    public function updatedAssistantEnabled(bool $value): void
+    {
+        if (! auth()->user()?->isSuper()) {
+            abort(403);
+        }
+
+        Setting::updateOrCreate(
+            ['key' => 'assistant_enabled'],
+            [
+                'value' => $value ? '1' : '0',
+                'type' => 'boolean',
+                'description' => '사내 업무 도우미(챗봇) 노출',
+            ],
+        );
+
+        // 위젯은 이 컴포넌트 밖(레이아웃)이라 풀 리로드로 즉시 반영.
+        $this->redirect(route('admin.settings'), navigate: false);
+    }
+
+    /** 색인 파일 상태 — scp 배포 실패를 super 가 화면에서 바로 확인. */
+    public function assistantIndexStatus(): ?array
+    {
+        $path = (string) config('assistant.index_path');
+        if ($path === '' || ! is_file($path)) {
+            return null;
+        }
+
+        // 파싱하지 않는다(2MB+) — 크기·갱신시각만으로 배포 여부는 충분히 판정된다.
+        return [
+            'size' => round(filesize($path) / 1048576, 1),
+            'when' => \Illuminate\Support\Carbon::createFromTimestamp(filemtime($path))->diffForHumans(),
+        ];
+    }
 }; ?>
 
 <div class="p-4 sm:p-6">
@@ -220,6 +257,23 @@ new #[Layout('components.layouts.app')] class extends Component {
             :label="__('settings.feature.locale_label')"
             :description="__('settings.feature.locale_hint')"
         />
+    </div>
+
+    {{-- 사내 업무 도우미(챗봇) --}}
+    <div class="card mb-4 max-w-lg">
+        <div class="mb-3 border-b border-gray-100 pb-2">
+            <span class="text-sm font-semibold text-gray-700">{{ __('assistant.settings_title') }}</span>
+            <p class="mt-1 text-xs text-gray-400">{{ __('assistant.settings_intro') }}</p>
+        </div>
+        <flux:switch wire:model.live="assistantEnabled" :label="__('assistant.settings_enabled')" />
+
+        @php $idx = $this->assistantIndexStatus(); @endphp
+        <p class="mt-3 text-xs {{ $idx ? 'text-gray-400' : 'text-amber-600' }}">
+            {{ $idx ? __('assistant.settings_index_ok', $idx) : __('assistant.settings_index_missing') }}
+        </p>
+        @if (! config('assistant.enabled'))
+            <p class="mt-1 text-xs text-amber-600">{{ __('assistant.settings_env_off') }}</p>
+        @endif
     </div>
 
     {{-- 카카오 알림톡(BizM) — 지역 검차 안내 --}}

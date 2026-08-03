@@ -270,6 +270,11 @@
     </script>
 @endif
 
+{{-- 사내 업무 도우미(챗봇) — 영업·관리·super + 서버설정·기능설정 둘 다 on 일 때만 --}}
+@if ($user->canUseAssistant())
+    <livewire:assistant.widget />
+@endif
+
 {{-- 사진 확대 라이트박스 (전역) — 어떤 화면이든 이미지 클릭 시 open-lightbox 이벤트로 전체화면 확대 --}}
 <div x-data="{ open: false, src: '' }"
      @open-lightbox.window="src = $event.detail.src; open = true"

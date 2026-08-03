@@ -111,6 +111,19 @@ class User extends Authenticatable // implements MustVerifyEmail
         return $this->role === 'manager';
     }
 
+    /**
+     * 사내 업무 도우미(챗봇) 사용 가능 — 영업·관리·시스템관리자만 (jin 2026-08-03).
+     * 인프라 준비(.env)와 운영 토글(기능설정) 둘 다 켜져 있어야 한다.
+     */
+    public function canUseAssistant(): bool
+    {
+        if (! $this->is_active || ! config('assistant.enabled') || ! Setting::get('assistant_enabled', false)) {
+            return false;
+        }
+
+        return $this->isSuper() || $this->isSales() || $this->isManager();
+    }
+
     /** 검차·경매·관리·시스템관리자는 전체 열람 (영업만 본인격리) */
     public function canSeeAll(): bool
     {
