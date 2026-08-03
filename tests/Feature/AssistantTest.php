@@ -179,7 +179,7 @@ class AssistantTest extends TestCase
             ->assertForbidden();
     }
 
-    public function test_기능설정에서_토글하면_Setting_에_저장된다(): void
+    public function test_기능설정에서_토글하면_setting_에_저장된다(): void
     {
         $this->fakeIndex([['source' => 's', 'text' => 't', 'embedding' => [1, 0]]]);
         Setting::updateOrCreate(['key' => 'assistant_enabled'], ['value' => '0', 'type' => 'boolean']);
@@ -190,6 +190,16 @@ class AssistantTest extends TestCase
             ->set('assistantEnabled', true);
 
         $this->assertTrue((bool) Setting::get('assistant_enabled'));
+    }
+
+    public function test_색인이_아직_안_올라온_상태를_기능설정에서_경고한다(): void
+    {
+        // scp 대상에 board 가 추가되기 전 두 박스의 실제 초기 상태.
+        config(['assistant.index_path' => '']);
+
+        Volt::actingAs($this->mkUser('manager', 'super'))
+            ->test('admin.settings')
+            ->assertSee(__('assistant.settings_index_missing'));
     }
 
     public function test_빈_질문은_보내지_않는다(): void
