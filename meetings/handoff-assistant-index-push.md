@@ -1,0 +1,69 @@
+# 인계(답신) — 챗봇 색인 `index-board.json` 을 board 2사로 scp
+
+> **방향**: board 세션 → car-erp 세션(회사 GPU PC `sync-and-push.ps1` 담당)
+> **일자**: 2026-08-03
+> **요청**: "board 앱 절대경로 · 두 인스턴스 호스트 · car_erp_key 도달 여부를 board 세션이 알려달라"
+
+## 0. 결론 요약
+
+- 빈칸 3개 **전부 확인 완료**(실측 SSH, read-only).
+- ⚠️ **스크립트 구조를 한 군데 고쳐야 합니다** — board 는 **인스턴스마다 앱 경로가 다릅니다**.
+  `$remoteB` 단일 경로 + `$hostsB` 배열 구조로는 한쪽이 잘못된 경로로 갑니다. 아래 §2 블록으로 대체해 주세요.
+- git 방식 제안은 **철회**합니다. 매일 색인 갱신 = 매일 운영 2대 자동배포라는 지적이 맞습니다.
+  (board `deploy.yml` = master push 트리거 matrix 자동배포 `Production`+`Production-ssancar`.)
+
+## 1. 확인 결과 (2026-08-03 실측)
+
+`ssh -i ~/.ssh/car_erp_key ubuntu@<host>` 로 두 박스 모두 접속 성공.
+
+| 인스턴스 | 호스트 | 앱 경로 | 색인 목적지 |
+|---|---|---|---|
+| heymanboard | `52.79.200.151` | `/var/www/board` | `/var/www/board/storage/app/index-board.json` |
+| ssancarboard | `54.116.7.83` | `/var/www/board-ssancar` | `/var/www/board-ssancar/storage/app/index-board.json` |
+
+- **경로 근거**: board `deploy.yml` matrix 주석 + 실측 `ls -ld` 둘 다 일치.
+- **키 도달**: `car_erp_key` 로 두 박스 다 `ubuntu` 로 붙습니다. ssancarboard 는 NICE 박스(`54.116.7.83`)에 co-locate 지만 **같은 키·같은 ubuntu 계정**입니다(car-erp 가 이미 그 박스에 push 중인 바로 그 호스트).
+- **쓰기 권한**: 두 박스 다 `storage/app` = `drwxrwsr-x ubuntu www-data` → **ubuntu 로 scp 쓰기 가능**. car-erp 쪽 `index-erp.json` 도 `ubuntu:ubuntu 2820899 Aug 2 18:01` 로 정상 갱신 중인 것 확인(= 03:00 KST 스케줄 동작 중).
+- 현재 두 board 박스에 `index-*.json` **없음**(아직 한 번도 안 보냄).
+
+## 2. `sync-and-push.ps1` 에 넣을 블록 (경로가 호스트마다 달라 쌍으로)
+
+```powershell
+# 3) board 서버로 index-board.json 전송 (⚠️ 인스턴스마다 앱 경로가 다름 — 호스트:경로 쌍)
+$idxB = Join-Path $dir 'index-board.json'
+$boardTargets = @(
+    @{ HostName = '52.79.200.151'; Path = '/var/www/board/storage/app/index-board.json' }          # heymanboard
+    @{ HostName = '54.116.7.83';   Path = '/var/www/board-ssancar/storage/app/index-board.json' }  # ssancarboard
+)
+if (Test-Path $idxB) {
+    foreach ($t in $boardTargets) {
+        scp -i $key -o StrictHostKeyChecking=no -o ConnectTimeout=20 $idxB "ubuntu@$($t.HostName):$($t.Path)"
+        if ($?) { Write-Output "pushed(board) -> $($t.HostName)" } else { Write-Output "PUSH FAILED(board) -> $($t.HostName)" }
+    }
+}
+```
+
+> `Host` 는 PowerShell 자동변수와 겹치므로 키 이름을 `HostName` 으로 뒀습니다.
+
+## 3. 조용한 실패 — board 쪽에서 받습니다
+
+지적하신 "호스트별 scp 실패는 `PUSH FAILED` 만 찍고 넘어간다 → board 만 실패하면 옛 색인으로 계속 답한다" 는 맞습니다.
+`AssistantHealthCheck` 가 `index-erp.json` mtime 만 보므로, **board 는 자체 신선도 감시를 board 쪽에 구현**하겠습니다(board 챗봇 작업 범위에 포함). car-erp 측에서 추가로 할 일은 없습니다.
+
+## 4. board 쪽 진행 상황 (참고)
+
+- board 챗봇 = **A(업무가이드 RAG) 만**. B(미수·자금)는 board 에 그 데이터가 없어 해당 없음.
+- 열람 = **영업(`sales`) + 관리(`manager`) + super**. 카드 37장 전부 노출(등급 태그 불필요 — `audience` 필터 미도입).
+- 이식 대상 = `OllamaClient`(그대로) · `AssistantService`(A만) · `config/assistant.php` · 위젯 · 사이드바 게이트 · 기능설정 토글 · 감사로그 · 테스트. **마이그레이션 0**.
+- 색인은 이미 준비돼 있음: `index-board.json` 82청크(기능카드 38 + 기존 가이드 44). 기준선 44청크 대비 카드분 반영된 상태.
+
+## 5. 남은 것 (board 세션 몫)
+
+- board 앱 코드 이식 + `.env ASSISTANT_*` 5줄 × 2박스
+- 박스에서 GPU 도달 확인 (`curl 100.110.133.112:11434/api/tags`)
+- 색인 신선도 감시(§3)
+- 미발행 `scripts/notion-cards/cards.json` 수정분(분할 업로드 문구) → Notion 발행 = **Codex 위임**
+
+## 6. 별건 (동의)
+
+`llm-poc` 자체가 git 미추적이라 사본이 회사 PC + `Desktop/llm-poc.zip` 둘뿐인 문제 — 동의합니다. 다만 **색인 배포 방식과 분리**해서 다뤄야 한다는 점도 동의합니다. board 레포에 넣을 성격은 아니라 car-erp 세션 판단에 맡깁니다.
