@@ -71,7 +71,9 @@ master `be425b5` → **두 박스 자동배포 성공**(heymanboard `/var/www/bo
   - `board:assistant-health` 두 박스 "정상 — Ollama OK".
   - **실제 질의 e2e**: heymanboard 4.8초 / ssancarboard 5.1초, 출처 표기·감사기록 정상.
   - 대상 인원 = heymanboard 8명(sales 5 · manager 3) / ssancarboard 1명(manager).
-- **남은 것 = ④** Notion 카드 재발행(Codex). 발행 전까지 챗봇은 **이전 카드 내용**으로 답한다(챗봇 자기 사용법 카드는 아직 색인에 없음).
+- **④ 완료**(같은 날) — Codex 가 `publish.php --apply --replace` 실행. Notion 6그룹 **38장** 확인, **부모 페이지 ID 유지**(`3aa45d82…`) = `--replace` 설계대로 동작. 색인 반영은 **익일 03:00** 자동.
+
+⇒ **전 단계 종료.** 이후 카드 수정 절차는 `C:\xampp\htdocs\CODEX_NOTION_HANDOFF.md` §9-A2(board 전용, car-erp 와 도구가 다름)에 정본으로 기록.
 
 ## 5. 원래 순서 (참고용)
 
