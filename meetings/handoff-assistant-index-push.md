@@ -63,7 +63,17 @@ master `be425b5` → **두 박스 자동배포 성공**(heymanboard `/var/www/bo
 - 이식 대상 = `OllamaClient`(그대로) · `AssistantService`(A만) · `config/assistant.php` · 위젯 · 사이드바 게이트 · 기능설정 토글 · 감사로그 · 테스트. **마이그레이션 0**.
 - 색인은 이미 준비돼 있음: `index-board.json` 82청크(기능카드 38 + 기존 가이드 44). 기준선 44청크 대비 카드분 반영된 상태.
 
-## 5. 남은 것 — 순서가 있습니다
+## 5-0. ①②③ 완료 (2026-08-03) — 남은 건 ④뿐
+
+- **①** car-erp 세션이 `sync-and-push.ps1` 에 board 블록 반영, 수동 1회 실행 완료.
+- **②** 두 박스에 `index-board.json` 도착 확인 — **2,222,884 B 크기 동일**(부분 푸시 아님), 82청크(기능카드 38). car-erp 3사도 같은 실행에서 갱신됨.
+- **③** board `.env` 5줄 × 2박스 + `config:cache`(ubuntu) + 기능설정 토글 on 완료.
+  - `board:assistant-health` 두 박스 "정상 — Ollama OK".
+  - **실제 질의 e2e**: heymanboard 4.8초 / ssancarboard 5.1초, 출처 표기·감사기록 정상.
+  - 대상 인원 = heymanboard 8명(sales 5 · manager 3) / ssancarboard 1명(manager).
+- **남은 것 = ④** Notion 카드 재발행(Codex). 발행 전까지 챗봇은 **이전 카드 내용**으로 답한다(챗봇 자기 사용법 카드는 아직 색인에 없음).
+
+## 5. 원래 순서 (참고용)
 
 ```
 ① car-erp 세션: sync-and-push.ps1 에 §2 블록 추가        ← 지금 필요한 유일한 것
