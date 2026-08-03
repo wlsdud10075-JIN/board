@@ -32,6 +32,10 @@ Schedule::command('board:poll-promotions')->everyTwoMinutes()->withoutOverlappin
 // ssancar 검차영상 감지 → draft 매물 자동 전달대기(inspected). 미설정이면 no-op. 인계=handoff-ssancar-media-poll.md.
 Schedule::command('board:poll-ssancar-media')->everyTwoMinutes()->withoutOverlapping();
 
+// 챗봇 색인 신선도 + Ollama 응답 감시. assistant 미설정이면 no-op.
+// 색인은 하루 1회 갱신이라 매시면 충분(더 자주 볼 이유가 없다).
+Schedule::command('board:assistant-health')->hourly()->withoutOverlapping();
+
 // 지역 검차 안내 알림톡(A) — 내일 배정분 전날 저녁 발송. 시각 = 기능설정 Setting(HH:MM).
 // 시각 미설정이면 스케줄 미등록(자동발송 안 함). Setting 은 매 schedule:run(분 단위) 평가 → 값 바꾸면 즉시 반영.
 // 알림톡 off/미승인이면 커맨드 내부에서 skipped(no-op)라 이중 안전.

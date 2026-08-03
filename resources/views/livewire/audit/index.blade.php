@@ -40,7 +40,11 @@ new #[Layout('components.layouts.app')] class extends Component {
     #[Computed]
     public function logs()
     {
-        return BoardAuditLog::with(['user', 'listing'])->latest('id')->paginate(25, pageName: 'logs');
+        // 챗봇 질의(assistant_query)는 매물 변경이 아니라 이 표(차량·항목·이전→새값)에 맞지 않고,
+        // 건수가 많아 실제 변경이력을 밀어낸다. 기록은 남기되 여기선 제외한다.
+        return BoardAuditLog::with(['user', 'listing'])
+            ->where('action', '!=', 'assistant_query')
+            ->latest('id')->paginate(25, pageName: 'logs');
     }
 
     #[Computed]
