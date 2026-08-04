@@ -38,7 +38,7 @@ class ListingLink
                 $out['origin'] = 'encar';
                 $out['source'] = 'encar';
                 $out['encar_id'] = $m[1];
-                $out['encar_url'] = $url;
+                $out['encar_url'] = self::canonicalEncarUrl($url);
             }
 
             return $out;
@@ -63,5 +63,29 @@ class ListingLink
         }
 
         return $out;
+    }
+
+    /**
+     * 엔카 상세 URL 에서 추적 파라미터를 떼어낸다 — `https://{host}/cars/detail/{id}`.
+     *
+     * 모바일에서 공유한 엔카 링크는 `_gl`·`_ga`·`advClickPosition` 이 붙어 350자를 넘는다.
+     * `encar_url` 컬럼은 varchar(255) 라 그대로 넣으면 저장이 실패했다(2026-08-04 실측 354자).
+     * 차량 식별에 필요한 건 상세 id 뿐이라 쿼리는 버린다.
+     *
+     * `carid=` 구형 URL 은 경로 구조가 다르므로 손대지 않는다(링크가 깨진다).
+     */
+    public static function canonicalEncarUrl(string $url): string
+    {
+        $url = trim($url);
+        if (! str_contains(mb_strtolower($url), 'encar.com') || ! preg_match('#/cars/detail/(\d+)#', $url, $m)) {
+            return $url;
+        }
+
+        $host = parse_url($url, PHP_URL_HOST);
+        if (! $host) {
+            return $url;
+        }
+
+        return (parse_url($url, PHP_URL_SCHEME) ?: 'https').'://'.$host.'/cars/detail/'.$m[1];
     }
 }
