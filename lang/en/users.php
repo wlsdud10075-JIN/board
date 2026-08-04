@@ -1,10 +1,10 @@
 <?php
 
-// User management screen (/users · super only).
+// User management screen (/users · manager role + super).
 
 return [
     'title' => 'User management',
-    'subtitle' => 'System admin (super) only. Create accounts, set roles, assign system admin, toggle active status. Inactive accounts are blocked from work screens.',
+    'subtitle' => 'Create accounts, set roles and active status. Inactive accounts are blocked from work screens. Only a system admin can assign system admin or edit a system admin account.',
     'add_user' => 'Add user',
     'edit_user' => 'Edit user',
 
@@ -21,6 +21,7 @@ return [
     'status_inactive' => 'Inactive',
     'action_deactivate' => 'Deactivate',
     'action_activate' => 'Activate',
+    'super_row_locked' => 'System admin only',
 
     // Form
     'label_name' => 'Name',
@@ -52,4 +53,5 @@ return [
     'saved' => 'Saved.',
     'err_cannot_deactivate_self' => 'You cannot deactivate your own account.',
     'err_cannot_remove_own_super' => 'You cannot remove your own system admin permission.',
+    'err_super_target_forbidden' => 'Only a system admin can edit a system admin account.',
 ];

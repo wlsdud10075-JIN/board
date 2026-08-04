@@ -29,7 +29,7 @@ board 와 car-erp 는 형제 디렉터리 + **별도 DB**다. artisan/tinker 실
 ## 권한 시스템 (car-erp 미러 — permission 2단 + role)
 
 **permission** (`users.permission`):
-- `super` 시스템관리자 — role 무관 전체 접근 + **사용자관리** + **기능설정**. car-erp super 대응.
+- `super` 시스템관리자 — role 무관 전체 접근 + **기능설정** + **감사로그** + 사용자관리 중 **super 지정·super 계정 수정**. car-erp super 대응.
 - `user` 일반 — `role` 기반 접근.
 
 **role** (`users.role`): `sales`(영업) / `inspection`(현지확인) / `auction`(경매) / `manager`(관리). 라벨은 `User::ROLE_LABELS`.
@@ -38,7 +38,7 @@ board 와 car-erp 는 형제 디렉터리 + **별도 DB**다. artisan/tinker 실
 | alias | 클래스 | 규칙 |
 |---|---|---|
 | `role:a,b` | `EnsureRole` | super 는 무조건 통과(바이패스) / 아니면 role∈{a,b} / 비활성(is_active=false) 차단 |
-| `super` | `EnsureSuper` | super 전용 (관리 role 도 차단). `/users` 보호 |
+| `super` | `EnsureSuper` | super 전용 (관리 role 도 차단). `/audit`·`/admin/settings` 보호 |
 
 **라우트 / 화면 접근**:
 | URL | 라우트명 | 접근 |
@@ -47,7 +47,7 @@ board 와 car-erp 는 형제 디렉터리 + **별도 DB**다. artisan/tinker 실
 | `/inspection` | inspection | 현지확인 / 관리 / super |
 | `/auction` | auction | 경매 / 관리 / super |
 | `/manage` | manage | 관리 / super |
-| `/users` | users | **super 전용** |
+| `/users` | users | 관리 / super (2026-08-04 Jin) — 단 **super 지정·super 계정 수정/비활성화는 super 만**(화면 내 가드). 관리자는 자기 role 변경도 불가(자기잠금 방지) |
 | `/audit` | audit | **super 전용** — 감사로그(변경이력 board_audit_logs + car-erp 전송 integration_events) |
 | `/dashboard` | dashboard | 로그인 후 role(또는 super)별 홈으로 redirect |
 
@@ -88,7 +88,7 @@ draft(현지확인대기) → awaiting_buyer(회신대기) → accepted(구매�
 2. **inspection**(현지확인): 지역별 그룹 + 모바일 드로어(사진/영상 업로드·메모·최종금액). **전달/회신 = "선택 후 저장" 수동씬**(클릭=색강조만, 하단 저장이 상태전이 커밋).
 3. **auction**(경매/구매): accepted 차량 낙찰/유찰·구매확정/취소(→ won/failed) + 소유자·입금정보. won → 연동 B 자동 push.
 4. **manage**(관리자): KPI 5종(**클릭=그 차원 필터 토글**) + **필터(검색·상태·출처·회신, 가로 grid) + 페이지네이션(20)** 전체현황 + **무제한 수정 드로어(어지간한 필드 전부 — 식별값은 미연동만)**. 모든 변경은 옵저버가 감사기록.
-5. **users**(super): 계정 생성·역할·시스템관리자 지정·활성토글·**car-erp 영업 이메일 매핑**.
+5. **users**(관리·super): 계정 생성·역할·활성토글·**car-erp 영업 이메일 매핑**. **시스템관리자 지정 체크박스와 super 계정 행은 super 에게만** 노출·허용(서버 가드 = `save`/`openEdit`/`toggleActive`).
 6. **audit**(super): 감사로그 — 변경이력(board_audit_logs, 상태/회신/출처 한글표시) + car-erp 전송로그(integration_events payload). 페이지네이션. /manage 에서 분리.
 
 ## 계정 (시드, 전부 비번 `password`)
