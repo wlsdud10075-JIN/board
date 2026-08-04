@@ -1968,6 +1968,59 @@ class BoardTest extends TestCase
         $this->assertSame('ct_xyz', $l->respond_contact_id);
     }
 
+    /**
+     * 모바일에서 공유한 엔카 링크(추적 파라미터 354자)로 매입예정 추가 — 2026-08-04 운영 실패 재현.
+     * encar_url 은 varchar(255)+max:255 라 원본을 그대로 넣으면 저장이 조용히 죽었다.
+     */
+    public function test_promote_via_long_mobile_encar_link_saves(): void
+    {
+        Http::fake(['*api.encar.com*' => Http::response(['vehicleNo' => '244로9100', 'advertisement' => ['price' => 100]], 200)]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $url = 'https://fem.encar.com/cars/detail/41410821?advClickPosition=mweb_mopre_g8_t93&listAdvType=mpremium'
+            .'&type=detail&view_type=checked&_gl=1*19pildd*_gcl_au*MTM1MDExODI0My4xNzg1NTE4MjM3Li0uLS4xNzg1NTE4MzA3'
+            .'LjYzMTgyMzEwMy4xNzg1NjE1NjUwLjE3ODU2NzgyODQ.*_ga*NTYxODc3NDUzLjE3ODU1MTgyMzc.*_ga_BQ7RK9J6BZ'
+            .'*czE3ODU2NzY5OTUkbzkkZzEkdDE3ODU2NzgzNTMkajM3JGwwJGg4Mzg1MDk1OA';
+        $this->assertGreaterThan(255, strlen($url));   // 재현 조건 자체를 고정
+
+        Volt::test('listings.index')
+            ->set('encarLink', $url)
+            ->call('parseLink', 'encar')
+            ->assertSet('encar_id', '41410821')
+            ->set('vehicle_number', '55가5555')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $l = PurchaseListing::where('vehicle_number', '55가5555')->firstOrFail();
+        $this->assertSame('https://fem.encar.com/cars/detail/41410821', $l->encar_url);
+    }
+
+    /** 드로어에 긴 링크를 직접 붙여넣는 경로도 같이 막혀 있었다(검증이 원본 프로퍼티에 걸린다). */
+    public function test_edit_drawer_accepts_long_mobile_encar_link(): void
+    {
+        $this->actingAs($kim = $this->mkUser('sales'));
+        $l = $this->mkListing($kim, ['source' => 'encar', 'origin' => 'encar']);
+
+        Volt::test('listings.index')
+            ->call('openEdit', $l->id)
+            ->set('e_encar_url', 'https://fem.encar.com/cars/detail/41410821?advClickPosition=mweb_mopre_g8_t93'
+                .'&_gl=1*19pildd*_gcl_au*MTM1MDExODI0My4xNzg1NTE4MjM3Li0uLS4xNzg1NTE4MzA3LjYzMTgyMzEwMy4xNzg1NjE1NjUw'
+                .'LjE3ODU2NzgyODQ.*_ga*NTYxODc3NDUzLjE3ODU1MTgyMzc.*_ga_BQ7RK9J6BZ*czE3ODU2NzY5OTUkbzkkZzEkdDE3ODU2Nzgz')
+            ->call('update')
+            ->assertHasNoErrors();
+
+        $this->assertSame('https://fem.encar.com/cars/detail/41410821', $l->fresh()->encar_url);
+    }
+
+    /** carid= 구형 URL 은 경로 구조가 달라 손대지 않는다(정규화가 링크를 깨면 안 됨). */
+    public function test_canonical_encar_url_leaves_non_detail_links_alone(): void
+    {
+        $legacy = 'http://www.encar.com/dc/dc_cardetailview.do?carid=12345678&pageid=x';
+        $this->assertSame($legacy, ListingLink::canonicalEncarUrl($legacy));
+        $this->assertSame('https://www.ssancar.com/page/car_view.php?car_no=1', ListingLink::canonicalEncarUrl('https://www.ssancar.com/page/car_view.php?car_no=1'));
+        $this->assertSame('', ListingLink::canonicalEncarUrl(''));
+    }
+
     public function test_promote_via_ssancar_wr_id_link_sets_ssancar_ref(): void
     {
         Http::fake(['*ssancar.com*' => Http::response('<html>상세</html>', 200)]);   // 식별값 없음 → prefill 없음

@@ -262,6 +262,9 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
 
+        // 영업이 드로어에 직접 붙여넣는 링크도 같은 정리를 거친다(추가 폼과 동일 이유).
+        $this->e_encar_url = \App\Support\ListingLink::canonicalEncarUrl($this->e_encar_url);
+
         $this->validate([
             'e_region' => 'nullable|string|max:60',
             'e_c_no' => 'nullable|string|max:50',
@@ -436,6 +439,8 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         // 매입방법(source)은 유입 카테고리(origin)에서 도출 — 단일 소스 오브 트루스.
         $this->source = PurchaseListing::sourceForOrigin($this->origin);
+        // 추적 파라미터가 붙은 모바일 공유 링크는 255자를 넘는다 → 검증 전에 정리(ListingLink 주석 참조).
+        $this->encar_url = \App\Support\ListingLink::canonicalEncarUrl($this->encar_url);
 
         $this->validate([
             'origin' => 'required|in:'.implode(',', array_keys(PurchaseListing::ORIGIN_LABELS)),
@@ -829,6 +834,16 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <p class="mt-3 text-xs text-gray-500">{!! __('listings.add_form.note') !!}</p>
                 @error('source') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
+                {{-- 링크에서 자동으로 채워지는 값(출처·지역·금액·엔카 URL 등)은 입력칸이 없어 개별 에러가 안 보인다.
+                     그 경우 저장만 조용히 실패하므로, 저장 버튼 옆에서 모든 검증 에러를 모아 보여준다. --}}
+                @if ($errors->any())
+                    <div class="card-sm mt-3 border-red-200 bg-red-50 text-[13px] text-red-700">
+                        @foreach ($errors->all() as $message)
+                            <p>⚠ {{ $message }}</p>
+                        @endforeach
+                    </div>
+                @endif
+
                 <div class="mt-3 flex gap-2">
                     <button class="btn-primary btn-sm" wire:click="save">{{ __('common.save') }}</button>
                     <button class="btn-ghost btn-sm" wire:click="toggleAdd">{{ __('common.cancel') }}</button>
@@ -956,6 +971,14 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <div>{{ __('listings.drawer.buyer') }}<br>@if ($e->verdictLabel())<span class="badge {{ $e->verdictBadge() }}">{{ $e->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</div>
                     <div>{{ __('listings.drawer.buyer_name') }}<br><b class="text-gray-800">{{ $e->buyer_name ?: '—' }}</b></div>
                 </div>
+
+                @if ($errors->any())
+                    <div class="card-sm mt-4 border-red-200 bg-red-50 text-[13px] text-red-700">
+                        @foreach ($errors->all() as $message)
+                            <p>⚠ {{ $message }}</p>
+                        @endforeach
+                    </div>
+                @endif
 
                 <div class="mt-5 flex gap-2">
                     @if ($canEdit)
