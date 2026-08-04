@@ -33,6 +33,21 @@ new #[Layout('components.layouts.app')] class extends Component {
         return User::ROLE_LABELS[$r] ?? $r;
     }
 
+    /**
+     * 이 화면은 관리 role 도 쓰지만(2026-08-04 Jin), 시스템관리자 경계는 그대로 지킨다.
+     * 관리자는 super 지정·해제 불가 + super 계정 수정/비활성화 불가 — 아니면 관리가 스스로 super 가 되어
+     * 기능설정·감사로그까지 열리고(권한상승), super 비밀번호 변경으로 계정 탈취도 된다.
+     */
+    public function actorIsSuper(): bool
+    {
+        return (bool) Auth::user()?->isSuper();
+    }
+
+    private function targetIsProtected(?User $target): bool
+    {
+        return $target !== null && $target->isSuper() && ! $this->actorIsSuper();
+    }
+
     public function openCreate(): void
     {
         $this->reset(['editingId', 'name', 'email', 'phone', 'region', 'password', 'is_super', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email']);
@@ -45,6 +60,11 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function openEdit(int $id): void
     {
         $u = User::findOrFail($id);
+        if ($this->targetIsProtected($u)) {
+            session()->flash('err', __('users.err_super_target_forbidden'));
+
+            return;
+        }
         $this->editingId = $u->id;
         $this->name = $u->name;
         $this->email = $u->email;
@@ -85,12 +105,29 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
         $this->validate($rules);
 
-        // 본인 계정 보호 — 자기 시스템관리자 권한 해제·비활성화로 자기 잠금 방지
-        if ($this->editingId === Auth::id()) {
-            if (! $this->is_super) {
-                $this->addError('is_super', __('users.err_cannot_remove_own_super'));
+        $target = $this->editingId ? User::findOrFail($this->editingId) : null;
+
+        // 시스템관리자 경계 — 관리자는 super 계정을 수정할 수 없고, super 지정도 못 한다.
+        // is_super 는 public 프로퍼티라 화면에서 숨기는 것만으론 못 막는다. 최종 판정은 여기서.
+        if (! $this->actorIsSuper()) {
+            if ($this->targetIsProtected($target)) {
+                session()->flash('err', __('users.err_super_target_forbidden'));
 
                 return;
+            }
+            $this->is_super = false;
+        }
+
+        // 본인 계정 보호 — 자기 권한을 내려 스스로 잠기는 것 방지
+        if ($this->editingId === Auth::id()) {
+            if ($this->actorIsSuper()) {
+                if (! $this->is_super) {
+                    $this->addError('is_super', __('users.err_cannot_remove_own_super'));
+
+                    return;
+                }
+            } else {
+                $this->role = $target->role;   // 관리자가 자기 역할을 바꿔 사용자관리를 잃는 것 방지
             }
             $this->is_active = true;
         }
@@ -111,8 +148,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             $data['password'] = $this->password; // 'hashed' cast
         }
 
-        if ($this->editingId) {
-            User::findOrFail($this->editingId)->update($data);
+        if ($target) {
+            $target->update($data);
         } else {
             $data['email_verified_at'] = now();
             User::create($data);
@@ -131,6 +168,11 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
         $u = User::findOrFail($id);
+        if ($this->targetIsProtected($u)) {
+            session()->flash('err', __('users.err_super_target_forbidden'));
+
+            return;
+        }
         $u->is_active = ! $u->is_active;
         $u->save();
         unset($this->users);
@@ -181,9 +223,14 @@ new #[Layout('components.layouts.app')] class extends Component {
                             </td>
                             <td>
                                 <div class="flex gap-2">
-                                    <button class="btn-outline btn-sm" wire:click="openEdit({{ $u->id }})">✏️ {{ __('common.edit') }}</button>
-                                    @if ($u->id !== auth()->id())
-                                        <button class="btn-ghost btn-sm" wire:click="toggleActive({{ $u->id }})">{{ $u->is_active ? __('users.action_deactivate') : __('users.action_activate') }}</button>
+                                    {{-- 시스템관리자 계정은 시스템관리자만 손댄다 (서버 가드는 openEdit/save/toggleActive) --}}
+                                    @if ($u->isSuper() && ! $this->actorIsSuper())
+                                        <span class="text-xs text-gray-400">{{ __('users.super_row_locked') }}</span>
+                                    @else
+                                        <button class="btn-outline btn-sm" wire:click="openEdit({{ $u->id }})">✏️ {{ __('common.edit') }}</button>
+                                        @if ($u->id !== auth()->id())
+                                            <button class="btn-ghost btn-sm" wire:click="toggleActive({{ $u->id }})">{{ $u->is_active ? __('users.action_deactivate') : __('users.action_activate') }}</button>
+                                        @endif
                                     @endif
                                 </div>
                             </td>
@@ -248,10 +295,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <input class="input-base" wire:model="password" type="password" placeholder="{{ $editingId ? __('users.ph_password_keep') : __('users.ph_password_new') }}">
                 @error('password') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                <label class="mt-4 flex items-center gap-2 text-sm text-gray-700">
-                    <input type="checkbox" wire:model="is_super"> <b>{{ __('users.super_checkbox') }}</b> {{ __('users.super_checkbox_desc') }}
-                </label>
-                @error('is_super') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                {{-- 시스템관리자 지정은 시스템관리자만 (관리 role 이 스스로 super 가 되는 권한상승 차단) --}}
+                @if ($this->actorIsSuper())
+                    <label class="mt-4 flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" wire:model="is_super"> <b>{{ __('users.super_checkbox') }}</b> {{ __('users.super_checkbox_desc') }}
+                    </label>
+                    @error('is_super') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                @endif
 
                 <label class="mt-2 flex items-center gap-2 text-sm text-gray-700">
                     <input type="checkbox" wire:model="is_active"> {{ __('users.active_checkbox') }}

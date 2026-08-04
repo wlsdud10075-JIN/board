@@ -48,7 +48,8 @@ Route::middleware(['auth'])->group(function () {
     // auction role 은 데이터 호환용으로 잔존(경매역할 사실상 폐지, 2026-06-24 Jin).
     Volt::route('auction', 'auction.index')->middleware('role:sales,auction,manager')->name('auction');
     Volt::route('manage', 'manage.index')->middleware('role:manager')->name('manage');
-    Volt::route('users', 'users.index')->middleware('super')->name('users');
+    // 사용자관리는 관리 role 도 사용 (2026-08-04 Jin). 단 super 지정·super 계정 편집은 super 만 — 가드는 users.index 에.
+    Volt::route('users', 'users.index')->middleware('role:manager')->name('users');
     Volt::route('audit', 'audit.index')->middleware('super')->name('audit');
     Volt::route('admin/settings', 'admin.settings')->middleware('super')->name('admin.settings');
 

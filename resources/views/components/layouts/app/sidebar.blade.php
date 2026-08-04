@@ -66,7 +66,7 @@
             ['label' => __('nav.menu.manage'), 'href' => route('manage'), 'icon' => 'shield', 'active' => request()->routeIs('manage'), 'show' => $can(['manager'])],
         ]],
         ['key' => 'system', 'label' => __('nav.group.system'), 'items' => [
-            ['label' => __('nav.menu.users'), 'href' => route('users'), 'icon' => 'user-group', 'active' => request()->routeIs('users'), 'show' => $user->isSuper()],
+            ['label' => __('nav.menu.users'), 'href' => route('users'), 'icon' => 'user-group', 'active' => request()->routeIs('users'), 'show' => $can(['manager'])],
             ['label' => __('nav.menu.audit'), 'href' => route('audit'), 'icon' => 'document', 'active' => request()->routeIs('audit'), 'show' => $user->isSuper()],
             ['label' => __('nav.menu.settings'), 'href' => route('admin.settings'), 'icon' => 'cog', 'active' => request()->routeIs('admin.settings'), 'show' => $user->isSuper()],
         ]],

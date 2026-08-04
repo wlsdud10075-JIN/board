@@ -30,6 +30,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -1443,11 +1444,89 @@ class BoardTest extends TestCase
         $this->assertSame('SYNC0001', $l->fresh()->vin); // 연동된 차량은 식별값 불변
     }
 
-    public function test_user_management_is_super_only(): void
+    /** 사용자관리 = 관리 role + super (2026-08-04 Jin). 영업·검차는 여전히 차단. */
+    public function test_user_management_is_open_to_manager(): void
     {
         $this->actingAs($this->mkUser('sales'))->get('/users')->assertForbidden();
-        $this->actingAs($this->mkUser('manager'))->get('/users')->assertForbidden(); // 관리 role 이지만 super 아님
+        $this->actingAs($this->mkUser('inspection'))->get('/users')->assertForbidden();
+        $this->actingAs($this->mkUser('manager'))->get('/users')->assertOk();
         $this->actingAs($this->mkUser('manager', null, 'super'))->get('/users')->assertOk();
+    }
+
+    /** super 전용 화면(기능설정·감사로그)은 관리 role 에 열리지 않는다 — /users 개방이 새지 않았는지. */
+    public function test_super_only_screens_stay_closed_to_manager(): void
+    {
+        $this->actingAs($this->mkUser('manager'));
+        $this->get('/audit')->assertForbidden();
+        $this->get('/admin/settings')->assertForbidden();
+    }
+
+    /** 관리 role 은 super 를 지정할 수 없다 — 화면에서 숨겨도 프로퍼티는 조작 가능하므로 서버가 막는다. */
+    public function test_manager_cannot_grant_super(): void
+    {
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('users.index')
+            ->call('openCreate')
+            ->set('name', '침입')->set('email', 'esc@board.test')->set('role', 'manager')
+            ->set('is_super', true)
+            ->set('password', 'secret123')
+            ->call('save')->assertHasNoErrors();
+
+        $this->assertSame('user', User::where('email', 'esc@board.test')->value('permission'));
+    }
+
+    /** 관리 role 은 자기 자신도 super 로 승격할 수 없다(권한상승 차단). */
+    public function test_manager_cannot_self_promote_to_super(): void
+    {
+        $me = $this->mkUser('manager');
+        $this->actingAs($me);
+
+        Volt::test('users.index')
+            ->call('openEdit', $me->id)
+            ->set('is_super', true)
+            ->call('save')->assertHasNoErrors();
+
+        $this->assertFalse($me->fresh()->isSuper());
+        $this->assertSame('manager', $me->fresh()->role); // 자기 역할도 유지(스스로 잠금 방지)
+    }
+
+    /** 관리 role 은 super 계정을 수정·비활성화할 수 없다(비밀번호 교체를 통한 계정 탈취 차단). */
+    public function test_manager_cannot_touch_super_account(): void
+    {
+        $super = $this->mkUser('sales', 'boss@board.test', 'super');
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('users.index')
+            ->call('openEdit', $super->id)
+            ->assertSet('editingId', null)      // 드로어 자체가 안 열린다
+            ->set('editingId', $super->id)      // 직접 밀어넣어도
+            ->set('name', '탈취')->set('email', 'boss@board.test')->set('role', 'sales')
+            ->set('password', 'hacked123')
+            ->call('save')
+            ->call('toggleActive', $super->id);
+
+        $this->assertSame('sales', $super->fresh()->name);   // mkUser 는 name=role
+        $this->assertTrue($super->fresh()->is_active);
+        $this->assertTrue(Hash::check('password', $super->fresh()->password));
+    }
+
+    /** 관리 role 도 일반 계정은 만들고 고칠 수 있어야 한다(이번 개방의 본래 목적). */
+    public function test_manager_can_manage_normal_accounts(): void
+    {
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('users.index')
+            ->call('openCreate')
+            ->set('name', '새영업')->set('email', 'byman@board.test')->set('role', 'sales')
+            ->set('password', 'secret123')
+            ->call('save')->assertHasNoErrors();
+
+        $u = User::where('email', 'byman@board.test')->firstOrFail();
+        $this->assertSame('user', $u->permission);
+
+        Volt::test('users.index')->call('toggleActive', $u->id);
+        $this->assertFalse($u->fresh()->is_active);
     }
 
     public function test_super_accesses_all_views_and_sees_all_listings(): void

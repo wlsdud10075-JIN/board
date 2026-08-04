@@ -1,10 +1,10 @@
 <?php
 
-// 사용자 관리 화면(/users · super 전용).
+// 사용자 관리 화면(/users · 관리 role + super).
 
 return [
     'title' => '사용자 관리',
-    'subtitle' => '시스템관리자(super) 전용. 계정 생성·역할·시스템관리자 지정·활성여부. 비활성 계정은 업무화면 접근이 차단됩니다.',
+    'subtitle' => '계정 생성·역할·활성여부를 관리합니다. 비활성 계정은 업무화면 접근이 차단됩니다. 시스템관리자 지정과 시스템관리자 계정 수정은 시스템관리자만 가능합니다.',
     'add_user' => '사용자 추가',
     'edit_user' => '사용자 수정',
 
@@ -21,6 +21,7 @@ return [
     'status_inactive' => '비활성',
     'action_deactivate' => '비활성화',
     'action_activate' => '활성화',
+    'super_row_locked' => '시스템관리자 전용',
 
     // 폼
     'label_name' => '이름',
@@ -52,4 +53,5 @@ return [
     'saved' => '저장되었습니다.',
     'err_cannot_deactivate_self' => '본인 계정은 비활성화할 수 없습니다.',
     'err_cannot_remove_own_super' => '본인의 시스템관리자 권한은 해제할 수 없습니다.',
+    'err_super_target_forbidden' => '시스템관리자 계정은 시스템관리자만 수정할 수 있습니다.',
 ];
