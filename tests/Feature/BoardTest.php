@@ -3234,6 +3234,26 @@ class BoardTest extends TestCase
             ->assertSet('reqResult.skipped.0.reason', 'already_open');
     }
 
+    /**
+     * 칩 조회가 실패했는데 칩만 조용히 사라지면 화면이 "아무것도 요청 안 함" 과 똑같이 읽힌다.
+     * 버튼과 같은 원칙 — 사라지지 말고 사유를 말해야 한다.
+     */
+    public function test_portal_says_so_when_request_status_cannot_load(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test']);
+        $this->actingAs($sales);
+
+        Http::fake([
+            '*/api/internal/board/requests*' => Http::response('nope', 401),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        Volt::test('portal.index')->call('setTab', 'purchases')
+            ->assertSee(__('portal.req_chip_unavailable'));
+    }
+
     /** 전송 실패를 성공한 척하지 않는다(§11-4 항목 5) — 영업이 보냈다고 착각하면 카톡보다 나쁘다. */
     public function test_portal_request_degrades_loudly_on_failure(): void
     {
@@ -3267,8 +3287,18 @@ class BoardTest extends TestCase
 
         $c->call('toggleReqVehicle', 7, 12)->assertSet('reqPick.7', [34]);   // 해제
         $c->call('sendSaleConfirm', 9);
-        Http::assertSent(fn ($req) => ! str_contains($req->url(), '/requests')
-            || (json_decode($req->body(), true)['vehicle_ids'] ?? null) === [56]);   // 9번 바이어 차만 나간다
+
+        // ⚠️ assertSent 는 "한 건이라도 만족" 이다. 포털 mount 가 쏘는 /by-buyer·/sales 를
+        //    통과시키는 조건(`! str_contains`)을 쓰면 /requests 본문을 안 보고도 통과한다.
+        //    → /requests 가 아니면 false 로 떨궈서, 반드시 그 본문으로만 판정되게 한다.
+        Http::assertSent(function ($req) {
+            if (! str_contains($req->url(), '/requests')) {
+                return false;
+            }
+            $b = json_decode($req->body(), true);
+
+            return ($b['vehicle_ids'] ?? null) === [56] && ($b['buyer_id'] ?? null) === 9;
+        });
     }
 
     /**

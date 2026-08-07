@@ -187,7 +187,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
         $this->viewUserId = ($id !== null && $this->portalUsers->contains('id', $id)) ? $id : null;
         // 대상이 바뀌면 선적 편집상태(이전 사용자 차량 id)를 초기화.
-        $this->reset(['bundles', 'shippablePool', 'desired', 'syncResult', 'shipNote', 'changeNote', 'signResults', 'signStatus']);
+        $this->reset(['bundles', 'shippablePool', 'desired', 'syncResult', 'shipNote', 'changeNote', 'signResults', 'signStatus', 'reqPick', 'reqResult', 'reqNote']);
+        unset($this->boardRequests);
         $this->load();
     }
 
@@ -519,7 +520,17 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** 마지막 전송 결과(created/skipped) + 안내문. 성공한 척 금지(§11-4 항목 5). */
     public ?array $reqResult = null;
 
-    public string $reqNote = '';
+    /** 판매대금확인 메모 — 바이어별(buyer_id => 메모). 한 칸이면 A 에 쓴 게 B 칸에도 보인다. */
+    public array $reqNote = [];
+
+    /**
+     * 칩 조회 자체가 실패했나. 실패인데 칩만 안 그리면 화면이 "아무것도 요청 안 한 상태" 와
+     * 똑같이 읽힌다 — 영업이 다시 눌러 already_open 만 받는다. 버튼과 같은 원칙(사라지지 말고 사유를 말한다).
+     */
+    public function requestChipUnavailable(): bool
+    {
+        return ! ($this->boardRequests['ok'] ?? false);
+    }
 
     /** GET /requests 봉투 — 칩 표시용. ERP 집계값 그대로 쓴다(재계산·완료 coerce 금지). */
     #[Computed]
@@ -627,8 +638,9 @@ new #[Layout('components.layouts.app')] class extends Component {
      */
     private function applyRequest(string $type, array $vehicleIds, ?int $buyerId): bool
     {
+        $note = trim((string) ($this->reqNote[$buyerId ?? 0] ?? ''));
         $res = $this->svc()->sendBoardRequest(
-            $this->salesmanEmail(), $type, $vehicleIds, $buyerId, trim($this->reqNote) ?: null
+            $this->salesmanEmail(), $type, $vehicleIds, $buyerId, $note ?: null
         );
 
         if (! ($res['ok'] ?? false)) {
@@ -642,7 +654,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'created' => (array) data_get($res['data'], 'created', []),
             'skipped' => (array) data_get($res['data'], 'skipped', []),
         ];
-        $this->reqNote = '';
+        unset($this->reqNote[$buyerId ?? 0]);
         unset($this->boardRequests);   // 칩 즉시 갱신
 
         return true;
@@ -1338,6 +1350,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                 $detailByBuyer = collect($salesDetail)->groupBy(fn ($r) => data_get($r, 'buyer') ?: __('portal.buyer_unassigned_paren'));
             @endphp
             @include('livewire.portal._request-result')
+            @if ($this->requestChipUnavailable())
+                <p class="mb-2 text-[11px] text-amber-600">⚠️ {{ __('portal.req_chip_unavailable') }}</p>
+            @endif
             @forelse ($buyers as $b)
                 @php
                     $bName = data_get($b, 'buyer') ?: __('portal.buyer_unassigned_paren');
@@ -1417,7 +1432,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                         {{-- 판매대금확인 — 이 바이어 블록에서 고른 차량만. 🚫 금액칸 없음(§11-2). --}}
                         @if ($bid)
                             <div class="mt-2 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-2">
-                                <input class="input-base w-auto flex-1 text-[12px]" wire:model="reqNote" placeholder="{{ __('portal.req_note_ph') }}">
+                                <input class="input-base w-auto flex-1 text-[12px]" wire:model="reqNote.{{ $bid }}" placeholder="{{ __('portal.req_note_ph') }}">
                                 <button type="button" wire:click="sendSaleConfirm({{ $bid }})" @disabled($picked === [])
                                     wire:loading.attr="disabled" wire:target="sendSaleConfirm"
                                     class="btn-outline btn-sm shrink-0 {{ $picked === [] ? 'cursor-not-allowed opacity-40' : '' }}">
@@ -1475,6 +1490,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                 $cols = ['vehicle_number' => __('portal.col_vehicle'), 'purchase_price' => __('portal.col_purchase_price'), 'cost_total' => __('portal.col_cost_total'), 'purchase_unpaid' => __('portal.col_purchase_unpaid'), 'purchase_date' => __('portal.col_purchase_date')];
             @endphp
             @include('livewire.portal._request-result')
+            @if ($this->requestChipUnavailable())
+                <p class="mb-2 text-[11px] text-amber-600">⚠️ {{ __('portal.req_chip_unavailable') }}</p>
+            @endif
             <div class="hidden overflow-x-auto sm:block">
                 <table class="tbl">
                     <thead><tr>@foreach ($cols as $label)<th>{{ $label }}</th>@endforeach<th></th></tr></thead>

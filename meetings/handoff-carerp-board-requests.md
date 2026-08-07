@@ -82,7 +82,7 @@ board 만 먼저 master 에 올리면 운영 ERP 에 `/requests` 가 없어 전 
 
 1. `CarErpReadService::sendBoardRequest()` / `boardRequests()` — 기존 HMAC 전송(`send()`) 그대로 사용, 전송계층 무변경
 2. 매입 탭 행마다 **[입금요청]** (차량 1대)
-3. 판매 탭 바이어 블록에서 차량 체크 → **[판매대금확인]** (바이어 1 + N대). 바이어 블록 안에서만 고르게 되어 있어 **바이어 혼합이 구조적으로 불가능** — ERP 422 는 이중방어로 남는다
+3. 판매 탭 바이어 블록에서 차량 체크 → **[판매대금확인]** (바이어 1 + N대). 화면상 바이어 블록 안에서만 고르게 되어 있어 실수로 섞일 일은 없다. ⚠️ 다만 `toggleReqVehicle(buyerId, vehicleId)` 는 공개 Livewire 액션이라 **조작된 클라이언트 호출로는 섞인 묶음을 만들 수 있다** — 즉 **ERP 의 `422 buyer_mismatch` 가 진짜 보증이고, board UI 는 실수 방지용이다.** 그쪽 422 를 약화시키지 말 것
 4. 상태 칩 — `GET /requests` 값을 **그대로** 표시(open/partial/done/cancelled, 2대 이상이면 `3/5`). board 재계산·완료 coerce 없음
 5. degrade — 미설정·타인 포털 열람·전송실패를 전부 "전송 불가". 성공한 척 안 함
 6. 🚫 금액칸 없음. 테스트(`test_board_request_payload_carries_no_amount`)가 금액 키 재유입을 막는다

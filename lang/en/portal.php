@@ -63,6 +63,7 @@ return [
     'req_chip_done' => 'Confirmed',
     'req_chip_cancelled' => 'Cancelled',
     'req_chip_progress' => ':done/:total confirmed',
+    'req_chip_unavailable' => 'Could not load request status — an empty status below does not mean "not requested".',
     'flash_view_only_docs' => 'View-only. Download documents from your own account.',
     'flash_select_vehicle_docs' => 'Select the vehicle(s) to get documents for.',
     'flash_docs_failed' => 'Could not load documents. (Check the car-erp integration)',

@@ -63,6 +63,7 @@ return [
     'req_chip_done' => '확인됨',
     'req_chip_cancelled' => '취소됨',
     'req_chip_progress' => ':done/:total 확인',
+    'req_chip_unavailable' => '요청 상태를 조회하지 못했습니다 — 아래 상태 표시가 비어 있어도 "요청 안 함"이라는 뜻이 아닙니다.',
     'flash_view_only_docs' => '조회 전용입니다. 서류는 본인 계정에서 받으세요.',
     'flash_select_vehicle_docs' => '서류 받을 차량을 선택하세요.',
     'flash_docs_failed' => '서류를 불러올 수 없습니다. (car-erp 연동 확인)',
