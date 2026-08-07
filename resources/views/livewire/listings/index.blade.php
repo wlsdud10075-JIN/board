@@ -351,7 +351,12 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
 
         $this->resetErrorBag($field);
-        foreach (['origin', 'source', 'encar_id', 'encar_url', 'c_no', 'ssancar_ref'] as $k) {
+        // 셀프검차매입은 영업이 명시적으로 고른 카테고리다 — 링크 파싱이 덮어쓰면(엔카 URL → origin=encar)
+        // 방금 누른 토글이 조용히 풀린다. 식별자만 받고 카테고리는 선택을 유지.
+        $keys = $this->origin === PurchaseListing::ORIGIN_SELF_INSPECTION
+            ? ['encar_id', 'encar_url', 'c_no', 'ssancar_ref']
+            : ['origin', 'source', 'encar_id', 'encar_url', 'c_no', 'ssancar_ref'];
+        foreach ($keys as $k) {
             if (isset($r[$k])) {
                 $this->{$k} = $r[$k];
             }
@@ -515,6 +520,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
 
+        $selfInspection = $this->origin === PurchaseListing::ORIGIN_SELF_INSPECTION;
         $carCost = ($this->car_cost === null || $this->car_cost === '') ? null : (int) $this->car_cost;
         $discount = ($this->discount_rate === null || $this->discount_rate === '') ? null : (float) $this->discount_rate;
         $shipping = $this->shipping_usd ?: null;
@@ -547,8 +553,13 @@ new #[Layout('components.layouts.app')] class extends Component {
             'auction_venue' => $this->source === 'auction' ? ($this->auction_venue ?: null) : null,
             'lot_number' => $this->source === 'auction' ? ($this->lot_number ?: null) : null,
             'lock_at' => $this->source === 'auction' ? TimeGate::auctionLockAt() : null,
-            'status' => 'draft',
-            'buyer_verdict' => 'none',
+            // 셀프검차매입 = 현지확인·전달·회신 씬을 건너뛰고 바로 경매/구매로.
+            // 생성 시점이라 상태전이 가드(updating)를 타지 않는다 — TRANSITIONS 는 손대지 않음.
+            // buyer_verdict=accepted 는 "accepted 면 회신도 accepted" 불변식 유지용,
+            // verdict_channel=manual 은 respond.io 폴러(auto 만 조회)가 이 차를 집어가지 않게.
+            'status' => $selfInspection ? 'accepted' : 'draft',
+            'buyer_verdict' => $selfInspection ? 'accepted' : 'none',
+            'verdict_channel' => $selfInspection ? 'manual' : 'auto',
         ]);
         $listing->final_price = $listing->totalKrw($this->usdRate(), $this->eurRate());   // 최종금액(KRW) 스냅샷(차값통화 환산)
         $listing->save();
@@ -566,6 +577,15 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->resetForm();
         $this->showAdd = false;
         unset($this->listings);
+
+        // 셀프검차매입은 저장 즉시 경매/구매 탭에서 마무리한다 — 화면까지 데려다 준다.
+        if ($selfInspection) {
+            session()->flash('ok', __('listings.add_form.saved_self_flash', ['number' => $listing->vehicle_number]));
+            $this->redirect(route('auction'), navigate: true);
+
+            return;
+        }
+
         session()->flash('ok', __('listings.add_form.saved_flash'));
     }
 
@@ -740,7 +760,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                             class="rounded-md border px-3 py-1.5 text-[13px] font-semibold {{ $origin === $key ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">{{ $lbl }}</button>
                     @endforeach
                 </div>
-                <p class="mb-3 text-[11px] text-gray-400">{{ __('listings.add_form.method_prefix') }}<b>{{ $source === 'auction' ? __('listings.add_form.method_auction') : __('listings.add_form.method_encar') }}</b>{{ __('listings.add_form.method_suffix') }}</p>
+                @if ($origin === \App\Models\PurchaseListing::ORIGIN_SELF_INSPECTION)
+                    <p class="mb-3 text-[11px] text-gray-400">{{ __('listings.add_form.method_prefix') }}<b>{{ __('listings.add_form.method_self') }}</b></p>
+                @else
+                    <p class="mb-3 text-[11px] text-gray-400">{{ __('listings.add_form.method_prefix') }}<b>{{ $source === 'auction' ? __('listings.add_form.method_auction') : __('listings.add_form.method_encar') }}</b>{{ __('listings.add_form.method_suffix') }}</p>
+                @endif
                 @error('origin') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 {{-- 승격: 링크 붙여넣기 → 식별자 자동추출 + 자동채움. 엔카/ssancar 분리(둘 다 넣으면 합쳐서 채움). --}}

@@ -167,6 +167,67 @@ class BoardTest extends TestCase
         $this->assertSame(13000000 + 1640 * (int) config('board.default_krw_per_usd'), $l->final_price);
     }
 
+    /**
+     * 셀프검차매입 — ssancar 검차글(영상)이 없어 자동전이가 안 걸리는 차를
+     * 등록 즉시 accepted 로 만들어 경매/구매에서 마무리한다.
+     */
+    public function test_self_inspection_listing_goes_straight_to_auction(): void
+    {
+        $kim = $this->mkUser('sales');
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')
+            ->set('origin', 'self_inspection')
+            ->set('vehicle_number', '77사7777')
+            ->set('vin', 'SELFVIN0001')
+            ->set('car_cost', '10000000')->set('discount_rate', '0')->set('shipping_usd', 1640)
+            ->call('save')
+            ->assertHasNoErrors()
+            ->assertRedirect(route('auction'));
+
+        $l = PurchaseListing::where('vin', 'SELFVIN0001')->first();
+        $this->assertNotNull($l);
+        $this->assertSame('encar', $l->source);            // 즉시구매 — 경매 10:00 잠금 대상 아님
+        $this->assertNull($l->lock_at);
+        $this->assertSame('accepted', $l->status);         // 현지확인·전달·회신 건너뜀
+        $this->assertSame('accepted', $l->buyer_verdict);  // "accepted 면 회신도 accepted" 불변식 유지
+        $this->assertSame('manual', $l->verdict_channel);  // respond.io 폴러(auto 만 조회)가 안 집어감
+
+        // 경매/구매 화면에 바로 뜬다 → 정보 입력 후 구매확정 → 연동 B
+        Volt::test('auction.index')->assertSee('77사7777');
+    }
+
+    /** 셀프검차 차량이 현지확인 화면에 뜨면 이 기능이 건너뛰려던 그 화면에 되돌아온 것이다. */
+    public function test_self_inspection_listing_hidden_from_inspection_screen(): void
+    {
+        $kim = $this->mkUser('sales');
+        $this->mkListing($kim, ['vehicle_number' => '88아8888', 'region' => '경기 수원시']);   // 평범한 검차대기
+        $this->mkListing($kim, [
+            'vehicle_number' => '77사7777', 'origin' => 'self_inspection',
+            'region' => '경기 수원시', 'status' => 'accepted', 'buyer_verdict' => 'accepted',
+        ]);
+
+        $this->actingAs($this->mkUser('manager'));   // canAssign → 지역필터 없음(전체 노출)
+        Volt::test('inspection.index')
+            ->assertSee('88아8888')
+            ->assertDontSee('77사7777');
+    }
+
+    /** 링크 파싱이 origin 을 덮어써서 방금 누른 셀프검차 토글이 조용히 풀리면 안 된다. */
+    public function test_self_inspection_survives_encar_link_parse(): void
+    {
+        Http::fake(['*api.encar.com*' => Http::response(['vehicleNo' => '244로9100'], 200)]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->call('setOrigin', 'self_inspection')
+            ->set('encarLink', 'https://fem.encar.com/cars/detail/42176484')
+            ->call('parseLink', 'encar')
+            ->assertSet('origin', 'self_inspection')   // 카테고리는 영업의 선택 유지
+            ->assertSet('source', 'encar')
+            ->assertSet('encar_id', '42176484');       // 식별자는 그대로 받는다
+    }
+
     public function test_listings_blocks_active_duplicate_vin(): void
     {
         $kim = $this->mkUser('sales');

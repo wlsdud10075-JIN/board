@@ -8,6 +8,7 @@ use App\Models\Scopes\SalesmanScope;
 use App\Services\BoardAudit;
 use App\Support\Money;
 use Illuminate\Database\Eloquent\Attributes\ScopedBy;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -200,7 +201,15 @@ class PurchaseListing extends Model
         'ssancar_checking' => '싼카-체킹',
         'encar' => '엔카',
         'auction' => '경매',
+        'self_inspection' => '셀프검차매입',
     ];
+
+    /**
+     * 셀프검차매입 — 영업이 직접 검차한 차. ssancar 검차글(영상)이 없어서
+     * draft→inspected→awaiting_buyer 자동전이가 영영 안 걸린다(그래서 차가 갇혔다).
+     * 등록 즉시 accepted 로 만들어 /auction(경매·구매)에서 바로 마무리한다.
+     */
+    public const ORIGIN_SELF_INSPECTION = 'self_inspection';
 
     /** origin → 내부 매입방법(source). 워크플로/시간잠금/연동B 는 이 source 로 동작. */
     public const ORIGIN_SOURCE = [
@@ -209,6 +218,7 @@ class PurchaseListing extends Model
         'ssancar_checking' => 'encar',    // 싼카체킹 = 즉시구매
         'encar' => 'encar',
         'auction' => 'auction',
+        'self_inspection' => 'encar',     // 셀프검차매입 = 즉시구매(경매 10:00 잠금 대상 아님)
     ];
 
     public static function sourceForOrigin(string $origin): string
@@ -227,9 +237,29 @@ class PurchaseListing extends Model
 
     public function originBadge(): string
     {
+        if ($this->isSelfInspection()) {
+            return 'badge-purple';
+        }
+
         return str_starts_with((string) $this->origin, 'ssancar')
             ? 'badge-blue'
             : ($this->isAuction() ? 'badge-auction' : 'badge-encar');
+    }
+
+    public function isSelfInspection(): bool
+    {
+        return $this->origin === self::ORIGIN_SELF_INSPECTION;
+    }
+
+    /**
+     * 셀프검차매입 제외 — 현지확인 화면처럼 "검차 대상" 만 봐야 하는 쿼리용.
+     * origin 은 nullable 이라 `where('origin','!=',...)` 만 쓰면 NULL 행이 같이 사라진다.
+     */
+    public function scopeWhereNotSelfInspection(Builder $query): Builder
+    {
+        return $query->where(function (Builder $q) {
+            $q->whereNull('origin')->orWhere('origin', '!=', self::ORIGIN_SELF_INSPECTION);
+        });
     }
 
     /** 허용 전이: from => [to, ...] (manager override 는 우회) */

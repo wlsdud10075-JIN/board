@@ -73,6 +73,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $listings = PurchaseListing::with(['creator', 'photos'])
             ->whereIn('status', ['draft', 'inspected', 'awaiting_buyer', 'accepted'])
+            ->whereNotSelfInspection()   // 셀프검차 = 현지확인 대상 아님
             ->latest()
             ->get();
 
@@ -101,6 +102,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function pendingRegions()
     {
         return PurchaseListing::whereIn('status', ['draft', 'awaiting_buyer', 'accepted'])
+            ->whereNotSelfInspection()
             ->whereNotNull('region')
             ->distinct()->orderBy('region')->pluck('region');
     }
