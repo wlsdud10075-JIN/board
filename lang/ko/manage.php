@@ -56,6 +56,7 @@ return [
     'owner_name' => '소유자 (차주명)',
     'c_no' => '매물번호 (c_no)',
     'source' => '출처',
+    'origin' => '유입 카테고리',
     'region' => '지역',
     'region_placeholder' => '검사지역',
     'car_cost' => '차값',

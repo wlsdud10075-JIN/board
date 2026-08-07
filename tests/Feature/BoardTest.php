@@ -223,6 +223,32 @@ class BoardTest extends TestCase
             ->assertDontSee('77사7777');
     }
 
+    /**
+     * 셀프검차매입을 잘못 고른 차는 현지확인에서 origin 으로 걸러지므로,
+     * 관리자가 origin 을 되돌릴 수 없으면 그 차는 영영 검차대상에서 사라진다(편도 문).
+     */
+    public function test_manager_can_revert_self_inspection_back_to_inspection(): void
+    {
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, [
+            'vehicle_number' => '77사7777', 'origin' => 'self_inspection',
+            'region' => '경기 수원시', 'status' => 'accepted', 'buyer_verdict' => 'accepted',
+        ]);
+
+        $this->actingAs($this->mkUser('manager'));
+        Volt::test('inspection.index')->assertDontSee('77사7777');
+
+        Volt::test('manage.index')
+            ->call('openEdit', $l->id)
+            ->set('origin', 'encar')
+            ->set('status', 'draft')       // manager override 로 전이가드 우회
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertSame('encar', $l->fresh()->origin);
+        Volt::test('inspection.index')->assertSee('77사7777');   // 검차대상으로 복귀
+    }
+
     /** 링크 파싱이 origin 을 덮어써서 방금 누른 셀프검차 토글이 조용히 풀리면 안 된다. */
     public function test_self_inspection_survives_encar_link_parse(): void
     {
