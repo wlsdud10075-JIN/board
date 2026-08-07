@@ -59,6 +59,10 @@ board 와 car-erp 는 형제 디렉터리 + **별도 DB**다. artisan/tinker 실
 - `encar` 엔카(즉시구매) — **상시 등록**(시간잠금 없음). URL/딜러 기록(엔카 공식 API 없음).
 - `auction` 경매 — **10:00 등록 잠금**(TimeGate, 주말 제외, 관리자 우회). 경매장/출품번호.
 
+> 화면에 보이는 건 `source` 가 아니라 **유입 카테고리 `origin`**(`ORIGIN_LABELS`) — 싼카-경매/재고/체킹·엔카·경매·**셀프검차매입**. `source` 는 `ORIGIN_SOURCE` 로 도출(워크플로/TimeGate/연동B 는 source 로 동작). 연동 B payload 는 `source` 만 실어 보낸다 → origin 값 추가는 car-erp 무영향.
+>
+> **셀프검차매입(`self_inspection`, 2026-08-07)** = 영업이 직접 검차한 차. ssancar 검차글에 영상을 안 올리는 씬이 있어 `draft→inspected→awaiting_buyer` 자동전이가 영영 안 걸리고 차가 갇혔다. 등록 **생성 시점에 `status=accepted`**(생성이라 `updating` 전이가드를 안 탐 — TRANSITIONS 무변) + `buyer_verdict=accepted`(불변식) + `verdict_channel=manual`(respond.io 폴러 회피) → 저장 즉시 `/auction` 으로 redirect. **현지확인 화면에서 origin 으로 제외**(`scopeWhereNotSelfInspection` — origin 은 nullable 이라 `!=` 만 쓰면 NULL 행까지 사라진다). 잘못 고른 차는 **`/manage` 드로어에서 origin 을 되돌려** 검차대상으로 복귀시킨다.
+
 ### 상태머신 (`purchase_listings.status` — `PurchaseListing::TRANSITIONS`)
 ```
 draft(현지확인대기) → awaiting_buyer(회신대기) → accepted(구매대기/경매대기) → won(낙찰/구매확정) → synced(ERP전환완료)
