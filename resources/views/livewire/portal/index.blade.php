@@ -509,6 +509,150 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->load();
     }
 
+    // ─────────── §11 요청·확인 신호 (카톡 대체) ───────────
+    // 보내는 건 "해주세요" 두 마디뿐. 🚫 금액은 싣지 않는다(§11-2) — 금액칸을 만들지 말 것.
+    // 닫는 건 ERP 몫: 입금요청=매입 미지급 0 이면 자동소멸 / 판매대금확인=재무가 차량별 확인.
+
+    /** 판매대금확인 선택 — buyer_id => [vehicle_id, ...]. 바이어 블록 안에서만 고르므로 바이어 혼합이 불가능. */
+    public array $reqPick = [];
+
+    /** 마지막 전송 결과(created/skipped) + 안내문. 성공한 척 금지(§11-4 항목 5). */
+    public ?array $reqResult = null;
+
+    public string $reqNote = '';
+
+    /** GET /requests 봉투 — 칩 표시용. ERP 집계값 그대로 쓴다(재계산·완료 coerce 금지). */
+    #[Computed]
+    public function boardRequests(): array
+    {
+        return $this->svc()->boardRequests($this->salesmanEmail(), 'all');
+    }
+
+    /**
+     * 차량번호 → 그 차의 신호 상태. 없으면 null.
+     * 반환 = ['type'=>..., 'status'=>open|done|cancelled, 'batch'=>묶음상태, 'done'=>n, 'total'=>n].
+     * 묶음 진행도(3/5)는 판매대금확인에서만 의미가 있다(입금요청은 1대=1묶음).
+     */
+    public function requestChip(string $vehicleNumber, string $type): ?array
+    {
+        $env = $this->boardRequests;
+        if (! ($env['ok'] ?? false)) {
+            return null;
+        }
+
+        foreach ((array) data_get($env['data'], 'requests', []) as $batch) {
+            if (data_get($batch, 'type') !== $type) {
+                continue;
+            }
+            $lines = (array) data_get($batch, 'vehicles', []);
+            foreach ($lines as $line) {
+                if ((string) data_get($line, 'vehicle_number') !== $vehicleNumber) {
+                    continue;
+                }
+
+                return [
+                    'type' => $type,
+                    'status' => (string) data_get($line, 'status'),
+                    'batch' => (string) data_get($batch, 'status'),
+                    'done' => collect($lines)->where('status', 'done')->count(),
+                    'total' => count($lines),
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    /** 전송 가능 여부 — 타인 열람·미설정은 서버에서 먼저 막는다. 통과 시 null. */
+    private function requestBlocked(): ?string
+    {
+        if ($this->isViewingOther()) {
+            return __('portal.req_blocked_viewing');
+        }
+        if (! $this->svc()->configured()) {
+            return __('portal.req_blocked_unconfigured');
+        }
+
+        return null;
+    }
+
+    /** [입금요청] — 차량 1대. "이 차 입금해주세요". */
+    public function sendPurchasePayment(int $vehicleId): void
+    {
+        if ($msg = $this->requestBlocked()) {
+            $this->reqResult = ['error' => $msg];
+
+            return;
+        }
+        $this->applyRequest('purchase_payment', [$vehicleId], null);
+    }
+
+    /** 판매 탭 — 바이어 블록 안에서 차량 체크/해제. */
+    public function toggleReqVehicle(int $buyerId, int $vehicleId): void
+    {
+        $picked = $this->reqPick[$buyerId] ?? [];
+        $picked = in_array($vehicleId, $picked, true)
+            ? array_values(array_diff($picked, [$vehicleId]))
+            : [...$picked, $vehicleId];
+
+        if ($picked === []) {
+            unset($this->reqPick[$buyerId]);
+        } else {
+            $this->reqPick[$buyerId] = $picked;
+        }
+    }
+
+    /** [판매대금확인] — 바이어 1 + 차량 N. "이 바이어 차 N대 대금 넣었으니 확인해주세요". */
+    public function sendSaleConfirm(int $buyerId): void
+    {
+        if ($msg = $this->requestBlocked()) {
+            $this->reqResult = ['error' => $msg];
+
+            return;
+        }
+        $ids = $this->reqPick[$buyerId] ?? [];
+        if ($ids === []) {
+            $this->reqResult = ['error' => __('portal.req_pick_required')];
+
+            return;
+        }
+        if ($this->applyRequest('sale_payment_confirm', $ids, $buyerId)) {
+            unset($this->reqPick[$buyerId]);
+        }
+    }
+
+    /**
+     * 전송 단일 지점 — 결과를 화면에 그대로 편다.
+     * skipped 는 **실패가 아니다**(대개 already_open = 이미 보낸 것). created 와 함께 보여준다.
+     */
+    private function applyRequest(string $type, array $vehicleIds, ?int $buyerId): bool
+    {
+        $res = $this->svc()->sendBoardRequest(
+            $this->salesmanEmail(), $type, $vehicleIds, $buyerId, trim($this->reqNote) ?: null
+        );
+
+        if (! ($res['ok'] ?? false)) {
+            // 422 는 car-erp 가 이유를 준다(buyer_mismatch·buyer_required) — 원문을 살려 원인을 짚게.
+            $this->reqResult = ['error' => __('portal.req_send_failed', ['status' => $res['status'] ?? 0])];
+
+            return false;
+        }
+
+        $this->reqResult = [
+            'created' => (array) data_get($res['data'], 'created', []),
+            'skipped' => (array) data_get($res['data'], 'skipped', []),
+        ];
+        $this->reqNote = '';
+        unset($this->boardRequests);   // 칩 즉시 갱신
+
+        return true;
+    }
+
+    public function dismissReqResult(): void
+    {
+        $this->reqResult = null;
+    }
+
     /** ①② 서류 — 묶음 차량의 선적서류(method별 4종 중 2종). xlsx 스트림 다운로드. */
     public function downloadDocs(array $vehicleIds, string $method, string $kind)
     {
@@ -1193,11 +1337,15 @@ new #[Layout('components.layouts.app')] class extends Component {
                 $buyers = data_get($result['data'], 'data', []);
                 $detailByBuyer = collect($salesDetail)->groupBy(fn ($r) => data_get($r, 'buyer') ?: __('portal.buyer_unassigned_paren'));
             @endphp
+            @include('livewire.portal._request-result')
             @forelse ($buyers as $b)
                 @php
                     $bName = data_get($b, 'buyer') ?: __('portal.buyer_unassigned_paren');
                     $rows = $detailByBuyer[$bName] ?? collect();
                     $byCur = (array) data_get($b, 'sales_by_currency', []);
+                    // §11 판매대금확인 — 바이어 블록 안에서만 고르므로 "서로 다른 바이어 한 묶음"이 구조적으로 불가능.
+                    $bid = (int) data_get($b, 'buyer_id');
+                    $picked = $bid ? ($reqPick[$bid] ?? []) : [];
                 @endphp
                 <div class="card-sm mb-2" wire:key="sales-{{ $loop->index }}" x-data="{ open: false }">
                     <button type="button" class="flex w-full items-center gap-2 text-left font-bold text-gray-800" @click="open = !open">
@@ -1208,37 +1356,75 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <div x-show="open" x-cloak class="mt-2">
                         <div class="hidden overflow-x-auto sm:block">
                             <table class="tbl">
-                                <thead><tr><th>{{ __('portal.col_vehicle') }}</th><th>{{ __('portal.col_currency') }}</th><th>{{ __('portal.col_sale_price') }}</th><th>{{ __('portal.col_sale_date') }}</th></tr></thead>
+                                <thead><tr><th></th><th>{{ __('portal.col_vehicle') }}</th><th>{{ __('portal.col_currency') }}</th><th>{{ __('portal.col_sale_price') }}</th><th>{{ __('portal.col_sale_date') }}</th><th></th></tr></thead>
                                 <tbody>
                                     @forelse ($rows as $row)
+                                        @php
+                                            $vid = (int) data_get($row, 'vehicle_id');
+                                            $vno = (string) (data_get($row, 'vehicle_number') ?: '');
+                                            $chip = $vno !== '' ? $this->requestChip($vno, 'sale_payment_confirm') : null;
+                                        @endphp
                                         <tr>
+                                            <td class="w-8">
+                                                @if ($vid && $bid)
+                                                    <input type="checkbox" @checked(in_array($vid, $picked, true))
+                                                        wire:click="toggleReqVehicle({{ $bid }}, {{ $vid }})">
+                                                @else
+                                                    <span class="text-[11px] text-gray-300" title="{{ __('portal.req_blocked_no_vehicle_id') }}">—</span>
+                                                @endif
+                                            </td>
                                             <td class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') }}</td>
                                             <td>{{ data_get($row, 'currency') ?: '—' }}</td>
                                             <td>{{ ($p = data_get($row, 'sale_price')) !== null && is_numeric($p) ? number_format((float) $p) : '—' }}</td>
                                             <td>{{ data_get($row, 'sale_date') ?: '—' }}</td>
+                                            <td class="text-right">@include('livewire.portal._request-chip')</td>
                                         </tr>
                                     @empty
-                                        <tr><td colspan="4" class="py-3 text-center text-gray-400">{{ __('portal.sales_detail_empty') }}</td></tr>
+                                        <tr><td colspan="6" class="py-3 text-center text-gray-400">{{ __('portal.sales_detail_empty') }}</td></tr>
                                     @endforelse
                                 </tbody>
                             </table>
                         </div>
                         <div class="space-y-1.5 sm:hidden">
                             @forelse ($rows as $row)
+                                @php
+                                    $vid = (int) data_get($row, 'vehicle_id');
+                                    $vno = (string) (data_get($row, 'vehicle_number') ?: '');
+                                    $chip = $vno !== '' ? $this->requestChip($vno, 'sale_payment_confirm') : null;
+                                @endphp
                                 <div class="flex items-center justify-between gap-2 rounded-md border border-gray-100 bg-gray-50 px-2.5 py-2">
-                                    <div class="min-w-0">
-                                        <div class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') }}</div>
-                                        <div class="text-[11px] text-gray-400">{{ data_get($row, 'sale_date') ?: '—' }}</div>
+                                    <div class="flex min-w-0 items-center gap-2">
+                                        @if ($vid && $bid)
+                                            <input type="checkbox" class="shrink-0" @checked(in_array($vid, $picked, true))
+                                                wire:click="toggleReqVehicle({{ $bid }}, {{ $vid }})">
+                                        @endif
+                                        <div class="min-w-0">
+                                            <div class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') }}</div>
+                                            <div class="text-[11px] text-gray-400">{{ data_get($row, 'sale_date') ?: '—' }}</div>
+                                        </div>
                                     </div>
                                     <div class="shrink-0 text-right text-sm font-semibold text-gray-800">
                                         {{ ($p = data_get($row, 'sale_price')) !== null && is_numeric($p) ? number_format((float) $p) : '—' }}
                                         <span class="text-[11px] font-normal text-gray-400">{{ data_get($row, 'currency') ?: '' }}</span>
+                                        <div class="mt-0.5">@include('livewire.portal._request-chip')</div>
                                     </div>
                                 </div>
                             @empty
                                 <div class="py-3 text-center text-gray-400">{{ __('portal.sales_detail_empty') }}</div>
                             @endforelse
                         </div>
+
+                        {{-- 판매대금확인 — 이 바이어 블록에서 고른 차량만. 🚫 금액칸 없음(§11-2). --}}
+                        @if ($bid)
+                            <div class="mt-2 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-2">
+                                <input class="input-base w-auto flex-1 text-[12px]" wire:model="reqNote" placeholder="{{ __('portal.req_note_ph') }}">
+                                <button type="button" wire:click="sendSaleConfirm({{ $bid }})" @disabled($picked === [])
+                                    wire:loading.attr="disabled" wire:target="sendSaleConfirm"
+                                    class="btn-outline btn-sm shrink-0 {{ $picked === [] ? 'cursor-not-allowed opacity-40' : '' }}">
+                                    {{ $picked === [] ? __('portal.req_sale_btn') : __('portal.req_sale_btn_n', ['count' => count($picked)]) }}
+                                </button>
+                            </div>
+                        @endif
                     </div>
                 </div>
             @empty
@@ -1288,9 +1474,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                 $items = data_get($result['data'], 'data', []);
                 $cols = ['vehicle_number' => __('portal.col_vehicle'), 'purchase_price' => __('portal.col_purchase_price'), 'cost_total' => __('portal.col_cost_total'), 'purchase_unpaid' => __('portal.col_purchase_unpaid'), 'purchase_date' => __('portal.col_purchase_date')];
             @endphp
+            @include('livewire.portal._request-result')
             <div class="hidden overflow-x-auto sm:block">
                 <table class="tbl">
-                    <thead><tr>@foreach ($cols as $label)<th>{{ $label }}</th>@endforeach</tr></thead>
+                    <thead><tr>@foreach ($cols as $label)<th>{{ $label }}</th>@endforeach<th></th></tr></thead>
                     <tbody>
                         @forelse ($items as $row)
                             <tr>
@@ -1306,9 +1493,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                                         @endif
                                     </td>
                                 @endforeach
+                                <td class="whitespace-nowrap text-right">@include('livewire.portal._request-purchase-action')</td>
                             </tr>
                         @empty
-                            <tr><td colspan="{{ count($cols) }}" class="py-8 text-center text-gray-400">{{ __('portal.purch_empty') }}</td></tr>
+                            <tr><td colspan="{{ count($cols) + 1 }}" class="py-8 text-center text-gray-400">{{ __('portal.purch_empty') }}</td></tr>
                         @endforelse
                     </tbody>
                 </table>
@@ -1326,6 +1514,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <div>{{ $label }}<br><b class="text-gray-800">{{ ($val === null || ! is_numeric($val)) ? '—' : number_format((float) $val) }}</b></div>
                             @endforeach
                         </div>
+                        <div class="mt-2">@include('livewire.portal._request-purchase-action')</div>
                     </div>
                 @empty
                     <div class="py-8 text-center text-gray-400">{{ __('portal.purch_empty') }}</div>

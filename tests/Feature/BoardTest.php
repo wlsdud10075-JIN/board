@@ -3185,6 +3185,92 @@ class BoardTest extends TestCase
             ->assertSet('shipNote', __('portal.flash_docs_homogeneous_required'));
     }
 
+    // ─────────── §11 요청·확인 신호 (카톡 대체) ───────────
+
+    /** 🚫 §11-2 — 신호에 금액을 싣지 않는다. 이 테스트가 금액 필드 재유입을 막는 문지기다. */
+    public function test_board_request_payload_carries_no_amount(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        Http::fake(['*/api/internal/board/requests*' => Http::response(['batch_id' => null, 'created' => ['11가1111'], 'skipped' => []], 201)]);
+
+        app(CarErpReadService::class)
+            ->sendBoardRequest('s@ce.test', 'sale_payment_confirm', [12, 34], 7, '5/12 송금분');
+
+        Http::assertSent(function ($req) {
+            $body = json_decode($req->body(), true);
+            $this->assertSame('sale_payment_confirm', $body['type']);
+            $this->assertSame([12, 34], $body['vehicle_ids']);
+            $this->assertSame(7, $body['buyer_id']);
+            $this->assertSame('5/12 송금분', $body['note']);
+            // 금액으로 읽힐 수 있는 키가 하나도 없어야 한다.
+            foreach (['amount', 'price', 'krw', 'balance', 'payment_amount', 'total'] as $banned) {
+                $this->assertArrayNotHasKey($banned, $body);
+            }
+
+            return true;
+        });
+    }
+
+    /** 재전송해도 뱃지가 두 개 안 생긴다 — skipped(already_open) 는 실패가 아니라 "이미 보냄". */
+    public function test_portal_purchase_request_shows_created_and_skipped(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test']);
+        $this->actingAs($sales);
+
+        Http::fake([
+            '*/api/internal/board/requests*' => Http::sequence()
+                ->push(['batch_id' => null, 'created' => ['11가1111'], 'skipped' => []], 201)
+                ->push(['batch_id' => null, 'created' => [], 'skipped' => [['vehicle_number' => '11가1111', 'reason' => 'already_open']]], 201),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        Volt::test('portal.index')
+            ->call('sendPurchasePayment', 6)
+            ->assertSet('reqResult.created', ['11가1111'])
+            ->call('sendPurchasePayment', 6)
+            ->assertSet('reqResult.created', [])
+            ->assertSet('reqResult.skipped.0.reason', 'already_open');
+    }
+
+    /** 전송 실패를 성공한 척하지 않는다(§11-4 항목 5) — 영업이 보냈다고 착각하면 카톡보다 나쁘다. */
+    public function test_portal_request_degrades_loudly_on_failure(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test']);
+        $this->actingAs($sales);
+
+        Http::fake(['*' => Http::response(['error' => 'buyer_mismatch'], 422)]);
+
+        Volt::test('portal.index')
+            ->call('sendPurchasePayment', 6)
+            ->assertSet('reqResult.error', __('portal.req_send_failed', ['status' => 422]));
+    }
+
+    /** 판매대금확인 선택은 바이어별로 쌓인다 — 서로 다른 바이어가 한 묶음에 섞일 수 없는 구조. */
+    public function test_sale_confirm_selection_is_scoped_per_buyer(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test']);
+        $this->actingAs($sales);
+        Http::fake(['*' => Http::response(['count' => 0, 'data' => []], 200)]);
+
+        $c = Volt::test('portal.index')
+            ->call('toggleReqVehicle', 7, 12)
+            ->call('toggleReqVehicle', 7, 34)
+            ->call('toggleReqVehicle', 9, 56);
+
+        $c->assertSet('reqPick.7', [12, 34])->assertSet('reqPick.9', [56]);
+
+        $c->call('toggleReqVehicle', 7, 12)->assertSet('reqPick.7', [34]);   // 해제
+        $c->call('sendSaleConfirm', 9);
+        Http::assertSent(fn ($req) => ! str_contains($req->url(), '/requests')
+            || (json_decode($req->body(), true)['vehicle_ids'] ?? null) === [56]);   // 9번 바이어 차만 나간다
+    }
+
     /**
      * 서류 버튼 이름 = car-erp `vehicle.shipdoc.*` **그대로**(Jin 2026-08-01).
      * board 에서 다시 지으면 "ERP엔 그런 서류 없다" 가 된다 — 실제로 '계약서' 라 불러서 그랬다.

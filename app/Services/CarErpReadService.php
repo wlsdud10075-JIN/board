@@ -173,6 +173,47 @@ class CarErpReadService
     }
 
     /**
+     * §11 요청·확인 신호 — 카톡으로 하던 "해주세요" 두 마디를 옮긴 것.
+     *   purchase_payment      = "이 차 입금해주세요"       (차량 1대 단위 — id 를 여러 개 주면 각각 별개 묶음)
+     *   sale_payment_confirm  = "이 바이어 차 N대 확인해주세요" (바이어 1 + 차량 N = 한 묶음, buyer_id 필수)
+     *
+     * 🚫 **금액을 싣지 않는다(§11-2)**. 보내도 car-erp validate 화이트리스트가 버린다.
+     *    매입 지급액·판매 N잔금 기입은 전부 ERP 관리 이상의 일이다. 여기 금액 필드를 만들지 말 것.
+     *
+     * 응답 201 = {batch_id, created[], skipped[]}.
+     *  ⚠️ `batch_id` 는 **sale_payment_confirm 에서만** 채워진다(purchase_payment 는 null — 차량마다 별개 묶음).
+     *  ⚠️ `skipped[]` 는 항목마다 키가 다르다 — forbidden 은 `vehicle_id`, already_open 은 `vehicle_number`.
+     *    (둘 다 §11-3 문서와 어긋난 실제 구현. 권위는 구현 — car-erp `BoardRequestController::store`.)
+     *
+     * @param  list<int>  $vehicleIds
+     */
+    public function sendBoardRequest(string $email, string $type, array $vehicleIds, ?int $buyerId = null, ?string $note = null): array
+    {
+        $payload = [
+            'salesman_email' => $email,
+            'type' => $type,
+            'vehicle_ids' => array_values($vehicleIds),
+        ];
+        if ($buyerId !== null) {
+            $payload['buyer_id'] = $buyerId;
+        }
+        if ($note !== null && $note !== '') {
+            $payload['note'] = $note;
+        }
+
+        return $this->post('/requests', ['salesman_email' => $email], $payload);
+    }
+
+    /**
+     * GET /requests — 상태 폴링(칩 갱신). 응답 = {count, requests[{batch_id,type,status,buyer_name,requested_at,vehicles[]}]}.
+     * 묶음 status = open | partial | done | cancelled (ERP 집계값). **board 가 재계산·완료 coerce 금지**(§11-4 항목 4).
+     */
+    public function boardRequests(string $email, string $status = 'open'): array
+    {
+        return $this->get('/requests', ['salesman_email' => $email, 'status' => $status]);
+    }
+
+    /**
      * POST /shipping-requests/change-request — in_progress(관리 착수) 차의 명시적 변경/취소 요청.
      * 자동적용 안 함 — 관리가 화면에서 수락/거절(§5-2). omission 으로 취소 추론 금지.
      */
