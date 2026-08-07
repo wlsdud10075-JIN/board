@@ -193,8 +193,18 @@ class BoardTest extends TestCase
         $this->assertSame('accepted', $l->buyer_verdict);  // "accepted 면 회신도 accepted" 불변식 유지
         $this->assertSame('manual', $l->verdict_channel);  // respond.io 폴러(auto 만 조회)가 안 집어감
 
-        // 경매/구매 화면에 바로 뜬다 → 정보 입력 후 구매확정 → 연동 B
-        Volt::test('auction.index')->assertSee('77사7777');
+        // 경매/구매 화면에 바로 뜬다 → 정보 입력 후 구매확정 → 연동 B 까지 완주
+        Bus::fake();
+        Volt::test('auction.index')
+            ->assertSee('77사7777')
+            ->call('openDetail', $l->id)
+            ->set('owner_name', '차주')
+            ->set('payee_name', '판매상사')
+            ->call('conclude', $l->id, 'won')
+            ->assertHasNoErrors();
+
+        $this->assertSame('won', $l->fresh()->status);
+        Bus::assertDispatched(SyncWonListingToCarErp::class);
     }
 
     /** 셀프검차 차량이 현지확인 화면에 뜨면 이 기능이 건너뛰려던 그 화면에 되돌아온 것이다. */
