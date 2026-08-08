@@ -3254,6 +3254,27 @@ class BoardTest extends TestCase
             ->assertSee(__('portal.req_chip_unavailable'));
     }
 
+    /**
+     * ERP 읽기 API 는 정렬 없이(id 순) 준다 → 방금 넘어온 차가 목록 맨 아래로 밀렸다.
+     * 날짜 빈 행이 최신처럼 올라오면 더 헷갈리므로 그건 맨 뒤로 보낸다.
+     */
+    public function test_portal_lists_newest_vehicle_first(): void
+    {
+        $rows = [
+            ['vehicle_id' => 9, 'vehicle_number' => '오래된', 'purchase_date' => '2026-04-22'],
+            ['vehicle_id' => 59, 'vehicle_number' => '최신', 'purchase_date' => '2026-08-09'],
+            ['vehicle_id' => 60, 'vehicle_number' => '날짜없음', 'purchase_date' => null],
+            ['vehicle_id' => 61, 'vehicle_number' => '같은날_큰id', 'purchase_date' => '2026-04-22'],
+        ];
+
+        config(['services.car_erp.base_url' => '', 'services.car_erp.read_hmac_secret' => '']);
+        $this->actingAs($this->mkUser('sales'));
+
+        $sorted = Volt::test('portal.index')->instance()->latestFirst($rows, 'purchase_date');
+
+        $this->assertSame(['최신', '같은날_큰id', '오래된', '날짜없음'], array_column($sorted, 'vehicle_number'));
+    }
+
     /** 전송 실패를 성공한 척하지 않는다(§11-4 항목 5) — 영업이 보냈다고 착각하면 카톡보다 나쁘다. */
     public function test_portal_request_degrades_loudly_on_failure(): void
     {

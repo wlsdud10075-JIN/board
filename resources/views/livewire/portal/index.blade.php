@@ -665,6 +665,20 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->reqResult = null;
     }
 
+    /**
+     * 차량 목록을 최신 우선으로. ERP 읽기 API 는 정렬 없이(=id 순) 주기 때문에
+     * 방금 넘어온 차가 목록 맨 아래로 밀린다 — 화면에서 뒤집는다.
+     *
+     * 날짜가 비어 있는 행은 밀어내지 않고 맨 뒤로 보낸다(빈 값이 최신처럼 올라오면 더 헷갈린다).
+     * 같은 날짜는 vehicle_id 역순으로 가른다.
+     */
+    public function latestFirst(iterable $rows, string $dateKey): array
+    {
+        return collect($rows)
+            ->sortByDesc(fn ($r) => sprintf('%s|%012d', data_get($r, $dateKey) ?: '0000-00-00', (int) data_get($r, 'vehicle_id')))
+            ->values()->all();
+    }
+
     /** ①② 서류 — 묶음 차량의 선적서류(method별 4종 중 2종). xlsx 스트림 다운로드. */
     public function downloadDocs(array $vehicleIds, string $method, string $kind)
     {
@@ -1356,7 +1370,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             @forelse ($buyers as $b)
                 @php
                     $bName = data_get($b, 'buyer') ?: __('portal.buyer_unassigned_paren');
-                    $rows = $detailByBuyer[$bName] ?? collect();
+                    $rows = collect($this->latestFirst($detailByBuyer[$bName] ?? collect(), 'sale_date'));
                     $byCur = (array) data_get($b, 'sales_by_currency', []);
                     // §11 판매대금확인 — 바이어 블록 안에서만 고르므로 "서로 다른 바이어 한 묶음"이 구조적으로 불가능.
                     $bid = (int) data_get($b, 'buyer_id');
@@ -1486,7 +1500,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         @else
             {{-- 매입내역 — buyer 무관(경매/판매처) → 평면 목록 --}}
             @php
-                $items = data_get($result['data'], 'data', []);
+                // ERP 는 정렬 없이(=id 순) 준다 → 최근 매입이 맨 아래로 밀린다. 화면에서 최신 우선으로 뒤집는다.
+                $items = $this->latestFirst(data_get($result['data'], 'data', []), 'purchase_date');
                 $cols = ['vehicle_number' => __('portal.col_vehicle'), 'purchase_price' => __('portal.col_purchase_price'), 'cost_total' => __('portal.col_cost_total'), 'purchase_unpaid' => __('portal.col_purchase_unpaid'), 'purchase_date' => __('portal.col_purchase_date')];
             @endphp
             @include('livewire.portal._request-result')
