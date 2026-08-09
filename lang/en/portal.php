@@ -241,8 +241,8 @@ return [
     'inv_hint_awaiting_payment' => 'Vehicles with an outstanding purchase balance — these are the payment-request targets. They move into stock once paid.',
     'inv_hint_general' => 'Speculative purchases with no buyer yet (fully paid, not yet shipped out)',
     'inv_hint_pre_ship' => 'Sold vehicles, not yet shipped out',
-    'inv_hint_shipped_out' => 'Vehicles with a warehouse-out date, newest first. This set keeps growing, so only the latest 30 load first.',
-    'inv_search_ph' => 'Search vehicle no. / VIN',
+    'inv_hint_shipped_out' => 'Vehicles with a warehouse-out date, newest first. This set keeps growing, so only the latest 30 load first. Vessel names are searchable too, so you can pull up everything loaded on one ship.',
+    'inv_search_ph' => 'Search vehicle no. / VIN / vessel',
     'inv_empty' => 'No matching vehicles.',
     'inv_more' => 'Load more (:shown/:total)',
     'col_progress' => 'Progress',
@@ -250,4 +250,13 @@ return [
     'hide_done_sales' => 'Hide completed deals',
     'buyer_search_ph' => 'Search buyer',
     'buyer_search_empty' => 'No buyer matches your search.',
+
+    // §12 sailing (2026-08-09) — an axis orthogonal to progress status. Chip labels come straight from the
+    // ERP (`sailing_status`), so only board's own UI strings live here.
+    // ⚠️ Never shorten to "Arrived" — it only means the ETA has passed, not that arrival was confirmed.
+    'sailing_filter_label' => 'Sailing',
+    'sailing_all' => 'All',
+    'sailing_in_transit' => '🚢 In transit',
+    'sailing_arrived' => '⚓ ETA passed',
+    'sailing_totals_unfiltered' => 'The sailing filter applies to the vehicle rows only — buyer totals still cover everything.',
 ];

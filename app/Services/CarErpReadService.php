@@ -35,6 +35,12 @@ class CarErpReadService
         'sales_contract', 'invoice',
     ];
 
+    /**
+     * §12 운항 축 — car-erp `Vehicle::SAILING_PHASES` 와 **같은 값**. 판정은 ERP `scopeSailing` 단일출처다.
+     * board 가 선적일·ETA 로 자체 판정하면 "ERP 엔 운항중인데 board 엔 아님"이 생긴다(§12-5 흡수 금지).
+     */
+    public const SAILING_PHASES = ['in_transit', 'arrived'];
+
     private ?string $base;
 
     private ?string $secret;
@@ -92,14 +98,23 @@ class CarErpReadService
     }
 
     /**
+     * §12 운항 상태 — 필터를 받는 건 **`/sales` 뿐이다.** `/inventory` 는 필드만 실어 보내고
+     * `sailing` 쿼리는 안 읽는다(car-erp `InternalPortalController::inventory` 실측 2026-08-09).
+     * 거기에 파라미터를 얹으면 서버가 조용히 무시해 "운항중만 보기인데 전부 보이는" 화면이 된다.
+     *
      * @param  list<string>  $excludeStatus  제외할 진행상태(예: ['거래완료']). **서버에서** whereNotIn 으로 거른다
      *                                       — 받아놓고 화면에서 감추면 트래픽이 그대로라 의미가 없다.
+     * @param  string  $sailing  ''|in_transit|arrived. 진행상태와 **직교**하는 축이라 excludeStatus 와 동시에 걸린다.
+     *                           ⚠️ 영문 키만 — 쿼리는 HMAC canonical 대상이라 한글 라벨을 실으면 인코딩 차이로 서명이 깨진다.
      */
-    public function sales(string $email, array $excludeStatus = []): array
+    public function sales(string $email, array $excludeStatus = [], string $sailing = ''): array
     {
         $query = ['salesman_email' => $email];
         if ($excludeStatus !== []) {
             $query['exclude_status'] = implode(',', $excludeStatus);
+        }
+        if (in_array($sailing, self::SAILING_PHASES, true)) {
+            $query['sailing'] = $sailing;
         }
 
         return $this->get('/sales', $query);

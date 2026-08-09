@@ -239,8 +239,8 @@ return [
     'inv_hint_awaiting_payment' => '매입대금이 남은 차 — 입금요청 대상입니다. 지급이 끝나면 재고로 넘어갑니다.',
     'inv_hint_general' => '바이어 미정 투기매입 (매입 완납·출고 전)',
     'inv_hint_pre_ship' => '판매된 차 — 출고 전',
-    'inv_hint_shipped_out' => '출고일이 찍혀 재고에서 빠진 차 (최근 출고순). 계속 쌓이므로 최근 30건만 먼저 보여줍니다.',
-    'inv_search_ph' => '차량번호·차대번호 검색',
+    'inv_hint_shipped_out' => '출고일이 찍혀 재고에서 빠진 차 (최근 출고순). 계속 쌓이므로 최근 30건만 먼저 보여줍니다. 선박명으로도 검색되니 같은 배에 실린 차를 한 번에 볼 수 있습니다.',
+    'inv_search_ph' => '차량번호·차대번호·선박명 검색',
     'inv_empty' => '해당하는 차량이 없습니다.',
     'inv_more' => '더 보기 (:shown/:total)',
     'col_progress' => '진행상태',
@@ -248,4 +248,13 @@ return [
     'hide_done_sales' => '거래완료 숨기기',
     'buyer_search_ph' => '바이어 검색',
     'buyer_search_empty' => '검색과 일치하는 바이어가 없습니다.',
+
+    // §12 운항 상태 (2026-08-09) — 진행상태와 직교하는 축. 칩 라벨은 ERP 값(`sailing_status`)을 그대로 쓰므로
+    // 여기엔 board UI(필터 pill·안내)만 둔다. ⚠️ 「도착예정」을 「도착」으로 줄여 쓰지 말 것 —
+    // ETA 가 지났다는 뜻이지 실제 입항 확인이 아니다. 영업이 바이어에게 "도착했다"고 전하면 지연 시 클레임이 된다.
+    'sailing_filter_label' => '운항',
+    'sailing_all' => '전체',
+    'sailing_in_transit' => '🚢 운항중',
+    'sailing_arrived' => '⚓ 도착예정',
+    'sailing_totals_unfiltered' => '운항 필터는 차량 목록에만 걸립니다 — 바이어 합계는 전체 기준 그대로입니다.',
 ];
