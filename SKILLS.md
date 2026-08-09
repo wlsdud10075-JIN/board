@@ -164,6 +164,17 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 12. **`x-data="{...}"` 안 주석에 큰따옴표 → Alpine 이 통째로 죽음 (★2026-07-31 실제 발생)** — `x-data` 는 **큰따옴표 HTML 속성**이라 값 안의 `"` 하나에서 속성이 끊긴다. 주석이라도 예외 없음. 사이드바 x-data 주석에 `"열렸다가 즉시 접힘"` 을 넣었다가 `toggle()`·`closeMobile()`·`isMobile` 이 전부 사라져 **사이드바가 아예 안 열렸다**(에러 없이 조용히 죽음 — 콘솔도 안 봄). 여러 줄 JS 를 속성에 넣는 곳(레이아웃 사이드바 등)은 **작은따옴표만** 쓸 것. 회귀 테스트 = `test_sidebar_alpine_data_attribute_is_not_truncated`(x-data 가 `toggle()`·`closeMobile()` 까지 온전히 렌더되는지 — 잘리면 실패).
 13. **서류 타입에 method 접두를 잘못 붙이면 car-erp 403 (2026-08-01)** — 선적 4종만 `roro_`/`container_` 접두다. **`sales_contract`·`invoice`(프로포마 인보이스)는 리터럴 타입** — 접두를 붙이면 화이트리스트 밖 이름이 되어 403. ⚠️ 프로포마 인보이스의 car-erp 타입명은 **`invoice`**(`proforma_invoice` 아님)이고 선적 `roro_invoice_packing` 과 **다른 서류**다. 그리고 board 화이트리스트(`ALLOWED_DOC_TYPES`)에만 넣어도 소용없다 — **car-erp `BOARD_ALLOWED_TYPES` 에도 있어야 200**(실제로 `sales_contract` 가 board 에만 있어 몇 주간 전부 403이었다).
 
+14. **`Http::assertSent` 는 "한 건이라도 만족"이라 조용히 위양성 (★2026-08-08 실제로 냈다)** — 통과 조건에 `! str_contains($req->url(), '/requests')` 를 넣었더니, 컴포넌트 mount 가 쏘는 **다른 호출**(`/by-buyer`·`/sales`)이 그 조건을 먼저 만족시켜 **정작 검증하려던 본문을 안 보고 통과**했다. 틀린 `vehicle_ids` 를 보내도 초록불이다. → **관심 없는 요청은 `return false` 로 떨궈서** 대상 요청의 본문으로만 판정하게 할 것.
+    ```php
+    Http::assertSent(function ($req) {
+        if (! str_contains($req->url(), '/requests')) { return false; }   // 통과시키면 안 된다
+        $b = json_decode($req->body(), true);
+        return ($b['vehicle_ids'] ?? null) === [56] && ($b['buyer_id'] ?? null) === 9;
+    });
+    ```
+15. **nullable 컬럼에 `where(col,'!=',x)` 를 쓰면 NULL 행이 같이 사라진다 (2026-08-07)** — SQL 3값 논리라 `NULL != 'x'` 는 참이 아니다. `purchase_listings.origin` 은 nullable(구행 백필 이후 유입분)이라 `where('origin','!=','self_inspection')` 만 쓰면 **현지확인 화면에서 구행이 통째로 증발**한다. → 전용 스코프로 감쌀 것: `whereNull(col)->orWhere(col,'!=',x)` (`PurchaseListing::scopeWhereNotSelfInspection`).
+16. **car-erp `inStock()` 은 출고일뿐 아니라 "매입 완납"까지 본다 (★2026-08-09, 설계가 통째로 틀릴 뻔)** — `whereRaw(purchaseUnpaidRawExpr().' <= 0')` 이 들어 있어 **미지급이 남은 차는 재고가 아니다**. 그런데 §11 [입금요청]을 보낼 차가 정확히 그 차들이다. 재고 3분류(일반/선적전/출고완료)만 미러하면 **버튼 달 곳이 사라진다**. → ERP 재고관리의 **「지급대기」(`awaiting_payment`) 포함 4분류**를 쓰고, 그게 board 기본 탭이다. ⚠️ **car-erp 스코프를 미러할 땐 이름만 보지 말고 정의(scope 본문)를 열어볼 것.**
+
 ## 12. 연동 B 계약 — board "보내는 절반" (수신 = car-erp/heyman)
 > 두 앱(board·car-erp)이 만나는 **유일한 접점 = 이 API 계약**. DB·보안경계 다른 별도 앱이라 합치지 않고 계약으로 느슨하게 연결.
 > **계약은 두 면**: board=보내는 스펙(여기), car-erp=받는 스펙(car-erp docs). **문서 복사 금지(drift) → 각자 자기 절반 + 상호 링크.** 수신 로직(VIN 멱등·영업 매칭·vehicle 생성)은 car-erp 책임.
@@ -236,6 +247,31 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 - **🟢 운영 배포 + 시크릿 (2026-06-19, master aed439e)**: 포털·매물자동채움·다크사이드바 운영 라이브. **`CAR_ERP_READ_HMAC_SECRET=ssancar2`(board·car-erp 운영 양쪽 동일, config:cache 완료)**. board→car-erp 운영 e2e finance 200 검증.
 - ⚠️ **흔한 함정 = "연동 안됨" = 계정 매핑**(키 문제 아님): 포털은 로그인 영업의 `car_erp_salesman_email ?: email` 로 car-erp **활성 salesman** 조회 → 안 맞으면 **403 "조회 불가"**(빈 화면). 운영 board 계정 대부분 @board.test 라 미매칭. **`moo@board.test`(→moo@car-erp.test 매핑됨)로 로그인하면 데이터** / 다른 계정은 `/users` 에서 car-erp 영업 이메일 매핑. car-erp 활성 영업 = moo/art/leeyongbin@car-erp.test.
 - **운영 서버 ops**: 같은 Lightsail(`ubuntu@52.79.200.151`), board=`/var/www/board`·car-erp=`/var/www/car-erp`, SSH 키 = Jin PC `~/.ssh/car_erp_key`. .env 는 deploy 가 안 건드림(서버 수동 + `config:cache`).
+
+### 14-2. 재고 4분류 + §11 요청·확인 신호 (2026-08-09 배포, master `b0f875a`)
+
+포털 탭 구성 변경: **`매입내역` → `재고`**. 구 매입내역은 `purchase_price>0` **전량조회(무필터·무페이징)** 라 단조증가했다.
+
+- **재고 4분류** = `awaiting_payment`(지급대기) · `general`(일반재고) · `pre_ship`(선적전) · `shipped_out`(출고완료). car-erp `erp/inventory` 와 **같은 이름·같은 정의**(board 가 분류를 발명하지 않는다). 엔드포인트 = `GET /api/internal/board/inventory?category=…`.
+  - **기본 탭 = 지급대기** — [입금요청] 대상이 그 집합이기 때문(§11-16 참조).
+  - **`shipped_out` 만 영원히 누적** → 기본 30건 + `[더 보기]`(limit 증가, offset 아님 — 중복·누락 없이 다시 받음). 나머지 3분류는 유한(영업당 20~50대)이라 전량.
+  - **검색은 ERP 로 넘긴다**(`search=`) — 최근 30건만 받아놓고 board 에서 거르면 옛날 차를 영영 못 찾는다.
+- **§11 요청·확인 신호**(카톡 대체) = `POST/GET /api/internal/board/requests`. 매입 행마다 **[입금요청]**(차량 1대), 판매 바이어 블록에서 차량 체크 후 **[판매대금확인]**(바이어 1 + N대). 권위 = car-erp `board-portal-api.md §11`.
+  - 🚫 **금액을 싣지 않는다(§11-2)** — 보내도 ERP 가 버린다. 회귀 테스트 = `test_board_request_payload_carries_no_amount`.
+  - **상태 칩은 ERP 집계값 그대로**(open/partial/done/cancelled). board 가 재계산·완료 coerce 금지.
+  - 바이어 혼합은 **ERP 422 `buyer_mismatch` 가 진짜 보증**이다. board UI(바이어 블록 안에서만 체크)는 실수 방지용 — `toggleReqVehicle` 은 공개 Livewire 액션이라 조작된 호출로는 섞을 수 있다.
+- ⚠️ **"board 화면 필터"는 트래픽을 못 줄인다** — ERP 가 이미 전량을 조회·전송한 뒤 감추는 것뿐이다. **실제로 줄이려면 ERP 쿼리 파라미터**로 보내야 한다. 예: 판매내역 「거래완료 숨기기」는 `exclude_status=거래완료` 로 나가고, ERP 가 `whereNotIn` 으로 거른다. `progress_status_cache` 는 **인덱스가 있는 캐시 컬럼**이라 이 필터가 실제로 행을 줄인다(뱃지 표시 비용도 행당 문자열 하나, 추가 쿼리 0).
+- **진행상태 뱃지 = `progress_status_cache` 그대로**(판매중·판매완료·거래완료·매입중·매입완료·통관중·말소완료…). **추리거나 재명명 금지**(Jin 2026-08-09) — 갈리면 "ERP엔 있는데 board엔 없다"가 된다(§11-13 서류 이름과 같은 사고).
+- **칩 조회 실패를 감추지 말 것** — `GET /requests` 가 죽으면 칩이 전부 사라져 "아무것도 요청 안 함"과 똑같이 읽힌다. 탭마다 "상태 조회 불가" 한 줄(`req_chip_unavailable`). 버튼도 같은 원칙 — `vehicle_id` 없는 행은 **버튼을 없애지 말고 비활성 + 사유**.
+- **성능**: 칩은 `chipMap` 으로 **렌더당 1회**만 훑는다(행×묶음×차량 → 1회). 읽기 API 응답은 **정렬이 없다(=id 순)** → `latestFirst()` 로 최신 우선(날짜 desc, 빈 날짜는 맨 뒤).
+
+### 14-3. 로컬 e2e — board ↔ car-erp 연결 (매번 헷갈리는 지점)
+
+- 배선: board `:8003` → `CAR_ERP_BASE_URL=http://127.0.0.1:8001`. 양쪽 dev 브랜치로 띄우면 된다.
+- ⚠️ **`/portal` 은 계정 매핑이 없으면 403** — `car_erp_salesman_email ?: email` 로 car-erp **활성 salesman** 을 찾는다. board 계정 이메일이 car-erp `salesmen` 에 없으면 빈 화면(§14 함정과 동일).
+- ⚠️ **board 로컬과 car-erp 로컬은 서로 다른 시드다.** board 의 `car_erp_vehicle_id`(erp#180~201)는 **운영 ERP** 를 가리키고 car-erp 로컬엔 그 id 가 없다. 시드 차량으로 버튼만 눌러보면 "동작은 하는데 우리 차가 아닌" 테스트가 된다.
+  → **진짜 사슬을 만들려면**: board `/listings` 등록(셀프검차매입) → `/auction` 구매확정(won) → 연동 B 가 car-erp 에 차량 생성(`car_erp_vehicle_id` 회신) → 그 차가 `/portal` 재고에 같은 차량번호로 뜬다 → 거기서 [입금요청]. `QUEUE_CONNECTION=sync` 라 저장 즉시 발사된다.
+- ⚠️ **스펙 문서와 구현이 갈리면 구현이 권위**(§14 canonical 과 같은 교훈). 실제 사례: §11-3 문서는 `batch_id` 가 항상 발급된다고 썼는데 구현은 `purchase_payment` 일 때 **null**, `skipped[]` 키도 `forbidden`=`vehicle_id` / `already_open`=`vehicle_number` 로 **갈린다**. 클라이언트는 구현에 맞추고, 문서 정정은 그쪽 세션에 인계.
 
 ## 15. 사내 Notion 업무가이드 발행 + 허브 네비 표준 (Jin 지시 — "항상 이 상태로")
 > 사내 Notion "사내 업무 가이드" 갱신 = **MCP 아님**, 자체 스크립트 `scripts/notion-guide-publish.php`(Notion REST 직접). 토큰 = Windows **User env `NOTION_TOKEN`**. 세션이 토큰 등록 전에 켜졌으면 `getenv()` 못 잡음 → PowerShell 인라인 주입: `$env:NOTION_TOKEN=[Environment]::GetEnvironmentVariable('NOTION_TOKEN','User'); php scripts/notion-guide-publish.php --apply`. **발행=라이브 즉시반영** → apply 전 인자 없이 dry-run 으로 블록수 확인.

@@ -44,8 +44,11 @@ board 와 car-erp 는 형제 디렉터리 + **별도 DB**다. artisan/tinker 실
 | URL | 라우트명 | 접근 |
 |---|---|---|
 | `/listings` | listings | 영업 / 관리 / super |
+| `/forwarding` | forwarding | 영업 / 관리 / super — 검차완료 차 바이어 전달(견적 금액 입력) |
+| `/verdicts` | verdicts | 영업 / 관리 / super — 바이어 회신 수락/거절 |
 | `/inspection` | inspection | 현지확인 / 관리 / super |
-| `/auction` | auction | 경매 / 관리 / super |
+| `/auction` | auction | **영업** / 경매 / 관리 / super (경매역할 사실상 폐지, 2026-06-24) |
+| `/portal` | portal | 영업 / 관리 / super — car-erp 읽기 미러(재고·미수·판매·정산·선적요청·서류·§11 신호) |
 | `/manage` | manage | 관리 / super |
 | `/users` | users | 관리 / super (2026-08-04 Jin) — 단 **super 지정·super 계정 수정/비활성화는 super 만**(화면 내 가드). 관리자는 자기 role 변경도 불가(자기잠금 방지) |
 | `/audit` | audit | **super 전용** — 감사로그(변경이력 board_audit_logs + car-erp 전송 integration_events) |
@@ -87,13 +90,18 @@ draft(현지확인대기) → awaiting_buyer(회신대기) → accepted(구매�
 - **`board_audit_logs`**: append-only(updated_at 없음). user_id · purchase_listing_id · action(status_change/field_edit) · field · old_value · new_value. `App\Services\BoardAudit::logChanges()` 단일 경로.
 - **`users`**: + role · permission · is_active · **car_erp_salesman_id**(연동 B 보조 매핑).
 
-## 4(+2) 화면 (Volt, `resources/views/livewire/*/index.blade.php`)
+## 업무 화면 (Volt, `resources/views/livewire/*/index.blade.php`)
+> ⚠️ 아래는 주요 화면만이다. **실제 화면 수는 더 많다**(`resources/views/livewire/` 를 볼 것 — forwarding·verdicts·portal·assistant·notify 등).
+> 화면 이름·탭 이름을 사용자에게 안내하기 전에 **lang 파일에서 실제 렌더 문자열을 확인**할 것(추측 금지 — 실제로 틀린 안내를 했다).
 1. **listings**(영업): 매입예정 추가(출처 토글·TimeGate 가드, 차량번호/소유자/차값/할인 가로 grid) + 본인 글 행클릭 편집 드로어.
 2. **inspection**(현지확인): 지역별 그룹 + 모바일 드로어(사진/영상 업로드·메모·최종금액). **전달/회신 = "선택 후 저장" 수동씬**(클릭=색강조만, 하단 저장이 상태전이 커밋).
 3. **auction**(경매/구매): accepted 차량 낙찰/유찰·구매확정/취소(→ won/failed) + 소유자·입금정보. won → 연동 B 자동 push.
 4. **manage**(관리자): KPI 5종(**클릭=그 차원 필터 토글**) + **필터(검색·상태·출처·회신, 가로 grid) + 페이지네이션(20)** 전체현황 + **무제한 수정 드로어(어지간한 필드 전부 — 식별값은 미연동만)**. 모든 변경은 옵저버가 감사기록.
 5. **users**(관리·super): 계정 생성·역할·활성토글·**car-erp 영업 이메일 매핑**. **시스템관리자 지정 체크박스와 super 계정 행은 super 에게만** 노출·허용(서버 가드 = `save`/`openEdit`/`toggleActive`).
 6. **audit**(super): 감사로그 — 변경이력(board_audit_logs, 상태/회신/출처 한글표시) + car-erp 전송로그(integration_events payload). 페이지네이션. /manage 에서 분리.
+7. **forwarding**(영업): 검차완료(inspected) 차 견적 금액 입력 → 바이어 전달(awaiting_buyer).
+8. **verdicts**(영업): 회신대기 차 수락/거절 처리.
+9. **portal**(영업·관리): car-erp 읽기 미러 — 탭 = `요약`·`미수금`·**`재고`**(지급대기/일반재고/선적전/출고완료)·`판매내역`·`정산내역`·`선적요청`. §11 신호 버튼([입금요청]·[판매대금확인])이 여기 있다. 상세 = `SKILLS.md §14`.
 
 ## 계정 (시드, 전부 비번 `password`)
 | 이메일 | permission | role |
@@ -154,6 +162,8 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
 - **연동 C** (car-erp 입금 → respond.io): car-erp 측 작업, board 무관.
 - **운영/배포**: S3 전환(`BOARD_PHOTO_DISK=s3`, car-erp 버킷 prefix 재사용)·deploy.yml matrix(heymanboard+ssancarboard 자동배포)·도메인(`board.heymancar.com`)·DB 백업 완료.
 - **§6 현지검차 UX·금액 재설계**: Model A 로 배포(2026-07-07, 씬재배치 포함). 권위 = `meetings/board-flow-resequencing-2026-07-06.md`. [메모리 board-flow-model-a-deployed]
+- **셀프검차매입**(2026-08-09 배포, master `03f45fb`): 영업이 직접 검차한 차 — ssancar 검차글에 영상이 없어 자동전이가 안 걸리고 갇히던 경로. 등록 즉시 `accepted` 로 만들어 `/auction` 에서 마무리. 상세 = 위 「출처」 절.
+- **§11 요청·확인 신호 + 재고 4분류**(2026-08-09 배포, master `b0f875a`): 카톡으로 하던 "입금해주세요/대금 확인해주세요" 두 마디를 포털로. 같이 **`매입내역` 탭을 `재고` 4분류로 교체**(전량조회 → 유한 집합). 상세·함정 = `SKILLS.md §14-2·§14-3`, 인계 = `meetings/handoff-carerp-board-requests.md`·`handoff-carerp-inventory-for-board.md`.
 
 ## 현재 도메인 규칙 (§6 재설계 반영 — 코딩 시 준수)
 
