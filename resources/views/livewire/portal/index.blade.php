@@ -48,11 +48,38 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public bool $hidePaid = true;             // 0원(완납) 숨김
 
+    // ── 재고 4분류 (구 「매입내역」 대체) ──
+    // 매입내역은 purchase_price>0 전량조회라 단조증가했다. ERP `erp/inventory` 분류를 미러해 집합을 유한하게 만든다.
+    // ⚠️ 지급대기(awaiting_payment)가 [입금요청] 대상 — inStock() 이 매입 완납까지 보기 때문에
+    //    미지급이 남은 차는 재고 3분류 어디에도 없다. 이 탭이 없으면 버튼 달 곳이 사라진다.
+    public string $invCategory = 'awaiting_payment';
+
+    public string $invSearch = '';
+
+    public array $invRows = [];
+
+    public int $invTotal = 0;
+
+    /** shipped_out 만 누적된다 → 끊어 받는다. 나머지 3분류는 유한(영업당 20~50대)이라 전량. */
+    public const INV_PAGE = 30;
+
+    public int $invLimit = self::INV_PAGE;
+
+    // ── 판매내역 ──
+    /** 거래완료 숨김 — **서버로 보내서** 거른다(받아놓고 감추면 트래픽이 그대로다). */
+    public bool $hideDoneSales = true;
+
+    /** 바이어가 많아지면 특정 바이어까지 스크롤해야 한다 → 이름 부분일치로 좁힌다. */
+    public string $buyerSearch = '';
+
     public array $monthly = [];               // 요약 탭 월별 집계(판매 건수·정산 실지급·매입)
 
     public array $salesDetail = [];           // 판매내역 펼침용 per-vehicle (바이어별 차량 리스트)
 
-    private const TABS = ['finance', 'receivables', 'purchases', 'sales', 'settlements', 'shipping'];
+    private const TABS = ['finance', 'receivables', 'inventory', 'sales', 'settlements', 'shipping'];
+
+    /** 재고 4분류 — ERP `erp/inventory` 와 **같은 이름·같은 정의**. board 가 새로 만들지 않는다. */
+    private const INV_CATEGORIES = ['awaiting_payment', 'general', 'pre_ship', 'shipped_out'];
 
     /**
      * 월별 집계 — 날짜 있는 리스트(판매/정산/매입)에서 YYYY-MM 별 집계.
@@ -109,6 +136,22 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function mount(): void
     {
         $this->load();
+    }
+
+    /**
+     * 서버 재조회가 필요한 입력만 여기서 다시 부른다.
+     * 재고 검색·거래완료 숨김은 **ERP 쿼리 파라미터**라 화면 필터링과 달리 재요청이 있어야 반영된다.
+     * (바이어 검색은 by-buyer 응답을 화면에서 좁히는 것뿐이라 재조회 없음.)
+     */
+    public function updated(string $prop): void
+    {
+        if ($prop === 'invSearch') {
+            $this->invLimit = self::INV_PAGE;
+            $this->load();
+        }
+        if ($prop === 'hideDoneSales') {
+            $this->load();
+        }
     }
 
     public function setTab(string $tab): void
@@ -188,7 +231,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->viewUserId = ($id !== null && $this->portalUsers->contains('id', $id)) ? $id : null;
         // 대상이 바뀌면 선적 편집상태(이전 사용자 차량 id)를 초기화.
         $this->reset(['bundles', 'shippablePool', 'desired', 'syncResult', 'shipNote', 'changeNote', 'signResults', 'signStatus', 'reqPick', 'reqResult', 'reqNote']);
-        unset($this->boardRequests);
+        unset($this->boardRequests, $this->chipMap);
         $this->load();
     }
 
@@ -198,7 +241,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $svc = $this->svc();
         $this->result = match ($this->tab) {
             'receivables' => $svc->receivables($email),
-            'purchases' => $svc->purchases($email),
+            'inventory' => $this->loadInventory($email, $svc),
             // 판매·정산 = 바이어별 집계(통화별 판매합 / 정산 payout). 같은 by-buyer 엔드포인트.
             'sales', 'settlements' => $svc->byBuyer($email),
             'shipping' => $this->loadShipping($email, $svc),
@@ -207,11 +250,49 @@ new #[Layout('components.layouts.app')] class extends Component {
         // 판매내역 = by-buyer(헤더) + per-vehicle 상세(펼침용 차량 리스트).
         $this->salesDetail = [];
         if ($this->tab === 'sales') {
-            $s = $svc->sales($email);
+            // 거래완료 제외는 **서버측 필터**(exclude_status) — 인덱스 컬럼이라 실제로 행이 줄어든다.
+            $s = $svc->sales($email, $this->hideDoneSales ? ['거래완료'] : []);
             $this->salesDetail = ($s['ok'] ?? false) ? (array) data_get($s['data'], 'data', []) : [];
         }
         // 요약 탭 = 합계 + 월별(판매/정산/매입). 다른 탭은 월별 불필요.
         $this->monthly = $this->tab === 'finance' ? $this->buildMonthly($email) : [];
+    }
+
+    /**
+     * 재고 로딩 — 카테고리 하나만 받는다(탭 전환 = 재조회). 반환 = degrade 봉투.
+     * shipped_out 만 limit/offset(누적되는 유일한 분류) — 나머지는 전량.
+     */
+    private function loadInventory(string $email, CarErpReadService $svc): array
+    {
+        $paged = $this->invCategory === 'shipped_out';
+        $env = $svc->inventory($email, $this->invCategory, $this->invSearch, $paged ? $this->invLimit : null);
+
+        $this->invRows = ($env['ok'] ?? false) ? (array) data_get($env['data'], 'data', []) : [];
+        $this->invTotal = (int) data_get($env['data'], 'total', count($this->invRows));
+
+        return $env;
+    }
+
+    public function setInvCategory(string $c): void
+    {
+        if (! in_array($c, self::INV_CATEGORIES, true)) {
+            return;
+        }
+        $this->invCategory = $c;
+        $this->invLimit = self::INV_PAGE;   // 분류를 바꾸면 [더 보기] 깊이는 초기화
+        $this->load();
+    }
+
+    /** 출고완료 [더 보기] — offset 이 아니라 limit 을 키운다(중복·누락 없이 한 번에 다시 받음). */
+    public function invMore(): void
+    {
+        $this->invLimit += self::INV_PAGE;
+        $this->load();
+    }
+
+    public function hasMoreInventory(): bool
+    {
+        return $this->invCategory === 'shipped_out' && count($this->invRows) < $this->invTotal;
     }
 
     /**
@@ -546,32 +627,42 @@ new #[Layout('components.layouts.app')] class extends Component {
      */
     public function requestChip(string $vehicleNumber, string $type): ?array
     {
+        return $this->chipMap[$type][$vehicleNumber] ?? null;
+    }
+
+    /**
+     * "type|차량번호 → 칩" 표를 렌더당 한 번만 만든다.
+     * 행마다 전체 신호 목록을 다시 훑으면 행×묶음×차량이라, 신호가 쌓일수록 조용히 느려진다.
+     */
+    #[Computed]
+    public function chipMap(): array
+    {
         $env = $this->boardRequests;
         if (! ($env['ok'] ?? false)) {
-            return null;
+            return [];
         }
 
+        $map = [];
         foreach ((array) data_get($env['data'], 'requests', []) as $batch) {
-            if (data_get($batch, 'type') !== $type) {
-                continue;
-            }
+            $type = (string) data_get($batch, 'type');
             $lines = (array) data_get($batch, 'vehicles', []);
+            $done = collect($lines)->where('status', 'done')->count();
             foreach ($lines as $line) {
-                if ((string) data_get($line, 'vehicle_number') !== $vehicleNumber) {
+                $no = (string) data_get($line, 'vehicle_number');
+                if ($no === '') {
                     continue;
                 }
-
-                return [
+                $map[$type][$no] = [
                     'type' => $type,
                     'status' => (string) data_get($line, 'status'),
                     'batch' => (string) data_get($batch, 'status'),
-                    'done' => collect($lines)->where('status', 'done')->count(),
+                    'done' => $done,
                     'total' => count($lines),
                 ];
             }
         }
 
-        return null;
+        return $map;
     }
 
     /** 전송 가능 여부 — 타인 열람·미설정은 서버에서 먼저 막는다. 통과 시 null. */
@@ -655,7 +746,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'skipped' => (array) data_get($res['data'], 'skipped', []),
         ];
         unset($this->reqNote[$buyerId ?? 0]);
-        unset($this->boardRequests);   // 칩 즉시 갱신
+        unset($this->boardRequests, $this->chipMap);   // 칩 즉시 갱신
 
         return true;
     }
@@ -828,7 +919,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     {{-- 탭 --}}
     <div class="mb-3 flex flex-wrap gap-1">
-        @foreach (['finance' => __('portal.tab.finance'), 'receivables' => __('portal.tab.receivables'), 'purchases' => __('portal.tab.purchases'), 'sales' => __('portal.tab.sales'), 'settlements' => __('portal.tab.settlements'), 'shipping' => '🚢 '.__('portal.tab.shipping')] as $key => $label)
+        @foreach (['finance' => __('portal.tab.finance'), 'receivables' => __('portal.tab.receivables'), 'inventory' => __('portal.tab.inventory'), 'sales' => __('portal.tab.sales'), 'settlements' => __('portal.tab.settlements'), 'shipping' => '🚢 '.__('portal.tab.shipping')] as $key => $label)
             <button wire:click="setTab('{{ $key }}')"
                 class="rounded-md border px-3 py-1.5 text-[13px] font-semibold {{ $tab === $key ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">{{ $label }}</button>
         @endforeach
@@ -1362,8 +1453,21 @@ new #[Layout('components.layouts.app')] class extends Component {
             @php
                 $buyers = data_get($result['data'], 'data', []);
                 $detailByBuyer = collect($salesDetail)->groupBy(fn ($r) => data_get($r, 'buyer') ?: __('portal.buyer_unassigned_paren'));
+                // 바이어가 많아지면 특정 바이어까지 스크롤해야 한다 → 이름 부분일치로 좁힌다(by-buyer 는 행 수가 적어 화면에서 처리).
+                if (trim($buyerSearch) !== '') {
+                    $needle = mb_strtolower(trim($buyerSearch));
+                    $buyers = collect($buyers)->filter(fn ($b) => str_contains(mb_strtolower((string) data_get($b, 'buyer')), $needle))->values()->all();
+                }
             @endphp
             @include('livewire.portal._request-result')
+            <div class="mb-3 flex flex-wrap items-center gap-3">
+                <input class="input-base w-auto max-w-[220px] text-[12px]" wire:model.live.debounce.300ms="buyerSearch"
+                       placeholder="{{ __('portal.buyer_search_ph') }}">
+                {{-- 거래완료 제외는 ERP 쿼리 파라미터로 나간다(인덱스 컬럼) — 받아놓고 감추는 게 아니다. --}}
+                <label class="flex cursor-pointer items-center gap-1.5 text-[12px] text-gray-600">
+                    <input type="checkbox" wire:model.live="hideDoneSales"> {{ __('portal.hide_done_sales') }}
+                </label>
+            </div>
             @if ($this->requestChipUnavailable())
                 <p class="mb-2 text-[11px] text-amber-600">⚠️ {{ __('portal.req_chip_unavailable') }}</p>
             @endif
@@ -1385,7 +1489,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <div x-show="open" x-cloak class="mt-2">
                         <div class="hidden overflow-x-auto sm:block">
                             <table class="tbl">
-                                <thead><tr><th></th><th>{{ __('portal.col_vehicle') }}</th><th>{{ __('portal.col_currency') }}</th><th>{{ __('portal.col_sale_price') }}</th><th>{{ __('portal.col_sale_date') }}</th><th></th></tr></thead>
+                                <thead><tr><th></th><th>{{ __('portal.col_vehicle') }}</th><th>{{ __('portal.col_progress') }}</th><th>{{ __('portal.col_currency') }}</th><th>{{ __('portal.col_sale_price') }}</th><th>{{ __('portal.col_sale_date') }}</th><th></th></tr></thead>
                                 <tbody>
                                     @forelse ($rows as $row)
                                         @php
@@ -1403,13 +1507,14 @@ new #[Layout('components.layouts.app')] class extends Component {
                                                 @endif
                                             </td>
                                             <td class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') }}</td>
+                                            <td class="whitespace-nowrap">@include('livewire.portal._progress-badge', ['status' => data_get($row, 'progress_status')])</td>
                                             <td>{{ data_get($row, 'currency') ?: '—' }}</td>
                                             <td>{{ ($p = data_get($row, 'sale_price')) !== null && is_numeric($p) ? number_format((float) $p) : '—' }}</td>
                                             <td>{{ data_get($row, 'sale_date') ?: '—' }}</td>
                                             <td class="text-right">@include('livewire.portal._request-chip')</td>
                                         </tr>
                                     @empty
-                                        <tr><td colspan="6" class="py-3 text-center text-gray-400">{{ __('portal.sales_detail_empty') }}</td></tr>
+                                        <tr><td colspan="7" class="py-3 text-center text-gray-400">{{ __('portal.sales_detail_empty') }}</td></tr>
                                     @endforelse
                                 </tbody>
                             </table>
@@ -1428,7 +1533,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                                                 wire:click="toggleReqVehicle({{ $bid }}, {{ $vid }})">
                                         @endif
                                         <div class="min-w-0">
-                                            <div class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') }}</div>
+                                            <div class="flex items-center gap-1.5">
+                                                <span class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') }}</span>
+                                                @include('livewire.portal._progress-badge', ['status' => data_get($row, 'progress_status')])
+                                            </div>
                                             <div class="text-[11px] text-gray-400">{{ data_get($row, 'sale_date') ?: '—' }}</div>
                                         </div>
                                     </div>
@@ -1457,7 +1565,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                     </div>
                 </div>
             @empty
-                <p class="py-8 text-center text-gray-400">{{ __('portal.sales_empty') }}</p>
+                {{-- 검색 때문에 빈 것과 판매내역 자체가 없는 것을 구분한다(안 그러면 "판매가 하나도 없다"로 읽힌다). --}}
+                <p class="py-8 text-center text-gray-400">{{ trim($buyerSearch) !== '' ? __('portal.buyer_search_empty') : __('portal.sales_empty') }}</p>
             @endforelse
 
         @elseif ($tab === 'settlements')
@@ -1498,61 +1607,98 @@ new #[Layout('components.layouts.app')] class extends Component {
             </div>
 
         @else
-            {{-- 매입내역 — buyer 무관(경매/판매처) → 평면 목록 --}}
-            @php
-                // ERP 는 정렬 없이(=id 순) 준다 → 최근 매입이 맨 아래로 밀린다. 화면에서 최신 우선으로 뒤집는다.
-                $items = $this->latestFirst(data_get($result['data'], 'data', []), 'purchase_date');
-                $cols = ['vehicle_number' => __('portal.col_vehicle'), 'purchase_price' => __('portal.col_purchase_price'), 'cost_total' => __('portal.col_cost_total'), 'purchase_unpaid' => __('portal.col_purchase_unpaid'), 'purchase_date' => __('portal.col_purchase_date')];
-            @endphp
+            {{-- 재고 4분류 — car-erp `erp/inventory` 미러(같은 이름·같은 정의). 구 「매입내역」(전량조회) 대체.
+                 ⚠️ 지급대기가 [입금요청] 대상 — inStock() 이 매입 완납까지 보기 때문에
+                    미지급이 남은 차는 재고 3분류 어디에도 없다. --}}
             @include('livewire.portal._request-result')
             @if ($this->requestChipUnavailable())
                 <p class="mb-2 text-[11px] text-amber-600">⚠️ {{ __('portal.req_chip_unavailable') }}</p>
             @endif
+
+            <div class="mb-2 flex flex-wrap items-center gap-1.5">
+                @foreach (['awaiting_payment', 'general', 'pre_ship', 'shipped_out'] as $c)
+                    <button type="button" wire:click="setInvCategory('{{ $c }}')"
+                        class="rounded-md border px-3 py-1.5 text-[13px] font-semibold {{ $invCategory === $c ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">{{ __('portal.inv_cat_'.$c) }}</button>
+                @endforeach
+                <input class="input-base ml-auto w-auto max-w-[220px] text-[12px]" wire:model.live.debounce.600ms="invSearch"
+                       placeholder="{{ __('portal.inv_search_ph') }}">
+            </div>
+            <p class="mb-3 text-[11px] text-gray-400">{{ __('portal.inv_hint_'.$invCategory) }}</p>
+
+            @php
+                $shipped = $invCategory === 'shipped_out';
+                $dateLabel = $shipped ? __('portal.col_warehouse_out') : __('portal.col_warehouse_in');
+                $dateKey = $shipped ? 'warehouse_out_date' : 'warehouse_in_date';
+            @endphp
+
             <div class="hidden overflow-x-auto sm:block">
                 <table class="tbl">
-                    <thead><tr>@foreach ($cols as $label)<th>{{ $label }}</th>@endforeach<th></th></tr></thead>
+                    <thead><tr>
+                        <th>{{ __('portal.col_vehicle') }}</th><th>{{ __('portal.col_progress') }}</th>
+                        <th>{{ __('portal.col_location') }}</th><th>{{ $dateLabel }}</th>
+                        <th>{{ __('portal.col_buyer') }}</th><th>{{ __('portal.col_purchase_price') }}</th>
+                        <th>{{ __('portal.col_purchase_unpaid') }}</th><th></th>
+                    </tr></thead>
                     <tbody>
-                        @forelse ($items as $row)
-                            <tr>
-                                @foreach ($cols as $key => $label)
-                                    @php $val = data_get($row, $key); @endphp
-                                    <td class="whitespace-nowrap text-gray-700">
-                                        @if ($val === null)
-                                            —
-                                        @elseif (in_array($key, ['purchase_price', 'cost_total', 'purchase_unpaid'], true) && is_numeric($val))
-                                            {{ number_format((float) $val) }}
-                                        @else
-                                            {{ $val }}
-                                        @endif
-                                    </td>
-                                @endforeach
+                        @forelse ($invRows as $row)
+                            @php
+                                $loc = data_get($row, 'stock_location');
+                                $note = data_get($row, 'stock_location_note');
+                                $unpaid = data_get($row, 'purchase_unpaid');
+                            @endphp
+                            <tr wire:key="inv-{{ data_get($row, 'vehicle_id') }}">
+                                <td class="whitespace-nowrap font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') ?: '—' }}</td>
+                                <td class="whitespace-nowrap">@include('livewire.portal._progress-badge', ['status' => data_get($row, 'progress_status')])</td>
+                                <td class="whitespace-nowrap text-gray-700">{{ $loc ?: '—' }}@if ($note)<span class="ml-1 text-[11px] text-gray-400">{{ $note }}</span>@endif</td>
+                                <td class="whitespace-nowrap text-gray-700">{{ data_get($row, $dateKey) ?: '—' }}</td>
+                                <td class="whitespace-nowrap text-gray-700">{{ data_get($row, 'buyer') ?: '—' }}</td>
+                                <td class="whitespace-nowrap text-gray-700">{{ is_numeric($p = data_get($row, 'purchase_price')) ? number_format((float) $p) : '—' }}</td>
+                                <td class="whitespace-nowrap {{ is_numeric($unpaid) && (float) $unpaid > 0 ? 'font-semibold text-red-600' : 'text-gray-400' }}">{{ is_numeric($unpaid) ? number_format((float) $unpaid) : '—' }}</td>
                                 <td class="whitespace-nowrap text-right">@include('livewire.portal._request-purchase-action')</td>
                             </tr>
                         @empty
-                            <tr><td colspan="{{ count($cols) + 1 }}" class="py-8 text-center text-gray-400">{{ __('portal.purch_empty') }}</td></tr>
+                            <tr><td colspan="8" class="py-8 text-center text-gray-400">{{ __('portal.inv_empty') }}</td></tr>
                         @endforelse
                     </tbody>
                 </table>
             </div>
+
             <div class="space-y-2 sm:hidden">
-                @forelse ($items as $row)
-                    <div class="card-tight">
+                @forelse ($invRows as $row)
+                    @php
+                        $loc = data_get($row, 'stock_location');
+                        $unpaid = data_get($row, 'purchase_unpaid');
+                    @endphp
+                    <div class="card-tight" wire:key="invm-{{ data_get($row, 'vehicle_id') }}">
                         <div class="flex items-center justify-between gap-2">
                             <span class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') ?: '—' }}</span>
-                            <span class="shrink-0 text-[11px] text-gray-400">{{ data_get($row, 'purchase_date') ?: '' }}</span>
+                            @include('livewire.portal._progress-badge', ['status' => data_get($row, 'progress_status')])
                         </div>
-                        <div class="mt-1 grid grid-cols-3 gap-x-2 text-xs text-gray-600">
-                            @foreach (['purchase_price' => __('portal.col_purchase_price'), 'cost_total' => __('portal.col_cost_total'), 'purchase_unpaid' => __('portal.col_purchase_unpaid')] as $key => $label)
-                                @php $val = data_get($row, $key); @endphp
-                                <div>{{ $label }}<br><b class="text-gray-800">{{ ($val === null || ! is_numeric($val)) ? '—' : number_format((float) $val) }}</b></div>
-                            @endforeach
+                        <div class="mt-1 flex flex-wrap items-center gap-x-3 text-[11px] text-gray-500">
+                            <span>{{ __('portal.col_location') }} <b class="text-gray-700">{{ $loc ?: '—' }}</b></span>
+                            <span>{{ $dateLabel }} <b class="text-gray-700">{{ data_get($row, $dateKey) ?: '—' }}</b></span>
+                            @if (data_get($row, 'buyer'))<span>{{ __('portal.col_buyer') }} <b class="text-gray-700">{{ data_get($row, 'buyer') }}</b></span>@endif
                         </div>
-                        <div class="mt-2">@include('livewire.portal._request-purchase-action')</div>
+                        <div class="mt-1 flex items-end justify-between gap-2">
+                            <div class="text-xs text-gray-600">
+                                {{ __('portal.col_purchase_unpaid') }}
+                                <b class="{{ is_numeric($unpaid) && (float) $unpaid > 0 ? 'text-red-600' : 'text-gray-800' }}">{{ is_numeric($unpaid) ? number_format((float) $unpaid) : '—' }}</b>
+                            </div>
+                            @include('livewire.portal._request-purchase-action')
+                        </div>
                     </div>
                 @empty
-                    <div class="py-8 text-center text-gray-400">{{ __('portal.purch_empty') }}</div>
+                    <div class="py-8 text-center text-gray-400">{{ __('portal.inv_empty') }}</div>
                 @endforelse
             </div>
+
+            {{-- 출고완료만 누적된다 → 기본 30건, 나머지는 눌러서 받는다(탭 열었다고 전량 안 부름). --}}
+            @if ($this->hasMoreInventory())
+                <div class="mt-3 text-center">
+                    <button type="button" wire:click="invMore" wire:loading.attr="disabled" wire:target="invMore"
+                        class="btn-outline btn-sm">{{ __('portal.inv_more', ['shown' => count($invRows), 'total' => $invTotal]) }}</button>
+                </div>
+            @endif
         @endif
     </div>
 
