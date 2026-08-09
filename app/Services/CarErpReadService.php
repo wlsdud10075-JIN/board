@@ -67,9 +67,42 @@ class CarErpReadService
         return $this->get('/purchases', ['salesman_email' => $email]);
     }
 
-    public function sales(string $email): array
+    /**
+     * 재고 4분류 — 포털 「매입내역」(무필터·무페이징 전량조회) 대체. car-erp `erp/inventory` 미러.
+     *
+     * ⚠️ **`awaiting_payment` 이 [입금요청] 대상이다.** `inStock()` 이 출고일뿐 아니라 **매입 완납까지**
+     *    보기 때문에(`purchaseUnpaidRawExpr() <= 0`), 미지급이 남은 차는 재고 3분류 어디에도 없다.
+     *    즉 재고만 미러하면 입금요청 버튼을 달 곳이 사라진다(2026-08-09 car-erp 지적, 실측 확인).
+     *
+     * `shipped_out` 만 영원히 누적되므로 limit/offset 으로 끊어 받는다. 나머지 3분류는 유한(영업당 20~50대).
+     * 검색은 ERP 로 넘긴다 — 최근 N건만 받아놓고 board 에서 거르면 옛날 차를 영영 못 찾는다.
+     */
+    public function inventory(string $email, string $category, string $search = '', ?int $limit = null, int $offset = 0): array
     {
-        return $this->get('/sales', ['salesman_email' => $email]);
+        $query = ['salesman_email' => $email, 'category' => $category];
+        if ($search !== '') {
+            $query['search'] = $search;
+        }
+        if ($limit !== null) {
+            $query['limit'] = $limit;
+            $query['offset'] = $offset;
+        }
+
+        return $this->get('/inventory', $query);
+    }
+
+    /**
+     * @param  list<string>  $excludeStatus  제외할 진행상태(예: ['거래완료']). **서버에서** whereNotIn 으로 거른다
+     *                                       — 받아놓고 화면에서 감추면 트래픽이 그대로라 의미가 없다.
+     */
+    public function sales(string $email, array $excludeStatus = []): array
+    {
+        $query = ['salesman_email' => $email];
+        if ($excludeStatus !== []) {
+            $query['exclude_status'] = implode(',', $excludeStatus);
+        }
+
+        return $this->get('/sales', $query);
     }
 
     public function settlements(string $email): array

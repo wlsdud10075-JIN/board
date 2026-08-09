@@ -18,7 +18,7 @@ return [
     'tab' => [
         'finance' => 'Summary',
         'receivables' => 'Receivables',
-        'purchases' => 'Purchases',
+        'inventory' => 'Inventory',
         'sales' => 'Sales',
         'settlements' => 'Settlement',
         'shipping' => 'Shipping request',
@@ -232,4 +232,22 @@ return [
     'abbr_eok' => '00M',
     'abbr_man' => '0K',
     'abbr_won' => '',
+
+    // Inventory 4 categories + sales status filter (2026-08-09)
+    'inv_cat_awaiting_payment' => 'Awaiting payment',
+    'inv_cat_general' => 'General stock',
+    'inv_cat_pre_ship' => 'Pre-shipment stock',
+    'inv_cat_shipped_out' => 'Shipped out',
+    'inv_hint_awaiting_payment' => 'Vehicles with an outstanding purchase balance — these are the payment-request targets. They move into stock once paid.',
+    'inv_hint_general' => 'Speculative purchases with no buyer yet (fully paid, not yet shipped out)',
+    'inv_hint_pre_ship' => 'Sold vehicles, not yet shipped out',
+    'inv_hint_shipped_out' => 'Vehicles with a warehouse-out date, newest first. This set keeps growing, so only the latest 30 load first.',
+    'inv_search_ph' => 'Search vehicle no. / VIN',
+    'inv_empty' => 'No matching vehicles.',
+    'inv_more' => 'Load more (:shown/:total)',
+    'col_progress' => 'Progress',
+    'col_location' => 'Location',
+    'hide_done_sales' => 'Hide completed deals',
+    'buyer_search_ph' => 'Search buyer',
+    'buyer_search_empty' => 'No buyer matches your search.',
 ];

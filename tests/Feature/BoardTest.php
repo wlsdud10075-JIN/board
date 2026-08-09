@@ -3250,7 +3250,7 @@ class BoardTest extends TestCase
             '*' => Http::response(['count' => 0, 'data' => []], 200),
         ]);
 
-        Volt::test('portal.index')->call('setTab', 'purchases')
+        Volt::test('portal.index')->call('setTab', 'inventory')
             ->assertSee(__('portal.req_chip_unavailable'));
     }
 
@@ -3273,6 +3273,72 @@ class BoardTest extends TestCase
         $sorted = Volt::test('portal.index')->instance()->latestFirst($rows, 'purchase_date');
 
         $this->assertSame(['최신', '같은날_큰id', '오래된', '날짜없음'], array_column($sorted, 'vehicle_number'));
+    }
+
+    /**
+     * ⚠️ 지급대기(awaiting_payment)가 [입금요청] 대상이다 — car-erp `inStock()` 이 출고일뿐 아니라
+     * **매입 완납까지** 보기 때문에, 미지급이 남은 차는 재고 3분류 어디에도 없다.
+     * 이 탭이 기본이 아니면 영업이 요청할 차를 못 찾는다.
+     */
+    public function test_inventory_defaults_to_awaiting_payment_and_sends_category(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'inv@ce.test']);
+        $this->actingAs($sales);
+
+        Http::fake(['*' => Http::response(['count' => 1, 'total' => 1, 'data' => [
+            ['vehicle_id' => 11, 'vehicle_number' => '30가3001', 'progress_status' => '말소완료',
+                'stock_location' => '홈플', 'purchase_price' => 21000000, 'purchase_unpaid' => 21000000],
+        ]], 200)]);
+
+        Volt::test('portal.index')->call('setTab', 'inventory')
+            ->assertSet('invCategory', 'awaiting_payment')
+            ->assertSee('30가3001')
+            ->assertSee('말소완료')      // 진행상태는 ERP 값 그대로
+            ->assertSee('홈플');         // 보관위치
+
+        Http::assertSent(function ($req) {
+            if (! str_contains($req->url(), '/inventory')) {
+                return false;
+            }
+
+            return str_contains($req->url(), 'category=awaiting_payment');
+        });
+    }
+
+    /** 출고완료만 영원히 누적된다 → 탭을 열었다고 전량을 부르면 안 된다. */
+    public function test_shipped_out_is_paged_but_stock_is_not(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'inv@ce.test']);
+        $this->actingAs($sales);
+        Http::fake(['*' => Http::response(['count' => 30, 'total' => 90, 'data' => []], 200)]);
+
+        $c = Volt::test('portal.index')->call('setTab', 'inventory')->call('setInvCategory', 'shipped_out');
+        $c->assertSet('invLimit', 30);
+        Http::assertSent(fn ($req) => ! str_contains($req->url(), 'category=shipped_out') || str_contains($req->url(), 'limit=30'));
+
+        $c->call('invMore')->assertSet('invLimit', 60);
+
+        // 재고 분류로 돌아오면 페이징 깊이가 초기화되고 limit 을 아예 안 보낸다(전량).
+        $c->call('setInvCategory', 'general')->assertSet('invLimit', 30);
+        Http::assertSent(fn ($req) => ! str_contains($req->url(), 'category=general') || ! str_contains($req->url(), 'limit='));
+    }
+
+    /** 거래완료 숨김은 ERP 쿼리로 나가야 한다 — 받아놓고 감추면 트래픽이 그대로다. */
+    public function test_hide_done_sales_filters_server_side(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'inv@ce.test']);
+        $this->actingAs($sales);
+        Http::fake(['*' => Http::response(['count' => 0, 'data' => []], 200)]);
+
+        Volt::test('portal.index')->call('setTab', 'sales');
+        Http::assertSent(fn ($req) => ! str_contains($req->url(), '/sales')
+            || str_contains(urldecode($req->url()), 'exclude_status=거래완료'));
     }
 
     /** 전송 실패를 성공한 척하지 않는다(§11-4 항목 5) — 영업이 보냈다고 착각하면 카톡보다 나쁘다. */

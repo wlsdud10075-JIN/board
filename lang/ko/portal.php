@@ -18,7 +18,7 @@ return [
     'tab' => [
         'finance' => '요약',
         'receivables' => '미수금',
-        'purchases' => '매입내역',
+        'inventory' => '재고',
         'sales' => '판매내역',
         'settlements' => '정산내역',
         'shipping' => '선적요청',
@@ -230,4 +230,22 @@ return [
     'abbr_eok' => '억',
     'abbr_man' => '만원',
     'abbr_won' => '원',
+
+    // 재고 4분류 + 판매내역 상태 필터 (2026-08-09)
+    'inv_cat_awaiting_payment' => '지급대기',
+    'inv_cat_general' => '일반재고',
+    'inv_cat_pre_ship' => '선적전 재고',
+    'inv_cat_shipped_out' => '출고완료',
+    'inv_hint_awaiting_payment' => '매입대금이 남은 차 — 입금요청 대상입니다. 지급이 끝나면 재고로 넘어갑니다.',
+    'inv_hint_general' => '바이어 미정 투기매입 (매입 완납·출고 전)',
+    'inv_hint_pre_ship' => '판매된 차 — 출고 전',
+    'inv_hint_shipped_out' => '출고일이 찍혀 재고에서 빠진 차 (최근 출고순). 계속 쌓이므로 최근 30건만 먼저 보여줍니다.',
+    'inv_search_ph' => '차량번호·차대번호 검색',
+    'inv_empty' => '해당하는 차량이 없습니다.',
+    'inv_more' => '더 보기 (:shown/:total)',
+    'col_progress' => '진행상태',
+    'col_location' => '보관위치',
+    'hide_done_sales' => '거래완료 숨기기',
+    'buyer_search_ph' => '바이어 검색',
+    'buyer_search_empty' => '검색과 일치하는 바이어가 없습니다.',
 ];
