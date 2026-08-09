@@ -26,6 +26,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $owner_name = '';
     public string $c_no = '';
     public string $source = 'encar';
+    public string $origin = 'encar';
     public string $region = '';
     public ?string $expected_price = null;
     public ?string $car_cost = null;
@@ -48,7 +49,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     /** 드로어 편집 대상 전체 — openEdit/closeEdit/save 공통. */
     private const EDIT_FIELDS = [
-        'vehicle_number', 'vin', 'owner_name', 'c_no', 'source', 'region',
+        'vehicle_number', 'vin', 'owner_name', 'c_no', 'source', 'origin', 'region',
         'expected_price', 'car_cost', 'discount_rate', 'shipping_usd', 'final_price',
         'status', 'buyer_verdict', 'buyer_name', 'inspection_memo', 'inspection_note',
         'payee_name', 'payee_bank', 'payee_account',
@@ -127,6 +128,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->owner_name = $l->owner_name ?? '';
         $this->c_no = $l->c_no ?? '';
         $this->source = $l->source;
+        $this->origin = $l->origin ?: $l->source;   // origin 은 nullable(구행) — source 로 대체
         $this->region = $l->region ?? '';
         $this->expected_price = $l->expected_price !== null ? (string) $l->expected_price : null;
         $this->car_cost = $l->car_cost !== null ? (string) $l->car_cost : null;
@@ -164,6 +166,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'owner_name' => 'nullable|string|max:60',
             'c_no' => 'nullable|string|max:50',
             'source' => 'required|in:encar,auction',
+            'origin' => 'required|in:'.implode(',', array_keys(PurchaseListing::ORIGIN_LABELS)),
             'region' => 'nullable|string|max:60',
             'expected_price' => 'nullable|numeric|min:0',
             'car_cost' => 'nullable|numeric|min:0',
@@ -194,6 +197,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->owner_name = $this->owner_name ?: null;
         $l->c_no = $this->c_no ?: null;
         $l->source = $this->source;
+        $l->origin = $this->origin;
         $l->region = $this->region ?: null;
         $l->expected_price = ($this->expected_price === null || $this->expected_price === '') ? null : (int) $this->expected_price;
         $l->car_cost = ($this->car_cost === null || $this->car_cost === '') ? null : (int) $this->car_cost;
@@ -408,6 +412,15 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <option value="encar">{{ __('manage.source_encar') }}</option>
                     <option value="auction">{{ __('manage.source_auction') }}</option>
                 </select>
+
+                {{-- 유입 카테고리 — 셀프검차매입을 잘못 고른 차를 현지확인으로 되돌리는 유일한 경로. --}}
+                <label class="label-base mt-3">{{ __('manage.origin') }}</label>
+                <select class="input-base" wire:model="origin">
+                    @foreach (\App\Models\PurchaseListing::originOptions() as $key => $lbl)
+                        <option value="{{ $key }}">{{ $lbl }}</option>
+                    @endforeach
+                </select>
+                @error('origin') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 <label class="label-base mt-3">{{ __('manage.region') }}</label>
                 <x-region-input model="region" :placeholder="__('manage.region_placeholder')" />

@@ -40,6 +40,7 @@ return [
         'ssancar_checking' => 'SSANCAR-Checking',
         'encar' => 'Encar',
         'auction' => 'Auction',
+        'self_inspection' => 'Self-inspected purchase',
     ],
 
     'source' => [

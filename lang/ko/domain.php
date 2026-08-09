@@ -42,6 +42,7 @@ return [
         'ssancar_checking' => '싼카-체킹',
         'encar' => '엔카',
         'auction' => '경매',
+        'self_inspection' => '셀프검차매입',
     ],
 
     'source' => [

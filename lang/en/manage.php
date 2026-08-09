@@ -56,6 +56,7 @@ return [
     'owner_name' => 'Owner (name)',
     'c_no' => 'Listing no. (c_no)',
     'source' => 'Source',
+    'origin' => 'Origin category',
     'region' => 'Region',
     'region_placeholder' => 'Inspection region',
     'car_cost' => 'Car cost',

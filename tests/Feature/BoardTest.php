@@ -167,6 +167,103 @@ class BoardTest extends TestCase
         $this->assertSame(13000000 + 1640 * (int) config('board.default_krw_per_usd'), $l->final_price);
     }
 
+    /**
+     * 셀프검차매입 — ssancar 검차글(영상)이 없어 자동전이가 안 걸리는 차를
+     * 등록 즉시 accepted 로 만들어 경매/구매에서 마무리한다.
+     */
+    public function test_self_inspection_listing_goes_straight_to_auction(): void
+    {
+        $kim = $this->mkUser('sales');
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')
+            ->set('origin', 'self_inspection')
+            ->set('vehicle_number', '77사7777')
+            ->set('vin', 'SELFVIN0001')
+            ->set('car_cost', '10000000')->set('discount_rate', '0')->set('shipping_usd', 1640)
+            ->call('save')
+            ->assertHasNoErrors()
+            ->assertRedirect(route('auction'));
+
+        $l = PurchaseListing::where('vin', 'SELFVIN0001')->first();
+        $this->assertNotNull($l);
+        $this->assertSame('encar', $l->source);            // 즉시구매 — 경매 10:00 잠금 대상 아님
+        $this->assertNull($l->lock_at);
+        $this->assertSame('accepted', $l->status);         // 현지확인·전달·회신 건너뜀
+        $this->assertSame('accepted', $l->buyer_verdict);  // "accepted 면 회신도 accepted" 불변식 유지
+        $this->assertSame('manual', $l->verdict_channel);  // respond.io 폴러(auto 만 조회)가 안 집어감
+
+        // 경매/구매 화면에 바로 뜬다 → 정보 입력 후 구매확정 → 연동 B 까지 완주
+        Bus::fake();
+        Volt::test('auction.index')
+            ->assertSee('77사7777')
+            ->call('openDetail', $l->id)
+            ->set('owner_name', '차주')
+            ->set('payee_name', '판매상사')
+            ->call('conclude', $l->id, 'won')
+            ->assertHasNoErrors();
+
+        $this->assertSame('won', $l->fresh()->status);
+        Bus::assertDispatched(SyncWonListingToCarErp::class);
+    }
+
+    /** 셀프검차 차량이 현지확인 화면에 뜨면 이 기능이 건너뛰려던 그 화면에 되돌아온 것이다. */
+    public function test_self_inspection_listing_hidden_from_inspection_screen(): void
+    {
+        $kim = $this->mkUser('sales');
+        $this->mkListing($kim, ['vehicle_number' => '88아8888', 'region' => '경기 수원시']);   // 평범한 검차대기
+        $this->mkListing($kim, [
+            'vehicle_number' => '77사7777', 'origin' => 'self_inspection',
+            'region' => '경기 수원시', 'status' => 'accepted', 'buyer_verdict' => 'accepted',
+        ]);
+
+        $this->actingAs($this->mkUser('manager'));   // canAssign → 지역필터 없음(전체 노출)
+        Volt::test('inspection.index')
+            ->assertSee('88아8888')
+            ->assertDontSee('77사7777');
+    }
+
+    /**
+     * 셀프검차매입을 잘못 고른 차는 현지확인에서 origin 으로 걸러지므로,
+     * 관리자가 origin 을 되돌릴 수 없으면 그 차는 영영 검차대상에서 사라진다(편도 문).
+     */
+    public function test_manager_can_revert_self_inspection_back_to_inspection(): void
+    {
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, [
+            'vehicle_number' => '77사7777', 'origin' => 'self_inspection',
+            'region' => '경기 수원시', 'status' => 'accepted', 'buyer_verdict' => 'accepted',
+        ]);
+
+        $this->actingAs($this->mkUser('manager'));
+        Volt::test('inspection.index')->assertDontSee('77사7777');
+
+        Volt::test('manage.index')
+            ->call('openEdit', $l->id)
+            ->set('origin', 'encar')
+            ->set('status', 'draft')       // manager override 로 전이가드 우회
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertSame('encar', $l->fresh()->origin);
+        Volt::test('inspection.index')->assertSee('77사7777');   // 검차대상으로 복귀
+    }
+
+    /** 링크 파싱이 origin 을 덮어써서 방금 누른 셀프검차 토글이 조용히 풀리면 안 된다. */
+    public function test_self_inspection_survives_encar_link_parse(): void
+    {
+        Http::fake(['*api.encar.com*' => Http::response(['vehicleNo' => '244로9100'], 200)]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->call('setOrigin', 'self_inspection')
+            ->set('encarLink', 'https://fem.encar.com/cars/detail/42176484')
+            ->call('parseLink', 'encar')
+            ->assertSet('origin', 'self_inspection')   // 카테고리는 영업의 선택 유지
+            ->assertSet('source', 'encar')
+            ->assertSet('encar_id', '42176484');       // 식별자는 그대로 받는다
+    }
+
     public function test_listings_blocks_active_duplicate_vin(): void
     {
         $kim = $this->mkUser('sales');
@@ -3086,6 +3183,143 @@ class BoardTest extends TestCase
         Volt::test('portal.index')
             ->call('downloadDocs', [1, 2], 'RORO', 'sales_contract')
             ->assertSet('shipNote', __('portal.flash_docs_homogeneous_required'));
+    }
+
+    // ─────────── §11 요청·확인 신호 (카톡 대체) ───────────
+
+    /** 🚫 §11-2 — 신호에 금액을 싣지 않는다. 이 테스트가 금액 필드 재유입을 막는 문지기다. */
+    public function test_board_request_payload_carries_no_amount(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        Http::fake(['*/api/internal/board/requests*' => Http::response(['batch_id' => null, 'created' => ['11가1111'], 'skipped' => []], 201)]);
+
+        app(CarErpReadService::class)
+            ->sendBoardRequest('s@ce.test', 'sale_payment_confirm', [12, 34], 7, '5/12 송금분');
+
+        Http::assertSent(function ($req) {
+            $body = json_decode($req->body(), true);
+            $this->assertSame('sale_payment_confirm', $body['type']);
+            $this->assertSame([12, 34], $body['vehicle_ids']);
+            $this->assertSame(7, $body['buyer_id']);
+            $this->assertSame('5/12 송금분', $body['note']);
+            // 금액으로 읽힐 수 있는 키가 하나도 없어야 한다.
+            foreach (['amount', 'price', 'krw', 'balance', 'payment_amount', 'total'] as $banned) {
+                $this->assertArrayNotHasKey($banned, $body);
+            }
+
+            return true;
+        });
+    }
+
+    /** 재전송해도 뱃지가 두 개 안 생긴다 — skipped(already_open) 는 실패가 아니라 "이미 보냄". */
+    public function test_portal_purchase_request_shows_created_and_skipped(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test']);
+        $this->actingAs($sales);
+
+        Http::fake([
+            '*/api/internal/board/requests*' => Http::sequence()
+                ->push(['batch_id' => null, 'created' => ['11가1111'], 'skipped' => []], 201)
+                ->push(['batch_id' => null, 'created' => [], 'skipped' => [['vehicle_number' => '11가1111', 'reason' => 'already_open']]], 201),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        Volt::test('portal.index')
+            ->call('sendPurchasePayment', 6)
+            ->assertSet('reqResult.created', ['11가1111'])
+            ->call('sendPurchasePayment', 6)
+            ->assertSet('reqResult.created', [])
+            ->assertSet('reqResult.skipped.0.reason', 'already_open');
+    }
+
+    /**
+     * 칩 조회가 실패했는데 칩만 조용히 사라지면 화면이 "아무것도 요청 안 함" 과 똑같이 읽힌다.
+     * 버튼과 같은 원칙 — 사라지지 말고 사유를 말해야 한다.
+     */
+    public function test_portal_says_so_when_request_status_cannot_load(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test']);
+        $this->actingAs($sales);
+
+        Http::fake([
+            '*/api/internal/board/requests*' => Http::response('nope', 401),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        Volt::test('portal.index')->call('setTab', 'purchases')
+            ->assertSee(__('portal.req_chip_unavailable'));
+    }
+
+    /**
+     * ERP 읽기 API 는 정렬 없이(id 순) 준다 → 방금 넘어온 차가 목록 맨 아래로 밀렸다.
+     * 날짜 빈 행이 최신처럼 올라오면 더 헷갈리므로 그건 맨 뒤로 보낸다.
+     */
+    public function test_portal_lists_newest_vehicle_first(): void
+    {
+        $rows = [
+            ['vehicle_id' => 9, 'vehicle_number' => '오래된', 'purchase_date' => '2026-04-22'],
+            ['vehicle_id' => 59, 'vehicle_number' => '최신', 'purchase_date' => '2026-08-09'],
+            ['vehicle_id' => 60, 'vehicle_number' => '날짜없음', 'purchase_date' => null],
+            ['vehicle_id' => 61, 'vehicle_number' => '같은날_큰id', 'purchase_date' => '2026-04-22'],
+        ];
+
+        config(['services.car_erp.base_url' => '', 'services.car_erp.read_hmac_secret' => '']);
+        $this->actingAs($this->mkUser('sales'));
+
+        $sorted = Volt::test('portal.index')->instance()->latestFirst($rows, 'purchase_date');
+
+        $this->assertSame(['최신', '같은날_큰id', '오래된', '날짜없음'], array_column($sorted, 'vehicle_number'));
+    }
+
+    /** 전송 실패를 성공한 척하지 않는다(§11-4 항목 5) — 영업이 보냈다고 착각하면 카톡보다 나쁘다. */
+    public function test_portal_request_degrades_loudly_on_failure(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test']);
+        $this->actingAs($sales);
+
+        Http::fake(['*' => Http::response(['error' => 'buyer_mismatch'], 422)]);
+
+        Volt::test('portal.index')
+            ->call('sendPurchasePayment', 6)
+            ->assertSet('reqResult.error', __('portal.req_send_failed', ['status' => 422]));
+    }
+
+    /** 판매대금확인 선택은 바이어별로 쌓인다 — 서로 다른 바이어가 한 묶음에 섞일 수 없는 구조. */
+    public function test_sale_confirm_selection_is_scoped_per_buyer(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test']);
+        $this->actingAs($sales);
+        Http::fake(['*' => Http::response(['count' => 0, 'data' => []], 200)]);
+
+        $c = Volt::test('portal.index')
+            ->call('toggleReqVehicle', 7, 12)
+            ->call('toggleReqVehicle', 7, 34)
+            ->call('toggleReqVehicle', 9, 56);
+
+        $c->assertSet('reqPick.7', [12, 34])->assertSet('reqPick.9', [56]);
+
+        $c->call('toggleReqVehicle', 7, 12)->assertSet('reqPick.7', [34]);   // 해제
+        $c->call('sendSaleConfirm', 9);
+
+        // ⚠️ assertSent 는 "한 건이라도 만족" 이다. 포털 mount 가 쏘는 /by-buyer·/sales 를
+        //    통과시키는 조건(`! str_contains`)을 쓰면 /requests 본문을 안 보고도 통과한다.
+        //    → /requests 가 아니면 false 로 떨궈서, 반드시 그 본문으로만 판정되게 한다.
+        Http::assertSent(function ($req) {
+            if (! str_contains($req->url(), '/requests')) {
+                return false;
+            }
+            $b = json_decode($req->body(), true);
+
+            return ($b['vehicle_ids'] ?? null) === [56] && ($b['buyer_id'] ?? null) === 9;
+        });
     }
 
     /**
