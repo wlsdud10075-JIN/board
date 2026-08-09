@@ -3341,6 +3341,165 @@ class BoardTest extends TestCase
             || str_contains(urldecode($req->url()), 'exclude_status=거래완료'));
     }
 
+    // ── §12 운항 상태 (2026-08-09) ──
+
+    /**
+     * 운항 칩 = ERP 라벨 그대로. 「도착예정」을 board 가 「도착」으로 줄이면 영업이 바이어에게
+     * "도착했다"고 전하고 지연 시 그대로 클레임이 된다(ETA 가 지났다는 뜻일 뿐 입항 확인이 아니다).
+     */
+    public function test_sailing_chip_prints_erp_label_verbatim(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/by-buyer*' => Http::response(['data' => [
+                ['buyer' => 'BuyerS', 'buyer_id' => 3, 'vehicle_count' => 2, 'sales_by_currency' => ['USD' => 100]],
+            ]], 200),
+            '*/api/internal/board/sales*' => Http::response(['count' => 3, 'data' => [
+                ['vehicle_id' => 1, 'buyer' => 'BuyerS', 'vehicle_number' => '11가1111', 'progress_status' => '선적중',
+                    'sailing' => 'in_transit', 'sailing_status' => '운항중', 'vessel_name' => 'GLOVIS SKY', 'eta_date' => '2026-09-01'],
+                ['vehicle_id' => 2, 'buyer' => 'BuyerS', 'vehicle_number' => '22나2222', 'progress_status' => '거래완료',
+                    'sailing' => 'arrived', 'sailing_status' => '도착예정', 'vessel_name' => null, 'eta_date' => '2026-07-20'],
+                // ERP 가 라벨을 바꾸면 그대로 나와야 한다 — board 가 자기 문자열로 다시 짓고 있으면 여기서 죽는다.
+                ['vehicle_id' => 3, 'buyer' => 'BuyerS', 'vehicle_number' => '33다3333', 'progress_status' => '선적완료',
+                    'sailing' => 'in_transit', 'sailing_status' => 'ERP가정한라벨', 'vessel_name' => null, 'eta_date' => null],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        // ⚠️ 「운항중」·「도착예정」 자체로 검사하면 안 된다 — 필터 pill 라벨이 같은 문자열이라
+        //    칩을 아예 안 그려도 통과한다(§11-14 위양성과 같은 형태). 칩만 낼 수 있는 값으로 본다.
+        Volt::test('portal.index')->call('setTab', 'sales')
+            ->assertSee('ERP가정한라벨')     // 라벨 그대로 통과 = board 가 다시 짓지 않음
+            ->assertSee('GLOVIS SKY')       // 선박명
+            ->assertSee('ETA 2026-07-20')   // 선박명 없이 ETA 만 있어도 뜬다
+            ->assertSee('선적중');           // 진행상태와 **직교** — 운항 칩이 진행상태를 대체하지 않는다
+    }
+
+    /**
+     * board 가 만든 문자열에 「도착」/「Arrived」 단독이 있으면 안 된다 —
+     * 칩은 ERP 값이라 안전하지만, 필터 pill 라벨은 board 소유라 나중에 누가 줄여 쓸 수 있다.
+     */
+    public function test_board_never_labels_sailing_as_arrived(): void
+    {
+        foreach (['ko', 'en'] as $locale) {
+            foreach (['sailing_all', 'sailing_in_transit', 'sailing_arrived', 'sailing_filter_label', 'sailing_totals_unfiltered'] as $key) {
+                $v = (string) __('portal.'.$key, [], $locale);
+                $this->assertStringNotContainsString('Arrived', $v, "{$locale}.{$key}");
+                // 「도착예정」은 되고 「도착」 단독은 안 된다.
+                $this->assertStringNotContainsString('도착', str_replace('도착예정', '', $v), "{$locale}.{$key} 가 「도착」을 단독으로 씀");
+            }
+        }
+    }
+
+    /** 운항 필터는 **서버로** 나가야 한다(ERP scopeSailing 단일출처) + 거래완료 숨김과 동시에 걸린다. */
+    public function test_sailing_filter_goes_to_erp_with_exclude_status(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake(['*' => Http::response(['count' => 0, 'data' => []], 200)]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'sales')->call('setSalesSailing', 'in_transit')
+            ->assertSet('salesSailing', 'in_transit');
+
+        // ⚠️ 대상 아닌 요청은 false 로 떨어뜨린다 — true 로 넘기면 mount 의 /by-buyer 가 먼저 만족시켜
+        //    정작 /sales 쿼리를 한 번도 안 보고 통과한다(SKILLS §11-14).
+        Http::assertSent(function ($req) {
+            if (! str_contains($req->url(), '/board/sales')) {
+                return false;
+            }
+            $url = urldecode($req->url());
+
+            return str_contains($url, 'sailing=in_transit') && str_contains($url, 'exclude_status=거래완료');
+        });
+    }
+
+    /** 화이트리스트 밖 값은 무시 — 쿼리에 실려 나가면 ERP 가 조용히 버려 "필터한 척"이 된다. */
+    public function test_sailing_filter_rejects_unknown_phase(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake(['*' => Http::response(['count' => 0, 'data' => []], 200)]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'sales')
+            ->call('setSalesSailing', '도착예정')     // 한글 라벨 = HMAC canonical 이 갈리는 값
+            ->assertSet('salesSailing', '');
+
+        Http::assertSent(fn ($req) => ! str_contains($req->url(), '/board/sales')
+            || ! str_contains(urldecode($req->url()), 'sailing='));
+    }
+
+    /**
+     * car-erp §12 배포 전에는 응답에 `sailing` 키 자체가 없다 → 필터 pill 을 아예 숨긴다.
+     * 띄워두면 ERP 가 파라미터를 무시하므로 "운항중만 보기인데 전부 보이는" 거짓 화면이 된다.
+     * (2026-08-09 현재 운영 ERP 가 실제로 이 상태다.)
+     */
+    public function test_sailing_filter_hidden_until_erp_sends_the_field(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake(['*' => Http::response(['count' => 0, 'data' => []], 200)]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('portal.index')->call('setTab', 'sales');
+        $c->assertDontSee(__('portal.sailing_filter_label'));
+
+        // 필드 있음(값 null 이어도 = "배 안 탐") → 노출.
+        $this->assertTrue($c->instance()->sailingSupported([['vehicle_id' => 1, 'sailing' => null]]));
+        $this->assertFalse($c->instance()->sailingSupported([['vehicle_id' => 1]]));
+    }
+
+    /** 필터가 걸린 채 0건이면 pill 이 사라져 되돌릴 수 없다 → 필터 중엔 항상 노출. */
+    public function test_sailing_filter_stays_visible_when_it_returns_nothing(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake(['*' => Http::response(['count' => 0, 'data' => []], 200)]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'sales')->call('setSalesSailing', 'arrived')
+            ->assertSee(__('portal.sailing_filter_label'));
+    }
+
+    /** 재고에는 운항 **필터가 없다**(ERP 미제공) — 얹으면 조용히 무시돼 "필터한 척"이 된다. 칩만 뜬다. */
+    public function test_inventory_shows_sailing_chip_but_sends_no_sailing_param(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake(['*' => Http::response(['count' => 1, 'total' => 1, 'data' => [
+            ['vehicle_id' => 9, 'vehicle_number' => '33다3333', 'progress_status' => '수출통관완료',
+                'sailing' => 'in_transit', 'sailing_status' => '운항중', 'vessel_name' => 'MORNING CLARA', 'eta_date' => '2026-09-10'],
+        ]], 200)]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'inventory')->call('setInvCategory', 'shipped_out')
+            ->assertSee('운항중')->assertSee('MORNING CLARA');
+
+        Http::assertSent(fn ($req) => ! str_contains($req->url(), '/inventory')
+            || ! str_contains(urldecode($req->url()), 'sailing='));
+    }
+
+    /** 바이어 합계는 ERP 값 그대로 둔다 — 필터에 맞춰 board 가 재계산하면 그건 board 가 만든 숫자다. */
+    public function test_sailing_filter_hides_empty_buyers_without_touching_totals(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/by-buyer*' => Http::response(['data' => [
+                ['buyer' => 'OnShip', 'buyer_id' => 1, 'vehicle_count' => 9, 'sales_by_currency' => ['USD' => 90000]],
+                ['buyer' => 'NoShip', 'buyer_id' => 2, 'vehicle_count' => 4, 'sales_by_currency' => ['USD' => 40000]],
+            ]], 200),
+            '*/api/internal/board/sales*' => Http::response(['count' => 1, 'data' => [
+                ['vehicle_id' => 1, 'buyer' => 'OnShip', 'vehicle_number' => '44라4444',
+                    'sailing' => 'in_transit', 'sailing_status' => '운항중'],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'sales')->call('setSalesSailing', 'in_transit')
+            ->assertSee('OnShip')
+            ->assertDontSee('NoShip')              // 0대인 바이어 블록은 접는다
+            ->assertSee('90,000')                  // 합계는 ERP 값 그대로(필터 미반영) — 재계산 금지
+            ->assertSee(__('portal.sailing_totals_unfiltered'));
+    }
+
     /** 전송 실패를 성공한 척하지 않는다(§11-4 항목 5) — 영업이 보냈다고 착각하면 카톡보다 나쁘다. */
     public function test_portal_request_degrades_loudly_on_failure(): void
     {

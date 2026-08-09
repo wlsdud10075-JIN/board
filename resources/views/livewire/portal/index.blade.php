@@ -72,6 +72,12 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** 바이어가 많아지면 특정 바이어까지 스크롤해야 한다 → 이름 부분일치로 좁힌다. */
     public string $buyerSearch = '';
 
+    /**
+     * §12 운항 필터 — ''|in_transit|arrived. **ERP 쿼리 파라미터**(진행상태와 직교라 hideDoneSales 와 동시에 걸린다).
+     * ⚠️ `/sales` 만 이 필터를 읽는다. 재고(`/inventory`)는 필드만 오고 필터는 없다 — 거기 얹으면 조용히 무시된다.
+     */
+    public string $salesSailing = '';
+
     public array $monthly = [];               // 요약 탭 월별 집계(판매 건수·정산 실지급·매입)
 
     public array $salesDetail = [];           // 판매내역 펼침용 per-vehicle (바이어별 차량 리스트)
@@ -250,8 +256,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         // 판매내역 = by-buyer(헤더) + per-vehicle 상세(펼침용 차량 리스트).
         $this->salesDetail = [];
         if ($this->tab === 'sales') {
-            // 거래완료 제외는 **서버측 필터**(exclude_status) — 인덱스 컬럼이라 실제로 행이 줄어든다.
-            $s = $svc->sales($email, $this->hideDoneSales ? ['거래완료'] : []);
+            // 거래완료 제외·운항 필터 모두 **서버측**이다(인덱스 컬럼 / ERP scopeSailing) — 받아놓고 감추면 트래픽이 그대로다.
+            $s = $svc->sales($email, $this->hideDoneSales ? ['거래완료'] : [], $this->salesSailing);
             $this->salesDetail = ($s['ok'] ?? false) ? (array) data_get($s['data'], 'data', []) : [];
         }
         // 요약 탭 = 합계 + 월별(판매/정산/매입). 다른 탭은 월별 불필요.
@@ -293,6 +299,39 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function hasMoreInventory(): bool
     {
         return $this->invCategory === 'shipped_out' && count($this->invRows) < $this->invTotal;
+    }
+
+    /** §12 운항 필터 토글 — wire:model 이 아니라 메서드다(updated() 가 안 잡아 재조회가 조용히 빠진다). */
+    public function setSalesSailing(string $phase): void
+    {
+        if ($phase !== '' && ! in_array($phase, CarErpReadService::SAILING_PHASES, true)) {
+            return;
+        }
+        $this->salesSailing = $phase;
+        $this->load();
+    }
+
+    /**
+     * ERP 가 §12 운항 필드를 보내는가 — **행에 키가 있는지**로 본다. 값 null 은 "배 안 탐"이라 정상이고,
+     * 키 자체가 없으면 car-erp §12 배포 전이다(2026-08-09 현재 운영이 그 상태). 그때 필터 pill 을 띄우면
+     * ERP 가 파라미터를 무시하므로 "운항중만 보기인데 전부 보이는" 거짓 화면이 된다.
+     *
+     * ⚠️ 필터가 걸린 동안은 무조건 true — 0건이 나와도 되돌릴 버튼이 남아 있어야 한다.
+     *
+     * @param  array<int, mixed>  $rows
+     */
+    public function sailingSupported(array $rows): bool
+    {
+        if ($this->salesSailing !== '') {
+            return true;
+        }
+        foreach ($rows as $r) {
+            if (is_array($r) && array_key_exists('sailing', $r)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -1458,6 +1497,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                     $needle = mb_strtolower(trim($buyerSearch));
                     $buyers = collect($buyers)->filter(fn ($b) => str_contains(mb_strtolower((string) data_get($b, 'buyer')), $needle))->values()->all();
                 }
+                // 운항 필터가 걸리면 대부분의 바이어가 0대라 빈 블록만 늘어선다 → 그때만 접는다.
+                // (거래완료 숨김의 기존 동작은 안 건드린다.)
+                if ($salesSailing !== '') {
+                    $buyers = collect($buyers)->filter(
+                        fn ($b) => ($detailByBuyer[data_get($b, 'buyer') ?: __('portal.buyer_unassigned_paren')] ?? collect())->isNotEmpty()
+                    )->values()->all();
+                }
             @endphp
             @include('livewire.portal._request-result')
             <div class="mb-3 flex flex-wrap items-center gap-3">
@@ -1467,7 +1513,21 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <label class="flex cursor-pointer items-center gap-1.5 text-[12px] text-gray-600">
                     <input type="checkbox" wire:model.live="hideDoneSales"> {{ __('portal.hide_done_sales') }}
                 </label>
+                {{-- §12 운항 = 진행상태와 **직교**하는 축이라 거래완료 숨김과 동시에 걸린다.
+                     ERP 가 필드를 안 보내는 동안(§12 배포 전)엔 통째로 숨긴다 — 무시되는 필터는 거짓말이다. --}}
+                @if ($this->sailingSupported($salesDetail))
+                    <div class="flex items-center gap-1">
+                        <span class="text-[12px] text-gray-500">{{ __('portal.sailing_filter_label') }}</span>
+                        @foreach (['' => 'sailing_all', 'in_transit' => 'sailing_in_transit', 'arrived' => 'sailing_arrived'] as $phase => $key)
+                            <button type="button" wire:click="setSalesSailing('{{ $phase }}')"
+                                class="rounded-md border px-2 py-1 text-[12px] font-semibold {{ $salesSailing === $phase ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">{{ __('portal.'.$key) }}</button>
+                        @endforeach
+                    </div>
+                @endif
             </div>
+            @if ($salesSailing !== '')
+                <p class="mb-2 text-[11px] text-gray-400">{{ __('portal.sailing_totals_unfiltered') }}</p>
+            @endif
             @if ($this->requestChipUnavailable())
                 <p class="mb-2 text-[11px] text-amber-600">⚠️ {{ __('portal.req_chip_unavailable') }}</p>
             @endif
@@ -1507,7 +1567,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                                                 @endif
                                             </td>
                                             <td class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') }}</td>
-                                            <td class="whitespace-nowrap">@include('livewire.portal._progress-badge', ['status' => data_get($row, 'progress_status')])</td>
+                                            <td class="whitespace-nowrap">
+                                                @include('livewire.portal._progress-badge', ['status' => data_get($row, 'progress_status')])
+                                                @include('livewire.portal._sailing-chip', ['sailingDetail' => true])
+                                            </td>
                                             <td>{{ data_get($row, 'currency') ?: '—' }}</td>
                                             <td>{{ ($p = data_get($row, 'sale_price')) !== null && is_numeric($p) ? number_format((float) $p) : '—' }}</td>
                                             <td>{{ data_get($row, 'sale_date') ?: '—' }}</td>
@@ -1533,9 +1596,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                                                 wire:click="toggleReqVehicle({{ $bid }}, {{ $vid }})">
                                         @endif
                                         <div class="min-w-0">
-                                            <div class="flex items-center gap-1.5">
+                                            <div class="flex flex-wrap items-center gap-1.5">
                                                 <span class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') }}</span>
                                                 @include('livewire.portal._progress-badge', ['status' => data_get($row, 'progress_status')])
+                                                {{-- 모바일은 호버 title 이 없다 → 선박·ETA 를 펼친다. --}}
+                                                @include('livewire.portal._sailing-chip', ['sailingDetail' => true])
                                             </div>
                                             <div class="text-[11px] text-gray-400">{{ data_get($row, 'sale_date') ?: '—' }}</div>
                                         </div>
@@ -1648,7 +1713,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                             @endphp
                             <tr wire:key="inv-{{ data_get($row, 'vehicle_id') }}">
                                 <td class="whitespace-nowrap font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') ?: '—' }}</td>
-                                <td class="whitespace-nowrap">@include('livewire.portal._progress-badge', ['status' => data_get($row, 'progress_status')])</td>
+                                <td class="whitespace-nowrap">
+                                    @include('livewire.portal._progress-badge', ['status' => data_get($row, 'progress_status')])
+                                    {{-- 재고에는 운항 필터가 없다(ERP 미제공) — 칩만. 출고 전 3분류는 대개 null 이라 안 보인다. --}}
+                                    @include('livewire.portal._sailing-chip', ['sailingDetail' => true])
+                                </td>
                                 <td class="whitespace-nowrap text-gray-700">{{ $loc ?: '—' }}@if ($note)<span class="ml-1 text-[11px] text-gray-400">{{ $note }}</span>@endif</td>
                                 <td class="whitespace-nowrap text-gray-700">{{ data_get($row, $dateKey) ?: '—' }}</td>
                                 <td class="whitespace-nowrap text-gray-700">{{ data_get($row, 'buyer') ?: '—' }}</td>
@@ -1670,9 +1739,12 @@ new #[Layout('components.layouts.app')] class extends Component {
                         $unpaid = data_get($row, 'purchase_unpaid');
                     @endphp
                     <div class="card-tight" wire:key="invm-{{ data_get($row, 'vehicle_id') }}">
-                        <div class="flex items-center justify-between gap-2">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
                             <span class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') ?: '—' }}</span>
-                            @include('livewire.portal._progress-badge', ['status' => data_get($row, 'progress_status')])
+                            <span class="flex flex-wrap items-center gap-1.5">
+                                @include('livewire.portal._progress-badge', ['status' => data_get($row, 'progress_status')])
+                                @include('livewire.portal._sailing-chip', ['sailingDetail' => true])
+                            </span>
                         </div>
                         <div class="mt-1 flex flex-wrap items-center gap-x-3 text-[11px] text-gray-500">
                             <span>{{ __('portal.col_location') }} <b class="text-gray-700">{{ $loc ?: '—' }}</b></span>
