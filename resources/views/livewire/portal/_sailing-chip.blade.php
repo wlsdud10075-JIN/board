@@ -18,7 +18,10 @@
     $sailInfo = trim(($sailVessel ? '🛳 '.$sailVessel : '').($sailVessel && $sailEta ? ' · ' : '').($sailEta ? 'ETA '.$sailEta : ''));
 @endphp
 @if ($sailKey && $sailLabel)
-    <span class="badge whitespace-nowrap {{ $sailKey === 'in_transit' ? 'badge-blue' : 'badge-green' }}"
+    {{-- 색은 car-erp 차량목록 구현을 그대로 미러: 운항중=blue / 도착예정=**teal**.
+         §12 스펙 텍스트는 "도착예정=초록"이라 쓰였지만 구현은 teal 이다 — 초록은 진행상태 「거래완료」가
+         이미 쓰고 있고 두 뱃지가 나란히 붙기 때문. 문서와 구현이 갈리면 구현이 권위(SKILLS §14-3). --}}
+    <span class="badge whitespace-nowrap {{ $sailKey === 'in_transit' ? 'badge-blue' : 'badge-teal' }}"
           @if ($sailInfo) title="{{ $sailInfo }}" @endif>{{ $sailKey === 'in_transit' ? '🚢' : '⚓' }} {{ $sailLabel }}</span>
     @if ($sailInfo && ($sailingDetail ?? false))
         <div class="text-[11px] whitespace-nowrap text-gray-400">{{ $sailInfo }}</div>

@@ -286,6 +286,7 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 - **필터는 `/sales` 만** — `sailing=in_transit|arrived`, `exclude_status` 와 **동시 적용**(직교라서). 재고에는 얹지 말 것(§11-18). 영문 키만 — 쿼리는 HMAC canonical(ksort+`http_build_query`) 대상이라 한글 라벨을 실으면 서명이 깨진다.
 - **ERP 미배포 degrade** = 행에 `sailing` 키가 있는지로 판정해 없으면 필터 UI 통째 숨김. 단 필터가 걸린 동안은 항상 노출(§11-19).
 - **바이어 합계는 재계산 금지** — 운항 필터는 `/sales` 행만 줄이고 `/by-buyer` 헤더는 전체 기준이다. 맞춰 다시 계산하면 그건 board 가 만든 숫자다(진행상태 재명명과 같은 사고). 대신 0대 바이어 블록만 접고 "합계는 전체 기준" 한 줄.
+- **색 = 운항중 `badge-blue` / 도착예정 `badge-teal`** — car-erp 차량목록 구현 그대로. §12 스펙 *텍스트*는 "도착예정=초록"이라 썼지만 **구현은 teal** 이다. 초록(`badge-green`)은 진행상태 「거래완료」가 이미 쓰는데 두 뱃지가 **같은 칸에 나란히** 붙기 때문. 문서와 구현이 갈리면 구현이 권위(§14-3). 두 클래스 모두 board CSS 에 이미 있어 `npm run build` 불필요.
 - **선박별 묶기는 안 만들었다** — ERP `/inventory?search=` 가 **`vessel_name` 도 서버에서 검색**한다(실측 확인). 검색창에 선박명을 치면 같은 배에 실린 차가 나오므로 board 에 그룹핑 UI 를 따로 두지 않는다. `/sales` 엔 검색이 없어 거기선 미제공.
 
 ## 15. 사내 Notion 업무가이드 발행 + 허브 네비 표준 (Jin 지시 — "항상 이 상태로")
