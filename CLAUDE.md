@@ -101,7 +101,7 @@ draft(현지확인대기) → awaiting_buyer(회신대기) → accepted(구매�
 6. **audit**(super): 감사로그 — 변경이력(board_audit_logs, 상태/회신/출처 한글표시) + car-erp 전송로그(integration_events payload). 페이지네이션. /manage 에서 분리.
 7. **forwarding**(영업): 검차완료(inspected) 차 견적 금액 입력 → 바이어 전달(awaiting_buyer).
 8. **verdicts**(영업): 회신대기 차 수락/거절 처리.
-9. **portal**(영업·관리): car-erp 읽기 미러 — 탭 = `요약`·`미수금`·**`재고`**(지급대기/일반재고/선적전/출고완료)·`판매내역`·`정산내역`·`선적요청`. §11 신호 버튼([입금요청]·[판매대금확인])이 여기 있다. 상세 = `SKILLS.md §14`.
+9. **portal**(영업·관리): car-erp 읽기 미러 — 탭 = `요약`·`미수금`·**`재고`**(지급대기/일반재고/선적전/출고완료)·`판매내역`·`정산내역`·`선적요청`. §11 신호 버튼([입금요청]·[판매대금확인])이 여기 있다. 운항 칩(🚢운항중/⚓도착예정)은 **진행상태와 직교하는 별개 축**(`SKILLS.md §14-4`). 상세 = `SKILLS.md §14`.
 
 ## 계정 (시드, 전부 비번 `password`)
 | 이메일 | permission | role |
@@ -205,4 +205,5 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
   - ⚠️ **리터럴 타입** = `sales_contract`·`invoice`(method 접두 금지 — 붙이면 화이트리스트 밖 이름이라 403). 선적 4종만 `roro_`/`container_` 접두.
   - ⚠️ 서류 **버튼 이름은 car-erp `vehicle.shipdoc.*` 그대로** 쓴다(Jin 2026-08-01). board 에서 새로 지으면 "ERP엔 그런 서류 없다" 가 된다 — 이름 핀 테스트가 지킨다.
   - 남은 확인(car-erp 제기) = **ERP 로그인 계정 없이 salesmen 명부에만 있는 영업**도 board 로 여권 든 서류를 받게 된다. 실재 여부는 운영 DB 2개 대조 필요(쿼리는 인계문서에).
+- **운항 상태(§12) 포털 표시·필터**: board **dev 완료·미배포**(칩 + `/sales` 운항 필터 + degrade 가드, 로컬 e2e 통과). ⛔ **car-erp 가 먼저 나가야 한다** — `c5d2afa`(운항 board API)는 2026-08-09 현재 car-erp **로컬 dev 에만** 있고 origin/master 는 `8c9bc8e` 다. board 만 먼저 master 로 올리면 ERP 가 필드를 안 보내 필터 UI 가 숨겨진 채(=degrade 정상) 칩만 비는 상태가 된다. 순서 = car-erp master → board master. 규칙·함정 = `SKILLS.md §14-4`·`§11-17~19`.
 - (저우선) TimeGate **관리자 전역 해제 UI**(현재 등록잠금만; 편집은 이미 우회) · 퇴사자 계정 양쪽 동시정지 절차 **문서화**.

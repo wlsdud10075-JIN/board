@@ -174,6 +174,9 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
     ```
 15. **nullable 컬럼에 `where(col,'!=',x)` 를 쓰면 NULL 행이 같이 사라진다 (2026-08-07)** — SQL 3값 논리라 `NULL != 'x'` 는 참이 아니다. `purchase_listings.origin` 은 nullable(구행 백필 이후 유입분)이라 `where('origin','!=','self_inspection')` 만 쓰면 **현지확인 화면에서 구행이 통째로 증발**한다. → 전용 스코프로 감쌀 것: `whereNull(col)->orWhere(col,'!=',x)` (`PurchaseListing::scopeWhereNotSelfInspection`).
 16. **car-erp `inStock()` 은 출고일뿐 아니라 "매입 완납"까지 본다 (★2026-08-09, 설계가 통째로 틀릴 뻔)** — `whereRaw(purchaseUnpaidRawExpr().' <= 0')` 이 들어 있어 **미지급이 남은 차는 재고가 아니다**. 그런데 §11 [입금요청]을 보낼 차가 정확히 그 차들이다. 재고 3분류(일반/선적전/출고완료)만 미러하면 **버튼 달 곳이 사라진다**. → ERP 재고관리의 **「지급대기」(`awaiting_payment`) 포함 4분류**를 쓰고, 그게 board 기본 탭이다. ⚠️ **car-erp 스코프를 미러할 땐 이름만 보지 말고 정의(scope 본문)를 열어볼 것.**
+17. **`assertSee`로 칩을 검증했는데 같은 문자열의 필터 pill 이 대신 통과시킨다 (★2026-08-09, §11-14 의 화면판)** — 운항 칩(ERP 라벨 `운항중`)과 필터 pill 라벨(`🚢 운항중`)이 **같은 문자열**이라, `assertSee('운항중')` 은 **칩을 아예 안 그려도 초록불**이다(뮤테이션으로 실측 확인). → 화면 검증은 **그 요소만 낼 수 있는 값**으로 할 것(선박명·`ETA 2026-07-20`), 그리고 ERP 라벨 통과 여부는 **board 에 없는 라벨**(`sailing_status: 'ERP가정한라벨'`)을 흘려서 본다. ⚠️ **새 UI 테스트는 해당 코드를 죽여보고 실제로 빨간불이 되는지 한 번 확인**(`@if (false)` 로 충분).
+18. **같은 스펙 절이라도 "필드 오는 엔드포인트" ≠ "필터 받는 엔드포인트" (2026-08-09)** — car-erp §12 는 `sailing` **필드**를 `/sales`·`/inventory` 양쪽에 싣지만 **필터는 `/sales` 만** 읽는다(`InternalPortalController::inventory` 에 `sailing` when 절 없음 — 실측). 표를 보고 양쪽에 파라미터를 얹으면 서버가 **조용히 무시**해 "운항중만 보기인데 전부 보이는" 화면이 된다(422 도 안 난다). → 필터를 붙이기 전에 **수신측 컨트롤러에서 그 쿼리를 실제로 읽는지** 확인할 것.
+19. **상대가 아직 배포 안 한 필드에 UI 를 열어두면 그 UI 가 거짓말을 한다 (2026-08-09)** — board 가 ERP 보다 먼저 나가면(또는 한쪽 박스만 배포되면) 필터는 무시되고 화면은 필터된 척한다. → **응답 행에 그 키가 있는지로 지원 여부를 판정**하고(값 `null` 은 정상 데이터라 키 존재로 봐야 한다) 없으면 **필터 UI 자체를 숨긴다**. ⚠️ 단 **필터가 걸린 동안은 무조건 노출** — 0건이 나왔을 때 pill 이 사라지면 되돌릴 방법이 없다.
 
 ## 12. 연동 B 계약 — board "보내는 절반" (수신 = car-erp/heyman)
 > 두 앱(board·car-erp)이 만나는 **유일한 접점 = 이 API 계약**. DB·보안경계 다른 별도 앱이라 합치지 않고 계약으로 느슨하게 연결.
@@ -272,6 +275,18 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 - ⚠️ **board 로컬과 car-erp 로컬은 서로 다른 시드다.** board 의 `car_erp_vehicle_id`(erp#180~201)는 **운영 ERP** 를 가리키고 car-erp 로컬엔 그 id 가 없다. 시드 차량으로 버튼만 눌러보면 "동작은 하는데 우리 차가 아닌" 테스트가 된다.
   → **진짜 사슬을 만들려면**: board `/listings` 등록(셀프검차매입) → `/auction` 구매확정(won) → 연동 B 가 car-erp 에 차량 생성(`car_erp_vehicle_id` 회신) → 그 차가 `/portal` 재고에 같은 차량번호로 뜬다 → 거기서 [입금요청]. `QUEUE_CONNECTION=sync` 라 저장 즉시 발사된다.
 - ⚠️ **스펙 문서와 구현이 갈리면 구현이 권위**(§14 canonical 과 같은 교훈). 실제 사례: §11-3 문서는 `batch_id` 가 항상 발급된다고 썼는데 구현은 `purchase_payment` 일 때 **null**, `skipped[]` 키도 `forbidden`=`vehicle_id` / `already_open`=`vehicle_number` 로 **갈린다**. 클라이언트는 구현에 맞추고, 문서 정정은 그쪽 세션에 인계.
+
+### 14-4. 운항 상태 — 진행상태와 **직교하는 축** (§12, 2026-08-09)
+
+권위 = car-erp `docs/integration/board-portal-api.md §12`. 판정은 ERP `Vehicle::scopeSailing` **단일출처**.
+
+- **한 축이 아니다.** 선적일+ETA 가 둘 다 있으면 배가 떴고, ETA 가 미래면 `in_transit` / 지났으면 `arrived`. **진행상태를 가로지른다**(실측: 판매중·통관중·선적완료·거래완료에 흩어져 있음). 🚫 `progress_status` 자리에 합치거나 승격시키지 말 것.
+- **필드 5개**(`/sales`·`/inventory` 공통) = `sailing`(영문 키, **분기용**) · `sailing_status`(한글 라벨, **출력용**) · `vessel_name` · `shipping_date` · `eta_date`. 둘 중 하나로 다른 하나를 만들어내지 말 것.
+- ⚠️ **「도착예정」을 「도착」으로 줄이지 말 것** — ETA 가 지났다는 뜻일 뿐 **입항 확인이 아니다**(포워더 소스가 ERP 에 없다). 영업이 바이어에게 "도착했다"고 전하면 지연 시 그대로 클레임. 칩은 ERP 라벨을 그대로 찍어 구조적으로 안전하지만, **board 소유 문자열(필터 pill 등)은 lang 테스트로 핀 고정**(`test_board_never_labels_sailing_as_arrived`).
+- **필터는 `/sales` 만** — `sailing=in_transit|arrived`, `exclude_status` 와 **동시 적용**(직교라서). 재고에는 얹지 말 것(§11-18). 영문 키만 — 쿼리는 HMAC canonical(ksort+`http_build_query`) 대상이라 한글 라벨을 실으면 서명이 깨진다.
+- **ERP 미배포 degrade** = 행에 `sailing` 키가 있는지로 판정해 없으면 필터 UI 통째 숨김. 단 필터가 걸린 동안은 항상 노출(§11-19).
+- **바이어 합계는 재계산 금지** — 운항 필터는 `/sales` 행만 줄이고 `/by-buyer` 헤더는 전체 기준이다. 맞춰 다시 계산하면 그건 board 가 만든 숫자다(진행상태 재명명과 같은 사고). 대신 0대 바이어 블록만 접고 "합계는 전체 기준" 한 줄.
+- **선박별 묶기는 안 만들었다** — ERP `/inventory?search=` 가 **`vessel_name` 도 서버에서 검색**한다(실측 확인). 검색창에 선박명을 치면 같은 배에 실린 차가 나오므로 board 에 그룹핑 UI 를 따로 두지 않는다. `/sales` 엔 검색이 없어 거기선 미제공.
 
 ## 15. 사내 Notion 업무가이드 발행 + 허브 네비 표준 (Jin 지시 — "항상 이 상태로")
 > 사내 Notion "사내 업무 가이드" 갱신 = **MCP 아님**, 자체 스크립트 `scripts/notion-guide-publish.php`(Notion REST 직접). 토큰 = Windows **User env `NOTION_TOKEN`**. 세션이 토큰 등록 전에 켜졌으면 `getenv()` 못 잡음 → PowerShell 인라인 주입: `$env:NOTION_TOKEN=[Environment]::GetEnvironmentVariable('NOTION_TOKEN','User'); php scripts/notion-guide-publish.php --apply`. **발행=라이브 즉시반영** → apply 전 인자 없이 dry-run 으로 블록수 확인.
