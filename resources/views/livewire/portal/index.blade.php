@@ -1116,7 +1116,9 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                         <div class="mt-2 flex flex-wrap gap-1.5">
                             @foreach ($bvehicles as $v)
-                                <span class="rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-[12px] font-semibold text-gray-700">{{ data_get($v, 'vehicle_number') }}</span>
+                                <span class="rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-[12px] font-semibold text-gray-700">
+                                    {{ data_get($v, 'vehicle_number') }}@include('livewire.portal._vehicle-meta', ['row' => $v])
+                                </span>
                             @endforeach
                         </div>
 
@@ -1219,7 +1221,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     @foreach ($bvehicles as $v)
                                         @php $vid = (int) data_get($v, 'vehicle_id'); @endphp
                                         <div class="mt-1 flex items-center gap-2" wire:key="chg-{{ $vid }}">
-                                            <span class="shrink-0 text-[12px] font-semibold text-gray-700">{{ data_get($v, 'vehicle_number') }}</span>
+                                            <span class="shrink-0 text-[12px] font-semibold text-gray-700">
+                                                {{ data_get($v, 'vehicle_number') }}@include('livewire.portal._vehicle-meta', ['row' => $v])
+                                            </span>
                                             <input wire:model="changeNote.{{ $vid }}" class="input-base flex-1 text-[12px]" placeholder="{{ __('portal.change_request_ph') }}">
                                             <button wire:click="requestChange({{ $vid }})" class="btn-ghost btn-sm shrink-0">{{ __('portal.change_request_btn') }}</button>
                                         </div>
@@ -1246,9 +1250,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <p class="mb-3 text-[13px] text-gray-500">{!! __('portal.plan_intro') !!}</p>
                     @php
                         // 차번호 맵 (shippable + 기존 묶음 차)
+                        // 차번호 + 보조정보(차대번호·브랜드) — 행 자체를 담아둔다(번호만 담으면 partial 이 못 그린다).
                         $vnoMap = [];
-                        foreach ($shippablePool as $vv) { $vnoMap[(int) data_get($vv, 'vehicle_id')] = data_get($vv, 'vehicle_number'); }
-                        foreach ($bundles as $bb) { foreach ((array) data_get($bb, 'vehicles', []) as $vv) { $vnoMap[(int) data_get($vv, 'vehicle_id')] = data_get($vv, 'vehicle_number'); } }
+                        $vrowMap = [];
+                        foreach ($shippablePool as $vv) { $vnoMap[(int) data_get($vv, 'vehicle_id')] = data_get($vv, 'vehicle_number'); $vrowMap[(int) data_get($vv, 'vehicle_id')] = $vv; }
+                        foreach ($bundles as $bb) { foreach ((array) data_get($bb, 'vehicles', []) as $vv) { $vrowMap[(int) data_get($vv, 'vehicle_id')] = $vv; $vnoMap[(int) data_get($vv, 'vehicle_id')] = data_get($vv, 'vehicle_number'); } }
                         // 바이어 목록 = desired 바이어 ∪ shippable 바이어
                         $buyerNames = [];
                         foreach ($desired as $bd) { if ($bd['buyer_id']) { $buyerNames[(int) $bd['buyer_id']] = $bd['buyer_name']; } }
@@ -1297,6 +1303,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                                     class="inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] font-semibold {{ $on ? 'border-violet-400 bg-violet-100 text-gray-800' : 'border-gray-300 bg-white text-gray-600' }}">
                                                     <input type="checkbox" @checked($on) class="pointer-events-none">
                                                     {{ $vnoMap[$vid] ?? '#'.$vid }}
+                                                    @isset($vrowMap[$vid])@include('livewire.portal._vehicle-meta', ['row' => $vrowMap[$vid], 'metaWrap' => 'span'])@endisset
                                                 </label>
                                             @empty
                                                 <span class="text-[11px] text-gray-400">{{ __('portal.plan_no_cars') }}</span>
@@ -1439,7 +1446,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                                                     </td>
                                                 @else
                                                     @php $val = data_get($row, $k); @endphp
-                                                    <td class="whitespace-nowrap {{ $val === null ? 'text-amber-600' : 'text-gray-700' }}">{{ $val === null ? '—' : $val }}</td>
+                                                    <td class="whitespace-nowrap {{ $val === null ? 'text-amber-600' : 'text-gray-700' }}">
+                                                        {{ $val === null ? '—' : $val }}
+                                                        @if ($k === 'vehicle_number')@include('livewire.portal._vehicle-meta')@endif
+                                                    </td>
                                                 @endif
                                             @endforeach
                                         </tr>
@@ -1460,6 +1470,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     <div class="flex items-center justify-between gap-2">
                                         <div class="min-w-0">
                                             <div class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') ?: '—' }}</div>
+                                            @include('livewire.portal._vehicle-meta')
                                             <div class="text-[11px] text-gray-400">{{ __('portal.fx_rate_label') }} {{ data_get($row, 'exchange_rate') ?? '—' }}</div>
                                         </div>
                                         <div class="shrink-0 text-right text-sm font-bold {{ $native === null ? 'text-gray-400' : 'text-gray-800' }}">
@@ -1566,7 +1577,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                                                     <span class="text-[11px] text-gray-300" title="{{ __('portal.req_blocked_no_vehicle_id') }}">—</span>
                                                 @endif
                                             </td>
-                                            <td class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') }}</td>
+                                            <td class="font-semibold text-gray-700">
+                                                {{ data_get($row, 'vehicle_number') }}
+                                                @include('livewire.portal._vehicle-meta')
+                                            </td>
                                             <td class="whitespace-nowrap">
                                                 @include('livewire.portal._progress-badge', ['status' => data_get($row, 'progress_status')])
                                                 @include('livewire.portal._sailing-chip', ['sailingDetail' => true])
@@ -1598,6 +1612,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                         <div class="min-w-0">
                                             <div class="flex flex-wrap items-center gap-1.5">
                                                 <span class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') }}</span>
+                                                @include('livewire.portal._vehicle-meta', ['metaWrap' => 'span'])
                                                 @include('livewire.portal._progress-badge', ['status' => data_get($row, 'progress_status')])
                                                 {{-- 모바일은 호버 title 이 없다 → 선박·ETA 를 펼친다. --}}
                                                 @include('livewire.portal._sailing-chip', ['sailingDetail' => true])
@@ -1712,7 +1727,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 $unpaid = data_get($row, 'purchase_unpaid');
                             @endphp
                             <tr wire:key="inv-{{ data_get($row, 'vehicle_id') }}">
-                                <td class="whitespace-nowrap font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') ?: '—' }}</td>
+                                <td class="whitespace-nowrap font-semibold text-gray-700">
+                                    {{ data_get($row, 'vehicle_number') ?: '—' }}
+                                    @include('livewire.portal._vehicle-meta')
+                                </td>
                                 <td class="whitespace-nowrap">
                                     @include('livewire.portal._progress-badge', ['status' => data_get($row, 'progress_status')])
                                     {{-- 재고에는 운항 필터가 없다(ERP 미제공) — 칩만. 출고 전 3분류는 대개 null 이라 안 보인다. --}}
@@ -1740,7 +1758,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @endphp
                     <div class="card-tight" wire:key="invm-{{ data_get($row, 'vehicle_id') }}">
                         <div class="flex flex-wrap items-center justify-between gap-2">
-                            <span class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') ?: '—' }}</span>
+                            <span class="min-w-0">
+                                <span class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') ?: '—' }}</span>
+                                @include('livewire.portal._vehicle-meta')
+                            </span>
                             <span class="flex flex-wrap items-center gap-1.5">
                                 @include('livewire.portal._progress-badge', ['status' => data_get($row, 'progress_status')])
                                 @include('livewire.portal._sailing-chip', ['sailingDetail' => true])

@@ -928,6 +928,129 @@ class BoardTest extends TestCase
         $this->assertSame('won', $l->fresh()->status);
     }
 
+    // ── 매입 등록 락 (car-erp §4-0, 2026-08-10) ──
+
+    /** 락 응답 헬퍼 — car-erp `GET /buyers` 동봉 형태 그대로. */
+    private function buyerRow(int $id, bool $locked, string $mode = 'unsecured', ?string $kind = 'unsecured_krw', $cur = 0, $lim = 5000000): array
+    {
+        return [
+            'id' => $id, 'name' => 'BUYER'.$id, 'country' => 'JP',
+            'purchase_locked' => $locked,
+            'purchase_lock' => [
+                'locked' => $locked, 'mode' => $mode,
+                'basis' => ['kind' => $kind, 'current' => $cur, 'limit' => $lim],
+                // 🚫 board 는 이걸 절대 안 그린다 — 락과 분모·분자가 달라 나란히 보이면 오판한다
+                'reference' => ['available_krw' => 10000000, 'unpaid_krw' => 92000000, 'unpaid_ratio_pct' => 92.0],
+            ],
+        ];
+    }
+
+    /**
+     * ★연동 B 는 car-erp 저장 게이트를 안 타므로 **여기가 유일한 상류 차단점**이다.
+     * 통과시키면 영업이 돈을 쓴 뒤에야 막힌 걸 알게 된다.
+     */
+    public function test_locked_buyer_blocks_purchase_confirmation(): void
+    {
+        Bus::fake();
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/buyers*' => Http::response(['count' => 1, 'data' => [$this->buyerRow(7, true)]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('buyerId', 7)
+            ->call('conclude', $l->id, 'won')
+            ->assertHasErrors('buyerId');
+
+        $this->assertSame('accepted', $l->fresh()->status);
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+    }
+
+    /** 락이 안 걸린 바이어는 그대로 통과 — 락이 기본 차단으로 굳으면 매입이 통째로 선다. */
+    public function test_unlocked_buyer_passes(): void
+    {
+        Bus::fake();
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/buyers*' => Http::response(['count' => 1, 'data' => [$this->buyerRow(7, false)]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('buyerId', 7)
+            ->call('conclude', $l->id, 'won')->assertHasNoErrors();
+
+        $this->assertSame('won', $l->fresh()->status);
+    }
+
+    /**
+     * ⚠️ ERP 조회가 degrade(다운·미설정)면 **막지 않는다** — 여기서 막으면 ERP 장애가
+     * board 의 매입 마감을 통째로 세운다. 지금과 같은 동작을 유지한다.
+     */
+    public function test_buyer_lock_degrades_open_when_erp_unreachable(): void
+    {
+        Bus::fake();
+        $this->carErpReadConfig();
+        Http::fake(['*' => Http::response(['error' => 'boom'], 500)]);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('buyerId', 7)
+            ->call('conclude', $l->id, 'won')->assertHasNoErrors();
+
+        $this->assertSame('won', $l->fresh()->status);
+    }
+
+    /** 근거는 basis 하나뿐 — reference(보증금 여력)를 같이 그리면 "여력 0인데 가능"·"락인데 여력 1천만"이 둘 다 정상이라 오판한다. */
+    public function test_buyer_lock_shows_basis_only_never_reference(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/buyers*' => Http::response(['count' => 1, 'data' => [
+                $this->buyerRow(7, true, 'ratio', 'ratio', 92.0, 80),
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction']);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)->set('buyerId', 7)
+            ->assertSee('미수율 92% / 임계 80%')          // basis 그대로(20.0 → 20 정규화 포함)
+            ->assertSee(__('auction.buyer_lock_notice'))  // "불가"가 아니라 관리자 승인 안내
+            ->assertDontSee('10,000,000');                // reference.available_krw 는 절대 안 나온다
+    }
+
+    /** 토글 OFF·판정근거 없음(신규 바이어)은 **아무것도 안 그린다** — 빈 배지가 더 헷갈린다. */
+    public function test_buyer_lock_hidden_when_off_or_no_basis(): void
+    {
+        $this->carErpReadConfig();
+        $this->actingAs($this->mkUser('manager'));
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction']);
+
+        foreach ([['off', null], ['unsecured', null]] as [$mode, $kind]) {
+            Http::fake([
+                '*/api/internal/board/buyers*' => Http::response(['count' => 1, 'data' => [
+                    $this->buyerRow(7, false, $mode, $kind),
+                ]], 200),
+                '*' => Http::response(['count' => 0, 'data' => []], 200),
+            ]);
+            $c = Volt::test('auction.index')->call('openDetail', $l->id)->set('buyerId', 7);
+            $this->assertNull($c->instance()->buyerLock(7), "mode={$mode} kind=".var_export($kind, true));
+        }
+    }
+
     /** 바이어 조회 신원 = 운영자(대행 관리자)가 아니라 '딜 작성자(영업)' — car-erp 본인격리 + 연동B salesman 일관성. */
     public function test_auction_buyer_dropdown_uses_listing_creator_identity(): void
     {
@@ -3940,6 +4063,80 @@ class BoardTest extends TestCase
             ->assertDontSee('NoShip')              // 0대인 바이어 블록은 접는다
             ->assertSee('90,000')                  // 합계는 ERP 값 그대로(필터 미반영) — 재계산 금지
             ->assertSee(__('portal.sailing_totals_unfiltered'));
+    }
+
+    // ── 포털 차량 보조정보 (차대번호·브랜드/차종, 2026-08-10 Jin) ──
+
+    /**
+     * 차량번호가 보이는 탭이면 차대번호·브랜드/차종도 같이 보인다.
+     * ⚠️ 검증값은 **그 partial 만 낼 수 있는 문자열**로 잡는다 — 브랜드명 같은 흔한 낱말로 보면
+     *    화면 다른 곳과 겹쳐 partial 을 안 그려도 통과한다(SKILLS §11-17).
+     */
+    public function test_portal_shows_vin_and_model_where_vehicle_number_appears(): void
+    {
+        $this->carErpReadConfig();
+        $meta = ['vin' => 'ZZTESTVIN00001', 'brand' => '현대', 'model_type' => '그랜저IG'];
+        Http::fake([
+            '*/api/internal/board/receivables*' => Http::response(['data' => [
+                ['vehicle_number' => '11가1111', 'buyer' => 'B1', 'unpaid_krw' => 100] + $meta,
+            ]], 200),
+            '*/api/internal/board/inventory*' => Http::response(['count' => 1, 'total' => 1, 'data' => [
+                ['vehicle_id' => 5, 'vehicle_number' => '22나2222'] + $meta,
+            ]], 200),
+            '*/api/internal/board/by-buyer*' => Http::response(['data' => [
+                ['buyer' => 'B1', 'buyer_id' => 1, 'vehicle_count' => 1, 'sales_by_currency' => ['USD' => 1]],
+            ]], 200),
+            '*/api/internal/board/sales*' => Http::response(['count' => 1, 'data' => [
+                ['vehicle_id' => 5, 'buyer' => 'B1', 'vehicle_number' => '33다3333'] + $meta,
+            ]], 200),
+            '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
+                'batch_id' => 'B9', 'ship_status' => 'requested', 'buyer' => ['id' => 1, 'name' => 'B1'],
+                'vehicles' => [['vehicle_id' => 5, 'vehicle_number' => '44라4444'] + $meta],
+            ]]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        foreach (['receivables', 'inventory', 'sales', 'shipping'] as $tab) {
+            Volt::test('portal.index')->call('setTab', $tab)
+                ->assertSee('ZZTESTVIN00001')     // 이 값은 이 partial 말고 나올 데가 없다
+                ->assertSee('현대 그랜저IG');
+        }
+    }
+
+    /**
+     * car-erp 가 아직 필드를 안 보내면(그쪽 배포 전, 또는 §3 PII 판단으로 VIN 제외) **아무것도 안 그린다** —
+     * 대시(—)조차 찍지 않는다. 빈 줄이 늘어서면 "정보가 없는 차"로 오해된다.
+     */
+    public function test_portal_vehicle_meta_degrades_when_erp_omits_fields(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/inventory*' => Http::response(['count' => 1, 'total' => 1, 'data' => [
+                ['vehicle_id' => 5, 'vehicle_number' => '55마5555'],   // vin·brand·model_type 없음
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $html = Volt::test('portal.index')->call('setTab', 'inventory')->assertSee('55마5555')->html();
+        // 차량번호 셀 바로 뒤에 회색 보조줄이 생기면 안 된다
+        $this->assertStringNotContainsString('text-[11px] font-normal text-gray-400', $html);
+    }
+
+    /** 브랜드만 오고 VIN 이 없어도(§3 PII 판단으로 제외될 수 있다) 브랜드는 보여야 한다 — 필드별 독립 degrade. */
+    public function test_portal_vehicle_meta_shows_model_without_vin(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/inventory*' => Http::response(['count' => 1, 'total' => 1, 'data' => [
+                ['vehicle_id' => 5, 'vehicle_number' => '66바6666', 'vin' => null, 'brand' => '기아', 'model_type' => 'K9ZZTEST'],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'inventory')->assertSee('기아 K9ZZTEST');
     }
 
     /** 전송 실패를 성공한 척하지 않는다(§11-4 항목 5) — 영업이 보냈다고 착각하면 카톡보다 나쁘다. */
