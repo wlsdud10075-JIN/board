@@ -44,6 +44,7 @@ return [
     'car_cost_hint' => 'Car cost, discount, deduction and shipping produce the final buyer figure below. Confirming the purchase is blocked while car cost is empty.',
     'car_cost_missing' => '⚠️ Car cost is empty — the ERP transfer needs it.',
     'err_amount_required' => 'Enter the car cost before confirming the purchase. Without an amount it never reaches the ERP.',
+    'err_sale_price_required' => 'Enter the sale price before confirming the purchase. Leaving it empty creates the vehicle in the ERP with no sale data.',
     'discount_rate' => 'Discount rate',
     'shipping' => 'Shipping',
     'buyer' => 'Buyer',

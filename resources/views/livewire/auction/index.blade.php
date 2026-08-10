@@ -416,6 +416,14 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 return;
             }
+            // 셀프검차 필수 락 (2026-08-10 Jin) — 차값은 위 게이트가 잡고, 판매가는 여기서.
+            // 판매가가 비면 car-erp 가 판매 pre-fill 을 통째로 보류해(수신측 `sale_price>0 && rate>0`)
+            // ERP 판매탭이 빈 채로 생긴다 — 관리가 나중에 손으로 채워야 하고, 그때 board 값과 갈린다.
+            if ($l->isSelfInspection() && $l->sale_price === null) {
+                $this->addError('sale_price', __('auction.err_sale_price_required'));
+
+                return;
+            }
         }
 
         $l->status = $result;

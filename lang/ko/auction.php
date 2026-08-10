@@ -44,6 +44,7 @@ return [
     'car_cost_hint' => '차값·할인·차감액·배송으로 아래 현지 최종금액(바이어 금액)이 계산됩니다. 차값이 비면 구매확정이 막힙니다.',
     'car_cost_missing' => '⚠️ 차값이 비어 있습니다 — 넣어야 ERP 로 넘어갑니다.',
     'err_amount_required' => '차값을 넣어야 구매확정할 수 있습니다. 금액이 없으면 ERP 로 넘어가지 않습니다.',
+    'err_sale_price_required' => '판매가를 넣어야 구매확정할 수 있습니다. 비우면 ERP 판매정보가 빈 채로 생깁니다.',
     'discount_rate' => '할인율',
     'shipping' => '배송',
     'buyer' => '바이어',

@@ -200,6 +200,7 @@ class BoardTest extends TestCase
             ->call('openDetail', $l->id)
             ->set('owner_name', '차주')
             ->set('payee_name', '판매상사')
+            ->set('sale_price', '7000')     // 셀프검차 필수 락 — 차값·판매가 둘 다 있어야 구매확정된다
             ->call('conclude', $l->id, 'won')
             ->assertHasNoErrors();
 
@@ -521,6 +522,7 @@ class BoardTest extends TestCase
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '12000000')
+            ->set('sale_price', '8000')     // 셀프검차 필수 락
             ->call('conclude', $l->id, 'won')->assertHasNoErrors();
 
         $this->assertSame(12000000, (int) $l->fresh()->car_cost);
@@ -666,6 +668,54 @@ class BoardTest extends TestCase
                 && ($b['sale_currency'] ?? null) === 'USD'
                 && ($b['sale_exchange_rate'] ?? null) === 1400;
         });
+    }
+
+    /**
+     * ★셀프검차 필수 락 (2026-08-10 Jin) — **차값·판매가 둘 다** 있어야 구매확정된다.
+     * 판매가가 비면 car-erp 가 판매 pre-fill 을 보류해(`sale_price>0 && rate>0`) ERP 판매탭이 빈 채로 생긴다.
+     */
+    public function test_self_inspection_requires_sale_price_to_conclude(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        // 차값만 있고 판매가가 없으면 막힌다
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('car_cost', '10000000')
+            ->call('conclude', $l->id, 'won')
+            ->assertHasErrors('sale_price');
+
+        $this->assertSame('accepted', $l->fresh()->status);
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+
+        // 판매가까지 넣으면 통과
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('car_cost', '10000000')
+            ->set('sale_price', '7000')
+            ->call('conclude', $l->id, 'won')->assertHasNoErrors();
+
+        $this->assertSame('won', $l->fresh()->status);
+        Bus::assertDispatched(SyncWonListingToCarErp::class);
+    }
+
+    /** 판매가 락은 셀프검차 전용 — 다른 출처는 견적 씬에서 채워지므로 여기서 막으면 기존 흐름이 죽는다. */
+    public function test_sale_price_lock_does_not_apply_to_other_origins(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'encar',
+            'source' => 'auction', 'car_cost' => null, 'final_price' => 9000000, 'sale_price' => null,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->call('conclude', $l->id, 'won')->assertHasNoErrors();
+
+        $this->assertSame('won', $l->fresh()->status);
     }
 
     /** 매도비 > 차값 = 오타. 통과시키면 매입가가 0 으로 깎여 **0원짜리 차**가 ERP 원장에 생긴다(ERP 검증도 min:0). */
