@@ -66,6 +66,9 @@ class BoardTest extends TestCase
             'vin' => 'VIN'.str_pad((string) $this->seq, 10, '0', STR_PAD_LEFT),
             'status' => 'draft',
             'buyer_verdict' => 'none',
+            // 구매확정은 **바이어 필수**다(2026-08-10 Jin, 매입 등록 락의 전제) → 기본으로 채운다.
+            // 미선택 동작은 `test_conclude_requires_buyer` 에서 명시적으로 null 로 덮어 검증한다.
+            'car_erp_buyer_id' => 7,
         ], $attr));
     }
 
@@ -202,6 +205,7 @@ class BoardTest extends TestCase
             ->set('payee_name', '판매상사')
             ->set('sale_price', '7000')     // 셀프검차 필수 락 — 차값·판매가·통화
             ->set('quoteCurrency', 'KRW')
+            ->set('buyerId', 7)             // 구매확정은 바이어 필수(매입 등록 락의 전제)
             ->call('conclude', $l->id, 'won')
             ->assertHasNoErrors();
 
@@ -971,6 +975,63 @@ class BoardTest extends TestCase
         Bus::assertNotDispatched(SyncWonListingToCarErp::class);
     }
 
+    /**
+     * ★바이어 필수 = **락의 전제**(2026-08-10 Jin). 안 고르면 연동 B `buyer_id` 가 null 로 나가
+     * car-erp 가 판정할 대상이 없다 → "안 고르면 통과"라는 구멍이 남는다.
+     */
+    public function test_conclude_requires_buyer(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction',
+            'final_price' => 9000000, 'car_erp_buyer_id' => null,   // 기본값을 명시적으로 덮는다
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->call('conclude', $l->id, 'won')
+            ->assertHasErrors('buyerId');
+
+        $this->assertSame('accepted', $l->fresh()->status);
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+    }
+
+    /**
+     * 버튼 자체가 안 눌려야 한다 — 눌러보고 막히는 것보다 낫다(Jin 2026-08-10).
+     * ⚠️ `Http::fake()` 는 **머지**된다 — 한 테스트에서 두 번 부르면 먼저 등록한 와일드카드가
+     *    뒤에 등록한 구체 패턴(buyers 경로)을 가린다. 그래서 케이스마다 테스트를 나눈다.
+     */
+    public function test_confirm_button_disabled_without_buyer(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake(['*' => Http::response(['count' => 0, 'data' => []], 200)]);
+        $this->actingAs($this->mkUser('manager'));
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'car_erp_buyer_id' => null,
+        ]);
+
+        $c = Volt::test('auction.index')->call('openDetail', $l->id);
+        $this->assertSame(__('auction.err_buyer_required'), $c->instance()->purchaseBlockReason());
+    }
+
+    /** 락 걸린 바이어를 고르면 구매확정 버튼이 **비활성**으로 렌더된다. 유찰/취소는 그대로 눌린다. */
+    public function test_confirm_button_disabled_for_locked_buyer(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/buyers*' => Http::response(['count' => 1, 'data' => [$this->buyerRow(7, true)]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'car_erp_buyer_id' => 7,
+        ]);
+
+        $c = Volt::test('auction.index')->call('openDetail', $l->id);
+        $this->assertSame(__('auction.err_buyer_purchase_locked'), $c->instance()->purchaseBlockReason());
+        $c->assertSee('disabled');
+    }
+
     /** 락이 안 걸린 바이어는 그대로 통과 — 락이 기본 차단으로 굳으면 매입이 통째로 선다. */
     public function test_unlocked_buyer_passes(): void
     {
@@ -1200,6 +1261,7 @@ class BoardTest extends TestCase
         Volt::test('auction.index')
             ->assertSee($lMine->vehicle_number)        // 본인 딜 노출
             ->assertDontSee($lOther->vehicle_number)   // 타 영업 딜 격리(SalesmanScope)
+            ->call('openDetail', $lMine->id)           // 구매확정은 드로어 안에서만 — 바이어가 여기서 잡힌다
             ->call('conclude', $lMine->id, 'won')->assertHasNoErrors();
 
         $this->assertSame('won', $lMine->fresh()->status);
@@ -1916,6 +1978,7 @@ class BoardTest extends TestCase
         $this->actingAs($this->mkUser('auction'));
 
         Volt::test('auction.index')
+            ->call('openDetail', $l->id)
             ->call('conclude', $l->id, 'won')
             ->assertHasNoErrors();
 
