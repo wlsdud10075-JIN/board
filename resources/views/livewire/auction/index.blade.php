@@ -3,6 +3,7 @@
 use App\Jobs\SyncWonListingToCarErp;
 use App\Models\InspectionPhoto;
 use App\Models\PurchaseListing;
+use App\Services\ExchangeRateService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Computed;
@@ -38,6 +39,40 @@ new #[Layout('components.layouts.app')] class extends Component {
      * car-erp 가 `required_without` 로 **422** 를 낸다(2026-08-10 heymanboard 67도4322 실측).
      */
     public ?string $car_cost = null;
+
+    /**
+     * 견적 금액 나머지 — `/forwarding` 과 **같은 칸·같은 공식**(`totalKrw`)을 쓴다(2026-08-10 Jin 선택).
+     * 바이어 금액(현지 최종금액)을 여기서 직접 타이핑하지 않는 이유 = 그러면 할인·차감액과 숫자가 갈린다.
+     */
+    public ?string $discount_rate = null;
+
+    public ?string $sale_discount = null;   // 차감액(KRW 절대금액 — Model A sell-side)
+
+    public ?string $shipping_usd = null;
+
+    /** 견적 통화 — 드로어 열 때 offer_currency 표시, 저장 시 바뀐 경우만 재스냅(EUR 딜 보존). */
+    public string $quoteCurrency = 'KRW';
+
+    public int $krwPerUsd = 0;
+
+    public int $krwPerEur = 0;
+
+    public function mount(ExchangeRateService $rates): void
+    {
+        $rates->refreshIfStale();   // 오래됐을 때만 갱신(lazy)
+        $this->krwPerUsd = $rates->krwPerUsd();
+        $this->krwPerEur = $rates->krwPerEur();
+    }
+
+    private function usdRate(): int
+    {
+        return $this->krwPerUsd ?: (int) config('board.default_krw_per_usd');
+    }
+
+    private function eurRate(): int
+    {
+        return $this->krwPerEur ?: (int) config('board.default_krw_per_eur');
+    }
 
     // v3 — car-erp 바이어/컨사이니 (드롭다운 선택 → 연동B buyer_id/consignee_id). 본인 스코프.
     public ?int $buyerId = null;
@@ -91,6 +126,9 @@ new #[Layout('components.layouts.app')] class extends Component {
             'selling_fee_payee_bank' => 'nullable|string|max:40',
             'selling_fee_payee_account' => 'nullable|string|max:40',
             'car_cost' => 'nullable|numeric|min:0',
+            'discount_rate' => 'nullable|numeric|min:0|max:100',
+            'sale_discount' => 'nullable|numeric|min:0',
+            'shipping_usd' => 'nullable|integer|in:'.implode(',', config('board.shipping_options')),
             'salesFiles.*' => 'file|max:204800',
         ];
     }
@@ -197,6 +235,10 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->selling_fee_payee_bank = $l->selling_fee_payee_bank ?? '';
         $this->selling_fee_payee_account = $l->selling_fee_payee_account ?? '';
         $this->car_cost = $l->car_cost !== null ? (string) $l->car_cost : null;
+        $this->discount_rate = $l->discount_rate !== null ? (string) $l->discount_rate : null;
+        $this->sale_discount = $l->sale_discount_amount !== null ? (string) $l->sale_discount_amount : null;
+        $this->shipping_usd = $l->shipping_usd !== null ? (string) $l->shipping_usd : null;
+        $this->quoteCurrency = $l->offer_currency ?: 'KRW';
         $this->buyerId = $l->car_erp_buyer_id;
         $this->consigneeId = $l->car_erp_consignee_id;
         $this->loadBuyers();
@@ -208,7 +250,8 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $this->reset(['detailId', 'owner_name', 'payee_name', 'payee_bank', 'payee_account',
             'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account',
-            'car_cost', 'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts', 'salesFiles']);
+            'car_cost', 'discount_rate', 'sale_discount', 'shipping_usd', 'quoteCurrency',
+            'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts', 'salesFiles']);
         unset($this->detail);
     }
 
@@ -225,6 +268,23 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->car_erp_consignee_id = $this->consigneeId ?: null;
         // 차값 — 통화는 등록 시 정해진 `expected_price_currency` 그대로(여기선 금액만 보정).
         $l->car_cost = ($this->car_cost === null || $this->car_cost === '') ? null : (int) $this->car_cost;
+        $l->discount_rate = ($this->discount_rate === null || $this->discount_rate === '') ? null : (float) $this->discount_rate;
+        $l->sale_discount_amount = ($this->sale_discount === null || $this->sale_discount === '') ? null : (int) $this->sale_discount;
+        $l->shipping_usd = ($this->shipping_usd === null || $this->shipping_usd === '') ? null : (int) $this->shipping_usd;
+
+        // 견적통화는 **바뀐 경우에만** 재스냅 — 안 그러면 EUR 딜의 확정환율이 저장할 때마다 오늘 환율로 덮인다(/forwarding 동일).
+        if ($this->quoteCurrency !== ($l->offer_currency ?: 'KRW')) {
+            $l->offer_currency = $this->quoteCurrency;
+            $l->offer_rate = match ($this->quoteCurrency) {
+                'USD' => $this->usdRate(),
+                'EUR' => $this->eurRate(),
+                default => 1,
+            };
+        }
+
+        // 바이어 금액(현지 최종금액) = 기존 공식 그대로. 직접 타이핑받지 않는 이유 = 할인·차감액과 숫자가 갈린다.
+        // 차값이 비면 null 이 나오므로 기존 final_price 를 유지한다(/forwarding 과 같은 처리).
+        $l->final_price = $l->totalKrw($this->usdRate(), $this->eurRate()) ?? $l->final_price;
     }
 
     /** 입금정보·첨부 저장(이미 won 인 차량 보정용). */
@@ -415,9 +475,42 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @if (in_array($d->status, ['accepted', 'won'], true))
                     @php $costCur = $d->expected_price_currency ?: 'KRW'; @endphp
                     <div class="mt-2 rounded-md border p-2.5 {{ $d->car_cost === null ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-gray-50' }}">
-                        <label class="label-base">{{ __('auction.car_cost_edit') }} ({{ \App\Support\Money::SYMBOLS[$costCur] ?? '원' }})</label>
-                        <input class="input-base" wire:model="car_cost" inputmode="numeric" placeholder="{{ __('auction.car_cost_ph') }}">
-                        @error('car_cost') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                        <div class="section-title-sm">{{ __('auction.amount_section') }}</div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.car_cost') }} <span class="text-gray-400">({{ \App\Support\Money::SYMBOLS[$costCur] ?? '원' }})</span></label>
+                                <input type="number" min="0" class="input-base" wire:model="car_cost" placeholder="{{ __('auction.car_cost_ph') }}">
+                                @error('car_cost') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                            </div>
+                            <div>
+                                <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.discount_rate') }} (%)</label>
+                                <input type="number" min="0" max="100" step="0.1" class="input-base" wire:model="discount_rate" placeholder="0">
+                                @error('discount_rate') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                            </div>
+                            <div>
+                                <label class="mb-0.5 block text-xs text-gray-500">{{ __('forwarding.sale_discount_label') }} <span class="text-gray-400">({{ __('common.won_currency') }})</span></label>
+                                <input type="number" min="0" class="input-base" wire:model="sale_discount" placeholder="0">
+                                @error('sale_discount') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                            </div>
+                            <div>
+                                <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.shipping') }} (USD)</label>
+                                <select class="input-base" wire:model="shipping_usd">
+                                    <option value="">—</option>
+                                    @foreach (config('board.shipping_options') as $opt)
+                                        <option value="{{ $opt }}">${{ number_format($opt) }}</option>
+                                    @endforeach
+                                </select>
+                                @error('shipping_usd') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                            </div>
+                        </div>
+                        <div class="mt-2 flex items-center gap-2">
+                            <span class="text-xs text-gray-500">{{ __('auction.quote_currency') }}</span>
+                            @foreach (['KRW', 'USD', 'EUR'] as $cur)
+                                <label class="flex cursor-pointer items-center gap-1 text-xs text-gray-600">
+                                    <input type="radio" value="{{ $cur }}" wire:model="quoteCurrency"> {{ $cur }}
+                                </label>
+                            @endforeach
+                        </div>
                         <p class="mt-1 text-[11px] {{ $d->car_cost === null ? 'text-red-600' : 'text-gray-400' }}">{{ $d->car_cost === null ? __('auction.car_cost_missing') : __('auction.car_cost_hint') }}</p>
                     </div>
                 @endif
