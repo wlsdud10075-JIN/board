@@ -928,6 +928,129 @@ class BoardTest extends TestCase
         $this->assertSame('won', $l->fresh()->status);
     }
 
+    // ── 매입 등록 락 (car-erp §4-0, 2026-08-10) ──
+
+    /** 락 응답 헬퍼 — car-erp `GET /buyers` 동봉 형태 그대로. */
+    private function buyerRow(int $id, bool $locked, string $mode = 'unsecured', ?string $kind = 'unsecured_krw', $cur = 0, $lim = 5000000): array
+    {
+        return [
+            'id' => $id, 'name' => 'BUYER'.$id, 'country' => 'JP',
+            'purchase_locked' => $locked,
+            'purchase_lock' => [
+                'locked' => $locked, 'mode' => $mode,
+                'basis' => ['kind' => $kind, 'current' => $cur, 'limit' => $lim],
+                // 🚫 board 는 이걸 절대 안 그린다 — 락과 분모·분자가 달라 나란히 보이면 오판한다
+                'reference' => ['available_krw' => 10000000, 'unpaid_krw' => 92000000, 'unpaid_ratio_pct' => 92.0],
+            ],
+        ];
+    }
+
+    /**
+     * ★연동 B 는 car-erp 저장 게이트를 안 타므로 **여기가 유일한 상류 차단점**이다.
+     * 통과시키면 영업이 돈을 쓴 뒤에야 막힌 걸 알게 된다.
+     */
+    public function test_locked_buyer_blocks_purchase_confirmation(): void
+    {
+        Bus::fake();
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/buyers*' => Http::response(['count' => 1, 'data' => [$this->buyerRow(7, true)]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('buyerId', 7)
+            ->call('conclude', $l->id, 'won')
+            ->assertHasErrors('buyerId');
+
+        $this->assertSame('accepted', $l->fresh()->status);
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+    }
+
+    /** 락이 안 걸린 바이어는 그대로 통과 — 락이 기본 차단으로 굳으면 매입이 통째로 선다. */
+    public function test_unlocked_buyer_passes(): void
+    {
+        Bus::fake();
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/buyers*' => Http::response(['count' => 1, 'data' => [$this->buyerRow(7, false)]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('buyerId', 7)
+            ->call('conclude', $l->id, 'won')->assertHasNoErrors();
+
+        $this->assertSame('won', $l->fresh()->status);
+    }
+
+    /**
+     * ⚠️ ERP 조회가 degrade(다운·미설정)면 **막지 않는다** — 여기서 막으면 ERP 장애가
+     * board 의 매입 마감을 통째로 세운다. 지금과 같은 동작을 유지한다.
+     */
+    public function test_buyer_lock_degrades_open_when_erp_unreachable(): void
+    {
+        Bus::fake();
+        $this->carErpReadConfig();
+        Http::fake(['*' => Http::response(['error' => 'boom'], 500)]);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('buyerId', 7)
+            ->call('conclude', $l->id, 'won')->assertHasNoErrors();
+
+        $this->assertSame('won', $l->fresh()->status);
+    }
+
+    /** 근거는 basis 하나뿐 — reference(보증금 여력)를 같이 그리면 "여력 0인데 가능"·"락인데 여력 1천만"이 둘 다 정상이라 오판한다. */
+    public function test_buyer_lock_shows_basis_only_never_reference(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/buyers*' => Http::response(['count' => 1, 'data' => [
+                $this->buyerRow(7, true, 'ratio', 'ratio', 92.0, 80),
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction']);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)->set('buyerId', 7)
+            ->assertSee('미수율 92% / 임계 80%')          // basis 그대로(20.0 → 20 정규화 포함)
+            ->assertSee(__('auction.buyer_lock_notice'))  // "불가"가 아니라 관리자 승인 안내
+            ->assertDontSee('10,000,000');                // reference.available_krw 는 절대 안 나온다
+    }
+
+    /** 토글 OFF·판정근거 없음(신규 바이어)은 **아무것도 안 그린다** — 빈 배지가 더 헷갈린다. */
+    public function test_buyer_lock_hidden_when_off_or_no_basis(): void
+    {
+        $this->carErpReadConfig();
+        $this->actingAs($this->mkUser('manager'));
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction']);
+
+        foreach ([['off', null], ['unsecured', null]] as [$mode, $kind]) {
+            Http::fake([
+                '*/api/internal/board/buyers*' => Http::response(['count' => 1, 'data' => [
+                    $this->buyerRow(7, false, $mode, $kind),
+                ]], 200),
+                '*' => Http::response(['count' => 0, 'data' => []], 200),
+            ]);
+            $c = Volt::test('auction.index')->call('openDetail', $l->id)->set('buyerId', 7);
+            $this->assertNull($c->instance()->buyerLock(7), "mode={$mode} kind=".var_export($kind, true));
+        }
+    }
+
     /** 바이어 조회 신원 = 운영자(대행 관리자)가 아니라 '딜 작성자(영업)' — car-erp 본인격리 + 연동B salesman 일관성. */
     public function test_auction_buyer_dropdown_uses_listing_creator_identity(): void
     {

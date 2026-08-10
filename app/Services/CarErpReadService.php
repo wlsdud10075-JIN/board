@@ -146,7 +146,19 @@ class CarErpReadService
         return $this->get('/rates', []);
     }
 
-    /** v3 — 바이어 드롭다운(경매/구매). 본인 스코프(car-erp 결정: IDOR 격리). {count,data:[{id,name,country}]}. */
+    /**
+     * v3 — 바이어 드롭다운(경매/구매). 본인 스코프(car-erp 결정: IDOR 격리).
+     * `{count, data:[{id, name, country, purchase_locked, purchase_lock{locked,mode,basis{kind,current,limit},reference{…}}}]}`
+     *
+     * **매입 등록 락(§4-0, 2026-08-10)** — car-erp 의 매입 락 4겹은 전부 차량관리 화면 `save()` 안이라
+     * 연동 B(`purchase-sync`)는 **어느 락도 안 거친다**. 수신 시점 거부도 안 된다(board 는 이미 낙찰=지출 후에
+     * 보내므로, 거부하면 회사 소유 차가 ERP 에 없는 상태가 될 뿐). **막을 수 있는 유일한 지점 = 바이어를 고르는 상류.**
+     *
+     * 🚫 판정 조건을 board 에 옮겨 적지 말 것 — `purchase_locked` 를 **그대로 신뢰**한다.
+     *    갈리면 영업은 board 에서 "가능"을 보고 돈을 쓴 뒤 ERP 에서 막힌다.
+     * 🚫 `basis` 와 `reference` 를 나란히 렌더하지 말 것 — ratio 모드에서 분모·분자가 달라
+     *    "여력 0원인데 등록 가능"·"락인데 여력 1천만"이 **둘 다 정상**이다. 근거는 `basis` 하나뿐.
+     */
     public function buyers(string $email): array
     {
         return $this->get('/buyers', ['salesman_email' => $email]);

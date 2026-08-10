@@ -1,3 +1,7 @@
+> ✅ **2026-08-10 회신 완료** — car-erp dev `af823eb`. VIN 노출 **허용**(차량 식별자이지 소유자 식별정보가 아님).
+> 필드명·적용지점 요청대로 반영. `settlements` 는 board 가 안 써서 제외. 권위 스펙 = car-erp `board-portal-api.md §4-2`.
+> board 구현 완료(dev) — **배포는 car-erp master 이후**.
+
 # 인계 — 포털 차량 행에 **차대번호 · 브랜드/차종** 추가 (car-erp 세션)
 
 작성: board 세션, 2026-08-10 · 수신: **car-erp 세션** (수정은 car-erp repo에서)

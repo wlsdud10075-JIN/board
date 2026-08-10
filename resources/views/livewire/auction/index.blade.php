@@ -132,6 +132,64 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->consigneeOpts = $r['ok'] ? (array) ($r['data']['data'] ?? []) : [];
     }
 
+    /**
+     * 매입 등록 락 표시정보 — car-erp `GET /buyers` 가 동봉하는 판정(§4-0)을 **그대로** 읽는다.
+     * 조건을 board 에 옮겨 적지 않는다: 갈리면 영업이 board 에서 "가능"을 보고 돈을 쓴 뒤 ERP 에서 막힌다.
+     *
+     * 🚫 `reference`(available_krw 등)는 **절대 같이 그리지 않는다** — ratio 모드에서 락과 분모·분자가 달라
+     *    "여력 0원인데 등록 가능"·"락인데 여력 1천만"이 둘 다 정상으로 나온다. 근거는 `basis` 하나뿐이다.
+     *
+     * @return array{locked:bool,kind:string,current:float,limit:float}|null null = 표시 안 함(토글 OFF·근거 없음)
+     */
+    public function buyerLock(?int $id = null): ?array
+    {
+        $id = $id ?? $this->buyerId;
+        if (! $id) {
+            return null;
+        }
+        foreach ($this->buyerOpts as $b) {
+            if ((int) ($b['id'] ?? 0) !== (int) $id) {
+                continue;
+            }
+            $mode = (string) data_get($b, 'purchase_lock.mode', 'off');
+            $kind = data_get($b, 'purchase_lock.basis.kind');
+            // 토글 OFF·판정근거 없음(신규 바이어 등)은 아무것도 안 그린다 — 빈 배지가 더 헷갈린다.
+            if ($mode === 'off' || $kind === null) {
+                return null;
+            }
+
+            return [
+                'locked' => (bool) data_get($b, 'purchase_locked', false),
+                'kind' => (string) $kind,
+                // ⚠️ JSON 이 20.0 을 20 으로 주므로 정수·실수가 섞인다 → 숫자로만 다룬다.
+                'current' => (float) data_get($b, 'purchase_lock.basis.current', 0),
+                'limit' => (float) data_get($b, 'purchase_lock.basis.limit', 0),
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * 구매확정 시점 재조회 — 드로어를 열어둔 사이 ERP 에서 한도가 풀렸을 수 있고, 반대로 걸렸을 수도 있다.
+     * ⚠️ 조회가 degrade(ERP 다운·미설정)면 **막지 않는다** — 지금과 같은 동작을 유지한다.
+     *    여기서 막으면 ERP 장애가 board 의 매입 마감을 통째로 세운다.
+     */
+    private function buyerLockedNow(int $buyerId): bool
+    {
+        $r = app(\App\Services\CarErpReadService::class)->buyers($this->salesmanEmail());
+        if (! ($r['ok'] ?? false)) {
+            return false;
+        }
+        foreach ((array) data_get($r['data'], 'data', []) as $b) {
+            if ((int) ($b['id'] ?? 0) === $buyerId) {
+                return (bool) data_get($b, 'purchase_locked', false);
+            }
+        }
+
+        return false;
+    }
+
     /** 바이어 변경 시 컨사이니 목록 갱신 + 선택 초기화. */
     public function updatedBuyerId(): void
     {
@@ -414,6 +472,14 @@ new #[Layout('components.layouts.app')] class extends Component {
             if (! $this->checkSalesFiles($l->salesAttachments()->count())) {
                 return;
             }
+            // 매입 등록 락 (§4-0) — 연동 B 는 car-erp 저장 게이트를 안 타므로 **여기가 유일한 상류 차단점**이다.
+            // 락은 절대 규칙이 아니다: ERP 에서 [관리]·최고관리자가 사유를 적으면 통과되므로 "불가"가 아니라
+            // "관리자 승인 필요"로 안내한다. 바이어 미선택이면 판정 자체가 불가라 막지 않는다(연동 B buyer_id nullable).
+            if ($this->buyerId && $this->buyerLockedNow((int) $this->buyerId)) {
+                $this->addError('buyerId', __('auction.err_buyer_purchase_locked'));
+
+                return;
+            }
             $this->applyPayee($l);   // 낙찰/구매확정 시 입금정보·차값 함께 저장
             // 금액이 없으면 여기서 세운다 — 통과시키면 won 은 되는데 연동 B 가 car-erp 에서 422 로 죽고,
             // 영업 화면엔 "처리 완료"만 뜬다(2026-08-10 67도4322 실측). 조용한 실패보다 여기서 막는 게 낫다.
@@ -689,9 +755,31 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <select wire:model.live="buyerId" class="input-base">
                             <option value="">{{ __('auction.buyer_select') }}</option>
                             @foreach ($buyerOpts as $b)
-                                <option value="{{ $b['id'] }}">{{ $b['name'] }}{{ !empty($b['country']) ? ' ('.$b['country'].')' : '' }}</option>
+                                {{-- 락 표시는 ERP 판정(purchase_locked) 그대로 — board 가 조건을 다시 계산하지 않는다. --}}
+                                <option value="{{ $b['id'] }}">{{ !empty($b['purchase_locked']) ? '🔒 ' : '' }}{{ $b['name'] }}{{ !empty($b['country']) ? ' ('.$b['country'].')' : '' }}</option>
                             @endforeach
                         </select>
+                        @error('buyerId') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                        @php $blk = $this->buyerLock(); @endphp
+                        @if ($blk)
+                            {{-- 근거는 basis 하나만 — reference(보증금 여력 등)를 같이 그리면 락과 분모·분자가 달라
+                                 "여력 0원인데 등록 가능"·"락인데 여력 1천만"이 둘 다 정상이라 영업이 반드시 오판한다. --}}
+                            @php
+                                $blkBasis = $blk['kind'] === 'ratio'
+                                    ? __('auction.buyer_lock_ratio', ['current' => rtrim(rtrim(number_format($blk['current'], 1), '0'), '.'), 'limit' => rtrim(rtrim(number_format($blk['limit'], 1), '0'), '.')])
+                                    : __('auction.buyer_lock_unsecured', ['current' => number_format($blk['current']), 'limit' => number_format($blk['limit'])]);
+                            @endphp
+                            <div class="mt-1.5 rounded-md border px-2.5 py-2 text-[11px] {{ $blk['locked'] ? 'border-red-300 bg-red-50 text-red-700' : 'border-gray-200 bg-gray-50 text-gray-500' }}">
+                                @if ($blk['locked'])
+                                    <div class="font-semibold">🔒 {{ __('auction.buyer_lock_title') }}</div>
+                                    <div class="mt-0.5">{{ $blkBasis }}</div>
+                                    {{-- 락은 절대 규칙이 아니다 — ERP 에서 사유를 적으면 1회 통과한다. --}}
+                                    <div class="mt-0.5">{{ __('auction.buyer_lock_notice') }}</div>
+                                @else
+                                    {{ $blkBasis }}
+                                @endif
+                            </div>
+                        @endif
                         @if ($buyerId)
                             <select wire:model="consigneeId" class="input-base mt-2">
                                 <option value="">{{ __('auction.consignee_select') }}</option>

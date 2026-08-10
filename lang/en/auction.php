@@ -46,6 +46,12 @@ return [
     'car_cost_missing' => '⚠️ Car cost is empty — the ERP transfer needs it.',
     'err_amount_required' => 'Enter the car cost before confirming the purchase. Without an amount it never reaches the ERP.',
     'err_sale_price_required' => 'Enter the sale price before confirming the purchase. Leaving it empty creates the vehicle in the ERP with no sale data.',
+    // Purchase registration lock (car-erp §4-0, 2026-08-10) — not an absolute rule; an ERP admin can clear it.
+    'buyer_lock_title' => 'Purchase registration is blocked for this buyer',
+    'buyer_lock_unsecured' => 'Unsecured balance :current KRW / limit :limit KRW',
+    'buyer_lock_ratio' => 'Unpaid ratio :current% / threshold :limit%',
+    'buyer_lock_notice' => 'An ERP administrator has to approve it. Try again once they have.',
+    'err_buyer_purchase_locked' => 'Purchase registration is blocked for this buyer — an ERP administrator has to approve it first.',
     'err_currency_required' => 'Pick a quote currency. Without one the sale price is recorded as KRW (8,590 USD becomes 8,590 KRW).',
     'err_rate_required' => 'Enter the exchange rate. Left empty it records the current rate instead of the agreed one.',
     'discount_rate' => 'Discount rate',

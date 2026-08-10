@@ -350,6 +350,24 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 - ❓ **VIN 노출은 car-erp §3 PII 화이트리스트 판단**이다. `inventory` 가 `nice_reg_vin` 을 **검색에만** 쓰는 것과
   응답에 emit 하는 건 노출면이 다르다. 인계 = `meetings/handoff-carerp-portal-vehicle-meta.md`.
 
+### 14-7. 매입 등록 락 — 연동 B 의 유일한 상류 차단점 (car-erp §4-0, 2026-08-10)
+
+car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라, 연동 B(`purchase-sync`)는 `Vehicle::create` 직행이라
+**어느 락도 안 거친다**. 수신 시점 거부도 답이 아니다 — board 는 이미 `won`(낙찰 = 돈이 나간 뒤)에 보내므로
+거부하면 **회사가 소유한 차가 ERP 에 없는 상태**가 될 뿐이다. → 막을 수 있는 곳은 **영업이 바이어를 고르는 상류** 하나뿐.
+
+- 판정은 `GET /buyers` 가 동봉하는 **`purchase_locked` 를 그대로 신뢰**한다(ERP `PurchaseRegistrationGate` 단일출처).
+  🚫 조건을 board 에 옮겨 적지 말 것 — 갈리면 영업은 board 에서 "가능"을 보고 **돈을 쓴 뒤** ERP 에서 막힌다.
+- 🚫 **`basis` 와 `reference` 를 나란히 그리지 말 것.** ratio 모드에서 `available_krw`(보증금 여력)는 락과
+  **분모·분자가 아예 다르다** — "여력 0원인데 등록 가능"·"락인데 여력 1천만"이 **둘 다 정상**이다. 근거는 `basis` 하나뿐.
+- `mode='off'` 또는 `basis.kind=null`(토글 OFF·신규 바이어) → **아무것도 안 그린다**. 빈 배지가 더 헷갈린다.
+- `basis.current/limit` 은 **숫자로만** — JSON 이 `20.0` 을 `20` 으로 준다.
+- **문구는 "불가"가 아니라 "ERP 관리자 승인 필요"** — 락은 절대 규칙이 아니다(ERP 에서 사유를 적으면 1회 통과).
+- ⚠️ **차단은 구매확정 시점에 재조회**한다(드로어를 열어둔 사이 풀렸을 수도, 걸렸을 수도 있다).
+  조회가 **degrade 면 막지 않는다** — 여기서 막으면 ERP 장애가 board 의 매입 마감을 통째로 세운다.
+- 바이어 **미선택이면 판정 자체가 불가**라 막지 않는다(연동 B `buyer_id` nullable). 바이어 필수화는 **Jin 미결**.
+- 범위 밖(연동 B 로 여전히 우회되는 것): 당사자 필수 · 회계컬럼 · C4/C5. 미러한 건 **미수·무담보 게이트 하나**뿐.
+
 ## 15. 사내 Notion 업무가이드 발행 + 허브 네비 표준 (Jin 지시 — "항상 이 상태로")
 > 사내 Notion "사내 업무 가이드" 갱신 = **MCP 아님**, 자체 스크립트 `scripts/notion-guide-publish.php`(Notion REST 직접). 토큰 = Windows **User env `NOTION_TOKEN`**. 세션이 토큰 등록 전에 켜졌으면 `getenv()` 못 잡음 → PowerShell 인라인 주입: `$env:NOTION_TOKEN=[Environment]::GetEnvironmentVariable('NOTION_TOKEN','User'); php scripts/notion-guide-publish.php --apply`. **발행=라이브 즉시반영** → apply 전 인자 없이 dry-run 으로 블록수 확인.
 
