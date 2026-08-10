@@ -549,6 +549,51 @@ class BoardTest extends TestCase
         Bus::assertDispatched(SyncWonListingToCarErp::class);
     }
 
+    /**
+     * 바이어 금액(현지 최종금액)은 **직접 타이핑받지 않고** `/forwarding` 과 같은 공식(`totalKrw`)으로 계산한다
+     * (2026-08-10 Jin 선택). 직접 입력받으면 할인·차감액과 숫자가 갈린다.
+     */
+    public function test_auction_quote_fields_recompute_final_price(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'car_cost' => null, 'final_price' => null,
+            'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('car_cost', '10000000')
+            ->set('discount_rate', '10')          // 관례할인 10% → 9,000,000
+            ->set('sale_discount', '500000')      // 차감액 → 8,500,000
+            ->call('conclude', $l->id, 'won')->assertHasNoErrors();
+
+        $f = $l->fresh();
+        $this->assertSame(8500000, (int) $f->final_price);   // 배송 미선택
+        $this->assertSame(10.0, (float) $f->discount_rate);
+        $this->assertSame(500000, (int) $f->sale_discount_amount);
+    }
+
+    /** 견적통화는 **바뀐 경우에만** 재스냅 — 저장할 때마다 오늘 환율로 덮으면 EUR 딜 확정환율이 날아간다. */
+    public function test_auction_save_preserves_offer_rate_when_currency_unchanged(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'won', 'buyer_verdict' => 'accepted', 'source' => 'encar',
+            'car_cost' => 10000000, 'offer_currency' => 'EUR', 'offer_rate' => 1400,
+            'car_erp_vehicle_id' => 99,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->assertSet('quoteCurrency', 'EUR')
+            ->set('car_cost', '10500000')
+            ->call('savePayee')->assertHasNoErrors();
+
+        $this->assertSame(1400, (int) $l->fresh()->offer_rate);   // 확정환율 보존
+    }
+
     /** 이미 ERP 로 넘어간 차는 다시 쏘지 않는다 — 저장할 때마다 재전송되면 안 된다. */
     public function test_saving_amount_does_not_resend_when_already_synced(): void
     {

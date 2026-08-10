@@ -31,9 +31,10 @@ return [
 
     'car_cost' => 'Car cost',
     // Car cost entry (2026-08-10) — the only place a self-inspected purchase can enter an amount.
-    'car_cost_edit' => 'Enter / edit car cost',
+    'amount_section' => 'Amounts (the buyer figure is derived here)',
+    'quote_currency' => 'Quote currency',
     'car_cost_ph' => 'e.g. 12000000',
-    'car_cost_hint' => 'This is the purchase price sent to the ERP. Confirming the purchase is blocked while it is empty.',
+    'car_cost_hint' => 'Car cost, discount, deduction and shipping produce the final buyer figure below. Confirming the purchase is blocked while car cost is empty.',
     'car_cost_missing' => '⚠️ Car cost is empty — the ERP transfer needs it.',
     'err_amount_required' => 'Enter the car cost before confirming the purchase. Without an amount it never reaches the ERP.',
     'discount_rate' => 'Discount rate',
