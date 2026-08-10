@@ -190,6 +190,23 @@ new #[Layout('components.layouts.app')] class extends Component {
         return false;
     }
 
+    /**
+     * 구매확정을 막아야 할 이유 — 없으면 null. **버튼 비활성 사유이자 서버 차단 사유**(같은 판정을 두 곳에서 쓴다).
+     *
+     * 2026-08-10 Jin: 바이어는 **필수**, 락 걸린 바이어는 **버튼 자체가 안 눌리게**.
+     * 바이어를 안 고르면 연동 B `buyer_id` 가 null 로 나가 **락 판정 자체가 성립하지 않는다** —
+     * 즉 "안 고르면 통과"가 되어 락에 구멍이 남는다. 그래서 필수화가 락의 전제다.
+     */
+    public function purchaseBlockReason(): ?string
+    {
+        if (! $this->buyerId) {
+            return __('auction.err_buyer_required');
+        }
+        $lock = $this->buyerLock();
+
+        return ($lock && $lock['locked']) ? __('auction.err_buyer_purchase_locked') : null;
+    }
+
     /** 바이어 변경 시 컨사이니 목록 갱신 + 선택 초기화. */
     public function updatedBuyerId(): void
     {
@@ -472,14 +489,6 @@ new #[Layout('components.layouts.app')] class extends Component {
             if (! $this->checkSalesFiles($l->salesAttachments()->count())) {
                 return;
             }
-            // 매입 등록 락 (§4-0) — 연동 B 는 car-erp 저장 게이트를 안 타므로 **여기가 유일한 상류 차단점**이다.
-            // 락은 절대 규칙이 아니다: ERP 에서 [관리]·최고관리자가 사유를 적으면 통과되므로 "불가"가 아니라
-            // "관리자 승인 필요"로 안내한다. 바이어 미선택이면 판정 자체가 불가라 막지 않는다(연동 B buyer_id nullable).
-            if ($this->buyerId && $this->buyerLockedNow((int) $this->buyerId)) {
-                $this->addError('buyerId', __('auction.err_buyer_purchase_locked'));
-
-                return;
-            }
             $this->applyPayee($l);   // 낙찰/구매확정 시 입금정보·차값 함께 저장
             // 금액이 없으면 여기서 세운다 — 통과시키면 won 은 되는데 연동 B 가 car-erp 에서 422 로 죽고,
             // 영업 화면엔 "처리 완료"만 뜬다(2026-08-10 67도4322 실측). 조용한 실패보다 여기서 막는 게 낫다.
@@ -506,6 +515,25 @@ new #[Layout('components.layouts.app')] class extends Component {
             // 원화가 아니면 환율도 필수 — 비우면 **오늘 환율**이 조용히 들어가 합의환율과 갈린다.
             if ($l->isSelfInspection() && $l->offer_currency !== 'KRW' && ($this->offer_rate === null || $this->offer_rate === '')) {
                 $this->addError('offer_rate', __('auction.err_rate_required'));
+
+                return;
+            }
+
+            // 매입 등록 락 (§4-0) — 연동 B 는 car-erp 저장 게이트를 안 타므로 **여기가 유일한 상류 차단점**이다.
+            // 바이어 필수 (2026-08-10 Jin): 안 고르면 buyer_id 가 null 로 나가 **락 판정 자체가 성립하지 않는다**
+            // = "안 고르면 통과". 그래서 필수화가 락의 전제다. 금액 검사 뒤에 두는 이유 = 금액 오류를 가리지 않기 위해.
+            if (! $this->buyerId) {
+                $this->addError('buyerId', __('auction.err_buyer_required'));
+
+                return;
+            }
+
+            // 락 조회는 **ERP 호출**이라 맨 마지막에 둔다 — 폼이 이미 틀렸으면 부를 이유가 없다.
+            // 락은 절대 규칙이 아니다(ERP 에서 사유를 적으면 통과) → "불가"가 아니라 "관리자 승인 필요".
+            // 화면 버튼도 같이 비활성이지만 서버에서 한 번 더 본다(드로어를 열어둔 사이 바뀔 수 있고,
+            // Livewire 액션은 직접 호출될 수 있다).
+            if ($this->buyerLockedNow((int) $this->buyerId)) {
+                $this->addError('buyerId', __('auction.err_buyer_purchase_locked'));
 
                 return;
             }
@@ -882,8 +910,14 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @if ($d->status === 'accepted')
                     <div class="section-title-sm">{{ __('auction.execute') }}</div>
                     <p class="mb-1 text-[11px] text-gray-400">{{ __('auction.execute_hint') }}</p>
+                    {{-- 구매확정은 바이어 필수 + 락 없는 바이어여야 눌린다(2026-08-10 Jin).
+                         유찰/취소(failed)는 그대로 — 락은 매입 등록을 막는 것이지 취소를 막는 게 아니다. --}}
+                    @php $blockWhy = $this->purchaseBlockReason(); @endphp
+                    @if ($blockWhy)
+                        <p class="mb-1.5 rounded-md border border-red-300 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700">🔒 {{ $blockWhy }}</p>
+                    @endif
                     <div class="flex gap-2">
-                        <button class="btn-green flex-1 justify-center" wire:click="conclude({{ $d->id }}, 'won')">{{ $d->isAuction() ? __('auction.won_auction') : __('auction.won_encar') }}</button>
+                        <button class="btn-green flex-1 justify-center {{ $blockWhy ? 'cursor-not-allowed opacity-40' : '' }}" @disabled($blockWhy !== null) wire:click="conclude({{ $d->id }}, 'won')">{{ $d->isAuction() ? __('auction.won_auction') : __('auction.won_encar') }}</button>
                         <button class="btn-ghost flex-1 justify-center" wire:click="conclude({{ $d->id }}, 'failed')">{{ $d->isAuction() ? __('auction.failed_auction') : __('auction.failed_encar') }}</button>
                     </div>
                 @elseif ($d->status === 'won')

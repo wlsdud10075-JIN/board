@@ -51,6 +51,7 @@ return [
     'buyer_lock_unsecured' => 'Unsecured balance :current KRW / limit :limit KRW',
     'buyer_lock_ratio' => 'Unpaid ratio :current% / threshold :limit%',
     'buyer_lock_notice' => 'An ERP administrator has to approve it. Try again once they have.',
+    'err_buyer_required' => 'Pick a buyer before confirming the purchase.',
     'err_buyer_purchase_locked' => 'Purchase registration is blocked for this buyer — an ERP administrator has to approve it first.',
     'err_currency_required' => 'Pick a quote currency. Without one the sale price is recorded as KRW (8,590 USD becomes 8,590 KRW).',
     'err_rate_required' => 'Enter the exchange rate. Left empty it records the current rate instead of the agreed one.',
