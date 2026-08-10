@@ -200,7 +200,8 @@ class BoardTest extends TestCase
             ->call('openDetail', $l->id)
             ->set('owner_name', '차주')
             ->set('payee_name', '판매상사')
-            ->set('sale_price', '7000')     // 셀프검차 필수 락 — 차값·판매가 둘 다 있어야 구매확정된다
+            ->set('sale_price', '7000')     // 셀프검차 필수 락 — 차값·판매가·통화
+            ->set('quoteCurrency', 'KRW')
             ->call('conclude', $l->id, 'won')
             ->assertHasNoErrors();
 
@@ -522,7 +523,7 @@ class BoardTest extends TestCase
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '12000000')
-            ->set('sale_price', '8000')     // 셀프검차 필수 락
+            ->set('sale_price', '8000')->set('quoteCurrency', 'KRW')   // 셀프검차 필수 락
             ->call('conclude', $l->id, 'won')->assertHasNoErrors();
 
         $this->assertSame(12000000, (int) $l->fresh()->car_cost);
@@ -685,7 +686,7 @@ class BoardTest extends TestCase
 
         // 차값만 있고 판매가가 없으면 막힌다
         Volt::test('auction.index')->call('openDetail', $l->id)
-            ->set('car_cost', '10000000')
+            ->set('car_cost', '10000000')->set('quoteCurrency', 'KRW')
             ->call('conclude', $l->id, 'won')
             ->assertHasErrors('sale_price');
 
@@ -695,11 +696,85 @@ class BoardTest extends TestCase
         // 판매가까지 넣으면 통과
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '10000000')
-            ->set('sale_price', '7000')
+            ->set('sale_price', '7000')->set('quoteCurrency', 'KRW')
             ->call('conclude', $l->id, 'won')->assertHasNoErrors();
 
         $this->assertSame('won', $l->fresh()->status);
         Bus::assertDispatched(SyncWonListingToCarErp::class);
+    }
+
+    /**
+     * ★통화 미선택 락 (2026-08-10, 실측으로 발견) — KRW 를 미리 골라두면 USD 판매가를 적고 통화를 안 눌러도
+     * 그대로 통과해 ERP 에 **8,590 USD → 8,590원**으로 박힌다. 실제의 1/1400 인데 경고도 없다.
+     */
+    public function test_self_inspection_requires_explicit_currency(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->assertSet('quoteCurrency', '')      // 미선택으로 시작 — KRW 로 흘러가지 않는다
+            ->set('car_cost', '12000000')
+            ->set('sale_price', '8590')
+            ->call('conclude', $l->id, 'won')
+            ->assertHasErrors('quoteCurrency');
+
+        $this->assertSame('accepted', $l->fresh()->status);
+        $this->assertNull($l->fresh()->offer_currency);
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+    }
+
+    /**
+     * ★환율 락 — 통화를 골라도 환율칸이 '1' 로 미리 채워져 있으면 USD 딜이 **환율 1** 로 ERP 에 박힌다
+     * (통화 락을 통과한 뒤 생기는 두 번째 구멍). 그래서 셀프검차는 환율을 미리 채우지 않는다.
+     */
+    public function test_self_inspection_requires_rate_for_foreign_currency(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        $c = Volt::test('auction.index')->call('openDetail', $l->id)
+            ->assertSet('offer_rate', null)       // 미리 채우지 않는다
+            ->set('car_cost', '12000000')
+            ->set('sale_price', '8590')
+            ->set('quoteCurrency', 'USD')
+            ->call('conclude', $l->id, 'won')
+            ->assertHasErrors('offer_rate');
+
+        $this->assertSame('accepted', $l->fresh()->status);
+
+        // 환율까지 넣으면 통과
+        $c->set('offer_rate', '1400')->call('conclude', $l->id, 'won')->assertHasNoErrors();
+        $this->assertSame('won', $l->fresh()->status);
+        $this->assertSame(1400, (int) $l->fresh()->offer_rate);
+    }
+
+    /** 원화 딜은 환율을 안 물어본다 — 1 이 자명해서 물으면 잡일만 는다. */
+    public function test_krw_self_inspection_does_not_require_rate(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('car_cost', '12000000')
+            ->set('sale_price', '11000000')
+            ->set('quoteCurrency', 'KRW')
+            ->call('conclude', $l->id, 'won')->assertHasNoErrors();
+
+        $this->assertSame('won', $l->fresh()->status);
+        $this->assertSame(1, (int) $l->fresh()->offer_rate);
     }
 
     /** 판매가 락은 셀프검차 전용 — 다른 출처는 견적 씬에서 채워지므로 여기서 막으면 기존 흐름이 죽는다. */

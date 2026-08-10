@@ -282,12 +282,18 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->discount_rate = $l->discount_rate !== null ? (string) $l->discount_rate : null;
         $this->sale_discount = $l->sale_discount_amount !== null ? (string) $l->sale_discount_amount : null;
         $this->shipping_usd = $l->shipping_usd !== null ? (string) $l->shipping_usd : null;
-        $this->quoteCurrency = $l->offer_currency ?: 'KRW';
+        // 셀프검차는 통화를 **미선택으로 시작**한다(2026-08-10 Jin). KRW 를 미리 골라두면 USD 판매가를 적고
+        // 통화를 안 눌러도 그대로 통과해 ERP 에 **1/환율 금액**으로 박힌다(8,590 USD → 8,590원, 실측 확인).
+        $this->quoteCurrency = $l->offer_currency ?: ($l->isSelfInspection() ? '' : 'KRW');
         // 매도비 기본값 = 기존 고정값(대부분 그대로라 미리 채워 입력을 줄인다 — 2026-08-10 Jin).
         $this->selling_fee = (string) ($l->selling_fee ?? (int) config('board.sales_fee'));
         $this->sale_price = $l->sale_price !== null ? (string) (0 + $l->sale_price) : null;
         $this->transport_fee = $l->transport_fee !== null ? (string) (0 + $l->transport_fee) : null;
-        $this->offer_rate = (string) ($l->offer_rate ?: $this->rateFor($this->quoteCurrency));
+        // 셀프검차는 환율을 **미리 채우지 않는다** — '1' 이 들어가 있으면 USD 를 골라도 그대로 통과해
+        // ERP 에 exchange_rate=1 로 박힌다(통화 락을 통과한 뒤 생기는 두 번째 구멍). 빈 칸이어야 락이 잡는다.
+        $this->offer_rate = $l->offer_rate !== null
+            ? (string) $l->offer_rate
+            : ($l->isSelfInspection() ? null : (string) $this->rateFor($this->quoteCurrency));
         $this->buyerId = $l->car_erp_buyer_id;
         $this->consigneeId = $l->car_erp_consignee_id;
         $this->loadBuyers();
@@ -327,7 +333,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             $l->sale_price = ($this->sale_price === null || $this->sale_price === '') ? null : (float) $this->sale_price;
             $l->transport_fee = ($this->transport_fee === null || $this->transport_fee === '') ? null : (float) $this->transport_fee;
             $l->shipping_usd = null;   // 셀프검차는 USD 선택형을 안 쓴다 — 두 값이 같이 있으면 어느 게 진짜인지 갈린다
-            $l->offer_currency = $this->quoteCurrency;
+            $l->offer_currency = $this->quoteCurrency ?: null;   // 미선택은 null 로 둔다('' 저장 금지)
             // ⚠️ **자동계산 없음**(2026-08-10 Jin) — 셀프검차 금액칸은 전부 "적은 값 그대로"다.
             //    통화를 바꿔도 환율을 다시 잡지 않고, 판매가×환율로 final_price 를 만들지도 않는다.
             //    빈 칸일 때만 KRW=1 폴백 — car-erp 는 exchange_rate>0 이어야 판매 pre-fill 을 저장한다.
@@ -421,6 +427,19 @@ new #[Layout('components.layouts.app')] class extends Component {
             // ERP 판매탭이 빈 채로 생긴다 — 관리가 나중에 손으로 채워야 하고, 그때 board 값과 갈린다.
             if ($l->isSelfInspection() && $l->sale_price === null) {
                 $this->addError('sale_price', __('auction.err_sale_price_required'));
+
+                return;
+            }
+            // 통화 미선택 락 — 안 막으면 KRW 로 떨어져 **USD 판매가가 원화로 박힌다**(8,590 USD → 8,590원, 실측).
+            // 조용히 1/환율 로 기록되므로 나중에 원장을 봐도 틀린 줄을 모른다.
+            if ($l->isSelfInspection() && ! $l->offer_currency) {
+                $this->addError('quoteCurrency', __('auction.err_currency_required'));
+
+                return;
+            }
+            // 원화가 아니면 환율도 필수 — 비우면 **오늘 환율**이 조용히 들어가 합의환율과 갈린다.
+            if ($l->isSelfInspection() && $l->offer_currency !== 'KRW' && ($this->offer_rate === null || $this->offer_rate === '')) {
+                $this->addError('offer_rate', __('auction.err_rate_required'));
 
                 return;
             }
@@ -610,9 +629,15 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 </label>
                             @endforeach
                         </div>
+                        @error('quoteCurrency') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                         @if ($d->isSelfInspection())
-                            {{-- 라벨에서 통화를 뺐으니(단일 표시 원칙) 어느 통화 기준인지 여기서 한 번 못박는다. --}}
-                            <p class="mt-1 text-[11px] text-gray-600">{{ __('auction.self_currency_hint', ['currency' => $quoteCurrency]) }}</p>
+                            {{-- 라벨에서 통화를 뺐으니(단일 표시 원칙) 어느 통화 기준인지 여기서 한 번 못박는다.
+                                 미선택이면 경고 — KRW 로 흘러가면 USD 판매가가 원화로 박힌다. --}}
+                            @if ($quoteCurrency === '')
+                                <p class="mt-1 text-[11px] font-semibold text-red-600">{{ __('auction.self_currency_unset') }}</p>
+                            @else
+                                <p class="mt-1 text-[11px] text-gray-600">{{ __('auction.self_currency_hint', ['currency' => $quoteCurrency]) }}</p>
+                            @endif
                             <p class="mt-0.5 text-[11px] text-gray-500">{{ __('auction.self_amount_hint', ['purchase' => number_format(max(0, (int) $car_cost - (int) $selling_fee))]) }}</p>
                         @endif
                         <p class="mt-1 text-[11px] {{ $d->car_cost === null ? 'text-red-600' : 'text-gray-400' }}">{{ $d->car_cost === null ? __('auction.car_cost_missing') : __('auction.car_cost_hint') }}</p>
