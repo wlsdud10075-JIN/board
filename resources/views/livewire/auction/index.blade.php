@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\SyncWonListingToCarErp;
 use App\Models\InspectionPhoto;
 use App\Models\PurchaseListing;
 use Illuminate\Support\Facades\Cache;
@@ -28,6 +29,15 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $selling_fee_payee_name = '';
     public string $selling_fee_payee_bank = '';
     public string $selling_fee_payee_account = '';
+
+    /**
+     * 차값 — **셀프검차매입이 금액을 넣을 수 있는 유일한 지점**(2026-08-10 Jin).
+     * 셀프검차는 등록 즉시 accepted 라 `/inspection`(최종금액)·`/forwarding`(견적)을 둘 다 건너뛰고,
+     * `/listings` 등록폼엔 차값 입력칸이 없다(링크 자동채움 전용) → 링크에서 가격을 못 받으면 영영 null 이었다.
+     * 그 상태로 won 이 되면 연동 B payload 의 purchase_price_krw·final_price 가 둘 다 null 이라
+     * car-erp 가 `required_without` 로 **422** 를 낸다(2026-08-10 heymanboard 67도4322 실측).
+     */
+    public ?string $car_cost = null;
 
     // v3 — car-erp 바이어/컨사이니 (드롭다운 선택 → 연동B buyer_id/consignee_id). 본인 스코프.
     public ?int $buyerId = null;
@@ -80,8 +90,18 @@ new #[Layout('components.layouts.app')] class extends Component {
             'selling_fee_payee_name' => 'nullable|string|max:60',
             'selling_fee_payee_bank' => 'nullable|string|max:40',
             'selling_fee_payee_account' => 'nullable|string|max:40',
+            'car_cost' => 'nullable|numeric|min:0',
             'salesFiles.*' => 'file|max:204800',
         ];
+    }
+
+    /**
+     * 연동 B 가 요구하는 최소 금액이 있는가 — car-erp 수신측 `final_price: required_without:purchase_price_krw`.
+     * 둘 다 비면 422 다. 여기서 막지 않으면 영업은 구매확정을 끝냈다고 보는데 ERP 엔 아무것도 안 생긴다.
+     */
+    private function hasSyncableAmount(PurchaseListing $l): bool
+    {
+        return $l->car_cost !== null || $l->final_price !== null;
     }
 
     /** 첨부 사전검증 — 실행파일 차단 + 최대건수(car-erp 첨부탭 cap). 통과=true. */
@@ -176,6 +196,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->selling_fee_payee_name = $l->selling_fee_payee_name ?? '';
         $this->selling_fee_payee_bank = $l->selling_fee_payee_bank ?? '';
         $this->selling_fee_payee_account = $l->selling_fee_payee_account ?? '';
+        $this->car_cost = $l->car_cost !== null ? (string) $l->car_cost : null;
         $this->buyerId = $l->car_erp_buyer_id;
         $this->consigneeId = $l->car_erp_consignee_id;
         $this->loadBuyers();
@@ -187,7 +208,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $this->reset(['detailId', 'owner_name', 'payee_name', 'payee_bank', 'payee_account',
             'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account',
-            'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts', 'salesFiles']);
+            'car_cost', 'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts', 'salesFiles']);
         unset($this->detail);
     }
 
@@ -202,6 +223,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->selling_fee_payee_account = $this->selling_fee_payee_account ?: null;
         $l->car_erp_buyer_id = $this->buyerId ?: null;
         $l->car_erp_consignee_id = $this->consigneeId ?: null;
+        // 차값 — 통화는 등록 시 정해진 `expected_price_currency` 그대로(여기선 금액만 보정).
+        $l->car_cost = ($this->car_cost === null || $this->car_cost === '') ? null : (int) $this->car_cost;
     }
 
     /** 입금정보·첨부 저장(이미 won 인 차량 보정용). */
@@ -216,6 +239,16 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->save();
         $this->storeSalesFiles($l);
         unset($this->detail, $this->listings);
+
+        // 이미 won 인데 ERP 로 못 넘어간 차(금액 누락 422)를 여기서 금액만 채우면 재발사되게 한다.
+        // 안 그러면 영업이 금액을 넣어도 아무 일도 안 일어나고, 재전송은 super 전용(/manage)이라 손이 없다.
+        // 가드는 Job 안에도 있고(won + car_erp_vehicle_id null) car-erp 는 vehicle_number 로 멱등이라 중복 없음.
+        if ($l->status === 'won' && $l->car_erp_vehicle_id === null && $this->hasSyncableAmount($l)) {
+            SyncWonListingToCarErp::dispatch($l->id);
+            session()->flash('ok', __('auction.flash_resent', ['no' => $l->vehicle_number]));
+
+            return;
+        }
         session()->flash('ok', __('auction.flash_payee_saved'));
     }
 
@@ -252,7 +285,14 @@ new #[Layout('components.layouts.app')] class extends Component {
             if (! $this->checkSalesFiles($l->salesAttachments()->count())) {
                 return;
             }
-            $this->applyPayee($l);   // 낙찰/구매확정 시 입금정보 함께 저장
+            $this->applyPayee($l);   // 낙찰/구매확정 시 입금정보·차값 함께 저장
+            // 금액이 없으면 여기서 세운다 — 통과시키면 won 은 되는데 연동 B 가 car-erp 에서 422 로 죽고,
+            // 영업 화면엔 "처리 완료"만 뜬다(2026-08-10 67도4322 실측). 조용한 실패보다 여기서 막는 게 낫다.
+            if (! $this->hasSyncableAmount($l)) {
+                $this->addError('car_cost', __('auction.err_amount_required'));
+
+                return;
+            }
         }
 
         $l->status = $result;
@@ -369,6 +409,18 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <div>{{ __('auction.shipping') }}<br><b class="text-sm text-gray-800">{{ $d->shipping_usd ? '$'.number_format($d->shipping_usd) : '—' }}</b></div>
                     <div>{{ __('auction.buyer') }}<br><b class="text-sm text-gray-800">{{ $d->buyer_name ?: '—' }}</b></div>
                 </div>
+
+                {{-- 차값 입력 — **셀프검차매입이 금액을 넣을 수 있는 유일한 지점**이다(검차·견적 씬을 건너뛴다).
+                     비어 있으면 연동 B 가 car-erp 에서 422 로 죽으므로 구매확정 버튼이 여기서 막힌다. --}}
+                @if (in_array($d->status, ['accepted', 'won'], true))
+                    @php $costCur = $d->expected_price_currency ?: 'KRW'; @endphp
+                    <div class="mt-2 rounded-md border p-2.5 {{ $d->car_cost === null ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-gray-50' }}">
+                        <label class="label-base">{{ __('auction.car_cost_edit') }} ({{ \App\Support\Money::SYMBOLS[$costCur] ?? '원' }})</label>
+                        <input class="input-base" wire:model="car_cost" inputmode="numeric" placeholder="{{ __('auction.car_cost_ph') }}">
+                        @error('car_cost') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                        <p class="mt-1 text-[11px] {{ $d->car_cost === null ? 'text-red-600' : 'text-gray-400' }}">{{ $d->car_cost === null ? __('auction.car_cost_missing') : __('auction.car_cost_hint') }}</p>
+                    </div>
+                @endif
                 <div class="mt-3 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
                     <span class="font-semibold text-gray-700">{{ __('auction.final_price') }}</span>
                     <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $d->offerDisplay() ?? '—' }}</span>
