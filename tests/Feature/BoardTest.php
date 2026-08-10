@@ -3942,6 +3942,80 @@ class BoardTest extends TestCase
             ->assertSee(__('portal.sailing_totals_unfiltered'));
     }
 
+    // ── 포털 차량 보조정보 (차대번호·브랜드/차종, 2026-08-10 Jin) ──
+
+    /**
+     * 차량번호가 보이는 탭이면 차대번호·브랜드/차종도 같이 보인다.
+     * ⚠️ 검증값은 **그 partial 만 낼 수 있는 문자열**로 잡는다 — 브랜드명 같은 흔한 낱말로 보면
+     *    화면 다른 곳과 겹쳐 partial 을 안 그려도 통과한다(SKILLS §11-17).
+     */
+    public function test_portal_shows_vin_and_model_where_vehicle_number_appears(): void
+    {
+        $this->carErpReadConfig();
+        $meta = ['vin' => 'ZZTESTVIN00001', 'brand' => '현대', 'model_type' => '그랜저IG'];
+        Http::fake([
+            '*/api/internal/board/receivables*' => Http::response(['data' => [
+                ['vehicle_number' => '11가1111', 'buyer' => 'B1', 'unpaid_krw' => 100] + $meta,
+            ]], 200),
+            '*/api/internal/board/inventory*' => Http::response(['count' => 1, 'total' => 1, 'data' => [
+                ['vehicle_id' => 5, 'vehicle_number' => '22나2222'] + $meta,
+            ]], 200),
+            '*/api/internal/board/by-buyer*' => Http::response(['data' => [
+                ['buyer' => 'B1', 'buyer_id' => 1, 'vehicle_count' => 1, 'sales_by_currency' => ['USD' => 1]],
+            ]], 200),
+            '*/api/internal/board/sales*' => Http::response(['count' => 1, 'data' => [
+                ['vehicle_id' => 5, 'buyer' => 'B1', 'vehicle_number' => '33다3333'] + $meta,
+            ]], 200),
+            '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
+                'batch_id' => 'B9', 'ship_status' => 'requested', 'buyer' => ['id' => 1, 'name' => 'B1'],
+                'vehicles' => [['vehicle_id' => 5, 'vehicle_number' => '44라4444'] + $meta],
+            ]]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        foreach (['receivables', 'inventory', 'sales', 'shipping'] as $tab) {
+            Volt::test('portal.index')->call('setTab', $tab)
+                ->assertSee('ZZTESTVIN00001')     // 이 값은 이 partial 말고 나올 데가 없다
+                ->assertSee('현대 그랜저IG');
+        }
+    }
+
+    /**
+     * car-erp 가 아직 필드를 안 보내면(그쪽 배포 전, 또는 §3 PII 판단으로 VIN 제외) **아무것도 안 그린다** —
+     * 대시(—)조차 찍지 않는다. 빈 줄이 늘어서면 "정보가 없는 차"로 오해된다.
+     */
+    public function test_portal_vehicle_meta_degrades_when_erp_omits_fields(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/inventory*' => Http::response(['count' => 1, 'total' => 1, 'data' => [
+                ['vehicle_id' => 5, 'vehicle_number' => '55마5555'],   // vin·brand·model_type 없음
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $html = Volt::test('portal.index')->call('setTab', 'inventory')->assertSee('55마5555')->html();
+        // 차량번호 셀 바로 뒤에 회색 보조줄이 생기면 안 된다
+        $this->assertStringNotContainsString('text-[11px] font-normal text-gray-400', $html);
+    }
+
+    /** 브랜드만 오고 VIN 이 없어도(§3 PII 판단으로 제외될 수 있다) 브랜드는 보여야 한다 — 필드별 독립 degrade. */
+    public function test_portal_vehicle_meta_shows_model_without_vin(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/inventory*' => Http::response(['count' => 1, 'total' => 1, 'data' => [
+                ['vehicle_id' => 5, 'vehicle_number' => '66바6666', 'vin' => null, 'brand' => '기아', 'model_type' => 'K9ZZTEST'],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'inventory')->assertSee('기아 K9ZZTEST');
+    }
+
     /** 전송 실패를 성공한 척하지 않는다(§11-4 항목 5) — 영업이 보냈다고 착각하면 카톡보다 나쁘다. */
     public function test_portal_request_degrades_loudly_on_failure(): void
     {

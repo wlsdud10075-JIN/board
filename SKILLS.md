@@ -334,6 +334,22 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 - 매도비 기본값 = `config('board.sales_fee')`(440,000) 미리 채움. ⚠️ **차값에 비례하지 않는 상수**라 저가 차량에선
   비중이 크다(160만원 차의 27.5%). 영업이 안 고치면 그대로 나간다 — 저가 매입이 늘면 기본값 재검토.
 
+### 14-6. 포털 차량 보조정보 (차대번호·브랜드/차종, 2026-08-10 Jin)
+
+"차량번호가 보이는 곳이면 차대번호·브랜드/차종도 같이" — 단일 partial `_vehicle-meta.blade.php`(차량번호 아래 작은 회색 줄).
+
+- ⚠️ **값은 전부 car-erp 가 준다.** board 에 소스가 없다 — 포털 행은 ERP 차량이고 `purchase_listings.vin` 이
+  대응되는 건 극소수다(2026-08-10 실측: 연동된 차 4대뿐). **읽기 API 가 안 보내면 board 는 아무것도 못 한다.**
+- 적용 탭 = **미수금 · 재고 · 판매내역 · 선적요청** 4개. **정산내역은 제외** — 바이어별 집계만 렌더하고
+  차량 행이 아예 없다(`'sales','settlements' => byBuyer()`). ⚠️ 탭을 세기 전에 **렌더 블록을 열어볼 것**.
+- 필드 = `vin` · `brand` · `model_type`. **각각 독립 degrade** — 없으면 그 조각만 빠지고, 셋 다 없으면
+  **아무것도 안 그린다(대시도 금지)**. 빈 줄이 늘어서면 "정보가 없는 차"로 오해된다.
+- 선적요청은 호출부가 **4곳이고 데이터 형태가 다르다** — 묶음 pill·변경요청 행(`bundles.vehicles[]`),
+  계획 편집(`$vnoMap`, **차번호 문자열만 담고 있어 행 자체를 담는 `$vrowMap` 을 따로 만들었다**), chipMap(렌더 아님).
+  수신측도 컨트롤러가 **2개**다(`InternalPortalController` + `ShippingRequestController`) — 하나만 고치면 절반만 된다.
+- ❓ **VIN 노출은 car-erp §3 PII 화이트리스트 판단**이다. `inventory` 가 `nice_reg_vin` 을 **검색에만** 쓰는 것과
+  응답에 emit 하는 건 노출면이 다르다. 인계 = `meetings/handoff-carerp-portal-vehicle-meta.md`.
+
 ## 15. 사내 Notion 업무가이드 발행 + 허브 네비 표준 (Jin 지시 — "항상 이 상태로")
 > 사내 Notion "사내 업무 가이드" 갱신 = **MCP 아님**, 자체 스크립트 `scripts/notion-guide-publish.php`(Notion REST 직접). 토큰 = Windows **User env `NOTION_TOKEN`**. 세션이 토큰 등록 전에 켜졌으면 `getenv()` 못 잡음 → PowerShell 인라인 주입: `$env:NOTION_TOKEN=[Environment]::GetEnvironmentVariable('NOTION_TOKEN','User'); php scripts/notion-guide-publish.php --apply`. **발행=라이브 즉시반영** → apply 전 인자 없이 dry-run 으로 블록수 확인.
 
