@@ -64,15 +64,6 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** 운임비 — **판매통화 기준**(USD 아님). 기존 `shipping_usd` 와 컬럼이 다르다 — SKILLS §14-5. */
     public ?string $transport_fee = null;
 
-    /**
-     * 견적통화를 바꾸면 환율을 그 통화의 오늘값으로 다시 채운다 — 통화만 바꾸고 환율을 안 고치면
-     * 이전 통화 환율로 최종금액이 계산돼 조용히 틀어진다. 판매가·운임비는 **안 건드린다**(영업이 적은 금액이라
-     * 임의 환산하면 의도와 달라진다) — 대신 화면에 "지금 어느 통화 기준인지"를 한 줄로 못박는다.
-     */
-    public function updatedQuoteCurrency(): void
-    {
-        $this->offer_rate = (string) $this->rateFor($this->quoteCurrency);
-    }
 
     /** 견적 통화 — 드로어 열 때 offer_currency 표시, 저장 시 바뀐 경우만 재스냅(EUR 딜 보존). */
     public string $quoteCurrency = 'KRW';
@@ -337,9 +328,10 @@ new #[Layout('components.layouts.app')] class extends Component {
             $l->transport_fee = ($this->transport_fee === null || $this->transport_fee === '') ? null : (float) $this->transport_fee;
             $l->shipping_usd = null;   // 셀프검차는 USD 선택형을 안 쓴다 — 두 값이 같이 있으면 어느 게 진짜인지 갈린다
             $l->offer_currency = $this->quoteCurrency;
+            // ⚠️ **자동계산 없음**(2026-08-10 Jin) — 셀프검차 금액칸은 전부 "적은 값 그대로"다.
+            //    통화를 바꿔도 환율을 다시 잡지 않고, 판매가×환율로 final_price 를 만들지도 않는다.
+            //    빈 칸일 때만 KRW=1 폴백 — car-erp 는 exchange_rate>0 이어야 판매 pre-fill 을 저장한다.
             $l->offer_rate = ($this->offer_rate === null || $this->offer_rate === '') ? $this->rateFor($this->quoteCurrency) : (int) $this->offer_rate;
-            // 현지 최종금액(KRW 스냅샷) = 판매가 × 환율. 여기서 만들어둬야 offerDisplay()·연동 B 가 같은 값을 본다.
-            $l->final_price = $l->sale_price !== null ? (int) round((float) $l->sale_price * max(1, (int) $l->offer_rate)) : $l->final_price;
 
             return;
         }
@@ -571,7 +563,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 </div>
                                 <div>
                                     <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.offer_rate') }}</label>
-                                    <input type="number" min="1" class="input-base" wire:model="offer_rate" @disabled($quoteCurrency === 'KRW')>
+                                    <input type="number" min="1" class="input-base" wire:model="offer_rate">
                                     @error('offer_rate') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
                                 </div>
                                 <div>
@@ -618,9 +610,16 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <p class="mt-1 text-[11px] {{ $d->car_cost === null ? 'text-red-600' : 'text-gray-400' }}">{{ $d->car_cost === null ? __('auction.car_cost_missing') : __('auction.car_cost_hint') }}</p>
                     </div>
                 @endif
+                {{-- 셀프검차매입은 파생계산을 안 한다 → 적은 판매가를 그대로 보여준다(계산값 아님). --}}
                 <div class="mt-3 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
-                    <span class="font-semibold text-gray-700">{{ __('auction.final_price') }}</span>
-                    <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $d->offerDisplay() ?? '—' }}</span>
+                    <span class="font-semibold text-gray-700">{{ $d->isSelfInspection() ? __('auction.sale_price') : __('auction.final_price') }}</span>
+                    <span class="text-base font-bold text-[var(--color-primary-text)]">
+                        @if ($d->isSelfInspection())
+                            {{ $d->sale_price !== null ? number_format((float) $d->sale_price, 0).' '.($d->offer_currency ?: 'KRW') : '—' }}
+                        @else
+                            {{ $d->offerDisplay() ?? '—' }}
+                        @endif
+                    </span>
                 </div>
 
                 @if ($d->inspection_memo || $d->inspection_note)

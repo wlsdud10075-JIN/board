@@ -75,9 +75,18 @@ class SyncWonListingToCarErp implements ShouldQueue
         $sellingFeeKrw = $l->sellingFeeKrw($usdR, $eurR);   // 입력값 우선, 없으면 고정값(회사 부담)
         $carPriceKrw = $l->carPriceKrw($usdR, $eurR);   // 판매가 = 원가 − 관례할인 − 차감액 (매도비 제외)
 
-        $offer = $l->offerAmount($usdR, $eurR);         // 판매 통화/환율(현지확인 확정)
-        $saleCurrency = $offer['currency'] ?? null;
-        $saleRate = $offer['rate'] ?? null;
+        // 판매 통화/환율 — 기존 경로는 `offerAmount()`(현지확인 확정, final_price 기반).
+        // ⚠️ 셀프검차매입은 **자동계산을 안 해서 final_price 가 비어 있다** → offerAmount() 가 null 을 준다.
+        //    그러면 sale_currency·sale_exchange_rate 가 안 실려 car-erp 가 판매 pre-fill 을 통째로 보류한다
+        //    (수신측: `sale_price>0 && rate>0` 일 때만 저장). 컬럼에서 직접 읽는다.
+        if ($l->isSelfInspection()) {
+            $saleCurrency = $l->offer_currency ?: 'KRW';
+            $saleRate = (int) ($l->offer_rate ?: 1);
+        } else {
+            $offer = $l->offerAmount($usdR, $eurR);         // 판매 통화/환율(현지확인 확정)
+            $saleCurrency = $offer['currency'] ?? null;
+            $saleRate = $offer['rate'] ?? null;
+        }
         // 판매가(차량 판매분) = 차량금액 → 판매통화. car-erp sale_price = 판매통화 기준.
         // 셀프검차매입은 견적 씬이 없어 파생계산의 근거(할인율·차감액)가 없다 → 영업이 적은 값을 그대로 쓴다.
         $salePrice = $l->sale_price !== null

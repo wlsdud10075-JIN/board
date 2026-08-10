@@ -632,7 +632,8 @@ class BoardTest extends TestCase
         $this->assertSame(1350.0, (float) $f->transport_fee);
         // ⚠️ USD 선택형(shipping_usd)과 같이 들고 있으면 어느 게 진짜인지 갈린다 — 셀프검차는 안 쓴다
         $this->assertNull($f->shipping_usd);
-        $this->assertSame(8590 * 1400, (int) $f->final_price);   // 판매가 × 환율
+        // ★자동계산 없음(2026-08-10 Jin) — 판매가×환율로 final_price 를 만들지 않는다
+        $this->assertNull($f->final_price);
         // 할인·차감액은 셀프검차에 없는 개념 — 건드리지 않는다
         $this->assertNull($f->sale_discount_amount);
     }
@@ -646,7 +647,9 @@ class BoardTest extends TestCase
         $l = $this->mkListing($this->mkUser('sales'), [
             'status' => 'won', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection', 'source' => 'encar',
             'car_cost' => 13600000, 'expected_price_currency' => 'KRW', 'selling_fee' => 440000,
-            'sale_price' => 8590, 'offer_currency' => 'USD', 'offer_rate' => 1400, 'final_price' => 8590 * 1400,
+            // ★final_price 는 **비어 있다**(자동계산 안 함) — 그래도 판매 통화·환율이 실려야 한다.
+            //   안 실리면 car-erp 가 `sale_price>0 && rate>0` 조건에서 판매 pre-fill 을 통째로 보류한다.
+            'sale_price' => 8590, 'offer_currency' => 'USD', 'offer_rate' => 1400, 'final_price' => null,
         ]);
 
         (new SyncWonListingToCarErp($l->id))->handle();
@@ -701,8 +704,11 @@ class BoardTest extends TestCase
             ->assertHasNoErrors('selling_fee');
     }
 
-    /** 견적통화를 바꾸면 환율이 그 통화 값으로 따라와야 한다 — 안 그러면 이전 통화 환율로 최종금액이 계산된다. */
-    public function test_changing_quote_currency_refills_rate(): void
+    /**
+     * ★셀프검차 금액칸은 **자동계산이 없다**(2026-08-10 Jin) — 통화를 눌러도 환율이 안 바뀌고,
+     * 환율을 적어도 다른 칸이 안 따라온다. 전부 "적은 값 그대로"다.
+     */
+    public function test_self_inspection_amounts_never_autocalculate(): void
     {
         $l = $this->mkListing($this->mkUser('sales'), [
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
@@ -710,11 +716,14 @@ class BoardTest extends TestCase
         ]);
         $this->actingAs($this->mkUser('manager'));
 
-        $c = Volt::test('auction.index')->call('openDetail', $l->id)
-            ->assertSet('offer_rate', '1')          // KRW = 1
-            ->set('quoteCurrency', 'USD');
-
-        $this->assertSame((string) config('board.default_krw_per_usd'), $c->get('offer_rate'));
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('offer_rate', '1234')
+            ->set('sale_price', '5000')
+            ->set('quoteCurrency', 'USD')      // 통화를 바꿔도 환율은 그대로
+            ->assertSet('offer_rate', '1234')
+            ->assertSet('sale_price', '5000')  // 판매가도 환산되지 않는다
+            ->set('offer_rate', '1400')
+            ->assertSet('sale_price', '5000'); // 환율을 고쳐도 판매가는 그대로
     }
 
     /** 운임비는 **판매통화 그대로** ERP 로 간다 — USD 로 환산하면 EUR 딜에서 부풀어 오른다. */
@@ -727,7 +736,7 @@ class BoardTest extends TestCase
             'status' => 'won', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection', 'source' => 'encar',
             'car_cost' => 10000000, 'expected_price_currency' => 'KRW', 'selling_fee' => 440000,
             'sale_price' => 7000, 'offer_currency' => 'EUR', 'offer_rate' => 1500,
-            'transport_fee' => 900, 'final_price' => 7000 * 1500,
+            'transport_fee' => 900, 'final_price' => null,   // 자동계산 안 함 — 그래도 통화가 실려야 한다
         ]);
 
         (new SyncWonListingToCarErp($l->id))->handle();
