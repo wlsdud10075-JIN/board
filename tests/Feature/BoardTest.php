@@ -486,6 +486,102 @@ class BoardTest extends TestCase
         $this->assertSame(55, $l->fresh()->car_erp_buyer_id);
     }
 
+    // ── 셀프검차 금액 구멍 (2026-08-10 heymanboard 67도4322 실장애) ──
+
+    /**
+     * ★금액 없이 won 시키면 car-erp 가 422(`final_price: required_without:purchase_price_krw`)를 내는데
+     * 영업 화면엔 "처리 완료"만 뜬다 = 조용한 실패. 여기서 세운다.
+     */
+    public function test_conclude_won_is_blocked_without_any_amount(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'car_cost' => null, 'final_price' => null,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->call('conclude', $l->id, 'won')
+            ->assertHasErrors('car_cost');
+
+        $this->assertSame('accepted', $l->fresh()->status);   // won 으로 넘어가지 않는다
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+    }
+
+    /** 경매/구매 탭에서 차값을 넣으면 그대로 won → 연동 B 발사(셀프검차가 금액을 넣는 유일한 지점). */
+    public function test_auction_drawer_can_enter_car_cost_and_then_conclude(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'car_cost' => null, 'final_price' => null,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('car_cost', '12000000')
+            ->call('conclude', $l->id, 'won')->assertHasNoErrors();
+
+        $this->assertSame(12000000, (int) $l->fresh()->car_cost);
+        $this->assertSame('won', $l->fresh()->status);
+        Bus::assertDispatched(SyncWonListingToCarErp::class);
+    }
+
+    /**
+     * 이미 won 인데 금액 누락으로 ERP 에 못 넘어간 차 — 금액만 채우면 재발사돼야 한다.
+     * 안 그러면 영업이 금액을 넣어도 아무 일도 안 일어나고, /manage 재전송은 super 전용이라 손이 없다.
+     */
+    public function test_saving_amount_on_stuck_won_listing_resends_to_car_erp(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'won', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'car_cost' => null, 'final_price' => null, 'car_erp_vehicle_id' => null,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('car_cost', '9500000')
+            ->call('savePayee')->assertHasNoErrors();
+
+        $this->assertSame(9500000, (int) $l->fresh()->car_cost);
+        Bus::assertDispatched(SyncWonListingToCarErp::class);
+    }
+
+    /** 이미 ERP 로 넘어간 차는 다시 쏘지 않는다 — 저장할 때마다 재전송되면 안 된다. */
+    public function test_saving_amount_does_not_resend_when_already_synced(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'won', 'buyer_verdict' => 'accepted', 'source' => 'encar',
+            'car_cost' => 8000000, 'car_erp_vehicle_id' => 321,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('car_cost', '8100000')
+            ->call('savePayee')->assertHasNoErrors();
+
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+    }
+
+    /** 기존 흐름(현지검차에서 final_price 확정)은 차값이 없어도 그대로 통과해야 한다 — 회귀 방지. */
+    public function test_conclude_won_still_works_with_only_final_price(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction',
+            'car_cost' => null, 'final_price' => 9000000,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->call('conclude', $l->id, 'won')->assertHasNoErrors();
+
+        $this->assertSame('won', $l->fresh()->status);
+    }
+
     /** 바이어 조회 신원 = 운영자(대행 관리자)가 아니라 '딜 작성자(영업)' — car-erp 본인격리 + 연동B salesman 일관성. */
     public function test_auction_buyer_dropdown_uses_listing_creator_identity(): void
     {

@@ -30,6 +30,12 @@ return [
     'listing_no' => '· 매물 :no',
 
     'car_cost' => '차값',
+    // 차값 입력 (2026-08-10) — 셀프검차매입이 금액을 넣을 수 있는 유일한 지점.
+    'car_cost_edit' => '차값 입력·수정',
+    'car_cost_ph' => '예: 12000000',
+    'car_cost_hint' => 'ERP 로 넘어가는 매입가입니다. 비어 있으면 구매확정이 막힙니다.',
+    'car_cost_missing' => '⚠️ 차값이 비어 있습니다 — 넣어야 ERP 로 넘어갑니다.',
+    'err_amount_required' => '차값을 넣어야 구매확정할 수 있습니다. 금액이 없으면 ERP 로 넘어가지 않습니다.',
     'discount_rate' => '할인율',
     'shipping' => '배송',
     'buyer' => '바이어',
@@ -60,6 +66,7 @@ return [
 
     // flash
     'flash_payee_saved' => '입금정보를 저장했습니다.',
+    'flash_resent' => ':no 저장 완료 — ERP 로 다시 전송했습니다. 처리되면 ERP전환완료(synced)로 바뀝니다.',
     'flash_only_accepted' => '바이어 수락 상태의 차량만 집행할 수 있습니다.',
     'flash_processed' => ':no — :label 처리되었습니다.',
 
