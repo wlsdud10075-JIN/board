@@ -366,7 +366,9 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
 - ⚠️ **차단은 구매확정 시점에 재조회**한다(드로어를 열어둔 사이 풀렸을 수도, 걸렸을 수도 있다).
   조회가 **degrade 면 막지 않는다** — 여기서 막으면 ERP 장애가 board 의 매입 마감을 통째로 세운다.
 - 바이어 **미선택이면 판정 자체가 불가**라 막지 않는다(연동 B `buyer_id` nullable). 바이어 필수화는 **Jin 미결**.
-- 범위 밖(연동 B 로 여전히 우회되는 것): 당사자 필수 · 회계컬럼 · C4/C5. 미러한 건 **미수·무담보 게이트 하나**뿐.
+- ⚠️ **연동 B 가 보내는 건 「차량 등록 정보」뿐이다**(Jin 2026-08-10). 등록 이후 단계(당사자·회계컬럼·C4/C5 등)는
+  **전부 ERP 안에서 ERP 화면 게이트를 탄다** — board 가 우회시킬 수 있는 게 아니다. board 가 미러할 락은
+  **등록 시점 하나**(미수·무담보)뿐이고, 그게 이 절의 전부다. 🚫 ERP 내부 단계의 락을 board 로 끌고 오지 말 것.
 
 ## 15. 사내 Notion 업무가이드 발행 + 허브 네비 표준 (Jin 지시 — "항상 이 상태로")
 > 사내 Notion "사내 업무 가이드" 갱신 = **MCP 아님**, 자체 스크립트 `scripts/notion-guide-publish.php`(Notion REST 직접). 토큰 = Windows **User env `NOTION_TOKEN`**. 세션이 토큰 등록 전에 켜졌으면 `getenv()` 못 잡음 → PowerShell 인라인 주입: `$env:NOTION_TOKEN=[Environment]::GetEnvironmentVariable('NOTION_TOKEN','User'); php scripts/notion-guide-publish.php --apply`. **발행=라이브 즉시반영** → apply 전 인자 없이 dry-run 으로 블록수 확인.
