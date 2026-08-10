@@ -68,22 +68,36 @@ class SyncWonListingToCarErp implements ShouldQueue
         $eurR = (int) ($snap['EUR'] ?? 0) ?: (int) config('board.default_krw_per_eur');
 
         $carCostKrw = $l->carCostKrw($usdR, $eurR);
-        // 매입가(구입금액) = 원가 그대로(할인 미반영). Model A(2026-07-06, 엑셀·ERP 정렬):
-        //   car-erp 부가세마진 = purchase_price × 0.09 라 원가여야 정합. 할인은 sell-side(판매가)에만.
-        $purchasePriceKrw = $carCostKrw;
-        $sellingFeeKrw = $carCostKrw !== null ? (int) config('board.sales_fee') : null;   // 매도비(매입탭 별도 · 회사 부담)
+        // 매입가(구입금액) — Model A(2026-07-06): 원가 그대로(할인 미반영). car-erp 부가세마진 =
+        //   purchase_price × 0.09 라 원가여야 정합하고, 할인은 sell-side(판매가)에만 태운다.
+        //   ⚠️ 셀프검차매입만 예외 — 매도비가 차값에 포함돼 있어 빼야 이중계상이 안 된다(모델이 단일 판정).
+        $purchasePriceKrw = $l->purchasePriceKrw($usdR, $eurR);
+        $sellingFeeKrw = $l->sellingFeeKrw($usdR, $eurR);   // 입력값 우선, 없으면 고정값(회사 부담)
         $carPriceKrw = $l->carPriceKrw($usdR, $eurR);   // 판매가 = 원가 − 관례할인 − 차감액 (매도비 제외)
 
-        $offer = $l->offerAmount($usdR, $eurR);         // 판매 통화/환율(현지확인 확정)
-        $saleCurrency = $offer['currency'] ?? null;
-        $saleRate = $offer['rate'] ?? null;
+        // 판매 통화/환율 — 기존 경로는 `offerAmount()`(현지확인 확정, final_price 기반).
+        // ⚠️ 셀프검차매입은 **자동계산을 안 해서 final_price 가 비어 있다** → offerAmount() 가 null 을 준다.
+        //    그러면 sale_currency·sale_exchange_rate 가 안 실려 car-erp 가 판매 pre-fill 을 통째로 보류한다
+        //    (수신측: `sale_price>0 && rate>0` 일 때만 저장). 컬럼에서 직접 읽는다.
+        if ($l->isSelfInspection()) {
+            $saleCurrency = $l->offer_currency ?: 'KRW';
+            $saleRate = (int) ($l->offer_rate ?: 1);
+        } else {
+            $offer = $l->offerAmount($usdR, $eurR);         // 판매 통화/환율(현지확인 확정)
+            $saleCurrency = $offer['currency'] ?? null;
+            $saleRate = $offer['rate'] ?? null;
+        }
         // 판매가(차량 판매분) = 차량금액 → 판매통화. car-erp sale_price = 판매통화 기준.
-        $salePrice = ($carPriceKrw !== null && $saleRate)
-            ? ($saleCurrency === 'KRW' ? $carPriceKrw : round($carPriceKrw / max(1, $saleRate), 2))
-            : null;
-        // 운임비 = shipping_usd(USD원가)를 판매통화로 환산 — car-erp 가 판매가와 직접 합산(같은 통화 가정).
-        $transportFee = null;
-        if ($l->shipping_usd !== null && $saleRate) {
+        // 셀프검차매입은 견적 씬이 없어 파생계산의 근거(할인율·차감액)가 없다 → 영업이 적은 값을 그대로 쓴다.
+        $salePrice = $l->sale_price !== null
+            ? (float) $l->sale_price
+            : (($carPriceKrw !== null && $saleRate)
+                ? ($saleCurrency === 'KRW' ? $carPriceKrw : round($carPriceKrw / max(1, $saleRate), 2))
+                : null);
+        // 운임비 — 셀프검차매입은 판매통화로 직접 적으므로 환산 없이 그대로. 그 외는 shipping_usd(USD원가)를 환산.
+        // car-erp `transport_fee` 는 **판매통화 기준**이라 USD raw 를 그냥 넣으면 EUR 딜에서 부풀어 오른다.
+        $transportFee = $l->transport_fee !== null ? (float) $l->transport_fee : null;
+        if ($transportFee === null && $l->shipping_usd !== null && $saleRate) {
             $transportKrw = $l->shipping_usd * $usdR;
             $transportFee = $saleCurrency === 'KRW' ? $transportKrw : round($transportKrw / max(1, $saleRate), 2);
         }

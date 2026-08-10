@@ -200,6 +200,8 @@ class BoardTest extends TestCase
             ->call('openDetail', $l->id)
             ->set('owner_name', '차주')
             ->set('payee_name', '판매상사')
+            ->set('sale_price', '7000')     // 셀프검차 필수 락 — 차값·판매가·통화
+            ->set('quoteCurrency', 'KRW')
             ->call('conclude', $l->id, 'won')
             ->assertHasNoErrors();
 
@@ -521,6 +523,7 @@ class BoardTest extends TestCase
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '12000000')
+            ->set('sale_price', '8000')->set('quoteCurrency', 'KRW')   // 셀프검차 필수 락
             ->call('conclude', $l->id, 'won')->assertHasNoErrors();
 
         $this->assertSame(12000000, (int) $l->fresh()->car_cost);
@@ -550,14 +553,14 @@ class BoardTest extends TestCase
     }
 
     /**
-     * 바이어 금액(현지 최종금액)은 **직접 타이핑받지 않고** `/forwarding` 과 같은 공식(`totalKrw`)으로 계산한다
-     * (2026-08-10 Jin 선택). 직접 입력받으면 할인·차감액과 숫자가 갈린다.
+     * 셀프검차가 **아닌** 출처는 바이어 금액을 직접 타이핑받지 않고 `/forwarding` 과 같은 공식(`totalKrw`)으로 만든다.
+     * 직접 입력받으면 할인·차감액과 숫자가 갈린다.
      */
     public function test_auction_quote_fields_recompute_final_price(): void
     {
         Bus::fake();
         $l = $this->mkListing($this->mkUser('sales'), [
-            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'encar',
             'source' => 'encar', 'car_cost' => null, 'final_price' => null,
             'expected_price_currency' => 'KRW',
         ]);
@@ -573,6 +576,304 @@ class BoardTest extends TestCase
         $this->assertSame(8500000, (int) $f->final_price);   // 배송 미선택
         $this->assertSame(10.0, (float) $f->discount_rate);
         $this->assertSame(500000, (int) $f->sale_discount_amount);
+    }
+
+    /**
+     * ★셀프검차매입 — 매도비는 **차값에 포함**된 금액이라 ERP 매입가에서 뺀다(2026-08-10 Jin 확정).
+     * 빼지 않으면 매도비가 두 번 잡혀 car-erp 부가세마진(매입가 × 9%)까지 부풀어 오른다.
+     */
+    public function test_self_inspection_purchase_price_excludes_selling_fee(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'origin' => 'self_inspection', 'source' => 'encar',
+            'car_cost' => 13600000, 'expected_price_currency' => 'KRW', 'selling_fee' => 440000,
+        ]);
+
+        $this->assertSame(13160000, $l->purchasePriceKrw(1400, 1500));   // 13,600,000 − 440,000
+        $this->assertSame(440000, $l->sellingFeeKrw(1400, 1500));
+        // 합계가 영업이 적은 차값 그대로여야 한다
+        $this->assertSame(13600000, $l->purchasePriceKrw(1400, 1500) + $l->sellingFeeKrw(1400, 1500));
+    }
+
+    /** 다른 출처는 매도비가 **회사 부담 별도**라 차값에서 빼면 안 된다 — 빼면 매입가가 깎인다. */
+    public function test_non_self_inspection_purchase_price_keeps_full_car_cost(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'origin' => 'encar', 'source' => 'encar',
+            'car_cost' => 13600000, 'expected_price_currency' => 'KRW',
+        ]);
+
+        $this->assertSame(13600000, $l->purchasePriceKrw(1400, 1500));            // 그대로
+        $this->assertSame((int) config('board.sales_fee'), $l->sellingFeeKrw(1400, 1500));   // 고정값 유지
+    }
+
+    /** 셀프검차 6칸 — 판매가·통화·환율·운임비를 적은 그대로 저장하고 최종금액은 판매가×환율. */
+    public function test_self_inspection_amount_fields_are_saved_as_entered(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'car_cost' => null, 'final_price' => null, 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->assertSet('selling_fee', (string) (int) config('board.sales_fee'))   // 기본값 미리 채움
+            ->set('car_cost', '13600000')
+            ->set('selling_fee', '440000')
+            ->set('quoteCurrency', 'USD')
+            ->set('sale_price', '8590')
+            ->set('offer_rate', '1400')
+            ->set('transport_fee', '1350')      // 판매통화(USD) 기준 · 선택지 밖 값도 허용(직접입력)
+            ->call('conclude', $l->id, 'won')->assertHasNoErrors();
+
+        $f = $l->fresh();
+        $this->assertSame(440000, (int) $f->selling_fee);
+        $this->assertSame(8590.0, (float) $f->sale_price);
+        $this->assertSame('USD', $f->offer_currency);
+        $this->assertSame(1400, (int) $f->offer_rate);
+        $this->assertSame(1350.0, (float) $f->transport_fee);
+        // ⚠️ USD 선택형(shipping_usd)과 같이 들고 있으면 어느 게 진짜인지 갈린다 — 셀프검차는 안 쓴다
+        $this->assertNull($f->shipping_usd);
+        // ★자동계산 없음(2026-08-10 Jin) — 판매가×환율로 final_price 를 만들지 않는다
+        $this->assertNull($f->final_price);
+        // 할인·차감액은 셀프검차에 없는 개념 — 건드리지 않는다
+        $this->assertNull($f->sale_discount_amount);
+    }
+
+    /** 연동 B payload — 셀프검차는 매입가에서 매도비가 빠지고 판매가는 적은 값 그대로 나간다. */
+    public function test_self_inspection_sync_payload_splits_selling_fee(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 's']);
+        Http::fake(['*' => Http::response(['vehicle_id' => 900], 201)]);
+
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'won', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection', 'source' => 'encar',
+            'car_cost' => 13600000, 'expected_price_currency' => 'KRW', 'selling_fee' => 440000,
+            // ★final_price 는 **비어 있다**(자동계산 안 함) — 그래도 판매 통화·환율이 실려야 한다.
+            //   안 실리면 car-erp 가 `sale_price>0 && rate>0` 조건에서 판매 pre-fill 을 통째로 보류한다.
+            'sale_price' => 8590, 'offer_currency' => 'USD', 'offer_rate' => 1400, 'final_price' => null,
+        ]);
+
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        Http::assertSent(function ($req) {
+            if (! str_contains($req->url(), 'purchase-sync')) {
+                return false;   // 다른 요청이 먼저 통과시키면 본문을 안 본다(SKILLS §11-14)
+            }
+            $b = json_decode($req->body(), true);
+
+            return ($b['purchase_price_krw'] ?? null) === 13160000
+                && ($b['selling_fee_krw'] ?? null) === 440000
+                && (float) ($b['sale_price'] ?? 0) === 8590.0
+                && ($b['sale_currency'] ?? null) === 'USD'
+                && ($b['sale_exchange_rate'] ?? null) === 1400;
+        });
+    }
+
+    /**
+     * ★셀프검차 필수 락 (2026-08-10 Jin) — **차값·판매가 둘 다** 있어야 구매확정된다.
+     * 판매가가 비면 car-erp 가 판매 pre-fill 을 보류해(`sale_price>0 && rate>0`) ERP 판매탭이 빈 채로 생긴다.
+     */
+    public function test_self_inspection_requires_sale_price_to_conclude(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        // 차값만 있고 판매가가 없으면 막힌다
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('car_cost', '10000000')->set('quoteCurrency', 'KRW')
+            ->call('conclude', $l->id, 'won')
+            ->assertHasErrors('sale_price');
+
+        $this->assertSame('accepted', $l->fresh()->status);
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+
+        // 판매가까지 넣으면 통과
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('car_cost', '10000000')
+            ->set('sale_price', '7000')->set('quoteCurrency', 'KRW')
+            ->call('conclude', $l->id, 'won')->assertHasNoErrors();
+
+        $this->assertSame('won', $l->fresh()->status);
+        Bus::assertDispatched(SyncWonListingToCarErp::class);
+    }
+
+    /**
+     * ★통화 미선택 락 (2026-08-10, 실측으로 발견) — KRW 를 미리 골라두면 USD 판매가를 적고 통화를 안 눌러도
+     * 그대로 통과해 ERP 에 **8,590 USD → 8,590원**으로 박힌다. 실제의 1/1400 인데 경고도 없다.
+     */
+    public function test_self_inspection_requires_explicit_currency(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->assertSet('quoteCurrency', '')      // 미선택으로 시작 — KRW 로 흘러가지 않는다
+            ->set('car_cost', '12000000')
+            ->set('sale_price', '8590')
+            ->call('conclude', $l->id, 'won')
+            ->assertHasErrors('quoteCurrency');
+
+        $this->assertSame('accepted', $l->fresh()->status);
+        $this->assertNull($l->fresh()->offer_currency);
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+    }
+
+    /**
+     * ★환율 락 — 통화를 골라도 환율칸이 '1' 로 미리 채워져 있으면 USD 딜이 **환율 1** 로 ERP 에 박힌다
+     * (통화 락을 통과한 뒤 생기는 두 번째 구멍). 그래서 셀프검차는 환율을 미리 채우지 않는다.
+     */
+    public function test_self_inspection_requires_rate_for_foreign_currency(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        $c = Volt::test('auction.index')->call('openDetail', $l->id)
+            ->assertSet('offer_rate', null)       // 미리 채우지 않는다
+            ->set('car_cost', '12000000')
+            ->set('sale_price', '8590')
+            ->set('quoteCurrency', 'USD')
+            ->call('conclude', $l->id, 'won')
+            ->assertHasErrors('offer_rate');
+
+        $this->assertSame('accepted', $l->fresh()->status);
+
+        // 환율까지 넣으면 통과
+        $c->set('offer_rate', '1400')->call('conclude', $l->id, 'won')->assertHasNoErrors();
+        $this->assertSame('won', $l->fresh()->status);
+        $this->assertSame(1400, (int) $l->fresh()->offer_rate);
+    }
+
+    /** 원화 딜은 환율을 안 물어본다 — 1 이 자명해서 물으면 잡일만 는다. */
+    public function test_krw_self_inspection_does_not_require_rate(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('car_cost', '12000000')
+            ->set('sale_price', '11000000')
+            ->set('quoteCurrency', 'KRW')
+            ->call('conclude', $l->id, 'won')->assertHasNoErrors();
+
+        $this->assertSame('won', $l->fresh()->status);
+        $this->assertSame(1, (int) $l->fresh()->offer_rate);
+    }
+
+    /** 판매가 락은 셀프검차 전용 — 다른 출처는 견적 씬에서 채워지므로 여기서 막으면 기존 흐름이 죽는다. */
+    public function test_sale_price_lock_does_not_apply_to_other_origins(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'encar',
+            'source' => 'auction', 'car_cost' => null, 'final_price' => 9000000, 'sale_price' => null,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->call('conclude', $l->id, 'won')->assertHasNoErrors();
+
+        $this->assertSame('won', $l->fresh()->status);
+    }
+
+    /** 매도비 > 차값 = 오타. 통과시키면 매입가가 0 으로 깎여 **0원짜리 차**가 ERP 원장에 생긴다(ERP 검증도 min:0). */
+    public function test_selling_fee_cannot_exceed_car_cost(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('car_cost', '400000')
+            ->set('selling_fee', '440000')
+            ->call('conclude', $l->id, 'won')
+            ->assertHasErrors('selling_fee');
+
+        $this->assertSame('accepted', $l->fresh()->status);
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+    }
+
+    /** 차값이 비었을 땐 매도비 규칙을 걸지 않는다 — 진짜 원인(차값 누락)을 가리면 엉뚱한 칸을 고치게 된다. */
+    public function test_missing_car_cost_reports_car_cost_not_selling_fee(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'car_cost' => null, 'final_price' => null,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)   // 매도비는 440,000 이 미리 채워져 있다
+            ->call('conclude', $l->id, 'won')
+            ->assertHasErrors('car_cost')
+            ->assertHasNoErrors('selling_fee');
+    }
+
+    /**
+     * ★셀프검차 금액칸은 **자동계산이 없다**(2026-08-10 Jin) — 통화를 눌러도 환율이 안 바뀌고,
+     * 환율을 적어도 다른 칸이 안 따라온다. 전부 "적은 값 그대로"다.
+     */
+    public function test_self_inspection_amounts_never_autocalculate(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('offer_rate', '1234')
+            ->set('sale_price', '5000')
+            ->set('quoteCurrency', 'USD')      // 통화를 바꿔도 환율은 그대로
+            ->assertSet('offer_rate', '1234')
+            ->assertSet('sale_price', '5000')  // 판매가도 환산되지 않는다
+            ->set('offer_rate', '1400')
+            ->assertSet('sale_price', '5000'); // 환율을 고쳐도 판매가는 그대로
+    }
+
+    /** 운임비는 **판매통화 그대로** ERP 로 간다 — USD 로 환산하면 EUR 딜에서 부풀어 오른다. */
+    public function test_self_inspection_transport_fee_goes_raw_in_sale_currency(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 's']);
+        Http::fake(['*' => Http::response(['vehicle_id' => 901], 201)]);
+
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'won', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection', 'source' => 'encar',
+            'car_cost' => 10000000, 'expected_price_currency' => 'KRW', 'selling_fee' => 440000,
+            'sale_price' => 7000, 'offer_currency' => 'EUR', 'offer_rate' => 1500,
+            'transport_fee' => 900, 'final_price' => null,   // 자동계산 안 함 — 그래도 통화가 실려야 한다
+        ]);
+
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        Http::assertSent(function ($req) {
+            if (! str_contains($req->url(), 'purchase-sync')) {
+                return false;
+            }
+            $b = json_decode($req->body(), true);
+
+            return (float) ($b['transport_fee'] ?? 0) === 900.0 && ($b['sale_currency'] ?? null) === 'EUR';
+        });
     }
 
     /** 견적통화는 **바뀐 경우에만** 재스냅 — 저장할 때마다 오늘 환율로 덮으면 EUR 딜 확정환율이 날아간다. */

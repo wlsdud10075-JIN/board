@@ -50,6 +50,21 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public ?string $shipping_usd = null;
 
+    // ── 셀프검차매입 전용 (2026-08-10 Jin) — 검차·견적 씬이 없어 파생계산의 근거가 없다.
+    //    영업이 이미 아는 값을 그대로 적는다: 차값 · 매도비 · 판매가 · 통화 · 환율 · 운임비.
+    /** 매도비 — 셀프검차는 **차값에 포함**된 금액이라 따로 적어야 분리된다(모델이 매입가에서 뺀다). */
+    public ?string $selling_fee = null;
+
+    /** 판매가 — `offer_currency` 기준 raw(원화 아님). 파생계산 대신 이 값을 그대로 ERP 로 보낸다. */
+    public ?string $sale_price = null;
+
+    /** 환율 — 셀프검차는 영업이 직접 적는다(다른 출처는 통화 바꿀 때 자동 스냅). */
+    public ?string $offer_rate = null;
+
+    /** 운임비 — **판매통화 기준**(USD 아님). 기존 `shipping_usd` 와 컬럼이 다르다 — SKILLS §14-5. */
+    public ?string $transport_fee = null;
+
+
     /** 견적 통화 — 드로어 열 때 offer_currency 표시, 저장 시 바뀐 경우만 재스냅(EUR 딜 보존). */
     public string $quoteCurrency = 'KRW';
 
@@ -72,6 +87,16 @@ new #[Layout('components.layouts.app')] class extends Component {
     private function eurRate(): int
     {
         return $this->krwPerEur ?: (int) config('board.default_krw_per_eur');
+    }
+
+    /** 통화별 오늘 환율(KRW 는 1) — 셀프검차 환율칸 기본값. */
+    private function rateFor(string $cur): int
+    {
+        return match ($cur) {
+            'USD' => $this->usdRate(),
+            'EUR' => $this->eurRate(),
+            default => 1,
+        };
     }
 
     // v3 — car-erp 바이어/컨사이니 (드롭다운 선택 → 연동B buyer_id/consignee_id). 본인 스코프.
@@ -115,9 +140,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->loadConsignees();
     }
 
-    private function payeeRules(): array
+    private function payeeRules(bool $selfInspection = false): array
     {
-        return [
+        $base = [
             'owner_name' => 'nullable|string|max:60',
             'payee_name' => 'nullable|string|max:60',
             'payee_bank' => 'nullable|string|max:40',
@@ -126,10 +151,29 @@ new #[Layout('components.layouts.app')] class extends Component {
             'selling_fee_payee_bank' => 'nullable|string|max:40',
             'selling_fee_payee_account' => 'nullable|string|max:40',
             'car_cost' => 'nullable|numeric|min:0',
+            'salesFiles.*' => 'file|max:204800',
+        ];
+
+        // 셀프검차매입은 운임비를 직접 적는다 → 고정 선택지(config)로 묶지 않는다.
+        if ($selfInspection) {
+            return $base + [
+                // 매도비는 차값에 포함된 금액이라 차값을 넘을 수 없다 — 넘으면 매입가가 0 으로 깎여
+                // **매입가 0원짜리 차**가 조용히 ERP 원장에 생긴다(car-erp 검증도 min:0 이라 통과).
+                // ⚠️ 차값이 비었을 때는 걸지 않는다 — 안 그러면 "차값을 넣으세요" 대신 "매도비가 차값보다 큽니다"가 떠서
+                //    영업이 엉뚱한 칸을 고치게 된다(진짜 원인은 차값 누락이고 그건 아래 금액 게이트가 잡는다).
+                'selling_fee' => $this->car_cost !== null && $this->car_cost !== ''
+                    ? 'nullable|numeric|min:0|lte:car_cost'
+                    : 'nullable|numeric|min:0',
+                'sale_price' => 'nullable|numeric|min:0',
+                'offer_rate' => 'nullable|numeric|min:1',
+                'transport_fee' => 'nullable|numeric|min:0',
+            ];
+        }
+
+        return $base + [
             'discount_rate' => 'nullable|numeric|min:0|max:100',
             'sale_discount' => 'nullable|numeric|min:0',
             'shipping_usd' => 'nullable|integer|in:'.implode(',', config('board.shipping_options')),
-            'salesFiles.*' => 'file|max:204800',
         ];
     }
 
@@ -238,7 +282,18 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->discount_rate = $l->discount_rate !== null ? (string) $l->discount_rate : null;
         $this->sale_discount = $l->sale_discount_amount !== null ? (string) $l->sale_discount_amount : null;
         $this->shipping_usd = $l->shipping_usd !== null ? (string) $l->shipping_usd : null;
-        $this->quoteCurrency = $l->offer_currency ?: 'KRW';
+        // 셀프검차는 통화를 **미선택으로 시작**한다(2026-08-10 Jin). KRW 를 미리 골라두면 USD 판매가를 적고
+        // 통화를 안 눌러도 그대로 통과해 ERP 에 **1/환율 금액**으로 박힌다(8,590 USD → 8,590원, 실측 확인).
+        $this->quoteCurrency = $l->offer_currency ?: ($l->isSelfInspection() ? '' : 'KRW');
+        // 매도비 기본값 = 기존 고정값(대부분 그대로라 미리 채워 입력을 줄인다 — 2026-08-10 Jin).
+        $this->selling_fee = (string) ($l->selling_fee ?? (int) config('board.sales_fee'));
+        $this->sale_price = $l->sale_price !== null ? (string) (0 + $l->sale_price) : null;
+        $this->transport_fee = $l->transport_fee !== null ? (string) (0 + $l->transport_fee) : null;
+        // 셀프검차는 환율을 **미리 채우지 않는다** — '1' 이 들어가 있으면 USD 를 골라도 그대로 통과해
+        // ERP 에 exchange_rate=1 로 박힌다(통화 락을 통과한 뒤 생기는 두 번째 구멍). 빈 칸이어야 락이 잡는다.
+        $this->offer_rate = $l->offer_rate !== null
+            ? (string) $l->offer_rate
+            : ($l->isSelfInspection() ? null : (string) $this->rateFor($this->quoteCurrency));
         $this->buyerId = $l->car_erp_buyer_id;
         $this->consigneeId = $l->car_erp_consignee_id;
         $this->loadBuyers();
@@ -251,6 +306,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->reset(['detailId', 'owner_name', 'payee_name', 'payee_bank', 'payee_account',
             'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account',
             'car_cost', 'discount_rate', 'sale_discount', 'shipping_usd', 'quoteCurrency',
+            'selling_fee', 'sale_price', 'offer_rate', 'transport_fee',
             'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts', 'salesFiles']);
         unset($this->detail);
     }
@@ -268,18 +324,31 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->car_erp_consignee_id = $this->consigneeId ?: null;
         // 차값 — 통화는 등록 시 정해진 `expected_price_currency` 그대로(여기선 금액만 보정).
         $l->car_cost = ($this->car_cost === null || $this->car_cost === '') ? null : (int) $this->car_cost;
+        $l->shipping_usd = ($this->shipping_usd === null || $this->shipping_usd === '') ? null : (int) $this->shipping_usd;
+
+        if ($l->isSelfInspection()) {
+            // 셀프검차매입 — 견적 씬이 없어 파생계산의 근거가 없다. 적은 값을 그대로 쓴다.
+            // 차값·매도비 = 항상 KRW. 판매가·환율·운임비 = 선택한 견적통화 기준.
+            $l->selling_fee = ($this->selling_fee === null || $this->selling_fee === '') ? null : (int) $this->selling_fee;
+            $l->sale_price = ($this->sale_price === null || $this->sale_price === '') ? null : (float) $this->sale_price;
+            $l->transport_fee = ($this->transport_fee === null || $this->transport_fee === '') ? null : (float) $this->transport_fee;
+            $l->shipping_usd = null;   // 셀프검차는 USD 선택형을 안 쓴다 — 두 값이 같이 있으면 어느 게 진짜인지 갈린다
+            $l->offer_currency = $this->quoteCurrency ?: null;   // 미선택은 null 로 둔다('' 저장 금지)
+            // ⚠️ **자동계산 없음**(2026-08-10 Jin) — 셀프검차 금액칸은 전부 "적은 값 그대로"다.
+            //    통화를 바꿔도 환율을 다시 잡지 않고, 판매가×환율로 final_price 를 만들지도 않는다.
+            //    빈 칸일 때만 KRW=1 폴백 — car-erp 는 exchange_rate>0 이어야 판매 pre-fill 을 저장한다.
+            $l->offer_rate = ($this->offer_rate === null || $this->offer_rate === '') ? $this->rateFor($this->quoteCurrency) : (int) $this->offer_rate;
+
+            return;
+        }
+
         $l->discount_rate = ($this->discount_rate === null || $this->discount_rate === '') ? null : (float) $this->discount_rate;
         $l->sale_discount_amount = ($this->sale_discount === null || $this->sale_discount === '') ? null : (int) $this->sale_discount;
-        $l->shipping_usd = ($this->shipping_usd === null || $this->shipping_usd === '') ? null : (int) $this->shipping_usd;
 
         // 견적통화는 **바뀐 경우에만** 재스냅 — 안 그러면 EUR 딜의 확정환율이 저장할 때마다 오늘 환율로 덮인다(/forwarding 동일).
         if ($this->quoteCurrency !== ($l->offer_currency ?: 'KRW')) {
             $l->offer_currency = $this->quoteCurrency;
-            $l->offer_rate = match ($this->quoteCurrency) {
-                'USD' => $this->usdRate(),
-                'EUR' => $this->eurRate(),
-                default => 1,
-            };
+            $l->offer_rate = $this->rateFor($this->quoteCurrency);
         }
 
         // 바이어 금액(현지 최종금액) = 기존 공식 그대로. 직접 타이핑받지 않는 이유 = 할인·차감액과 숫자가 갈린다.
@@ -290,8 +359,8 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** 입금정보·첨부 저장(이미 won 인 차량 보정용). */
     public function savePayee(): void
     {
-        $this->validate($this->payeeRules());
         $l = PurchaseListing::findOrFail($this->detailId);
+        $this->validate($this->payeeRules($l->isSelfInspection()));
         if (! $this->checkSalesFiles($l->salesAttachments()->count())) {
             return;
         }
@@ -341,7 +410,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
 
         if ($result === 'won') {
-            $this->validate($this->payeeRules());
+            $this->validate($this->payeeRules($l->isSelfInspection()));
             if (! $this->checkSalesFiles($l->salesAttachments()->count())) {
                 return;
             }
@@ -350,6 +419,27 @@ new #[Layout('components.layouts.app')] class extends Component {
             // 영업 화면엔 "처리 완료"만 뜬다(2026-08-10 67도4322 실측). 조용한 실패보다 여기서 막는 게 낫다.
             if (! $this->hasSyncableAmount($l)) {
                 $this->addError('car_cost', __('auction.err_amount_required'));
+
+                return;
+            }
+            // 셀프검차 필수 락 (2026-08-10 Jin) — 차값은 위 게이트가 잡고, 판매가는 여기서.
+            // 판매가가 비면 car-erp 가 판매 pre-fill 을 통째로 보류해(수신측 `sale_price>0 && rate>0`)
+            // ERP 판매탭이 빈 채로 생긴다 — 관리가 나중에 손으로 채워야 하고, 그때 board 값과 갈린다.
+            if ($l->isSelfInspection() && $l->sale_price === null) {
+                $this->addError('sale_price', __('auction.err_sale_price_required'));
+
+                return;
+            }
+            // 통화 미선택 락 — 안 막으면 KRW 로 떨어져 **USD 판매가가 원화로 박힌다**(8,590 USD → 8,590원, 실측).
+            // 조용히 1/환율 로 기록되므로 나중에 원장을 봐도 틀린 줄을 모른다.
+            if ($l->isSelfInspection() && ! $l->offer_currency) {
+                $this->addError('quoteCurrency', __('auction.err_currency_required'));
+
+                return;
+            }
+            // 원화가 아니면 환율도 필수 — 비우면 **오늘 환율**이 조용히 들어가 합의환율과 갈린다.
+            if ($l->isSelfInspection() && $l->offer_currency !== 'KRW' && ($this->offer_rate === null || $this->offer_rate === '')) {
+                $this->addError('offer_rate', __('auction.err_rate_required'));
 
                 return;
             }
@@ -478,30 +568,58 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <div class="section-title-sm">{{ __('auction.amount_section') }}</div>
                         <div class="grid grid-cols-2 gap-2">
                             <div>
-                                <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.car_cost') }} <span class="text-gray-400">({{ \App\Support\Money::SYMBOLS[$costCur] ?? '원' }})</span></label>
+                                {{-- 차값·매도비는 **항상 원화** — 견적통화 토글의 영향을 받지 않는다(2026-08-10 Jin). --}}
+                                <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.car_cost') }} <span class="text-gray-400">({{ $d->isSelfInspection() ? __('common.won_currency') : (\App\Support\Money::SYMBOLS[$costCur] ?? '원') }})</span></label>
                                 <input type="number" min="0" class="input-base" wire:model="car_cost" placeholder="{{ __('auction.car_cost_ph') }}">
                                 @error('car_cost') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
                             </div>
-                            <div>
-                                <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.discount_rate') }} (%)</label>
-                                <input type="number" min="0" max="100" step="0.1" class="input-base" wire:model="discount_rate" placeholder="0">
-                                @error('discount_rate') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
-                            </div>
-                            <div>
-                                <label class="mb-0.5 block text-xs text-gray-500">{{ __('forwarding.sale_discount_label') }} <span class="text-gray-400">({{ __('common.won_currency') }})</span></label>
-                                <input type="number" min="0" class="input-base" wire:model="sale_discount" placeholder="0">
-                                @error('sale_discount') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
-                            </div>
-                            <div>
-                                <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.shipping') }} (USD)</label>
-                                <select class="input-base" wire:model="shipping_usd">
-                                    <option value="">—</option>
-                                    @foreach (config('board.shipping_options') as $opt)
-                                        <option value="{{ $opt }}">${{ number_format($opt) }}</option>
-                                    @endforeach
-                                </select>
-                                @error('shipping_usd') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
-                            </div>
+
+                            {{-- 셀프검차매입 = 매도비·판매가·환율·운임비를 직접 적는다(견적 씬이 없어 파생계산의 근거가 없다).
+                                 그 외 출처 = 기존 견적 공식(할인율·차감액·배송 선택). --}}
+                            @if ($d->isSelfInspection())
+                                <div>
+                                    <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.selling_fee') }} <span class="text-gray-400">({{ __('common.won_currency') }})</span></label>
+                                    <input type="number" min="0" class="input-base" wire:model="selling_fee">
+                                    @error('selling_fee') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                                </div>
+                                {{-- 아래 셋은 견적통화 기준 — 라벨에 통화를 안 붙인다(단일 표시 = 견적통화 pill). --}}
+                                <div>
+                                    <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.sale_price') }}</label>
+                                    <input type="number" min="0" step="0.01" class="input-base" wire:model="sale_price">
+                                    @error('sale_price') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                                </div>
+                                <div>
+                                    <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.offer_rate') }}</label>
+                                    <input type="number" min="1" class="input-base" wire:model="offer_rate">
+                                    @error('offer_rate') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                                </div>
+                                <div>
+                                    <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.transport_fee') }}</label>
+                                    <input type="number" min="0" step="0.01" class="input-base" wire:model="transport_fee">
+                                    @error('transport_fee') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                                </div>
+                            @else
+                                <div>
+                                    <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.discount_rate') }} (%)</label>
+                                    <input type="number" min="0" max="100" step="0.1" class="input-base" wire:model="discount_rate" placeholder="0">
+                                    @error('discount_rate') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                                </div>
+                                <div>
+                                    <label class="mb-0.5 block text-xs text-gray-500">{{ __('forwarding.sale_discount_label') }} <span class="text-gray-400">({{ __('common.won_currency') }})</span></label>
+                                    <input type="number" min="0" class="input-base" wire:model="sale_discount" placeholder="0">
+                                    @error('sale_discount') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                                </div>
+                                <div>
+                                    <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.shipping') }} (USD)</label>
+                                    <select class="input-base" wire:model="shipping_usd">
+                                        <option value="">—</option>
+                                        @foreach (config('board.shipping_options') as $opt)
+                                            <option value="{{ $opt }}">${{ number_format($opt) }}</option>
+                                        @endforeach
+                                    </select>
+                                    @error('shipping_usd') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                                </div>
+                            @endif
                         </div>
                         <div class="mt-2 flex items-center gap-2">
                             <span class="text-xs text-gray-500">{{ __('auction.quote_currency') }}</span>
@@ -511,12 +629,30 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 </label>
                             @endforeach
                         </div>
+                        @error('quoteCurrency') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                        @if ($d->isSelfInspection())
+                            {{-- 라벨에서 통화를 뺐으니(단일 표시 원칙) 어느 통화 기준인지 여기서 한 번 못박는다.
+                                 미선택이면 경고 — KRW 로 흘러가면 USD 판매가가 원화로 박힌다. --}}
+                            @if ($quoteCurrency === '')
+                                <p class="mt-1 text-[11px] font-semibold text-red-600">{{ __('auction.self_currency_unset') }}</p>
+                            @else
+                                <p class="mt-1 text-[11px] text-gray-600">{{ __('auction.self_currency_hint', ['currency' => $quoteCurrency]) }}</p>
+                            @endif
+                            <p class="mt-0.5 text-[11px] text-gray-500">{{ __('auction.self_amount_hint', ['purchase' => number_format(max(0, (int) $car_cost - (int) $selling_fee))]) }}</p>
+                        @endif
                         <p class="mt-1 text-[11px] {{ $d->car_cost === null ? 'text-red-600' : 'text-gray-400' }}">{{ $d->car_cost === null ? __('auction.car_cost_missing') : __('auction.car_cost_hint') }}</p>
                     </div>
                 @endif
+                {{-- 셀프검차매입은 파생계산을 안 한다 → 적은 판매가를 그대로 보여준다(계산값 아님). --}}
                 <div class="mt-3 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
-                    <span class="font-semibold text-gray-700">{{ __('auction.final_price') }}</span>
-                    <span class="text-base font-bold text-[var(--color-primary-text)]">{{ $d->offerDisplay() ?? '—' }}</span>
+                    <span class="font-semibold text-gray-700">{{ $d->isSelfInspection() ? __('auction.sale_price') : __('auction.final_price') }}</span>
+                    <span class="text-base font-bold text-[var(--color-primary-text)]">
+                        @if ($d->isSelfInspection())
+                            {{ $d->sale_price !== null ? number_format((float) $d->sale_price, 0).' '.($d->offer_currency ?: 'KRW') : '—' }}
+                        @else
+                            {{ $d->offerDisplay() ?? '—' }}
+                        @endif
+                    </span>
                 </div>
 
                 @if ($d->inspection_memo || $d->inspection_note)
