@@ -291,6 +291,26 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 - **색 = 운항중 `badge-blue` / 도착예정 `badge-teal`** — car-erp 차량목록 구현 그대로. §12 스펙 *텍스트*는 "도착예정=초록"이라 썼지만 **구현은 teal** 이다. 초록(`badge-green`)은 진행상태 「거래완료」가 이미 쓰는데 두 뱃지가 **같은 칸에 나란히** 붙기 때문. 문서와 구현이 갈리면 구현이 권위(§14-3). 두 클래스 모두 board CSS 에 이미 있어 `npm run build` 불필요.
 - **선박별 묶기는 안 만들었다** — ERP `/inventory?search=` 가 **`vessel_name` 도 서버에서 검색**한다(실측 확인). 검색창에 선박명을 치면 같은 배에 실린 차가 나오므로 board 에 그룹핑 UI 를 따로 두지 않는다. `/sales` 엔 검색이 없어 거기선 미제공.
 
+### 14-5. 셀프검차매입 금액 — 출처별로 **다른 칸·다른 공식** (2026-08-10 Jin 확정)
+
+셀프검차매입은 `/inspection`(최종금액)·`/forwarding`(견적)을 둘 다 건너뛴다 → **파생계산의 근거(할인율·차감액)가 없다.**
+그래서 `/auction` 드로어의 금액칸이 **origin 으로 갈린다.**
+
+| 출처 | 칸 | 바이어 금액(=`final_price`) |
+|---|---|---|
+| 셀프검차매입 | 차값 · **매도비** · **판매가** · 통화 · **환율** · 운임비 | 판매가 × 환율 (**적은 값 그대로**) |
+| 그 외 | 차값 · 할인율 · 차감액 · 배송(선택) | `totalKrw()` 파생계산 |
+
+- ⚠️ **매도비는 셀프검차에서만 차값에서 뺀다.** 그 경로는 매도비가 **차값에 포함된 금액**이라 빼야 합계가 보존된다
+  (13,600,000 → 매입가 13,160,000 + 매도비 440,000). 안 빼면 **매도비가 두 번 잡혀** car-erp 부가세마진
+  (`매입가 × 0.09`)까지 부풀어 오른다. 다른 출처는 매도비가 **회사 부담 별도**라 빼면 매입가가 깎인다.
+  판정은 `PurchaseListing::purchasePriceKrw()` / `sellingFeeKrw()` **단일 출처** — Job 이 직접 계산하지 말 것.
+- **새 컬럼 2개** = `selling_fee`(매도비 금액, null=기존 `config('board.sales_fee')` 고정값) ·
+  `sale_price`(판매가, **원화 아님** — `offer_currency` 기준 raw). 둘 다 null 이면 **기존 동작 그대로**라 다른 출처 무영향.
+- ⚠️ **운임비는 새 컬럼을 안 만들었다** — 기존 `shipping_usd`(USD)를 그대로 쓰고 화면만 선택형→직접입력으로 바꿨다.
+  통화를 바꿔 저장하면 `shippingKrw()`(USD 환율 곱셈)가 조용히 틀어진다.
+- 환율은 셀프검차만 **직접입력**. 다른 출처는 통화를 바꿀 때만 재스냅한다(저장할 때마다 덮으면 EUR 딜 확정환율이 날아간다).
+
 ## 15. 사내 Notion 업무가이드 발행 + 허브 네비 표준 (Jin 지시 — "항상 이 상태로")
 > 사내 Notion "사내 업무 가이드" 갱신 = **MCP 아님**, 자체 스크립트 `scripts/notion-guide-publish.php`(Notion REST 직접). 토큰 = Windows **User env `NOTION_TOKEN`**. 세션이 토큰 등록 전에 켜졌으면 `getenv()` 못 잡음 → PowerShell 인라인 주입: `$env:NOTION_TOKEN=[Environment]::GetEnvironmentVariable('NOTION_TOKEN','User'); php scripts/notion-guide-publish.php --apply`. **발행=라이브 즉시반영** → apply 전 인자 없이 dry-run 으로 블록수 확인.
 

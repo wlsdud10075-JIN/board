@@ -33,6 +33,12 @@ return [
     // Car cost entry (2026-08-10) — the only place a self-inspected purchase can enter an amount.
     'amount_section' => 'Amounts (the buyer figure is derived here)',
     'quote_currency' => 'Quote currency',
+    // Self-inspected purchases (2026-08-10) — no quote scene, so nothing to derive these from.
+    'selling_fee' => 'Selling fee',
+    'sale_price' => 'Sale price',
+    'offer_rate' => 'Exchange rate',
+    'transport_fee' => 'Freight',
+    'self_amount_hint' => 'ERP purchase price = car cost − selling fee = :purchase KRW. The fee is already inside the car cost, so it is split out (the total is unchanged).',
     'car_cost_ph' => 'e.g. 12000000',
     'car_cost_hint' => 'Car cost, discount, deduction and shipping produce the final buyer figure below. Confirming the purchase is blocked while car cost is empty.',
     'car_cost_missing' => '⚠️ Car cost is empty — the ERP transfer needs it.',

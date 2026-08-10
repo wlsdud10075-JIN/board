@@ -24,7 +24,8 @@ class PurchaseListing extends Model
         'created_by_user_id', 'source', 'origin', 'region', 'c_no', 'ssancar_ref',
         'respond_conversation_id', 'respond_contact_id', 'encar_id',
         'vehicle_number', 'owner_name', 'vin',
-        'expected_price', 'expected_price_currency', 'car_cost', 'discount_rate', 'sale_discount_amount', 'shipping_usd',
+        'expected_price', 'expected_price_currency', 'car_cost', 'discount_rate', 'sale_discount_amount',
+        'selling_fee', 'sale_price', 'shipping_usd',
         'final_price', 'offer_currency', 'offer_rate', 'encar_url', 'encar_dealer',
         'auction_venue', 'lot_number', 'status', 'buyer_verdict', 'verdict_channel',
         'buyer_name', 'payee_name', 'payee_bank', 'payee_account',
@@ -40,6 +41,8 @@ class PurchaseListing extends Model
             'car_cost' => 'integer',
             'discount_rate' => 'decimal:2',
             'sale_discount_amount' => 'integer',
+            'selling_fee' => 'integer',
+            'sale_price' => 'decimal:2',
             'shipping_usd' => 'integer',
             'final_price' => 'integer',
             'offer_rate' => 'integer',
@@ -77,6 +80,37 @@ class PurchaseListing extends Model
      * 매도비 제외 = 회사 부담(엑셀·ERP Model A, 2026-07-06). 차감액=바이어 추가흥정(sell-side).
      * 입력 없으면 null.
      */
+    /**
+     * 매도비(KRW) — 입력값 우선, 없으면 기존 고정값(`config('board.sales_fee')`).
+     * 차값이 없으면 null(= 안 보냄) — 기존 Job 동작 유지.
+     */
+    public function sellingFeeKrw(?int $krwPerUsd = null, ?int $krwPerEur = null): ?int
+    {
+        if ($this->selling_fee !== null) {
+            return (int) $this->selling_fee;
+        }
+
+        return $this->carCostKrw($krwPerUsd, $krwPerEur) !== null ? (int) config('board.sales_fee') : null;
+    }
+
+    /**
+     * ERP 로 보낼 매입가(KRW) — **연동 B `purchase_price_krw` 단일 출처**.
+     *
+     * 셀프검차매입은 매도비가 **차값에 포함**된 금액이라 빼야 합계가 보존된다(2026-08-10 Jin 확정):
+     *   차값 13,600,000(매도비 포함) → 매입가 13,160,000 + 매도비 440,000 = 13,600,000.
+     * 빼지 않으면 매도비가 두 번 잡혀 car-erp 부가세마진(매입가 × 9%)까지 부풀어 오른다.
+     * 다른 출처는 매도비가 **회사 부담 별도**라 차값 그대로다 — 여기서 빼면 매입가가 깎인다.
+     */
+    public function purchasePriceKrw(?int $krwPerUsd = null, ?int $krwPerEur = null): ?int
+    {
+        $cost = $this->carCostKrw($krwPerUsd, $krwPerEur);
+        if ($cost === null || ! $this->isSelfInspection()) {
+            return $cost;
+        }
+
+        return max(0, $cost - (int) ($this->sellingFeeKrw($krwPerUsd, $krwPerEur) ?? 0));
+    }
+
     public function carPriceKrw(?int $krwPerUsd = null, ?int $krwPerEur = null): ?int
     {
         $cost = $this->carCostKrw($krwPerUsd, $krwPerEur);
