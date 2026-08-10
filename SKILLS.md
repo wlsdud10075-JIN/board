@@ -298,7 +298,7 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 
 | 출처 | 칸 | 바이어 금액(=`final_price`) |
 |---|---|---|
-| 셀프검차매입 | 차값 · **매도비** · **판매가** · 통화 · **환율** · 운임비 | 판매가 × 환율 (**적은 값 그대로**) |
+| 셀프검차매입 | 차값 · **매도비** (항상 KRW) + 판매가 · 환율 · 운임비 (**견적통화 기준**) | 판매가 × 환율 (**적은 값 그대로**) |
 | 그 외 | 차값 · 할인율 · 차감액 · 배송(선택) | `totalKrw()` 파생계산 |
 
 - ⚠️ **매도비는 셀프검차에서만 차값에서 뺀다.** 그 경로는 매도비가 **차값에 포함된 금액**이라 빼야 합계가 보존된다
@@ -307,9 +307,20 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
   판정은 `PurchaseListing::purchasePriceKrw()` / `sellingFeeKrw()` **단일 출처** — Job 이 직접 계산하지 말 것.
 - **새 컬럼 2개** = `selling_fee`(매도비 금액, null=기존 `config('board.sales_fee')` 고정값) ·
   `sale_price`(판매가, **원화 아님** — `offer_currency` 기준 raw). 둘 다 null 이면 **기존 동작 그대로**라 다른 출처 무영향.
-- ⚠️ **운임비는 새 컬럼을 안 만들었다** — 기존 `shipping_usd`(USD)를 그대로 쓰고 화면만 선택형→직접입력으로 바꿨다.
-  통화를 바꿔 저장하면 `shippingKrw()`(USD 환율 곱셈)가 조용히 틀어진다.
-- 환율은 셀프검차만 **직접입력**. 다른 출처는 통화를 바꿀 때만 재스냅한다(저장할 때마다 덮으면 EUR 딜 확정환율이 날아간다).
+- ⚠️ **운임비 컬럼이 둘이다** — 기존 경로 = `shipping_usd`(USD 정수·선택형), 셀프검차 = `transport_fee`(**판매통화** decimal).
+  하나로 합치면 안 된다: `shippingKrw()` 가 USD 환율을 곱하도록 되어 있어 거기에 EUR·KRW 금액이 들어가면
+  `totalKrw()` 가 조용히 틀어진다. 셀프검차 저장 시 `shipping_usd` 는 **null 로 비운다**(둘 다 있으면 어느 게 진짜인지 갈린다).
+  car-erp `transport_fee` 도 판매통화 기준이라 셀프검차 값은 **환산 없이 그대로** 나간다.
+- **통화 축이 둘이다** — 차값·매도비 = 항상 KRW / 판매가·환율·운임비 = 견적통화(KRW·USD·EUR pill).
+  라벨에 통화를 반복해 붙이지 않고 **pill 하나를 단일 표시**로 삼는다(2026-08-10 Jin) — 대신 어느 통화 기준인지
+  한 줄 안내(`self_currency_hint`)를 반드시 남길 것. 안 남기면 숫자만 보고 통화를 오해한다.
+- 통화를 바꾸면 **환율만 그 통화의 오늘값으로 자동 재채움**(`updatedQuoteCurrency`). 판매가·운임비는 **안 건드린다** —
+  임의 환산하면 영업이 적은 금액과 의도가 달라진다. 환율은 셀프검차만 직접입력(다른 출처는 통화 변경 시에만 재스냅).
+- ⚠️ **매도비 > 차값이면 저장 거부**(`lte:car_cost`). 통과시키면 매입가가 `max(0,…)` 으로 깎여 **0원짜리 차**가
+  ERP 원장에 생긴다(car-erp 검증도 `min:0` 이라 그냥 통과한다). 단 **차값이 비었을 땐 이 규칙을 걸지 않는다** —
+  진짜 원인(차값 누락)을 가리고 엉뚱한 칸을 고치게 만든다.
+- 매도비 기본값 = `config('board.sales_fee')`(440,000) 미리 채움. ⚠️ **차값에 비례하지 않는 상수**라 저가 차량에선
+  비중이 크다(160만원 차의 27.5%). 영업이 안 고치면 그대로 나간다 — 저가 매입이 늘면 기본값 재검토.
 
 ## 15. 사내 Notion 업무가이드 발행 + 허브 네비 표준 (Jin 지시 — "항상 이 상태로")
 > 사내 Notion "사내 업무 가이드" 갱신 = **MCP 아님**, 자체 스크립트 `scripts/notion-guide-publish.php`(Notion REST 직접). 토큰 = Windows **User env `NOTION_TOKEN`**. 세션이 토큰 등록 전에 켜졌으면 `getenv()` 못 잡음 → PowerShell 인라인 주입: `$env:NOTION_TOKEN=[Environment]::GetEnvironmentVariable('NOTION_TOKEN','User'); php scripts/notion-guide-publish.php --apply`. **발행=라이브 즉시반영** → apply 전 인자 없이 dry-run 으로 블록수 확인.

@@ -38,6 +38,7 @@ return [
     'sale_price' => '판매가',
     'offer_rate' => '환율',
     'transport_fee' => '운임비',
+    'self_currency_hint' => '판매가·환율·운임비는 아래에서 고른 :currency 기준입니다. 차값·매도비는 항상 원화입니다.',
     'self_amount_hint' => 'ERP 매입가 = 차값 − 매도비 = :purchase원. 매도비는 차값에 포함된 금액이라 빼서 보냅니다(합계는 그대로).',
     'car_cost_ph' => '예: 12000000',
     'car_cost_hint' => '차값·할인·차감액·배송으로 아래 현지 최종금액(바이어 금액)이 계산됩니다. 차값이 비면 구매확정이 막힙니다.',

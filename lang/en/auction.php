@@ -38,6 +38,7 @@ return [
     'sale_price' => 'Sale price',
     'offer_rate' => 'Exchange rate',
     'transport_fee' => 'Freight',
+    'self_currency_hint' => 'Sale price, rate and freight are in :currency (chosen below). Car cost and selling fee are always KRW.',
     'self_amount_hint' => 'ERP purchase price = car cost − selling fee = :purchase KRW. The fee is already inside the car cost, so it is split out (the total is unchanged).',
     'car_cost_ph' => 'e.g. 12000000',
     'car_cost_hint' => 'Car cost, discount, deduction and shipping produce the final buyer figure below. Confirming the purchase is blocked while car cost is empty.',

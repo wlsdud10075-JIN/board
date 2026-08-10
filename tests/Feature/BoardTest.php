@@ -621,7 +621,7 @@ class BoardTest extends TestCase
             ->set('quoteCurrency', 'USD')
             ->set('sale_price', '8590')
             ->set('offer_rate', '1400')
-            ->set('shipping_usd', '1350')      // 선택지 밖 값도 허용(직접입력)
+            ->set('transport_fee', '1350')      // 판매통화(USD) 기준 · 선택지 밖 값도 허용(직접입력)
             ->call('conclude', $l->id, 'won')->assertHasNoErrors();
 
         $f = $l->fresh();
@@ -629,7 +629,9 @@ class BoardTest extends TestCase
         $this->assertSame(8590.0, (float) $f->sale_price);
         $this->assertSame('USD', $f->offer_currency);
         $this->assertSame(1400, (int) $f->offer_rate);
-        $this->assertSame(1350, (int) $f->shipping_usd);
+        $this->assertSame(1350.0, (float) $f->transport_fee);
+        // ⚠️ USD 선택형(shipping_usd)과 같이 들고 있으면 어느 게 진짜인지 갈린다 — 셀프검차는 안 쓴다
+        $this->assertNull($f->shipping_usd);
         $this->assertSame(8590 * 1400, (int) $f->final_price);   // 판매가 × 환율
         // 할인·차감액은 셀프검차에 없는 개념 — 건드리지 않는다
         $this->assertNull($f->sale_discount_amount);
@@ -660,6 +662,83 @@ class BoardTest extends TestCase
                 && (float) ($b['sale_price'] ?? 0) === 8590.0
                 && ($b['sale_currency'] ?? null) === 'USD'
                 && ($b['sale_exchange_rate'] ?? null) === 1400;
+        });
+    }
+
+    /** 매도비 > 차값 = 오타. 통과시키면 매입가가 0 으로 깎여 **0원짜리 차**가 ERP 원장에 생긴다(ERP 검증도 min:0). */
+    public function test_selling_fee_cannot_exceed_car_cost(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('car_cost', '400000')
+            ->set('selling_fee', '440000')
+            ->call('conclude', $l->id, 'won')
+            ->assertHasErrors('selling_fee');
+
+        $this->assertSame('accepted', $l->fresh()->status);
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+    }
+
+    /** 차값이 비었을 땐 매도비 규칙을 걸지 않는다 — 진짜 원인(차값 누락)을 가리면 엉뚱한 칸을 고치게 된다. */
+    public function test_missing_car_cost_reports_car_cost_not_selling_fee(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'car_cost' => null, 'final_price' => null,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)   // 매도비는 440,000 이 미리 채워져 있다
+            ->call('conclude', $l->id, 'won')
+            ->assertHasErrors('car_cost')
+            ->assertHasNoErrors('selling_fee');
+    }
+
+    /** 견적통화를 바꾸면 환율이 그 통화 값으로 따라와야 한다 — 안 그러면 이전 통화 환율로 최종금액이 계산된다. */
+    public function test_changing_quote_currency_refills_rate(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        $c = Volt::test('auction.index')->call('openDetail', $l->id)
+            ->assertSet('offer_rate', '1')          // KRW = 1
+            ->set('quoteCurrency', 'USD');
+
+        $this->assertSame((string) config('board.default_krw_per_usd'), $c->get('offer_rate'));
+    }
+
+    /** 운임비는 **판매통화 그대로** ERP 로 간다 — USD 로 환산하면 EUR 딜에서 부풀어 오른다. */
+    public function test_self_inspection_transport_fee_goes_raw_in_sale_currency(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 's']);
+        Http::fake(['*' => Http::response(['vehicle_id' => 901], 201)]);
+
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'won', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection', 'source' => 'encar',
+            'car_cost' => 10000000, 'expected_price_currency' => 'KRW', 'selling_fee' => 440000,
+            'sale_price' => 7000, 'offer_currency' => 'EUR', 'offer_rate' => 1500,
+            'transport_fee' => 900, 'final_price' => 7000 * 1500,
+        ]);
+
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        Http::assertSent(function ($req) {
+            if (! str_contains($req->url(), 'purchase-sync')) {
+                return false;
+            }
+            $b = json_decode($req->body(), true);
+
+            return (float) ($b['transport_fee'] ?? 0) === 900.0 && ($b['sale_currency'] ?? null) === 'EUR';
         });
     }
 

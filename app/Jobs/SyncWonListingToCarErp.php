@@ -85,9 +85,10 @@ class SyncWonListingToCarErp implements ShouldQueue
             : (($carPriceKrw !== null && $saleRate)
                 ? ($saleCurrency === 'KRW' ? $carPriceKrw : round($carPriceKrw / max(1, $saleRate), 2))
                 : null);
-        // 운임비 = shipping_usd(USD원가)를 판매통화로 환산 — car-erp 가 판매가와 직접 합산(같은 통화 가정).
-        $transportFee = null;
-        if ($l->shipping_usd !== null && $saleRate) {
+        // 운임비 — 셀프검차매입은 판매통화로 직접 적으므로 환산 없이 그대로. 그 외는 shipping_usd(USD원가)를 환산.
+        // car-erp `transport_fee` 는 **판매통화 기준**이라 USD raw 를 그냥 넣으면 EUR 딜에서 부풀어 오른다.
+        $transportFee = $l->transport_fee !== null ? (float) $l->transport_fee : null;
+        if ($transportFee === null && $l->shipping_usd !== null && $saleRate) {
             $transportKrw = $l->shipping_usd * $usdR;
             $transportFee = $saleCurrency === 'KRW' ? $transportKrw : round($transportKrw / max(1, $saleRate), 2);
         }
