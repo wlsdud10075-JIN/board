@@ -382,6 +382,31 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
   **전부 ERP 안에서 ERP 화면 게이트를 탄다** — board 가 우회시킬 수 있는 게 아니다. board 가 미러할 락은
   **등록 시점 하나**(미수·무담보)뿐이고, 그게 이 절의 전부다. 🚫 ERP 내부 단계의 락을 board 로 끌고 오지 말 것.
 
+### 14-8. 선적 계획 — 후보 확대 + 포워딩사 + 컨테이너 운임비 (2026-08-12, car-erp master `94a59c3`)
+
+**미완납 차도 미리 묶어두는 화면**이 됐다. 목적 = 돈 들어오기 전에 **서류를 미리 준비**(진행은 입금 후).
+후보 조건 = `sale_price>0` + export + **반입지·B/L 없음** + open 묶음 아님(구 조건 = `판매완료` = 완납).
+
+- ⚠️ **출고일(`warehouse_out_date`)이 찍힌 차도 후보에 온다** — 출고일과 반입지는 **독립된 축**이라 한쪽만
+  찍힌 차가 흔하다(heymanerp 실측: 구 후보 29대 대다수). "출고 전만 온다" 전제로 화면을 짜면 어긋난다.
+  ERP 가 출고일로 거르면 넓히랬는데 **좁아지는** 배포가 됐을 상황이었다.
+- 🚨 **`unpaid_krw = null` 은 완납이 아니다** — 환율 미입력이라 **판정 불가**라는 뜻이고 ERP 도 그때
+  `fully_paid=false` 를 준다. **0 으로 바꿔 그리면 가짜 완납**(cash_audit 계열 사고). 칩 = 「환율 미입력」 별도 표시.
+  가드 = `test_portal_plan_marks_unpaid_and_never_fakes_paid_without_fx`.
+- **운임비는 CONTAINER 에서만**(Jin). RORO 로 보내면 ERP 가 **조용히 버린다(에러 아님)** → board 가 먼저 뺀다.
+  방식을 되돌려도 값은 `desired` 에 남긴다(다시 CONTAINER 로 바꾸면 살아나게).
+- **1/N 은 합계가 안 맞을 수 있다** — 몫 = 총액 ÷ 대수(내림), 나머지는 최소 `vehicle_id` 한 대. **이미 값이 있는
+  차는 건너뛴다**(관리가 ERP 에서 고친 값 보호). 🚫 화면에서 **"총액이 그대로 기록된다"고 안내하지 말 것**.
+- **포워딩사는 board 가 고르기만** 한다(신규 생성 없음 — 오타·중복이 지급 명부를 오염시키는 경로를 안 만든다).
+  ⚠️ **`vehicles.forwarding_company_id` = ERP 원장**이고 `forwarding_missing` **액션 큐 조건**이라,
+  board 가 채우면 **관리자 할 일에서 그 차가 사라진다**(Jin 승인). ERP 는 **값이 실제로 바뀔 때만** 반영하므로
+  **"보냈는데 차량 값 그대로"가 정상**이다(관리 수정본을 board 재전송이 안 되돌린다).
+- 명부 조회 실패 = **드롭다운 통째로 숨김**. 빈 목록으로 두면 "포워딩사가 하나도 없다"로 읽힌다.
+- ⚠️ `syncBundles` 는 끝에서 `load()` 로 **ERP 응답으로 다시 그린다** → 편집값은 `GET /bundles` 가
+  돌려주는 것만 살아남는다. 그래서 `forwarding_company`·`transport_fee_usd_total` 복원이 회귀 포인트
+  (`test_portal_plan_restores_forwarder_and_freight_from_bundles`). 안 살면 다음 sync 가 **빈 값으로 덮는다**.
+- **surrender 미수 가드는 안 만든다**(Jin 2026-08-11) — 선적 계획은 계획일 뿐이고 B/L 요청은 별도 행위다.
+
 ## 15. 사내 Notion 업무가이드 발행 + 허브 네비 표준 (Jin 지시 — "항상 이 상태로")
 > 사내 Notion "사내 업무 가이드" 갱신 = **MCP 아님**, 자체 스크립트 `scripts/notion-guide-publish.php`(Notion REST 직접). 토큰 = Windows **User env `NOTION_TOKEN`**. 세션이 토큰 등록 전에 켜졌으면 `getenv()` 못 잡음 → PowerShell 인라인 주입: `$env:NOTION_TOKEN=[Environment]::GetEnvironmentVariable('NOTION_TOKEN','User'); php scripts/notion-guide-publish.php --apply`. **발행=라이브 즉시반영** → apply 전 인자 없이 dry-run 으로 블록수 확인.
 
