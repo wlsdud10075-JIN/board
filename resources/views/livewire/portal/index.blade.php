@@ -704,6 +704,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                     'batch' => (string) data_get($batch, 'status'),
                     'done' => $done,
                     'total' => count($lines),
+                    // 보낸 금액 — 전송 후 입력칸은 비므로 여기 말고는 "얼마 요청했지?" 를 볼 곳이 없다.
+                    // ERP 가 안 주면 null → 칩에 안 그린다(있는 척 금지). 라인·묶음 어느 쪽에 실려도 받는다.
+                    'amount' => data_get($line, 'amount_krw') ?? data_get($batch, 'amount_krw'),
                 ];
             }
         }
@@ -1809,8 +1812,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <span>{{ $dateLabel }} <b class="text-gray-700">{{ data_get($row, $dateKey) ?: '—' }}</b></span>
                             @if (data_get($row, 'buyer'))<span>{{ __('portal.col_buyer') }} <b class="text-gray-700">{{ data_get($row, 'buyer') }}</b></span>@endif
                         </div>
-                        <div class="mt-1 flex items-end justify-between gap-2">
-                            <div class="text-xs text-gray-600">
+                        <div class="mt-1 flex flex-wrap items-end justify-between gap-2">
+                            <div class="min-w-0 text-xs text-gray-600">
                                 {{ __('portal.col_purchase_unpaid') }}
                                 <b class="{{ is_numeric($unpaid) && (float) $unpaid > 0 ? 'text-red-600' : 'text-gray-800' }}">{{ is_numeric($unpaid) ? number_format((float) $unpaid) : '—' }}</b>
                             </div>

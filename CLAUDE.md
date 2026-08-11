@@ -181,6 +181,12 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
 
 ## ⏭️ 남은 작업 (미완)
 
+- 🚨 **입금요청 분리(계약금/매입잔금) + 금액 — dev 커밋 완료, master 머지 금지**(2026-08-11, dev `383d536`).
+  - **ERP 가 먼저 배포되어야 동작한다.** board 만 올라가면 새 `type` 을 ERP 가 모르니 **[계약금]/[잔금] 버튼이 전부 422** 로 죽고, **구 [입금요청] 버튼은 이미 없어서 대체 경로도 없다.**
+  - ⚠️ **알림톡 승인이 나서 master 머지할 때 이 커밋이 딸려간다** — 알림톡 배포 전에 `dev`↔`master` 차이를 반드시 확인할 것. 필요하면 알림톡 커밋만 cherry-pick.
+  - 인계 = `meetings/handoff-carerp-payment-request-split.md` (**Jin 이 car-erp 세션에 전달해야 함**). ERP 할 일 = type 2개(`purchase_deposit`/`purchase_balance`)·표시전용 `amount_krw`·`GET /requests` 응답에 금액·알림톡 발송+시간대 라우팅.
+  - 규칙·함정 = `SKILLS.md §14-2`.
+
 - **알림톡 2종**(지역검차·전달대기, Bizm): 코드 **운영 배포 완료**(master `77738a3`, 2026-07-13, 두 박스). 현재 enabled off 라 실발송 0 — 켜는 순간 가동.
   - **2026-07-27 BizM 1차 반려**("수신 대상 불명확") → **개정 문구 dev 반영 완료**(`AlimtalkTemplates.php` + `docs/operations/alimtalk-templates-draft.md`). 개정점 = `[사내 업무용]` 접두 · "회원님"→"담당자님" · `ssancar.com`/`board`→"사내 업무 시스템(board)". 템플릿코드·명·프로필·카테고리·변수는 불변(재검수라 기존과 매칭돼야 함).
   - 남음 = ① **Jin**: BizM 재검수 요청(+검수팀 회신문) → ② **승인 나면 master 머지·배포**(Jin 지시 2026-07-27 — 승인이 배포 트리거) → ③ tmplId 2개 입력 + enabled on + 스케줄시각.

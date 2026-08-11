@@ -31,12 +31,13 @@
     </div>
 
     @if ($vid)
-        <div class="flex items-center justify-end gap-1">
+        {{-- 좁은 화면(≈360px)에서 input+버튼 2개가 한 줄에 안 들어간다 — 넘치는 대신 접히게 둔다. --}}
+        <div class="flex flex-wrap items-center justify-end gap-1">
             <input type="text" inputmode="numeric" autocomplete="off"
                 wire:model="reqAmount.{{ (int) $vid }}"
                 wire:key="reqamt-{{ (int) $vid }}"
                 placeholder="{{ __('portal.req_amount_ph') }}"
-                class="input-base w-28 shrink-0 text-right text-[12px]">
+                class="input-base w-24 shrink-0 text-right text-[12px]">
             @foreach ($reqBtns as $reqType => $reqLabel)
                 <button type="button" wire:click="sendPurchaseRequest('{{ $reqType }}', {{ (int) $vid }})"
                     wire:loading.attr="disabled" wire:target="sendPurchaseRequest"
