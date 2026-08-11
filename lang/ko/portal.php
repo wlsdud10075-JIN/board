@@ -175,6 +175,7 @@ return [
     'plan_no_buyers' => '선적 계획할 차가 없습니다. (판매완료·수출 차량)',
     'plan_pool_title' => '새로 묶을 차',
     'forwarder_select' => '포워딩사',
+    'plan_no_buyer_cars' => '바이어가 지정되지 않은 차 :count대는 여기 표시되지 않습니다 — 묶음은 바이어별이라 car-erp에서 바이어를 먼저 지정해야 합니다.',
     'plan_freight_ph' => '운임비 $',
     'plan_freight_note' => 'USD·대당 분배',
     'plan_unpaid' => '미수',

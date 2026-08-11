@@ -1341,7 +1341,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                         $assignedAll = collect($desired)->flatMap(fn ($b) => $b['vehicle_ids'])->map(fn ($i) => (int) $i)->all();
                         $poolByBuyer = collect($shippablePool)->reject(fn ($v) => in_array((int) data_get($v, 'vehicle_id'), $assignedAll, true))->groupBy(fn ($v) => (int) data_get($v, 'buyer.id'));
                         $bundlesByBuyer = collect($desired)->groupBy(fn ($b) => (int) ($b['buyer_id'] ?? 0));
+                        // 바이어 없는 후보는 묶을 그릇이 없어 화면에서 통째로 빠진다(묶음=바이어별).
+                        // 후보가 미완납까지 넓어지면서 생길 수 있는 경우라, 조용히 사라지게 두지 않고 대수를 밝힌다.
+                        $noBuyerCount = collect($shippablePool)->filter(fn ($v) => ! (int) data_get($v, 'buyer.id'))->count();
                     @endphp
+                    @if ($noBuyerCount > 0)
+                        <p class="mb-2 text-[12px] text-amber-700">⚠️ {{ __('portal.plan_no_buyer_cars', ['count' => $noBuyerCount]) }}</p>
+                    @endif
 
                     {{-- 동기화 = 상단 고정바(스크롤해도 위에 붙어 항상 보임) --}}
                     <div class="sticky top-0 z-10 mb-3 rounded-lg border border-gray-200 bg-white px-3 py-2.5 shadow-md">

@@ -174,6 +174,7 @@ return [
     'plan_no_buyers' => 'No vehicles to plan. (sold, export)',
     'plan_pool_title' => 'Vehicles to bundle',
     'forwarder_select' => 'Forwarder',
+    'plan_no_buyer_cars' => ':count vehicle(s) without an assigned buyer are not shown here — bundles are per buyer, so assign the buyer in car-erp first.',
     'plan_freight_ph' => 'Freight $',
     'plan_freight_note' => 'USD · split per vehicle',
     'plan_unpaid' => 'Unpaid',

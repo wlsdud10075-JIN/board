@@ -4992,6 +4992,27 @@ class BoardTest extends TestCase
             ->assertSee('33다3333');                        // 완납 차는 칩 없이 조용히
     }
 
+    /**
+     * 바이어 없는 후보는 **묶을 그릇이 없어** 화면에서 통째로 빠진다(묶음=바이어별).
+     * 후보가 미완납까지 넓어지면서 생길 수 있는 경우라, 조용히 사라지면 "왜 안 뜨지"가 된다.
+     */
+    public function test_portal_plan_tells_about_vehicles_without_buyer(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 2, 'data' => [
+                ['vehicle_id' => 10, 'vehicle_number' => '11가1111', 'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignees' => []],
+                ['vehicle_id' => 11, 'vehicle_number' => '99무9999', 'buyer' => null, 'consignees' => []],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'shipping')->call('setShipSubtab', 'plan')
+            ->assertSee(__('portal.plan_no_buyer_cars', ['count' => 1]));
+    }
+
     // ─────────────────────── 내 설정 / 기능설정 ───────────────────────
 
     public function test_personal_settings_pages_load(): void
