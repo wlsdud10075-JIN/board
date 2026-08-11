@@ -145,6 +145,14 @@ class CarErpReadService
         return $this->get('/settlements', ['salesman_email' => $email]);
     }
 
+    /**
+     * GET /shippable — 새로 묶을 차 후보. 2026-08-12 확대: **미완납 차도 온다**(`sale_price>0` + 반입지·B/L 없음).
+     *
+     * ⚠️ **출고일(`warehouse_out_date`)이 찍힌 차도 후보에 있다** — 출고일과 반입지는 독립된 축이라
+     *    한쪽만 찍힌 차가 흔하다(heymanerp 실측). "출고 전만 온다" 전제로 화면을 짜면 어긋난다.
+     * ⚠️ 행의 `unpaid_krw` 는 **null 이 올 수 있다** = 환율 미입력이라 완납 판정 불가.
+     *    **0 으로 바꿔 그리지 말 것**(가짜 완납). 그 경우 `fully_paid` 도 false 다.
+     */
     public function shippable(string $email): array
     {
         return $this->get('/shippable', ['salesman_email' => $email]);
@@ -215,11 +223,28 @@ class CarErpReadService
     }
 
     /**
+     * GET /forwarding-companies — 포워딩사 명부(활성만, `{id,name}`). **스코프 없음 = HMAC 만**.
+     * 담당자·연락처는 안 온다. 실패하면 board 는 드롭다운을 통째로 숨긴다(degrade — 있는 척 금지).
+     */
+    public function forwardingCompanies(): array
+    {
+        return $this->get('/forwarding-companies', []);
+    }
+
+    /**
      * POST /shipping-requests/sync — 선언형 재동기화. body = 영업의 "지금 원하는 묶음 전체(desired)".
      * ⚠️ 반드시 전체 묶음 전송 — 일부만 보내면 빠진 requested 차가 자동취소됨(§5-2).
      * 응답 {created,updated,cancelled,skipped,locked}.
      *
-     * @param  list<array{buyer_id:int,consignee_id:?int,shipping_method:string,bl_type:?string,vehicle_ids:list<int>}>  $bundles
+     * 2026-08-12 추가:
+     *  - `forwarding_company_id` — 활성 명부에 없으면 **422**(부분 적용 없음). 드롭다운 값이라도 서버가 재검증한다.
+     *    ERP 는 **값이 실제로 바뀌었을 때만** 차량에 반영한다 → "보냈는데 차량 값 그대로"가 **정상**이다
+     *    (관리가 ERP 에서 고친 걸 board 재전송이 되돌리지 않는다).
+     *  - `transport_fee_usd_total` — **CONTAINER 에서만** 받는다. RORO 로 보내면 서버가 조용히 버린다(에러 아님).
+     *    ERP 가 1/N 로 쪼개 `vehicles.transport_fee_usd` 에 넣되 **이미 값이 있는 차는 건너뛴다**
+     *    ⇒ 합계가 총액과 안 맞을 수 있다(의도된 결과). 🚫 화면에서 "총액이 그대로 기록된다"고 안내하지 말 것.
+     *
+     * @param  list<array{buyer_id:int,consignee_id:?int,shipping_method:string,bl_type:?string,vehicle_ids:list<int>,forwarding_company_id?:?int,transport_fee_usd_total?:?int}>  $bundles
      */
     public function syncShippingRequests(string $email, array $bundles): array
     {

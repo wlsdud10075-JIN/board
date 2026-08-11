@@ -378,6 +378,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                 'consignees' => (array) data_get($b, 'consignees', []),
                 'shipping_method' => $b['shipping_method'] ?? 'RORO',
                 'bl_type' => $b['bl_type'] ?? null,
+                // 포워딩사·운임비도 buyer 와 같은 객체/스칼라로 되돌아온다(2026-08-12) — 다시 열었을 때 값이 살아야 한다.
+                'forwarding_company_id' => data_get($b, 'forwarding_company.id'),
+                'transport_fee_usd_total' => data_get($b, 'transport_fee_usd_total'),
                 'vehicle_ids' => collect(data_get($b, 'vehicles', []))->pluck('vehicle_id')->map(fn ($i) => (int) $i)->values()->all(),
             ])->values()->all();
 
@@ -398,6 +401,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                 'consignees' => (array) data_get($first, 'consignees', []),
                 'shipping_method' => 'RORO',
                 'bl_type' => null,
+                'forwarding_company_id' => null,
+                'transport_fee_usd_total' => null,
                 'vehicle_ids' => [],
             ];
             $seeded[] = $bid;
@@ -483,6 +488,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             'consignees' => $consignees,
             'shipping_method' => 'RORO',
             'bl_type' => null,
+            'forwarding_company_id' => null,
+            'transport_fee_usd_total' => null,
             'vehicle_ids' => [],
         ];
     }
@@ -494,8 +501,13 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function setBundleField(string $key, string $field, $value): void
     {
-        if (! in_array($field, ['consignee_id', 'shipping_method', 'bl_type'], true)) {
+        if (! in_array($field, ['consignee_id', 'shipping_method', 'bl_type', 'forwarding_company_id', 'transport_fee_usd_total'], true)) {
             return;
+        }
+        // 운임비는 화면 입력(콤마 허용)이라 숫자만 남긴다. 0·빈값 = 미입력(null).
+        if ($field === 'transport_fee_usd_total') {
+            $digits = preg_replace('/[^0-9]/', '', (string) $value);
+            $value = ($digits !== '' && (int) $digits > 0) ? (int) $digits : null;
         }
         foreach ($this->desired as $i => $bd) {
             if ($bd['key'] === $key) {
@@ -504,6 +516,21 @@ new #[Layout('components.layouts.app')] class extends Component {
                 return;
             }
         }
+    }
+
+    /**
+     * 포워딩사 명부(활성) — 선적 탭에서만 필요. 실패하면 빈 배열 → 드롭다운을 **통째로 숨긴다**.
+     * 못 고르는 걸 빈 목록으로 보여주면 "포워딩사가 하나도 없다"로 읽힌다.
+     */
+    #[Computed]
+    public function forwardingCompanies(): array
+    {
+        if (! $this->svc()->configured()) {
+            return [];
+        }
+        $env = $this->svc()->forwardingCompanies();
+
+        return ($env['ok'] ?? false) ? (array) data_get($env['data'], 'data', []) : [];
     }
 
     /**
@@ -537,13 +564,22 @@ new #[Layout('components.layouts.app')] class extends Component {
         // 차 1대 이상 + 바이어 지정된 묶음만 전송(빈 묶음·바이어 미정 제외).
         $payload = collect($this->desired)
             ->filter(fn ($b) => ! empty($b['buyer_id']) && ! empty($b['vehicle_ids']))
-            ->map(fn ($b) => [
-                'buyer_id' => (int) $b['buyer_id'],
-                'consignee_id' => $b['consignee_id'] ? (int) $b['consignee_id'] : null,
-                'shipping_method' => in_array($b['shipping_method'] ?? '', ['RORO', 'CONTAINER'], true) ? $b['shipping_method'] : 'RORO',
-                'bl_type' => in_array($b['bl_type'] ?? '', ['original', 'surrender'], true) ? $b['bl_type'] : null,
-                'vehicle_ids' => array_values(array_map('intval', $b['vehicle_ids'])),
-            ])->values()->all();
+            ->map(function ($b) {
+                $method = in_array($b['shipping_method'] ?? '', ['RORO', 'CONTAINER'], true) ? $b['shipping_method'] : 'RORO';
+                $fee = $b['transport_fee_usd_total'] ?? null;
+
+                return [
+                    'buyer_id' => (int) $b['buyer_id'],
+                    'consignee_id' => $b['consignee_id'] ? (int) $b['consignee_id'] : null,
+                    'shipping_method' => $method,
+                    'bl_type' => in_array($b['bl_type'] ?? '', ['original', 'surrender'], true) ? $b['bl_type'] : null,
+                    'forwarding_company_id' => $b['forwarding_company_id'] ? (int) $b['forwarding_company_id'] : null,
+                    // 운임비는 **CONTAINER 에서만** 유효하다. RORO 로 보내면 ERP 가 조용히 버리므로,
+                    // 방식을 되돌렸다가 다시 바꾸는 경우를 위해 값은 desired 에 남겨두되 전송에서만 뺀다.
+                    'transport_fee_usd_total' => ($method === 'CONTAINER' && $fee) ? (int) $fee : null,
+                    'vehicle_ids' => array_values(array_map('intval', $b['vehicle_ids'])),
+                ];
+            })->values()->all();
 
         $res = $this->svc()->syncShippingRequests($this->salesmanEmail(), $payload);
         if (! ($res['ok'] ?? false)) {
@@ -1289,6 +1325,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @else
                     <p class="mb-3 text-[13px] text-gray-500">{!! __('portal.plan_intro') !!}</p>
                     @php
+                        // 포워딩사 명부 — 렌더당 1회. 조회 실패면 빈 배열 → 드롭다운 숨김(degrade).
+                        $fwdCompanies = $this->forwardingCompanies;
                         // 차번호 맵 (shippable + 기존 묶음 차)
                         // 차번호 + 보조정보(차대번호·브랜드) — 행 자체를 담아둔다(번호만 담으면 partial 이 못 그린다).
                         $vnoMap = [];
@@ -1303,7 +1341,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                         $assignedAll = collect($desired)->flatMap(fn ($b) => $b['vehicle_ids'])->map(fn ($i) => (int) $i)->all();
                         $poolByBuyer = collect($shippablePool)->reject(fn ($v) => in_array((int) data_get($v, 'vehicle_id'), $assignedAll, true))->groupBy(fn ($v) => (int) data_get($v, 'buyer.id'));
                         $bundlesByBuyer = collect($desired)->groupBy(fn ($b) => (int) ($b['buyer_id'] ?? 0));
+                        // 바이어 없는 후보는 묶을 그릇이 없어 화면에서 통째로 빠진다(묶음=바이어별).
+                        // 후보가 미완납까지 넓어지면서 생길 수 있는 경우라, 조용히 사라지게 두지 않고 대수를 밝힌다.
+                        $noBuyerCount = collect($shippablePool)->filter(fn ($v) => ! (int) data_get($v, 'buyer.id'))->count();
                     @endphp
+                    @if ($noBuyerCount > 0)
+                        <p class="mb-2 text-[12px] text-amber-700">⚠️ {{ __('portal.plan_no_buyer_cars', ['count' => $noBuyerCount]) }}</p>
+                    @endif
 
                     {{-- 동기화 = 상단 고정바(스크롤해도 위에 붙어 항상 보임) --}}
                     <div class="sticky top-0 z-10 mb-3 rounded-lg border border-gray-200 bg-white px-3 py-2.5 shadow-md">
@@ -1344,19 +1388,32 @@ new #[Layout('components.layouts.app')] class extends Component {
                                                     <input type="checkbox" @checked($on) class="pointer-events-none">
                                                     {{ $vnoMap[$vid] ?? '#'.$vid }}
                                                     @isset($vrowMap[$vid])@include('livewire.portal._vehicle-meta', ['row' => $vrowMap[$vid], 'metaWrap' => 'span'])@endisset
+                                                    @isset($vrowMap[$vid])@include('livewire.portal._unpaid-chip', ['row' => $vrowMap[$vid]])@endisset
                                                 </label>
                                             @empty
                                                 <span class="text-[11px] text-gray-400">{{ __('portal.plan_no_cars') }}</span>
                                             @endforelse
                                         </div>
-                                        {{-- 컨사이니 · 방식 · B/L유형 --}}
-                                        <div class="mt-2 flex flex-wrap items-center gap-2">
-                                            <select wire:change="setBundleField('{{ $bd['key'] }}','consignee_id', $event.target.value)" class="input-base w-auto text-[12px]">
+                                        {{-- 컨사이니 · 포워딩사 (작게 나란히, Jin 2026-08-11) --}}
+                                        <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                                            <select wire:change="setBundleField('{{ $bd['key'] }}','consignee_id', $event.target.value)" class="input-base w-auto max-w-[9rem] py-0.5 text-[11px]">
                                                 <option value="">{{ __('portal.consignee_select') }}</option>
                                                 @foreach ((array) $bd['consignees'] as $c)
                                                     <option value="{{ data_get($c, 'id') }}" @selected((int) ($bd['consignee_id'] ?? 0) === (int) data_get($c, 'id'))>{{ data_get($c, 'name') }}</option>
                                                 @endforeach
                                             </select>
+                                            {{-- 명부 조회 실패면 드롭다운 자체를 숨긴다 — 빈 목록은 "포워딩사가 없다"로 읽힌다. --}}
+                                            @if ($fwdCompanies !== [])
+                                                <select wire:change="setBundleField('{{ $bd['key'] }}','forwarding_company_id', $event.target.value)" class="input-base w-auto max-w-[9rem] py-0.5 text-[11px]">
+                                                    <option value="">{{ __('portal.forwarder_select') }}</option>
+                                                    @foreach ($fwdCompanies as $fc)
+                                                        <option value="{{ data_get($fc, 'id') }}" @selected((int) ($bd['forwarding_company_id'] ?? 0) === (int) data_get($fc, 'id'))>{{ data_get($fc, 'name') }}</option>
+                                                    @endforeach
+                                                </select>
+                                            @endif
+                                        </div>
+                                        {{-- 방식 · B/L유형 · (컨테이너 한정) 운임비 --}}
+                                        <div class="mt-1.5 flex flex-wrap items-center gap-2">
                                             <div class="inline-flex overflow-hidden rounded-md border border-gray-300">
                                                 @foreach (['RORO', 'CONTAINER'] as $m)
                                                     <button type="button" wire:click="setBundleField('{{ $bd['key'] }}','shipping_method','{{ $m }}')"
@@ -1369,6 +1426,18 @@ new #[Layout('components.layouts.app')] class extends Component {
                                                         class="px-2.5 py-1 text-[12px] font-semibold {{ ($blType ?? '') === $bt ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600' }}">{{ $btLabel }}</button>
                                                 @endforeach
                                             </div>
+                                            {{-- 운임비는 컨테이너에서만 총액으로 쓴다(Jin). RORO 로 보내면 ERP 가 조용히 버린다. --}}
+                                            @if ($method === 'CONTAINER')
+                                                <span class="inline-flex items-center gap-1">
+                                                    <input type="text" inputmode="numeric" autocomplete="off"
+                                                        wire:key="fee-{{ $bd['key'] }}"
+                                                        wire:change="setBundleField('{{ $bd['key'] }}','transport_fee_usd_total', $event.target.value)"
+                                                        value="{{ $bd['transport_fee_usd_total'] ?? '' }}"
+                                                        placeholder="{{ __('portal.plan_freight_ph') }}"
+                                                        class="input-base w-24 py-0.5 text-right text-[11px]">
+                                                    <span class="text-[10px] text-gray-400">{{ __('portal.plan_freight_note') }}</span>
+                                                </span>
+                                            @endif
                                         </div>
                                     </div>
                                 @endforeach

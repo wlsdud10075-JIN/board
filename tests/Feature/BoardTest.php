@@ -4866,6 +4866,153 @@ class BoardTest extends TestCase
             && str_contains($req->body(), '"vehicle_ids":[10]'));
     }
 
+    /**
+     * 선적 계획에 **포워딩사 + 컨테이너 운임비**를 실어 보낸다(2026-08-12).
+     * 운임비는 CONTAINER 에서만 — RORO 로 보내면 ERP 가 조용히 버리므로 board 가 먼저 뺀다.
+     */
+    public function test_portal_plan_sends_forwarder_and_container_freight(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*/api/internal/board/forwarding-companies*' => Http::response(['count' => 1, 'data' => [['id' => 7, 'name' => '한진']]], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 1, 'data' => [
+                ['vehicle_id' => 10, 'vehicle_number' => '11가1111', 'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignees' => [['id' => 3, 'name' => 'ConsX']]],
+            ]], 200),
+            '*/api/internal/board/shipping-requests/sync*' => Http::response(['created' => [10], 'updated' => [], 'cancelled' => [], 'skipped' => [], 'locked' => []], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('portal.index')->call('setTab', 'shipping')->call('setShipSubtab', 'plan')
+            ->assertSee('한진');   // 명부가 오면 포워딩사 드롭다운이 뜬다
+
+        $key = $c->get('desired')[0]['key'];
+        $c->call('assignVehicle', $key, 10)
+            ->call('setBundleField', $key, 'forwarding_company_id', '7')
+            ->call('setBundleField', $key, 'transport_fee_usd_total', '1,000')   // 콤마 입력도 정규화
+            ->call('setBundleField', $key, 'shipping_method', 'CONTAINER')
+            ->call('syncBundles')->assertHasNoErrors();
+
+        Http::assertSent(function ($req) {
+            if (! str_contains($req->url(), '/shipping-requests/sync')) {
+                return false;
+            }
+            $b = json_decode($req->body(), true);
+            $this->assertSame(7, $b['bundles'][0]['forwarding_company_id']);
+            $this->assertSame(1000, $b['bundles'][0]['transport_fee_usd_total']);
+
+            return true;
+        });
+    }
+
+    /** RORO 묶음엔 운임비를 안 싣는다 — ERP 가 조용히 버리므로(에러가 아니라) board 가 먼저 뺀다. */
+    public function test_portal_plan_omits_freight_for_roro(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 1, 'data' => [
+                ['vehicle_id' => 10, 'vehicle_number' => '11가1111', 'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignees' => []],
+            ]], 200),
+            '*/api/internal/board/shipping-requests/sync*' => Http::response(['created' => [10], 'updated' => [], 'cancelled' => [], 'skipped' => [], 'locked' => []], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('portal.index')->call('setTab', 'shipping')->call('setShipSubtab', 'plan');
+        $key = $c->get('desired')[0]['key'];
+        $c->call('assignVehicle', $key, 10)
+            ->call('setBundleField', $key, 'transport_fee_usd_total', '900')
+            ->call('setBundleField', $key, 'shipping_method', 'RORO')
+            ->call('syncBundles');
+
+        Http::assertSent(function ($req) {
+            if (! str_contains($req->url(), '/shipping-requests/sync')) {
+                return false;
+            }
+            $b = json_decode($req->body(), true);
+            $this->assertNull($b['bundles'][0]['transport_fee_usd_total']);
+
+            return true;
+        });
+    }
+
+    /**
+     * 화면을 다시 열면 ERP 가 돌려준 포워딩사·운임비가 **편집상태로 복원**돼야 한다.
+     * 안 그러면 다음 sync 에서 빈 값이 나가 방금 지정한 걸 board 가 스스로 지운다.
+     */
+    public function test_portal_plan_restores_forwarder_and_freight_from_bundles(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
+                'batch_id' => 'b1', 'ship_status' => 'requested',
+                'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignee' => ['id' => 3, 'name' => 'ConsX'],
+                'shipping_method' => 'CONTAINER', 'bl_type' => null,
+                'forwarding_company' => ['id' => 7, 'name' => '한진'],
+                'transport_fee_usd_total' => 1500,
+                'vehicles' => [['vehicle_id' => 10, 'vehicle_number' => '11가1111']],
+            ]]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('portal.index')->call('setTab', 'shipping')->call('setShipSubtab', 'plan');
+        $bd = $c->get('desired')[0];
+
+        $this->assertSame(7, (int) $bd['forwarding_company_id']);
+        $this->assertSame(1500, (int) $bd['transport_fee_usd_total']);
+    }
+
+    /**
+     * ⚠️ `unpaid_krw` null = **환율 미입력이라 판정 불가**이지 완납이 아니다.
+     * 조용히 넘기면 영업이 "돈 다 들어온 차"로 읽고 묶는다 — 가짜 완납이 가장 비싼 오독이다.
+     */
+    public function test_portal_plan_marks_unpaid_and_never_fakes_paid_without_fx(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 3, 'data' => [
+                ['vehicle_id' => 10, 'vehicle_number' => '11가1111', 'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignees' => [],
+                    'unpaid_krw' => 5000000, 'unpaid_ratio' => 0.5, 'fully_paid' => false],
+                ['vehicle_id' => 11, 'vehicle_number' => '22나2222', 'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignees' => [],
+                    'unpaid_krw' => null, 'unpaid_ratio' => null, 'fully_paid' => false],   // 환율 미입력
+                ['vehicle_id' => 12, 'vehicle_number' => '33다3333', 'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignees' => [],
+                    'unpaid_krw' => 0, 'unpaid_ratio' => 0, 'fully_paid' => true],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'shipping')->call('setShipSubtab', 'plan')
+            ->assertSee(__('portal.plan_unpaid'))          // 미수 차 = 표시됨
+            ->assertSee(__('portal.plan_fx_missing'))      // 환율 미입력 = 완납으로 안 넘어감
+            ->assertSee('33다3333');                        // 완납 차는 칩 없이 조용히
+    }
+
+    /**
+     * 바이어 없는 후보는 **묶을 그릇이 없어** 화면에서 통째로 빠진다(묶음=바이어별).
+     * 후보가 미완납까지 넓어지면서 생길 수 있는 경우라, 조용히 사라지면 "왜 안 뜨지"가 된다.
+     */
+    public function test_portal_plan_tells_about_vehicles_without_buyer(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 2, 'data' => [
+                ['vehicle_id' => 10, 'vehicle_number' => '11가1111', 'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignees' => []],
+                ['vehicle_id' => 11, 'vehicle_number' => '99무9999', 'buyer' => null, 'consignees' => []],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'shipping')->call('setShipSubtab', 'plan')
+            ->assertSee(__('portal.plan_no_buyer_cars', ['count' => 1]));
+    }
+
     // ─────────────────────── 내 설정 / 기능설정 ───────────────────────
 
     public function test_personal_settings_pages_load(): void
