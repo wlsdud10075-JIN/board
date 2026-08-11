@@ -236,7 +236,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
         $this->viewUserId = ($id !== null && $this->portalUsers->contains('id', $id)) ? $id : null;
         // 대상이 바뀌면 선적 편집상태(이전 사용자 차량 id)를 초기화.
-        $this->reset(['bundles', 'shippablePool', 'desired', 'syncResult', 'shipNote', 'changeNote', 'signResults', 'signStatus', 'reqPick', 'reqResult', 'reqNote']);
+        $this->reset(['bundles', 'shippablePool', 'desired', 'syncResult', 'shipNote', 'changeNote', 'signResults', 'signStatus', 'reqPick', 'reqResult', 'reqNote', 'reqAmount']);
         unset($this->boardRequests, $this->chipMap);
         $this->load();
     }
@@ -631,11 +631,18 @@ new #[Layout('components.layouts.app')] class extends Component {
     }
 
     // ─────────── §11 요청·확인 신호 (카톡 대체) ───────────
-    // 보내는 건 "해주세요" 두 마디뿐. 🚫 금액은 싣지 않는다(§11-2) — 금액칸을 만들지 말 것.
-    // 닫는 건 ERP 몫: 입금요청=매입 미지급 0 이면 자동소멸 / 판매대금확인=재무가 차량별 확인.
+    // 매입은 [계약금]/[잔금] 2종 + 금액(받는 사람이 얼마를 보낼지 알아야 한다 — 2026-08-11 Jin).
+    // 금액은 ERP 에서 **표시 전용**이다. 🚫 회계 반영은 여전히 금지(§11-5) — 자동기입은 은행 API 이후.
+    // 닫는 건 ERP 몫: 계약금=수동확인 / 잔금=매입 미지급 0 이면 자동소멸 / 판매대금확인=재무가 차량별 확인.
 
     /** 판매대금확인 선택 — buyer_id => [vehicle_id, ...]. 바이어 블록 안에서만 고르므로 바이어 혼합이 불가능. */
     public array $reqPick = [];
+
+    /**
+     * 매입 요청 금액 — **vehicle_id => 입력값**. ⚠️ 한 칸(키 0)으로 두면 A 행에 친 금액이 B 행에도 뜬다.
+     * 화면 입력이라 문자열(콤마 허용)로 받고, 전송 직전에 숫자만 남긴다.
+     */
+    public array $reqAmount = [];
 
     /** 마지막 전송 결과(created/skipped) + 안내문. 성공한 척 금지(§11-4 항목 5). */
     public ?array $reqResult = null;
@@ -697,6 +704,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                     'batch' => (string) data_get($batch, 'status'),
                     'done' => $done,
                     'total' => count($lines),
+                    // 보낸 금액 — 전송 후 입력칸은 비므로 여기 말고는 "얼마 요청했지?" 를 볼 곳이 없다.
+                    // ERP 가 안 주면 null → 칩에 안 그린다(있는 척 금지). 라인·묶음 어느 쪽에 실려도 받는다.
+                    'amount' => data_get($line, 'amount_krw') ?? data_get($batch, 'amount_krw'),
                 ];
             }
         }
@@ -717,15 +727,45 @@ new #[Layout('components.layouts.app')] class extends Component {
         return null;
     }
 
-    /** [입금요청] — 차량 1대. "이 차 입금해주세요". */
-    public function sendPurchasePayment(int $vehicleId): void
+    /**
+     * 매입 요청 버튼 2종 = [계약금]/[잔금]. 차량 1대 + 금액.
+     *
+     * ⚠️ 금액 **자동계산 금지** — 잔금 = 매입가 − 계약금 으로 채우지 말 것.
+     *    계약금은 board 가 알 수 없고(ERP 회계에 안 쓰기로 했다), 틀린 금액이 그대로 송금된다.
+     *    Jin 2026-08-11: "그건 우리가 알 수 없으니 그것도 기입할 수 있어야". §14-5 와 같은 원칙.
+     */
+    public function sendPurchaseRequest(string $type, int $vehicleId): void
     {
+        if (! in_array($type, CarErpReadService::PURCHASE_REQUEST_TYPES, true)) {
+            return;   // 조작된 호출 — 조용히 무시(공개 Livewire 액션)
+        }
         if ($msg = $this->requestBlocked()) {
             $this->reqResult = ['error' => $msg];
 
             return;
         }
-        $this->applyRequest('purchase_payment', [$vehicleId], null);
+
+        $amount = $this->normalizeAmount($this->reqAmount[$vehicleId] ?? null);
+        if ($amount === null) {
+            $this->reqResult = ['error' => __('portal.req_amount_required')];
+
+            return;
+        }
+
+        if ($this->applyRequest($type, [$vehicleId], null, $amount)) {
+            unset($this->reqAmount[$vehicleId]);
+        }
+    }
+
+    /** 화면 입력(콤마·공백 허용) → KRW 정수. 비었거나 0 이하면 null(= 전송 거부). */
+    private function normalizeAmount(mixed $raw): ?int
+    {
+        $digits = preg_replace('/[^0-9]/', '', (string) $raw);
+        if ($digits === '' || $digits === null) {
+            return null;
+        }
+
+        return ((int) $digits) > 0 ? (int) $digits : null;
     }
 
     /** 판매 탭 — 바이어 블록 안에서 차량 체크/해제. */
@@ -766,11 +806,11 @@ new #[Layout('components.layouts.app')] class extends Component {
      * 전송 단일 지점 — 결과를 화면에 그대로 편다.
      * skipped 는 **실패가 아니다**(대개 already_open = 이미 보낸 것). created 와 함께 보여준다.
      */
-    private function applyRequest(string $type, array $vehicleIds, ?int $buyerId): bool
+    private function applyRequest(string $type, array $vehicleIds, ?int $buyerId, ?int $amountKrw = null): bool
     {
         $note = trim((string) ($this->reqNote[$buyerId ?? 0] ?? ''));
         $res = $this->svc()->sendBoardRequest(
-            $this->salesmanEmail(), $type, $vehicleIds, $buyerId, $note ?: null
+            $this->salesmanEmail(), $type, $vehicleIds, $buyerId, $note ?: null, $amountKrw
         );
 
         if (! ($res['ok'] ?? false)) {
@@ -1772,8 +1812,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <span>{{ $dateLabel }} <b class="text-gray-700">{{ data_get($row, $dateKey) ?: '—' }}</b></span>
                             @if (data_get($row, 'buyer'))<span>{{ __('portal.col_buyer') }} <b class="text-gray-700">{{ data_get($row, 'buyer') }}</b></span>@endif
                         </div>
-                        <div class="mt-1 flex items-end justify-between gap-2">
-                            <div class="text-xs text-gray-600">
+                        <div class="mt-1 flex flex-wrap items-end justify-between gap-2">
+                            <div class="min-w-0 text-xs text-gray-600">
                                 {{ __('portal.col_purchase_unpaid') }}
                                 <b class="{{ is_numeric($unpaid) && (float) $unpaid > 0 ? 'text-red-600' : 'text-gray-800' }}">{{ is_numeric($unpaid) ? number_format((float) $unpaid) : '—' }}</b>
                             </div>

@@ -45,6 +45,10 @@ return [
 
     // §11 request/ack signals. Never add amount wording here (§11-2).
     'req_purchase_btn' => 'Request payment',
+    'req_deposit_btn' => 'Deposit',
+    'req_balance_btn' => 'Balance',
+    'req_amount_ph' => 'Amount (KRW)',
+    'req_amount_required' => 'Enter the amount to send — a request cannot be sent without it.',
     'req_sale_btn' => 'Confirm sale payment',
     'req_sale_btn_n' => 'Confirm sale payment (:count)',
     'req_note_ph' => 'Note (optional) — e.g. transfer of 5/12',

@@ -17,6 +17,26 @@ use Illuminate\Support\Str;
  */
 class CarErpReadService
 {
+    /**
+     * §11 신호 type — car-erp 와의 **계약 문자열**이라 여기 한 곳에만 둔다(오타 하나면 422).
+     *
+     * 매입은 계약금·잔금이 **별개 type** 이다. 하위구분(subtype)으로는 안 된다 —
+     * ERP 멱등키가 `(vehicle_id, type)` 이고 구 `purchase_payment` 는 "매입 미지급 0" 이면 소멸이라,
+     * 계약금을 지급해도 잔금이 남아 안 닫히고 → 잔금 요청이 `already_open` 으로 **조용히 버려진다**.
+     * 경위·ERP 요청사항 = `meetings/handoff-carerp-payment-request-split.md`.
+     */
+    public const REQ_PURCHASE_DEPOSIT = 'purchase_deposit';
+
+    public const REQ_PURCHASE_BALANCE = 'purchase_balance';
+
+    public const REQ_SALE_CONFIRM = 'sale_payment_confirm';
+
+    /** 구 단일 입금요청 — 신규 생성은 안 하지만 **기존 open 행의 칩은 계속 그려야 한다**(요청 이력이 사라지면 재요청을 부른다). */
+    public const REQ_PURCHASE_LEGACY = 'purchase_payment';
+
+    /** 금액을 싣는 type(= 매입 2종). 판매대금확인은 금액 없음. */
+    public const PURCHASE_REQUEST_TYPES = [self::REQ_PURCHASE_DEPOSIT, self::REQ_PURCHASE_BALANCE];
+
     /** 계약 prefix(canonical PATH 에 그대로 들어감). */
     private const PREFIX = '/api/internal/board';
 
@@ -234,20 +254,23 @@ class CarErpReadService
 
     /**
      * §11 요청·확인 신호 — 카톡으로 하던 "해주세요" 두 마디를 옮긴 것.
-     *   purchase_payment      = "이 차 입금해주세요"       (차량 1대 단위 — id 를 여러 개 주면 각각 별개 묶음)
+     *   purchase_deposit      = "이 차 계약금 N원 보내주세요"   (차량 1대 단위)
+     *   purchase_balance      = "이 차 잔금 N원 보내주세요"     (차량 1대 단위)
      *   sale_payment_confirm  = "이 바이어 차 N대 확인해주세요" (바이어 1 + 차량 N = 한 묶음, buyer_id 필수)
      *
-     * 🚫 **금액을 싣지 않는다(§11-2)**. 보내도 car-erp validate 화이트리스트가 버린다.
-     *    매입 지급액·판매 N잔금 기입은 전부 ERP 관리 이상의 일이다. 여기 금액 필드를 만들지 말 것.
+     * 💰 **금액은 매입 2종에만 싣는다**(2026-08-11 Jin — §11-2 개정). 받는 사람이 얼마를 보낼지 알아야 한다.
+     *    ERP 는 이 값을 **표시 전용**으로만 보관한다 — 🚫 회계 컬럼(final_payments·purchase_balance_payments)
+     *    반영은 여전히 금지(§11-5 흡수금지 유효). 자동기입은 은행 API 연동 이후의 일이다.
+     *    판매대금확인(sale_payment_confirm)에는 **금액을 싣지 않는다**(Jin 확정 — 분리는 입금요청만).
      *
      * 응답 201 = {batch_id, created[], skipped[]}.
-     *  ⚠️ `batch_id` 는 **sale_payment_confirm 에서만** 채워진다(purchase_payment 는 null — 차량마다 별개 묶음).
+     *  ⚠️ `batch_id` 는 **sale_payment_confirm 에서만** 채워진다(매입 2종은 null — 차량마다 별개 묶음).
      *  ⚠️ `skipped[]` 는 항목마다 키가 다르다 — forbidden 은 `vehicle_id`, already_open 은 `vehicle_number`.
      *    (둘 다 §11-3 문서와 어긋난 실제 구현. 권위는 구현 — car-erp `BoardRequestController::store`.)
      *
      * @param  list<int>  $vehicleIds
      */
-    public function sendBoardRequest(string $email, string $type, array $vehicleIds, ?int $buyerId = null, ?string $note = null): array
+    public function sendBoardRequest(string $email, string $type, array $vehicleIds, ?int $buyerId = null, ?string $note = null, ?int $amountKrw = null): array
     {
         $payload = [
             'salesman_email' => $email,
@@ -259,6 +282,10 @@ class CarErpReadService
         }
         if ($note !== null && $note !== '') {
             $payload['note'] = $note;
+        }
+        // 금액은 매입 2종 전용 — 판매대금확인에 실리면 ERP 가 버린다(그리고 보낼 이유도 없다).
+        if ($amountKrw !== null && in_array($type, self::PURCHASE_REQUEST_TYPES, true)) {
+            $payload['amount_krw'] = $amountKrw;
         }
 
         return $this->post('/requests', ['salesman_email' => $email], $payload);

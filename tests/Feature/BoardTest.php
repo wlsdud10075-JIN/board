@@ -3815,8 +3815,11 @@ class BoardTest extends TestCase
 
     // ─────────── §11 요청·확인 신호 (카톡 대체) ───────────
 
-    /** 🚫 §11-2 — 신호에 금액을 싣지 않는다. 이 테스트가 금액 필드 재유입을 막는 문지기다. */
-    public function test_board_request_payload_carries_no_amount(): void
+    /**
+     * 🚫 판매대금확인에는 금액을 싣지 않는다(Jin 2026-08-11 — 금액 분리는 **입금요청만**).
+     * 매입 2종은 금액을 싣지만(§11-2 개정), 그것도 ERP 표시 전용이지 회계 반영이 아니다.
+     */
+    public function test_sale_confirm_payload_carries_no_amount(): void
     {
         config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
         Http::fake(['*/api/internal/board/requests*' => Http::response(['batch_id' => null, 'created' => ['11가1111'], 'skipped' => []], 201)]);
@@ -3855,11 +3858,88 @@ class BoardTest extends TestCase
         ]);
 
         Volt::test('portal.index')
-            ->call('sendPurchasePayment', 6)
+            ->set('reqAmount.6', '3000000')
+            ->call('sendPurchaseRequest', CarErpReadService::REQ_PURCHASE_DEPOSIT, 6)
             ->assertSet('reqResult.created', ['11가1111'])
-            ->call('sendPurchasePayment', 6)
+            ->set('reqAmount.6', '3000000')
+            ->call('sendPurchaseRequest', CarErpReadService::REQ_PURCHASE_DEPOSIT, 6)
             ->assertSet('reqResult.created', [])
             ->assertSet('reqResult.skipped.0.reason', 'already_open');
+    }
+
+    /**
+     * 매입 요청은 계약금·잔금이 **별개 type** 이고 금액을 싣는다(2026-08-11).
+     * subtype 한 개로 뭉치면 ERP 멱등키 `(vehicle_id, type)` 에 걸려 잔금 요청이 조용히 버려진다.
+     */
+    public function test_purchase_request_sends_type_and_amount(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        Http::fake(['*/api/internal/board/requests*' => Http::response(['batch_id' => null, 'created' => ['11가1111'], 'skipped' => []], 201)]);
+
+        app(CarErpReadService::class)
+            ->sendBoardRequest('s@ce.test', CarErpReadService::REQ_PURCHASE_BALANCE, [12], null, null, 4500000);
+
+        Http::assertSent(function ($req) {
+            $body = json_decode($req->body(), true);
+            $this->assertSame('purchase_balance', $body['type']);
+            $this->assertSame(4500000, $body['amount_krw']);
+            $this->assertArrayNotHasKey('buyer_id', $body);
+
+            return true;
+        });
+    }
+
+    /** 금액칸이 비면 **아무것도 보내지 않는다** — 금액 없는 요청은 받는 사람이 처리할 수 없다. */
+    public function test_purchase_request_without_amount_is_not_sent(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test']);
+        $this->actingAs($sales);
+
+        Http::fake(['*' => Http::response(['count' => 0, 'data' => []], 200)]);
+
+        Volt::test('portal.index')
+            ->call('sendPurchaseRequest', CarErpReadService::REQ_PURCHASE_DEPOSIT, 6)
+            ->assertSet('reqResult.error', __('portal.req_amount_required'));
+
+        Http::assertNotSent(fn ($req) => str_contains($req->url(), '/board/requests') && $req->method() === 'POST');
+    }
+
+    /**
+     * 금액은 **차량별로 격리**된다. 한 칸을 공유하면 A 행에 친 금액이 B 행 요청으로 나간다 —
+     * 틀린 금액이 그대로 송금되는 종류의 사고라 화면만 보고는 안 잡힌다.
+     */
+    public function test_purchase_request_amount_is_keyed_per_vehicle(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test']);
+        $this->actingAs($sales);
+
+        Http::fake([
+            '*/api/internal/board/requests*' => Http::response(['batch_id' => null, 'created' => ['11가1111'], 'skipped' => []], 201),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        // 6번 차에만 금액을 넣고, 금액을 안 넣은 7번 차로 요청 → 6번 금액이 새어나가면 안 된다.
+        Volt::test('portal.index')
+            ->set('reqAmount.6', '1,200,000')
+            ->call('sendPurchaseRequest', CarErpReadService::REQ_PURCHASE_DEPOSIT, 7)
+            ->assertSet('reqResult.error', __('portal.req_amount_required'))
+            ->call('sendPurchaseRequest', CarErpReadService::REQ_PURCHASE_DEPOSIT, 6)
+            ->assertSet('reqResult.created', ['11가1111']);
+
+        Http::assertSent(function ($req) {
+            if (! str_contains($req->url(), '/board/requests') || $req->method() !== 'POST') {
+                return false;
+            }
+            $body = json_decode($req->body(), true);
+            $this->assertSame([6], $body['vehicle_ids']);
+            $this->assertSame(1200000, $body['amount_krw']);   // 콤마 입력도 정규화된다
+
+            return true;
+        });
     }
 
     /**
@@ -4213,7 +4293,8 @@ class BoardTest extends TestCase
         Http::fake(['*' => Http::response(['error' => 'buyer_mismatch'], 422)]);
 
         Volt::test('portal.index')
-            ->call('sendPurchasePayment', 6)
+            ->set('reqAmount.6', '3000000')
+            ->call('sendPurchaseRequest', CarErpReadService::REQ_PURCHASE_DEPOSIT, 6)
             ->assertSet('reqResult.error', __('portal.req_send_failed', ['status' => 422]));
     }
 

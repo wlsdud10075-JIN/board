@@ -16,5 +16,6 @@
             default => __('portal.req_chip_open'),
         };
     @endphp
-    <span class="badge {{ $cls }} whitespace-nowrap">{{ $label }}@if (($chip['total'] ?? 1) > 1) · {{ __('portal.req_chip_progress', ['done' => $chip['done'], 'total' => $chip['total']]) }}@endif</span>
+    {{-- $chipLabel(선택) = 어느 신호인지. 매입은 계약금·잔금 칩이 같은 행에 나란히 붙어 구분이 없으면 못 읽는다. --}}
+    <span class="badge {{ $cls }} whitespace-nowrap">@if (! empty($chipLabel)){{ $chipLabel }} @endif{{ $label }}@if (is_numeric($chip['amount'] ?? null)) · {{ number_format((float) $chip['amount']) }}@endif@if (($chip['total'] ?? 1) > 1) · {{ __('portal.req_chip_progress', ['done' => $chip['done'], 'total' => $chip['total']]) }}@endif</span>
 @endif
