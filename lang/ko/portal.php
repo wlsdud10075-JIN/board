@@ -45,6 +45,10 @@ return [
 
     // §11 요청·확인 신호 — 카톡으로 하던 "해주세요" 두 마디. 🚫 금액 문구를 넣지 말 것(§11-2).
     'req_purchase_btn' => '입금요청',
+    'req_deposit_btn' => '계약금',
+    'req_balance_btn' => '매입잔금',
+    'req_amount_ph' => '금액(원)',
+    'req_amount_required' => '보낼 금액을 입력하세요 — 금액 없이는 요청할 수 없습니다.',
     'req_sale_btn' => '판매대금확인',
     'req_sale_btn_n' => '판매대금확인 (:count대)',
     'req_note_ph' => '메모 (선택) — 예: 5/12 송금분',

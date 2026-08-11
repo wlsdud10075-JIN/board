@@ -263,8 +263,12 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
   - **기본 탭 = 지급대기** — [입금요청] 대상이 그 집합이기 때문(§11-16 참조).
   - **`shipped_out` 만 영원히 누적** → 기본 30건 + `[더 보기]`(limit 증가, offset 아님 — 중복·누락 없이 다시 받음). 나머지 3분류는 유한(영업당 20~50대)이라 전량.
   - **검색은 ERP 로 넘긴다**(`search=`) — 최근 30건만 받아놓고 board 에서 거르면 옛날 차를 영영 못 찾는다.
-- **§11 요청·확인 신호**(카톡 대체) = `POST/GET /api/internal/board/requests`. 매입 행마다 **[입금요청]**(차량 1대), 판매 바이어 블록에서 차량 체크 후 **[판매대금확인]**(바이어 1 + N대). 권위 = car-erp `board-portal-api.md §11`.
-  - 🚫 **금액을 싣지 않는다(§11-2)** — 보내도 ERP 가 버린다. 회귀 테스트 = `test_board_request_payload_carries_no_amount`.
+- **§11 요청·확인 신호**(카톡 대체) = `POST/GET /api/internal/board/requests`. 매입 행마다 **[계약금]/[매입잔금]**(차량 1대 + 금액), 판매 바이어 블록에서 차량 체크 후 **[판매대금확인]**(바이어 1 + N대). 권위 = car-erp `board-portal-api.md §11`.
+  - 💰 **매입은 금액을 싣는다(§11-2 개정, 2026-08-11)** — 받는 사람이 얼마를 보낼지 알아야 한다. ERP 는 **표시 전용**으로만 보관(🚫 회계 컬럼 반영은 여전히 금지 = §11-5). **판매대금확인엔 금액 없음**(Jin 확정 — 분리는 입금요청만). 회귀 테스트 = `test_sale_confirm_payload_carries_no_amount`.
+  - ⚠️ **계약금·잔금은 별개 `type`**(`purchase_deposit`/`purchase_balance`)이다. subtype 한 개로 뭉치면 **ERP 멱등키 `(vehicle_id, type)`** 에 걸린다 — 구 `purchase_payment` 는 "매입 미지급 0" 이면 소멸이라 계약금을 지급해도 잔금이 남아 안 닫히고, 그 차의 잔금 요청이 `already_open` 으로 **조용히 버려진다**. 그래서 계약금은 **수동확인으로만** 닫는다. 계약 문자열 = `CarErpReadService::REQ_*` 상수 한 곳. 구 `purchase_payment` 칩은 **계속 그린다**(이력이 사라지면 재요청을 부른다).
+  - ⚠️ **금액칸은 `reqAmount[vehicle_id]` 로 차량 키잉** — `reqNote[$buyerId ?? 0]` 처럼 한 칸을 공유하면 A 행 금액이 B 행 요청으로 나간다(틀린 금액이 그대로 송금되는 사고). 가드 = `test_purchase_request_amount_is_keyed_per_vehicle`.
+  - 🚫 **금액 자동계산 금지** — 잔금 = 매입가 − 계약금 자동채움 ❌. 계약금은 board 가 알 수 없다(§14-5 와 같은 원칙).
+  - **알림톡은 ERP 가 보낸다**(board 발송 코드 0). 번호를 가진 쪽이 ERP 이고, board 가 보내면 "요청은 skip 됐는데 알림톡은 갔다"가 생긴다. 근무시간 밖(평일 17:30 이후·주말·공휴일) 라우팅도 ERP 판정 — board 가 미리 판정해 힌트를 실어 보내지 말 것(판정 지점이 갈리면 어긋난다). 인계 = `meetings/handoff-carerp-payment-request-split.md`.
   - **상태 칩은 ERP 집계값 그대로**(open/partial/done/cancelled). board 가 재계산·완료 coerce 금지.
   - 바이어 혼합은 **ERP 422 `buyer_mismatch` 가 진짜 보증**이다. board UI(바이어 블록 안에서만 체크)는 실수 방지용 — `toggleReqVehicle` 은 공개 Livewire 액션이라 조작된 호출로는 섞을 수 있다.
 - ⚠️ **"board 화면 필터"는 트래픽을 못 줄인다** — ERP 가 이미 전량을 조회·전송한 뒤 감추는 것뿐이다. **실제로 줄이려면 ERP 쿼리 파라미터**로 보내야 한다. 예: 판매내역 「거래완료 숨기기」는 `exclude_status=거래완료` 로 나가고, ERP 가 `whereNotIn` 으로 거른다. `progress_status_cache` 는 **인덱스가 있는 캐시 컬럼**이라 이 필터가 실제로 행을 줄인다(뱃지 표시 비용도 행당 문자열 하나, 추가 쿼리 0).
