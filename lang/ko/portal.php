@@ -251,7 +251,7 @@ return [
     'inv_hint_general' => '바이어 미정 투기매입 (매입 완납·출고 전)',
     'inv_hint_pre_ship' => '판매된 차 — 출고 전',
     'inv_hint_shipped_out' => '출고일이 찍혀 재고에서 빠진 차 (최근 출고순). 계속 쌓이므로 최근 30건만 먼저 보여줍니다. 선박명으로도 검색되니 같은 배에 실린 차를 한 번에 볼 수 있습니다.',
-    'inv_search_ph' => '차량번호·차대번호·선박명 검색',
+    'inv_search_ph' => '차량번호·차대번호·선박명·바이어 검색',
     'inv_empty' => '해당하는 차량이 없습니다.',
     'inv_more' => '더 보기 (:shown/:total)',
     'col_progress' => '진행상태',

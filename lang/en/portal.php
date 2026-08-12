@@ -253,7 +253,7 @@ return [
     'inv_hint_general' => 'Speculative purchases with no buyer yet (fully paid, not yet shipped out)',
     'inv_hint_pre_ship' => 'Sold vehicles, not yet shipped out',
     'inv_hint_shipped_out' => 'Vehicles with a warehouse-out date, newest first. This set keeps growing, so only the latest 30 load first. Vessel names are searchable too, so you can pull up everything loaded on one ship.',
-    'inv_search_ph' => 'Search vehicle no. / VIN / vessel',
+    'inv_search_ph' => 'Search vehicle no. / VIN / vessel / buyer',
     'inv_empty' => 'No matching vehicles.',
     'inv_more' => 'Load more (:shown/:total)',
     'col_progress' => 'Progress',

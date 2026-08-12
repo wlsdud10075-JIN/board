@@ -263,6 +263,13 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
   - **기본 탭 = 지급대기** — [입금요청] 대상이 그 집합이기 때문(§11-16 참조).
   - **`shipped_out` 만 영원히 누적** → 기본 30건 + `[더 보기]`(limit 증가, offset 아님 — 중복·누락 없이 다시 받음). 나머지 3분류는 유한(영업당 20~50대)이라 전량.
   - **검색은 ERP 로 넘긴다**(`search=`) — 최근 30건만 받아놓고 board 에서 거르면 옛날 차를 영영 못 찾는다.
+    - 훑는 칸 **8가지**(2026-08-12 기준) = 차량번호 · 브랜드 · 차종 · 차대번호 · 수출신고번호 · 선박명 · 컨테이너번호 · **바이어명**.
+      ⚠️ board placeholder 를 **실제보다 좁게 쓰지 말 것** — 오래 "차량번호·차대번호·선박명"이라 써놔서
+      브랜드·컨테이너번호로도 되는 걸 아무도 몰랐다. 칸을 늘리려면 **ERP 에 요청**하면 되고(양쪽 화면에 같이 들어감),
+      한쪽에만 추가하면 car-erp CI(`BoardInventoryApiTest::test_search_columns_match_the_screen`)가 막는다.
+    - ⚠️ 바이어 검색은 **`buyer_id`(판매 바이어) = 행에 찍히는 그 값**이다. `export_buyer_id`(통관 바이어)가 아니다 —
+      그걸로 훑으면 **A 로 표시된 행이 B 를 쳤을 때 나온다**(board 인계서가 실제로 틀리게 지목했고 ERP 가 바로잡았다).
+    - 「일반재고」는 바이어가 없다(`sale_price ≤ 0` = 투기매입) → 거기서 바이어로 치면 **0건이 정상**.
 - **§11 요청·확인 신호**(카톡 대체) = `POST/GET /api/internal/board/requests`. 매입 행마다 **[계약금]/[매입잔금]**(차량 1대 + 금액), 판매 바이어 블록에서 차량 체크 후 **[판매대금확인]**(바이어 1 + N대). 권위 = car-erp `board-portal-api.md §11`.
   - 💰 **매입은 금액을 싣는다(§11-2 개정, 2026-08-11)** — 받는 사람이 얼마를 보낼지 알아야 한다. ERP 는 **표시 전용**으로만 보관(🚫 회계 컬럼 반영은 여전히 금지 = §11-5). **판매대금확인엔 금액 없음**(Jin 확정 — 분리는 입금요청만). 회귀 테스트 = `test_sale_confirm_payload_carries_no_amount`.
   - ⚠️ **계약금·잔금은 별개 `type`**(`purchase_deposit`/`purchase_balance`)이다. subtype 한 개로 뭉치면 **ERP 멱등키 `(vehicle_id, type)`** 에 걸린다 — 구 `purchase_payment` 는 "매입 미지급 0" 이면 소멸이라 계약금을 지급해도 잔금이 남아 안 닫히고, 그 차의 잔금 요청이 `already_open` 으로 **조용히 버려진다**. 그래서 계약금은 **수동확인으로만** 닫는다. 계약 문자열 = `CarErpReadService::REQ_*` 상수 한 곳. 구 `purchase_payment` 칩은 **계속 그린다**(이력이 사라지면 재요청을 부른다).
