@@ -72,6 +72,41 @@ class BoardTest extends TestCase
         ], $attr));
     }
 
+    /**
+     * 딜러 첨부는 `/auction`(구매·경매)에서만 올리는데 그 화면은 accepted·won 만 다룬다
+     * ⇒ 연동 B 로 ERP 에 넘어가면(**synced**) board 어디서도 다시 볼 수 없었다.
+     * 매입예정 드로어가 그 조회처다 — 본인 차를 **전 상태**로 열 수 있는 유일한 화면이라서.
+     */
+    public function test_listings_drawer_shows_dealer_attachments_even_after_synced(): void
+    {
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'draft']);
+        $l->salesAttachments()->create(['s3_path' => 's/photo.jpg', 'original_name' => 'photo.jpg', 'sort' => 1, 'kind' => InspectionPhoto::KIND_SALES_PHOTO]);
+        $l->salesAttachments()->create(['s3_path' => 's/reg.pdf', 'original_name' => 'reg.pdf', 'sort' => 2, 'kind' => InspectionPhoto::KIND_SALES_DOCUMENT]);
+        // 검차사진은 딜러 첨부가 아니다 — 이 블록에 섞이면 안 된다.
+        $l->photos()->create(['s3_path' => 'i/insp.jpg', 'original_name' => 'insp.jpg', 'sort' => 1, 'kind' => InspectionPhoto::KIND_INSPECTION]);
+        $l->forceFill(['status' => 'synced'])->saveQuietly();   // ERP 전환 완료 — 여기서도 보여야 한다
+
+        $this->actingAs($kim);
+        Volt::test('listings.index')
+            ->call('openEdit', $l->id)
+            ->assertSee(__('listings.attach_view.title'))
+            ->assertSee('reg.pdf')            // 서류는 파일명 칩으로
+            ->assertDontSee('insp.jpg');      // 검차사진은 이 블록에 안 나온다
+    }
+
+    /** 첨부가 없으면 "없다"고 말한다 — 빈 화면은 "못 불러온 것"과 구분이 안 된다. */
+    public function test_listings_drawer_says_when_no_attachments(): void
+    {
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim);
+
+        $this->actingAs($kim);
+        Volt::test('listings.index')
+            ->call('openEdit', $l->id)
+            ->assertSee(__('listings.attach_view.empty'));
+    }
+
     private function assertItThrows(callable $fn): void
     {
         try {
