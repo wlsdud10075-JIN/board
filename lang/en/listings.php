@@ -205,6 +205,12 @@ return [
     ],
 
     // Edit drawer
+    'attach_view' => [
+        'title' => 'Dealer vehicle attachments',
+        'hint' => 'Photos/documents added at purchase confirmation (view only — add or delete on the auction/purchase screen)',
+        'empty' => 'No photos or documents uploaded yet.',
+    ],
+
     'drawer' => [
         'title' => ':number · Edit purchase',
         'money_moved' => 'Amount, payout account, and vehicle attachments are entered in later steps (Quote/Forward · Purchase confirm).',

@@ -953,6 +953,9 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 <div class="card-sm mb-3 border-blue-100 bg-blue-50/50 text-[11px] text-gray-500">{{ __('listings.drawer.money_moved') }}</div>
 
+                {{-- 구매·경매에서 올린 딜러 첨부를 여기서 다시 본다(전 상태 — synced 포함). 읽기 전용. --}}
+                @include('livewire.listings._sales-attachments')
+
                 <label class="label-base mt-3">{{ __('listings.add_form.region') }}</label>
                 <x-region-input model="e_region" :placeholder="__('listings.add_form.region_ph')" :disabled="! $canEdit" />
                 @error('e_region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror

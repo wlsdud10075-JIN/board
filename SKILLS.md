@@ -414,6 +414,23 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
   (`test_portal_plan_restores_forwarder_and_freight_from_bundles`). 안 살면 다음 sync 가 **빈 값으로 덮는다**.
 - **surrender 미수 가드는 안 만든다**(Jin 2026-08-11) — 선적 계획은 계획일 뿐이고 B/L 요청은 별도 행위다.
 
+### 14-9. 딜러 차량 첨부는 **올리는 곳과 보는 곳이 다르다** (2026-08-12)
+
+- **올리는 곳 = `/auction`(구매·경매) 드로어 하나뿐**이다. `/listings` 에도 업로드 *로직*(`eSalesFiles`·
+  `storeSalesFiles`·`deleteSalesAttachment`)이 있지만 **렌더부에 UI 가 없다** — 만들다 만 상태다.
+  ⚠️ 로직이 있다고 "그 화면에서 올린다"고 말하지 말 것(실제로 그렇게 잘못 안내했다).
+- **보는 곳 = `/listings`(매입예정) 편집 드로어** — 읽기 전용 그리드. 이유: `/auction` 목록은
+  `accepted·won·failed` 만, 첨부 블록은 **`accepted·won` 에서만** 그린다 ⇒ 연동 B 로 넘어가 **`synced` 가
+  되는 순간 board 어디서도 못 봤다**(`failed` 도 마찬가지). 매입예정 목록은 **전 상태 전량**이고
+  `openEdit` 에 **상태 가드가 없어** synced 행도 열린다 — 본인 차를 전 상태로 여는 유일한 화면.
+- 🚫 **보는 곳에 삭제·업로드를 붙이지 말 것** — `won` 이후엔 같은 첨부를 **ERP 도 갖고 있다**.
+  board 에서 지우면 양쪽이 조용히 갈리고 board 가 더 이상 유일한 권위가 아니게 된다.
+- **URL 은 `InspectionPhoto::url()`**(모델 accessor). ⚠️ 같은 로직이 화면 컴포넌트에 `photoUrl()` 로
+  **3벌**(auction·forwarding·inspection) 더 있다 — **새 화면은 accessor 를 쓰고 4벌째를 만들지 말 것**.
+  디스크가 로컬(public)/운영(s3)로 갈려 경로를 손으로 조립하면 깨지고, presigned 는 **캐시로 문자열을
+  고정**해야 한다(렌더마다 재서명하면 영상 재생이 리셋).
+- **`/manage`(관리)엔 아직 없다** — 관리자가 첨부를 보려면 ERP 를 연다(2026-08-12 Jin: 1번만 하기로).
+
 ## 15. 사내 Notion 업무가이드 발행 + 허브 네비 표준 (Jin 지시 — "항상 이 상태로")
 > 사내 Notion "사내 업무 가이드" 갱신 = **MCP 아님**, 자체 스크립트 `scripts/notion-guide-publish.php`(Notion REST 직접). 토큰 = Windows **User env `NOTION_TOKEN`**. 세션이 토큰 등록 전에 켜졌으면 `getenv()` 못 잡음 → PowerShell 인라인 주입: `$env:NOTION_TOKEN=[Environment]::GetEnvironmentVariable('NOTION_TOKEN','User'); php scripts/notion-guide-publish.php --apply`. **발행=라이브 즉시반영** → apply 전 인자 없이 dry-run 으로 블록수 확인.
 
