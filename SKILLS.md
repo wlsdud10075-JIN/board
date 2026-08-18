@@ -443,3 +443,21 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
 - 하위 페이지 **추가 시 허브 네비에 mention bullet 만 append**(PATCH `/blocks/{hubId}/children` + `after`=섹션 blockId 또는 마지막 nav bullet). 기존 정상 링크는 안 건드림. 멱등(이미 있으면 스킵).
 - 🚫 **순서 바꾸려고 페이지 삭제·재생성 금지** — page ID 바뀌어 **허브 mention 전멸**(2026-07-04 board 3링크 다 깸 → 복구). 순서변경 = Notion 드래그(무손실). Notion API 는 기존 블록 move 미지원.
 - 복구/추가 헬퍼 패턴(일회성, scratchpad): 허브→섹션 child_page 구간의 bullet 을 새 페이지 mention 으로 교체(board) / 새 페이지만 append(ERP). ERP 가이드 페이지 자체는 car-erp 세션 소관이나 **허브 네비(공유 인프라)는 Jin 지시로 board 세션이 정리 가능**.
+
+### 14-10. super 는 남의 포털에서도 **대신 실행**한다 (2026-08-18 Jin — 정책 변경)
+
+> Jin: "시스템관리자는 다 되게 erp처럼 해주면 안되나? 꼭 매핑을 해야해?"
+
+- **바뀐 것**: `/portal` 의 `isViewingOther()` **쓰기 차단 8곳을 걷어냈다**(sync·B/L요청/취소·변경요청·§11 신호·
+  서류 다운로드·서명요청) + **선적 계획 화면을 통째로 조회전용 문구로 대체하던 렌더 분기**와
+  묶음 액션 `@unless` 블록도 제거. 그 화면이 비어 보이던 게 "선적요청이 막힌다"의 정체였다.
+- ⚠️ **`isViewingOther()` 가 true 면 이미 super 다** — `viewingUser()` 가 `isSuper()` 일 때만 non-null 이라,
+  이 차단은 **처음부터 super 만 겨냥한 것**이었다. 그래서 "super 예외"가 곧 "제거"다.
+- 🚨 **요청은 그 영업 명의(`salesman_email`)로 car-erp 에 간다** — ERP 관리는 **그 영업이 한 것으로 본다**.
+  남은 안전장치는 **화면 배너 하나**(`viewing_other` 가 명의를 밝힌다)뿐이다. 문구를 약하게 고치지 말 것.
+- ⚠️ 특히 **`syncBundles` 는 선언형 전체전송**이라, 남의 포털에서 누르면 그 영업의 requested 묶음이
+  **자동취소**될 수 있다. 로딩 degrade 가드(`flash_sync_blocked_degraded`)가 유일한 방어선이므로 **그건 유지**.
+- **매핑은 이제 선택**이다. `car_erp_salesman_email` 이 없어도 super 는 이름 클릭으로 남의 포털에서 다 한다.
+  (매핑하면 본인 포털에도 그 영업 데이터가 뜬다 — 테스트엔 편하지만 "누구 것인지" 헷갈릴 수 있다.)
+- 죽은 문구 3키(`flash_view_only_ship`·`flash_view_only_docs`·`req_blocked_viewing`) 제거. 되돌릴 땐 git 이력에서.
+- 가드 = `test_portal_super_can_act_on_behalf_of_other`(구 `..._is_view_only` 를 **반대로 다시 쓴 것** — 지우지 말 것).

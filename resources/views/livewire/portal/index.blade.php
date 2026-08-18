@@ -539,11 +539,6 @@ new #[Layout('components.layouts.app')] class extends Component {
      */
     public function syncBundles(): void
     {
-        if ($this->isViewingOther()) {
-            $this->shipNote = __('portal.flash_view_only_ship');
-
-            return;
-        }
         // 안전 가드 — /bundles 조회가 degrade 면 desired 가 비어 전체 desired=빈 전송이 됨
         // → car-erp 가 모든 requested 를 자동취소(스펙 §5-2). 로딩 실패 시 절대 sync 금지.
         if (! ($this->result['ok'] ?? false)) {
@@ -611,11 +606,6 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** 기존 묶음 B/L요청 — bl_type 확정(original/surrender) → car-erp 관리 알람. */
     public function requestBl(string $batchId, string $blType): void
     {
-        if ($this->isViewingOther()) {
-            $this->shipNote = __('portal.flash_view_only_ship');
-
-            return;
-        }
         if (! in_array($blType, ['original', 'surrender'], true) || $batchId === '') {
             return;
         }
@@ -627,11 +617,6 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** B/L요청 무름(오발송 취소) — bl_status requested→none. 이미 issued(409)면 무름 불가 안내. */
     public function cancelBl(string $batchId): void
     {
-        if ($this->isViewingOther()) {
-            $this->shipNote = __('portal.flash_view_only_ship');
-
-            return;
-        }
         if ($batchId === '') {
             return;
         }
@@ -649,11 +634,6 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** in_progress(관리 착수) 차 변경/취소 요청 — 관리가 수락거절(자동적용 X). */
     public function requestChange(int $vehicleId): void
     {
-        if ($this->isViewingOther()) {
-            $this->shipNote = __('portal.flash_view_only_ship');
-
-            return;
-        }
         $note = trim((string) ($this->changeNote[$vehicleId] ?? ''));
         if ($note === '') {
             $this->shipNote = __('portal.flash_change_note_required');
@@ -753,9 +733,6 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** 전송 가능 여부 — 타인 열람·미설정은 서버에서 먼저 막는다. 통과 시 null. */
     private function requestBlocked(): ?string
     {
-        if ($this->isViewingOther()) {
-            return __('portal.req_blocked_viewing');
-        }
         if (! $this->svc()->configured()) {
             return __('portal.req_blocked_unconfigured');
         }
@@ -888,12 +865,6 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** ①② 서류 — 묶음 차량의 선적서류(method별 4종 중 2종). xlsx 스트림 다운로드. */
     public function downloadDocs(array $vehicleIds, string $method, string $kind)
     {
-        // 조회 전용 — 타인 포털 열람 중엔 서류(타인 PII) 다운로드 차단. 서버 게이트.
-        if ($this->isViewingOther()) {
-            $this->shipNote = __('portal.flash_view_only_docs');
-
-            return null;
-        }
         $ids = array_values(array_map('intval', $vehicleIds));
         if ($ids === []) {
             $this->shipNote = __('portal.flash_select_vehicle_docs');
@@ -936,11 +907,6 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function requestSignature(array $vehicleIds, ?string $batchId = null)
     {
         // 조회 전용 — 타인 포털 열람 중엔 쓰기(서명 세션 발급) 차단. 서버 게이트.
-        if ($this->isViewingOther()) {
-            $this->shipNote = __('portal.flash_view_only_docs');
-
-            return;
-        }
         $ids = array_values(array_map('intval', $vehicleIds));
         if ($ids === []) {
             $this->shipNote = __('portal.flash_select_vehicle_docs');
@@ -1218,7 +1184,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                             @endif
                         </div>
 
-                        @unless ($this->isViewingOther())
+                        {{-- super 는 남의 포털에서도 취소·B/L·서류·서명이 전부 가능하다(Jin 2026-08-18).
+                             예전엔 이 블록을 통째로 숨겨 버튼이 하나도 없었다. --}}
                             {{-- 미착수(요청됨) 선적 취소 — 관리 착수 전이면 영업이 바로 취소 가능 --}}
                             @if ($st === 'requested' && $batchId)
                                 <div class="mt-2.5 border-t border-gray-200 pt-2">
@@ -1306,7 +1273,6 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     @endforeach
                                 </div>
                             @endif
-                        @endunless
                     </div>
                     @endforeach
                                 </div>
@@ -1320,9 +1286,8 @@ new #[Layout('components.layouts.app')] class extends Component {
 
             @else
                 {{-- ── 선적 계획 (바이어별 펼침 + 체크박스) ── --}}
-                @if ($this->isViewingOther())
-                    <p class="py-8 text-center text-gray-400">👁️ {{ __('portal.ship_view_only_note', ['name' => $this->viewingName()]) }}</p>
-                @else
+                {{-- super 는 남의 포털에서도 선적 계획을 짜고 보낼 수 있다(Jin 2026-08-18 — "시스템관리자는 다 되게").
+                     예전엔 여기서 화면을 통째로 조회전용 문구로 대체해 계획 탭이 비어 보였다. --}}
                     <p class="mb-3 text-[13px] text-gray-500">{!! __('portal.plan_intro') !!}</p>
                     @php
                         // 포워딩사 명부 — 렌더당 1회. 조회 실패면 빈 배열 → 드롭다운 숨김(degrade).
@@ -1449,7 +1414,6 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @empty
                         <p class="py-8 text-center text-gray-400">{{ __('portal.plan_no_buyers') }}</p>
                     @endforelse
-                @endif
             @endif
 
         @elseif ($tab === 'receivables')
