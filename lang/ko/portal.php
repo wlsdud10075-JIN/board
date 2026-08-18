@@ -70,6 +70,8 @@ return [
     'flash_docs_failed' => '서류를 불러올 수 없습니다. (car-erp 연동 확인)',
     'flash_docs_sales_contract_failed' => '판매계약서를 발급할 수 없습니다. 동일 바이어·단일 통화 차량만 함께 발급됩니다. (묶음 구성/연동 확인)',
     // car-erp 가 403 = 그 서류 타입을 board 에 아직 열어주지 않음(BOARD_ALLOWED_TYPES). 묶음 구성 문제가 아니다.
+    'flash_docs_no_buyer' => '바이어가 지정되지 않은 차량이 있어 발급할 수 없습니다 — car-erp 에서 바이어를 먼저 지정하세요. (:detail)',
+    'flash_docs_no_sale_price' => '판매가가 입력되지 않은 차량이 있어 발급할 수 없습니다 — car-erp 에서 판매가를 먼저 입력하세요. (:detail)',
     'flash_docs_not_allowed' => '이 서류는 아직 board 에서 내려받을 수 없습니다. car-erp 쪽에서 허용해야 하는 항목입니다. (묶음 구성 문제 아님)',
     // 422 = car-erp 동질성 가드(HOMOGENEOUS_TYPES). 판매계약서·프로포마 인보이스 공통.
     'flash_docs_homogeneous_required' => '이 서류는 동일 바이어·단일 통화 차량만 함께 발급됩니다. 묶음에 다른 바이어나 다른 통화가 섞여 있는지 확인해 주세요.',

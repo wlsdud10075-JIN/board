@@ -405,7 +405,13 @@ class CarErpReadService
         }
 
         if ($res->failed()) {
-            return ['ok' => false, 'status' => $res->status(), 'body' => null, 'content_type' => null, 'reason' => 'http_error'];
+            // ⚠️ 실패 본문을 버리면 안 된다 — car-erp 는 422 에 **왜 안 되는지 + 어느 차량인지**를 담아 준다
+            //    (`No buyer: 12가3456` / `No sale price: …` / `Mixed buyers` / `Mixed currencies`).
+            //    예전엔 null 로 지워서 board 가 전부 "동일 바이어" 로 뭉뚱그려 안내했다(원인을 잘못 짚게 만듦).
+            return [
+                'ok' => false, 'status' => $res->status(), 'body' => null, 'content_type' => null,
+                'reason' => 'http_error', 'message' => Str::limit((string) $res->body(), 300, ''),
+            ];
         }
 
         return ['ok' => true, 'status' => $res->status(), 'body' => $res->body(), 'content_type' => $res->header('Content-Type'), 'reason' => null];
@@ -444,7 +450,13 @@ class CarErpReadService
         }
 
         if ($res->failed()) {
-            return ['ok' => false, 'status' => $res->status(), 'data' => null, 'reason' => 'http_error'];
+            // 실패 본문을 살린다 — car-erp 422 는 **사유 + 어느 차량인지**를 담아 준다
+            //   (`No buyer: 12가3456` · `No sale price: …` · `Mixed buyers` · `buyer_mismatch` …).
+            //   버리면 화면이 전부 "동일 바이어" 로 뭉뚱그려져 영업이 엉뚱한 곳을 고친다.
+            return [
+                'ok' => false, 'status' => $res->status(), 'data' => null,
+                'reason' => 'http_error', 'message' => Str::limit((string) $res->body(), 300, ''),
+            ];
         }
 
         return ['ok' => true, 'status' => $res->status(), 'data' => $res->json(), 'reason' => null];

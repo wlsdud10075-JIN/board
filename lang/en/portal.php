@@ -70,6 +70,8 @@ return [
     'flash_docs_failed' => 'Could not load documents. (Check the car-erp integration)',
     'flash_docs_sales_contract_failed' => 'Could not issue the sales contract. Only vehicles with the same buyer and single currency can be issued together. (Check bundle composition / integration)',
     // car-erp 403 = this document type is not opened to board yet (BOARD_ALLOWED_TYPES). Not a bundle problem.
+    'flash_docs_no_buyer' => 'A vehicle has no buyer assigned — assign the buyer in car-erp first. (:detail)',
+    'flash_docs_no_sale_price' => 'A vehicle has no sale price — enter the sale price in car-erp first. (:detail)',
     'flash_docs_not_allowed' => 'This document cannot be downloaded from board yet — car-erp must allow this type first. (Not a bundle composition issue)',
     // 422 = car-erp homogeneity guard (HOMOGENEOUS_TYPES). Shared by sales contract and proforma invoice.
     'flash_docs_homogeneous_required' => 'This document can only be issued for vehicles with the same buyer and a single currency. Check whether the bundle mixes buyers or currencies.',

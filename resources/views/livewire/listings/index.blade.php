@@ -2,6 +2,7 @@
 
 use App\Models\InspectionPhoto;
 use App\Models\PromotionRequest;
+use App\Jobs\SyncWonListingToCarErp;
 use App\Models\PurchaseListing;
 use App\Services\ExchangeRateService;
 use App\Support\TimeGate;
@@ -242,13 +243,94 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->e_encar_dealer = $l->encar_dealer ?? '';
         $this->e_auction_venue = $l->auction_venue ?? '';
         $this->e_lot_number = $l->lot_number ?? '';
+        $this->e_sale_price = $l->sale_price !== null ? (string) $l->sale_price : null;
+        $this->e_sale_currency = $l->offer_currency ?: null;
+        $this->e_sale_rate = $l->offer_rate ? (string) $l->offer_rate : null;
+        $this->resyncResult = null;
         $this->reset(['eSalesFiles']);
         $this->resetErrorBag();
     }
 
+    // ─────── 판매 금액 보완 + ERP 재전송 (2026-08-18 Jin) ───────
+    // 급해서 차량정보·매입가만 넣고 보낸 차는 ERP 판매탭이 빈 채로 생긴다.
+    // 나중에 여기서 판매가·통화·환율을 채워 다시 밀면 car-erp 가 **빈 칸만** 채운다(fill-if-empty).
+    // 🚫 이미 값이 있으면 ERP 가 덮지 않는다 — 고치려면 ERP 에서. board 가 원장을 되돌리지 않는다.
+
+    public ?string $e_sale_price = null;
+
+    public ?string $e_sale_currency = null;
+
+    public ?string $e_sale_rate = null;
+
+    /** 마지막 재전송 결과 — car-erp 응답의 fields_filled/fields_skipped. 200 만 보고 "반영됨"이라 하지 않는다. */
+    public ?array $resyncResult = null;
+
+    /**
+     * ERP 로 다시 보내기 — 판매 3종을 저장한 뒤 resync 발사.
+     * ⚠️ 환율이 없으면 car-erp 가 판매가를 **통째로 보류**한다 → 세트로 받고, 빠지면 여기서 막는다.
+     */
+    public function resendToErp(): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        $this->resyncResult = null;
+        $this->resetErrorBag();   // 고쳐서 다시 눌렀는데 옛 에러가 남아 있으면 뭘 고쳤는지 알 수 없다
+
+        if (! $l->car_erp_vehicle_id) {
+            $this->addError('e_sale_price', __('listings.resync.not_synced_yet'));
+
+            return;
+        }
+
+        $price = $this->e_sale_price !== null && $this->e_sale_price !== ''
+            ? (float) preg_replace('/[^0-9.]/', '', $this->e_sale_price) : null;
+        $rate = $this->e_sale_rate !== null && $this->e_sale_rate !== ''
+            ? (int) preg_replace('/[^0-9]/', '', $this->e_sale_rate) : null;
+        $currency = $this->e_sale_currency ?: null;
+
+        if ($price !== null && $price > 0) {
+            if (! $currency) {
+                $this->addError('e_sale_currency', __('listings.resync.currency_required'));
+
+                return;
+            }
+            // KRW 는 환율 1. 그 외는 반드시 받는다 — 비우면 ERP 가 판매가를 통째로 안 넣는다.
+            if ($currency !== 'KRW' && ! $rate) {
+                $this->addError('e_sale_rate', __('listings.resync.rate_required'));
+
+                return;
+            }
+            $l->sale_price = $price;
+            $l->offer_currency = $currency;
+            $l->offer_rate = $currency === 'KRW' ? 1 : $rate;
+            $l->save();   // 옵저버가 감사기록
+        }
+
+        SyncWonListingToCarErp::dispatch($l->id, resync: true);
+        $this->resyncResult = $this->latestSyncFields($l->id);
+    }
+
+    /**
+     * 직전 purchase_sync 응답에서 무엇이 채워졌는지 읽는다.
+     * 🚨 car-erp 는 **200 이어도 아무것도 안 채웠을 수 있다**(이미 값 있음/환율 없음) — `fields_filled` 가
+     *    비면 반영 안 된 것이다. 첨부가 조용히 실패하던 것과 같은 부류라 화면에 그대로 편다.
+     */
+    private function latestSyncFields(int $listingId): array
+    {
+        $ev = \App\Models\IntegrationEvent::where('purchase_listing_id', $listingId)
+            ->where('event_type', 'purchase_sync')->latest('id')->first();
+
+        $body = json_decode((string) ($ev->response_body ?? ''), true);
+
+        return [
+            'status' => $ev->response_status ?? null,
+            'filled' => (array) ($body['fields_filled'] ?? []),
+            'skipped' => (array) ($body['fields_skipped'] ?? []),
+        ];
+    }
+
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'eSalesFiles']);
+        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'eSalesFiles', 'e_sale_price', 'e_sale_currency', 'e_sale_rate', 'resyncResult']);
         unset($this->editing);
     }
 
@@ -952,6 +1034,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @endunless
 
                 <div class="card-sm mb-3 border-blue-100 bg-blue-50/50 text-[11px] text-gray-500">{{ __('listings.drawer.money_moved') }}</div>
+
+                {{-- 급해서 매입가만 보낸 차의 판매 금액 보완 + ERP 재전송(이미 연동된 차만). --}}
+                @include('livewire.listings._erp-resend')
 
                 {{-- 구매·경매에서 올린 딜러 첨부를 여기서 다시 본다(전 상태 — synced 포함). 읽기 전용. --}}
                 @include('livewire.listings._sales-attachments')

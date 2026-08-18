@@ -205,6 +205,20 @@ return [
     ],
 
     // Edit drawer
+    'resync' => [
+        'title' => 'Complete sale amount · resend to ERP',
+        'hint' => 'Fill in the sale price later for vehicles sent with only the purchase price (only empty ERP fields are filled)',
+        'sale_price' => 'Sale price',
+        'currency' => 'Currency',
+        'rate' => 'FX rate',
+        'btn' => 'Resend to ERP',
+        'not_synced_yet' => 'This vehicle has not been sent to ERP yet. Available after purchase confirmation.',
+        'currency_required' => 'Select a currency — without it ERP will not store the sale price.',
+        'rate_required' => 'Enter the FX rate — without it ERP withholds the sale price entirely.',
+        'filled' => 'Applied in ERP: :fields',
+        'nothing_filled' => 'Nothing was filled in ERP — the fields may already have values, or were withheld due to a missing FX rate.',
+    ],
+
     'attach_view' => [
         'title' => 'Dealer vehicle attachments',
         'hint' => 'Photos/documents added at purchase confirmation (view only — add or delete on the auction/purchase screen)',

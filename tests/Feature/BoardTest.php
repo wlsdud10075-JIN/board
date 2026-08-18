@@ -95,6 +95,93 @@ class BoardTest extends TestCase
             ->assertDontSee('insp.jpg');      // 검차사진은 이 블록에 안 나온다
     }
 
+    /**
+     * 급해서 매입가만 보낸 차 — 나중에 판매가·통화·환율을 채워 **영업이 직접** 다시 민다(Jin 2026-08-18).
+     * ⚠️ 환율이 없으면 car-erp 가 판매가를 **통째로 보류**하므로 세트가 아니면 board 가 먼저 막는다.
+     */
+    public function test_sales_can_complete_sale_amount_and_resend(): void
+    {
+        Bus::fake();
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 188]);
+        $this->actingAs($kim);
+
+        $c = Volt::test('listings.index')->call('openEdit', $l->id);
+
+        // 통화 없이 판매가만 → 막는다(ERP 가 조용히 보류하는 대신 여기서 사유를 말한다).
+        $c->set('e_sale_price', '8590')->set('e_sale_currency', '')->call('resendToErp')
+            ->assertHasErrors('e_sale_currency');
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+
+        // 외화인데 환율이 없으면 그것도 막는다.
+        $c->set('e_sale_currency', 'USD')->set('e_sale_rate', '')->call('resendToErp')
+            ->assertHasErrors('e_sale_rate');
+
+        // 세트가 갖춰지면 저장 + resync 발사.
+        $c->set('e_sale_rate', '1380')->call('resendToErp')->assertHasNoErrors();
+
+        $l->refresh();
+        $this->assertSame('8590.00', (string) $l->sale_price);
+        $this->assertSame('USD', $l->offer_currency);
+        $this->assertSame(1380, $l->offer_rate);
+        $this->assertSame('synced', $l->status);              // 원장 상태는 안 건드린다
+        $this->assertSame(188, $l->car_erp_vehicle_id);
+        Bus::assertDispatched(fn (SyncWonListingToCarErp $job) => $job->listingId === $l->id && $job->resync === true);
+    }
+
+    /**
+     * 🚨 200 이어도 아무것도 안 채워졌을 수 있다(이미 값 있음/환율 없음) — `fields_filled` 가 비면
+     * "반영됨"이라고 말하지 않는다. 첨부가 조용히 실패하던 것과 같은 부류.
+     */
+    public function test_resend_says_when_nothing_was_filled(): void
+    {
+        Bus::fake();
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 188]);
+        IntegrationEvent::create([
+            'direction' => 'outbound', 'target' => 'car_erp', 'event_type' => 'purchase_sync',
+            'purchase_listing_id' => $l->id, 'response_status' => 200,
+            'response_body' => json_encode(['vehicle_id' => 188, 'fields_filled' => [], 'fields_skipped' => ['sale_price' => 'already_set']]),
+        ]);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')->call('openEdit', $l->id)->call('resendToErp')
+            ->assertSee(__('listings.resync.nothing_filled'))
+            ->assertSee('already_set');
+    }
+
+    /**
+     * resync 는 **이미 동기화된 차도 다시 민다**(그래야 car-erp 가 빈 판매 필드를 채운다).
+     * 기본(resync=false)은 종전대로 스킵 — 안 그러면 매 저장마다 중복 전송이 된다.
+     */
+    public function test_resync_job_pushes_already_synced_listing(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'hs']);
+        Http::fake(['*' => Http::response(['vehicle_id' => 188, 'fields_filled' => ['sale_price']], 200)]);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'synced', 'car_erp_vehicle_id' => 188, 'car_cost' => 5000000,
+            'sale_price' => 8590, 'offer_currency' => 'USD', 'offer_rate' => 1380,
+        ]);
+
+        // 기본 모드 = 스킵(이미 synced)
+        (new SyncWonListingToCarErp($l->id))->handle();
+        Http::assertNothingSent();
+
+        // resync = 전송한다. 판매 3종이 실린다.
+        (new SyncWonListingToCarErp($l->id, resync: true))->handle();
+        Http::assertSent(function ($req) {
+            $b = json_decode($req->body(), true);
+            $this->assertSame(8590.0, (float) $b['sale_price']);
+            $this->assertSame('USD', $b['sale_currency']);
+            $this->assertSame(1380, (int) $b['sale_exchange_rate']);
+
+            return true;
+        });
+
+        $l->refresh();
+        $this->assertSame('synced', $l->status);   // 이미 synced 면 그대로(전이 없음)
+    }
+
     /** 첨부가 없으면 "없다"고 말한다 — 빈 화면은 "못 불러온 것"과 구분이 안 된다. */
     public function test_listings_drawer_says_when_no_attachments(): void
     {
@@ -2134,9 +2221,11 @@ class BoardTest extends TestCase
             ->assertHasNoErrors();
 
         $l->refresh();
-        $this->assertNull($l->car_erp_vehicle_id);   // 멱등 포인터 비움 → 재전송 가드 통과
-        $this->assertSame('won', $l->status);         // synced→won 되돌림(Job 가드용)
-        Bus::assertDispatched(SyncWonListingToCarErp::class);
+        // 2026-08-18: 예전엔 포인터를 비우고 won 으로 되돌려 Job 가드를 통과시켰다 — 전송이 실패하면
+        // 그 상태로 남아 차가 /auction 목록에 되살아났다. 이제 Job 이 resync 를 받으므로 **원장을 안 건드린다**.
+        $this->assertSame(188, $l->car_erp_vehicle_id);
+        $this->assertSame('synced', $l->status);
+        Bus::assertDispatched(fn (SyncWonListingToCarErp $job) => $job->listingId === $l->id && $job->resync === true);
     }
 
     public function test_sales_can_edit_own_listing(): void
@@ -4954,6 +5043,75 @@ class BoardTest extends TestCase
 
             return true;
         });
+    }
+
+    /**
+     * 판매계약서·프로포마·전자서명은 **선적 계획에서도** 된다(Jin 2026-08-18).
+     * 차량 id 기반이라 묶음(sync) 없이 발급되고, 차를 담아야 대상이 생기므로 빈 묶음엔 안 그린다.
+     * 선적 4종(roro_ · container_ 접두)은 실제 선적 단계 서류라 계획에 두지 않는다.
+     */
+    public function test_portal_plan_offers_sales_contract_and_signature(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 1, 'data' => [
+                ['vehicle_id' => 10, 'vehicle_number' => '11가1111', 'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignees' => []],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('portal.index')->call('setTab', 'shipping')->call('setShipSubtab', 'plan');
+
+        // 차를 담기 전 = 대상이 없으니 안 그린다.
+        $c->assertDontSee(__('portal.docs_sales_contract'));
+
+        $key = $c->get('desired')[0]['key'];
+        $c->call('assignVehicle', $key, 10)
+            ->assertSee(__('portal.docs_sales_contract'))
+            ->assertSee(__('portal.docs_proforma_invoice'))
+            ->assertSee(__('portal.sign_request_btn'))
+            ->assertDontSee(__('portal.docs_roro_contract'));   // 선적 4종은 묶음 화면에만
+    }
+
+    /**
+     * 422 사유를 **원문으로 갈라** 안내한다(ERP 2026-08-18 가드 추가).
+     * 전부 "동일 바이어"로 뭉뚱그리면 영업이 엉뚱한 곳을 고친다 — 실제로 sales_contract 403 을
+     * "동일 바이어"로 안내해 원인을 잘못 짚게 만든 전례가 있다.
+     */
+    public function test_portal_docs_422_reasons_are_distinguished(): void
+    {
+        $this->carErpReadConfig();
+        $this->actingAs($this->mkUser('sales'));
+
+        $cases = [
+            ['No buyer: 11가1111', 'flash_docs_no_buyer'],
+            ['No sale price: 22나2222', 'flash_docs_no_sale_price'],
+            ['Mixed buyers', 'flash_docs_homogeneous_required'],
+        ];
+        // ⚠️ Http::fake 를 루프마다 다시 부르면 스텁이 **누적**돼 첫 것이 계속 이긴다 → sequence 로 준다.
+        $seq = Http::sequence();
+        foreach ($cases as [$erpMsg, $_]) {
+            $seq->push($erpMsg, 422);
+        }
+        // 포털 마운트가 여러 엔드포인트를 먼저 부르므로 **서류 경로만** sequence 로 준다.
+        Http::fake([
+            '*/api/internal/board/documents/*' => $seq,
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        foreach ($cases as [$erpMsg, $langKey]) {
+            $note = Volt::test('portal.index')
+                ->call('downloadDocs', [10], 'RORO', 'sales_contract')
+                ->get('shipNote');
+
+            $this->assertStringContainsString(
+                mb_substr(__('portal.'.$langKey, ['detail' => $erpMsg]), 0, 12),
+                (string) $note,
+                "422 '{$erpMsg}' 가 {$langKey} 로 안내돼야 한다. 실제 = ".(string) $note,
+            );
+        }
     }
 
     /** RORO 묶음엔 운임비를 안 싣는다 — ERP 가 조용히 버리므로(에러가 아니라) board 가 먼저 뺀다. */

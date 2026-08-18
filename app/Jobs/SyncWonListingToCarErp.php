@@ -27,7 +27,14 @@ class SyncWonListingToCarErp implements ShouldQueue
 
     public int $tries = 5;
 
-    public function __construct(public int $listingId) {}
+    /**
+     * @param  bool  $resync  이미 동기화된 차를 **다시 밀어** 빈 판매 필드를 채우게 한다(2026-08-18).
+     *                        car-erp 가 멱등 경로에서 fill-if-empty 를 하므로, 급하게 매입가만 보낸 차에
+     *                        나중에 판매가·통화·환율을 넣어 보내면 그때 채워진다.
+     *                        🚫 `car_erp_vehicle_id` 를 지워서 되돌리는 방식은 쓰지 말 것 —
+     *                        전송이 실패하면 "미연동 + won" 상태로 남아 그 차가 /auction 목록에 되살아난다.
+     */
+    public function __construct(public int $listingId, public bool $resync = false) {}
 
     /** 재시도 백오프(초): 1분 → 5분 → 15분 → 30분 */
     public function backoff(): array
@@ -48,8 +55,16 @@ class SyncWonListingToCarErp implements ShouldQueue
         // 큐 컨텍스트엔 Auth 없음 → SalesmanScope 명시 제거(방어)
         $l = PurchaseListing::withoutGlobalScope(SalesmanScope::class)->find($this->listingId);
 
-        // 멱등/상태 가드: 이미 동기화됐거나 won 이 아니면 스킵
-        if (! $l || $l->status !== 'won' || $l->car_erp_vehicle_id !== null) {
+        // 멱등/상태 가드: 이미 동기화됐거나 won 이 아니면 스킵.
+        // resync 는 그 두 조건을 뚫는다 — 대신 **won/synced 만** 허용(draft 를 밀어 보내지 않게).
+        if (! $l) {
+            return;
+        }
+        if ($this->resync) {
+            if (! in_array($l->status, ['won', 'synced'], true)) {
+                return;
+            }
+        } elseif ($l->status !== 'won' || $l->car_erp_vehicle_id !== null) {
             return;
         }
 
@@ -86,6 +101,13 @@ class SyncWonListingToCarErp implements ShouldQueue
             $offer = $l->offerAmount($usdR, $eurR);         // 판매 통화/환율(현지확인 확정)
             $saleCurrency = $offer['currency'] ?? null;
             $saleRate = $offer['rate'] ?? null;
+            // 급해서 매입가만 넣고 보낸 차 — 견적 씬을 안 타 final_price 가 없으면 offerAmount() 가 null 을 준다.
+            // 나중에 영업이 매입예정 드로어에서 채운 컬럼으로 폴백한다(2026-08-18).
+            // ⚠️ 환율이 없으면 car-erp 가 **판매가를 통째로 보류**한다(fill-if-empty 도 마찬가지) → 세트로 실어야 한다.
+            if (! $saleCurrency || ! $saleRate) {
+                $saleCurrency = $l->offer_currency ?: $saleCurrency;
+                $saleRate = (int) ($l->offer_rate ?: 0) ?: $saleRate;
+            }
         }
         // 판매가(차량 판매분) = 차량금액 → 판매통화. car-erp sale_price = 판매통화 기준.
         // 셀프검차매입은 견적 씬이 없어 파생계산의 근거(할인율·차감액)가 없다 → 영업이 적은 값을 그대로 쓴다.
@@ -172,7 +194,9 @@ class SyncWonListingToCarErp implements ShouldQueue
         }
 
         $l->car_erp_vehicle_id = (int) $vehicleId;
-        $l->status = 'synced';   // won→synced (TRANSITIONS 허용)
+        if ($l->status === 'won') {
+            $l->status = 'synced';   // won→synced (TRANSITIONS 허용). 이미 synced 면 그대로 둔다(resync).
+        }
         $l->save();
     }
 }
