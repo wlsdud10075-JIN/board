@@ -265,11 +265,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l = PurchaseListing::findOrFail($this->editingId);
         abort_unless(in_array($l->status, ['won', 'synced'], true), 422);
 
-        $l->car_erp_vehicle_id = null;
-        $l->status = 'won';      // Job 가드가 won 요구 (synced 였으면 되돌림)
-        $l->saveQuietly();       // 전이가드·won-트리거 우회 → 아래서 단일 명시 발사
-
-        SyncWonListingToCarErp::dispatch($l->id);
+        // 2026-08-18: 예전엔 car_erp_vehicle_id 를 지우고 status 를 won 으로 되돌려 Job 가드를 통과시켰는데,
+        // 전송이 실패하면 그 상태로 남아 **차가 /auction 목록에 되살아났다**. 이제 Job 이 resync 를 받는다.
+        SyncWonListingToCarErp::dispatch($l->id, resync: true);
 
         session()->flash('ok', __('manage.resynced', ['vehicle' => $l->vehicle_number]));
         $this->closeEdit();

@@ -504,6 +504,14 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
 - ⚠️ **환율을 안 보내면 판매가가 통째로 안 들어간다** → 화면은 **판매가·통화·환율을 함께** 받아야 한다(판매가만 받는 칸 ❌).
 - ⚠️ `sale_date` = 수신일이면 **채권 유예 기산점도 그날**이다. 실제 판매가 한 달 전이었으면 독촉이 한 달 늦어진다
   (선적 전 한정, 관리가 ERP 에서 수정 가능).
-- **board 몫(착수 가능 — ERP 답 기다릴 필요 없음)** = ① **영업용 재전송 경로**(지금은 `/manage` 관리·super 전용)
-  ② ⚠️ **`synced` 된 차의 판매가·통화·환율 입력 화면이 없다**(`/auction` 목록이 accepted·won·failed 라 synced 는 빠진다)
-  ③ `fields_filled` 를 읽어 "무엇이 반영됐는지" 보여주기.
+- ✅ **board 구현 완료(2026-08-18)** — 자리 = **`/listings`(매입예정) 편집 드로어**(`_erp-resend.blade.php`).
+  `/auction` 은 accepted·won·failed 라 **synced 가 빠지고**, 매입예정은 본인 차를 **전 상태로** 여는 유일한 화면이라서.
+- **판매가·통화·환율을 세트로** 받는다 — 통화/환율이 없으면 **board 가 먼저 막는다**(ERP 가 조용히 보류하기 전에
+  사유를 말한다). KRW 면 환율 1 자동.
+- ⚠️ **Job 에 `resync` 플래그**(`SyncWonListingToCarErp::dispatch($id, resync: true)`) — `won`·`synced` 둘 다 허용하고
+  이미 synced 면 **상태 전이를 안 한다**. 🚫 **예전 `/manage` 방식(`car_erp_vehicle_id=null` + `status='won'` 되돌림)을
+  다시 쓰지 말 것** — 전송이 실패하면 그 상태로 남아 **차가 `/auction` 목록에 되살아난다**. manage 도 resync 로 전환했다.
+- **결과는 `integration_events.response_body`** 에서 읽는다(별도 컬럼 없음). `fields_filled` 가 비면
+  **초록이 아니라 노랑 + 사유**(`already_set`·`missing_exchange_rate`)를 편다.
+- ⚠️ 일반 경로(셀프검차 아님)는 통화·환율을 `offerAmount()`(final_price 기반)에서 얻는데, 급하게 보낸 차는
+  **final_price 가 없어 null** 이다 → Job 이 `offer_currency`·`offer_rate` **컬럼으로 폴백**한다.
