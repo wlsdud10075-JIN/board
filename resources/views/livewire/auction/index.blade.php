@@ -537,13 +537,27 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 return;
             }
+
+            // 딜러 첨부 필수 (2026-08-18 Jin) — 첨부 없이 확정하면 ERP 첨부탭이 빈 채로 생긴다.
+            // 🚫 "확정은 하되 전송만 보류"는 안 쓴다 — 연동 B 는 won 진입 시 **1회 발사**라 자동 재시도가 없고,
+            //    사람이 재전송을 안 누르면 **그 차는 영영 ERP 에 없다**(한참 뒤에 발견 = 최악).
+            //    여기서 막으면 놓칠 수가 없다. 이번에 올리는 파일도 대상에 넣는다(그 자리 업로드가 정상 흐름).
+            $attachCount = $l->salesAttachments()->count() + count(array_filter($this->salesFiles));
+            if ($attachCount === 0) {
+                $this->addError('salesFiles', __('auction.err_attachment_required'));
+
+                return;
+            }
         }
 
-        $l->status = $result;
-        $l->save();
+        // ⚠️ 첨부를 **status 저장보다 먼저** 넣는다 — `won` 저장이 모델 훅에서 연동 B 를 발사하는데,
+        //    로컬(QUEUE_CONNECTION=sync)은 그 자리에서 즉시 실행돼 **이번에 올린 파일이 payload 에서 빠진다**.
+        //    운영(database 큐)은 워커가 늦게 집어 우연히 실리던 것 = 타이밍에 기대는 구조였다(2026-08-18 수정).
         if ($result === 'won') {
             $this->storeSalesFiles($l);   // 딜러 첨부(사진·서류) 저장 → 연동 B 로 car-erp 전달
         }
+        $l->status = $result;
+        $l->save();
         $this->reset(['detailId', 'owner_name', 'payee_name', 'payee_bank', 'payee_account',
             'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account',
             'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts', 'salesFiles']);

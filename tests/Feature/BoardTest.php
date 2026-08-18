@@ -59,7 +59,7 @@ class BoardTest extends TestCase
 
     private function mkListing(User $owner, array $attr = []): PurchaseListing
     {
-        return PurchaseListing::create(array_merge([
+        $l = PurchaseListing::create(array_merge([
             'created_by_user_id' => $owner->id,
             'source' => 'encar',
             'vehicle_number' => '12가'.(1000 + (++$this->seq)),
@@ -70,6 +70,17 @@ class BoardTest extends TestCase
             // 미선택 동작은 `test_conclude_requires_buyer` 에서 명시적으로 null 로 덮어 검증한다.
             'car_erp_buyer_id' => 7,
         ], $attr));
+
+        // 구매확정은 **첨부 필수**다(2026-08-18 Jin) → 정상 매물의 기본값으로 1건 붙인다.
+        // 첨부 없는 동작은 `test_conclude_requires_attachment` 에서 명시적으로 지워 검증한다.
+        $l->salesAttachments()->create([
+            's3_path' => 'sales/photos/fixture-'.$l->id.'.jpg',
+            'original_name' => 'fixture.jpg',
+            'sort' => 1,
+            'kind' => InspectionPhoto::KIND_SALES_PHOTO,
+        ]);
+
+        return $l;
     }
 
     /**
@@ -182,11 +193,72 @@ class BoardTest extends TestCase
         $this->assertSame('synced', $l->status);   // 이미 synced 면 그대로(전이 없음)
     }
 
+    /**
+     * 첨부 없이 구매확정하면 ERP 첨부탭이 빈 채로 생긴다 → **확정 자체를 막는다**(Jin 2026-08-18).
+     * 🚫 "확정은 하되 전송만 보류"가 아니다 — 연동 B 는 won 진입 시 1회 발사라 자동 재시도가 없고,
+     *    사람이 재전송을 안 누르면 그 차는 영영 ERP 에 없다.
+     */
+    public function test_conclude_requires_attachment(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'final_price' => 5000000]);
+        $l->salesAttachments()->delete();   // 첨부 없는 상태로 만든다
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')
+            ->call('openDetail', $l->id)
+            ->set('owner_name', '차주')
+            ->set('buyerId', 7)
+            ->call('conclude', $l->id, 'won')
+            ->assertHasErrors('salesFiles');
+
+        $this->assertSame('accepted', $l->fresh()->status);   // 상태가 안 넘어간다
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+    }
+
+    /**
+     * ⚠️ 첨부는 **status 저장보다 먼저** 들어가야 한다 — `won` 저장이 모델 훅에서 연동 B 를 발사하는데,
+     * 로컬(sync 큐)은 즉시 실행돼 **그 자리에서 올린 파일이 payload 에서 빠졌다**. 운영은 워커가 늦게 집어
+     * 우연히 실리던 것 = 타이밍에 기대는 구조였다. 이 테스트가 순서를 고정한다.
+     */
+    public function test_attachment_is_saved_before_sync_fires(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'hs']);
+        Storage::fake('public');
+        Http::fake(['*' => Http::response(['vehicle_id' => 501], 200)]);
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'final_price' => 5000000]);
+        // ⚠️ 픽스처 첨부는 이미 DB 에 있어 순서와 무관하게 실린다 → **그 자리에서 올리는 파일**로 봐야
+        //    저장 순서가 실제로 검증된다(이게 실패했던 진짜 경로다).
+        $l->salesAttachments()->delete();
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')
+            ->call('openDetail', $l->id)
+            ->set('owner_name', '차주')
+            ->set('buyerId', 7)
+            ->set('salesFiles', [UploadedFile::fake()->image('dealer.jpg')])
+            ->call('conclude', $l->id, 'won')
+            ->assertHasNoErrors();
+
+        // 전송 payload 에 첨부가 실려 있어야 한다(픽스처 1건).
+        Http::assertSent(function ($req) {
+            // ⚠️ 매입 락 조회(GET)도 같이 나가므로 **연동 B 경로만** 본다(body 가 빈 요청을 잡으면 헛다리).
+            if (! str_contains($req->url(), 'purchase-sync')) {
+                return false;
+            }
+            $b = json_decode($req->body(), true);
+            $this->assertNotEmpty($b['attachments'] ?? [], '첨부가 payload 에 실려야 한다 — 저장 순서가 뒤집혔다');
+
+            return true;
+        });
+    }
+
     /** 첨부가 없으면 "없다"고 말한다 — 빈 화면은 "못 불러온 것"과 구분이 안 된다. */
     public function test_listings_drawer_says_when_no_attachments(): void
     {
         $kim = $this->mkUser('sales');
         $l = $this->mkListing($kim);
+        $l->salesAttachments()->delete();   // 픽스처 기본 첨부 제거 — "없을 때"를 보는 테스트다
 
         $this->actingAs($kim);
         Volt::test('listings.index')
@@ -311,6 +383,11 @@ class BoardTest extends TestCase
             ->assertRedirect(route('auction'));
 
         $l = PurchaseListing::where('vin', 'SELFVIN0001')->first();
+        // 셀프검차매입은 등록 화면에 첨부 UI 가 없다 → 구매확정 화면에서 붙이는 게 정상 흐름(첨부 필수, 2026-08-18).
+        $l->salesAttachments()->create([
+            's3_path' => 'sales/photos/self.jpg', 'original_name' => 'self.jpg',
+            'sort' => 1, 'kind' => InspectionPhoto::KIND_SALES_PHOTO,
+        ]);
         $this->assertNotNull($l);
         $this->assertSame('encar', $l->source);            // 즉시구매 — 경매 10:00 잠금 대상 아님
         $this->assertNull($l->lock_at);
@@ -451,6 +528,7 @@ class BoardTest extends TestCase
     public function test_sales_attachments_separate_from_inspection_photos(): void
     {
         $l = $this->mkListing($this->mkUser('sales'));
+        $l->salesAttachments()->delete();   // 픽스처 기본 첨부 제거 — 이 테스트는 **개수**를 센다
         $l->photos()->create(['s3_path' => 'i/insp.jpg', 'original_name' => 'insp.jpg', 'sort' => 1, 'kind' => InspectionPhoto::KIND_INSPECTION]);
         $l->salesAttachments()->create(['s3_path' => 's/photo.jpg', 'original_name' => 'photo.jpg', 'sort' => 1, 'kind' => InspectionPhoto::KIND_SALES_PHOTO]);
         $l->salesAttachments()->create(['s3_path' => 's/reg.pdf', 'original_name' => 'reg.pdf', 'sort' => 2, 'kind' => InspectionPhoto::KIND_SALES_DOCUMENT]);
@@ -549,6 +627,7 @@ class BoardTest extends TestCase
         Http::fake(['*/api/internal/purchase-sync' => Http::response(['vehicle_id' => 900], 200)]);
 
         $l = $this->mkListing($this->mkUser('sales'), ['status' => 'won', 'source' => 'auction', 'final_price' => 9000000]);
+        $l->salesAttachments()->delete();   // 픽스처 기본 첨부 제거 — 이 테스트는 **개수**를 센다
         $l->photos()->create(['s3_path' => 'i/x.jpg', 'original_name' => 'x.jpg', 'sort' => 1, 'kind' => InspectionPhoto::KIND_INSPECTION]);
         $l->salesAttachments()->create(['s3_path' => 's/a.jpg', 'original_name' => 'a.jpg', 'sort' => 1, 'kind' => InspectionPhoto::KIND_SALES_PHOTO]);
         $l->salesAttachments()->create(['s3_path' => 's/r.pdf', 'original_name' => 'r.pdf', 'sort' => 2, 'kind' => InspectionPhoto::KIND_SALES_DOCUMENT]);
@@ -1417,6 +1496,7 @@ class BoardTest extends TestCase
         $kim = $this->mkUser('sales');
         $this->actingAs($kim);
         $l = $this->mkListing($kim);
+        $l->salesAttachments()->delete();   // 픽스처 기본 첨부 제거 — 이 테스트는 **개수**를 센다
         for ($i = 1; $i <= 9; $i++) {
             $l->salesAttachments()->create(['s3_path' => "s/e{$i}.jpg", 'original_name' => "e{$i}.jpg", 'sort' => $i, 'kind' => InspectionPhoto::KIND_SALES_PHOTO]);
         }
@@ -5650,6 +5730,26 @@ class BoardTest extends TestCase
             array_filter($m[1], fn ($d) => str_contains($d, 'toggle()') && str_contains($d, 'closeMobile()')),
             'x-data 가 중간에 잘렸다 — 안에 큰따옴표가 있는지 확인',
         );
+    }
+
+    /**
+     * 모바일 사이드바 중복토글 가드는 **window 기준**이어야 한다(2026-08-18 재발 수정).
+     *
+     * `wire:navigate` 로 화면을 오가면 이 레이아웃의 Alpine 인스턴스가 누적된다(같은 파일의 비프음이
+     * `window.__boardBeepLast` 로 해결한 그 문제). 가드를 컴포넌트 프로퍼티에 두면 **인스턴스마다 자기
+     * 타임스탬프를 가져 가드가 통째로 무효**가 된다 — 2026-08-01 에 넣은 300ms 가드가 안 들었던 이유다.
+     * 새로고침하면 멀쩡한 것이 그 증상의 지문이다(인스턴스가 하나라서).
+     */
+    public function test_sidebar_toggle_guard_is_window_scoped(): void
+    {
+        $this->actingAs($this->mkUser('manager'));
+        $html = $this->get('/listings')->assertOk()->getContent();
+
+        $this->assertStringContainsString('window.__boardSidebarToggleAt', $html);
+        $this->assertStringContainsString('window.__boardSidebarOpenedAt', $html);
+        // 인스턴스 프로퍼티로 되돌아가면 다시 무효가 된다.
+        $this->assertStringNotContainsString('this.lastToggle', $html);
+        $this->assertStringNotContainsString('this.openedAt', $html);
     }
 
     /** 지역 입력은 datalist(모바일에서 안 뜬다) 대신 Alpine 자동완성이어야 한다 — 되돌아가는 것 방지. */
