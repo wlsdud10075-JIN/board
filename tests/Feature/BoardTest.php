@@ -4476,26 +4476,41 @@ class BoardTest extends TestCase
         Http::assertNotSent(fn ($req) => str_contains($req->url(), 'salesman_email=other%40ce.test'));
     }
 
-    public function test_portal_super_impersonation_is_view_only(): void
+    /**
+     * super 는 남의 포털에서도 **대신 실행**할 수 있다(Jin 2026-08-18 — "시스템관리자는 다 되게, erp처럼").
+     * 예전엔 조회 전용이라 선적 계획 탭이 통째로 비어 보였다.
+     *
+     * ⚠️ 요청은 **그 영업 명의**(`salesman_email`)로 car-erp 에 간다 — ERP 관리는 그 영업이 한 것으로 본다.
+     *    그래서 화면 배너가 명의를 밝힌다(그게 이 정책의 유일한 안전장치다).
+     */
+    public function test_portal_super_can_act_on_behalf_of_other(): void
     {
         $this->carErpReadConfig();
         Http::fake([
-            '*/api/internal/board/shipping-requests/sync*' => Http::response(['created' => [1]], 200),
+            '*/api/internal/board/bundles*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 1, 'data' => [
+                ['vehicle_id' => 10, 'vehicle_number' => '11가1111', 'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignees' => []],
+            ]], 200),
+            '*/api/internal/board/shipping-requests/sync*' => Http::response(['created' => [10], 'updated' => [], 'cancelled' => [], 'skipped' => [], 'locked' => []], 200),
             '*' => Http::response(['count' => 0, 'data' => []], 200),
         ]);
         $target = $this->mkUser('sales');
         $target->update(['car_erp_salesman_email' => 'target@ce.test']);
         $this->actingAs($this->mkUser('manager', null, 'super'));
 
-        Volt::test('portal.index')
-            ->call('viewUser', $target->id)              // super 가 타인 열람
-            ->call('setTab', 'shipping')
-            ->call('syncBundles')                        // 쓰기 시도 → 차단
-            ->assertSet('syncResult', null)
-            ->assertSee('조회 전용');
+        $c = Volt::test('portal.index')
+            ->call('viewUser', $target->id)
+            ->call('setTab', 'shipping')->call('setShipSubtab', 'plan');
 
-        // 동기화가 car-erp 로 전송되지 않음(타인 대행 쓰기 차단).
-        Http::assertNotSent(fn ($req) => str_contains($req->url(), 'shipping-requests/sync'));
+        $c->assertSee($target->name)                      // 배너가 누구 명의인지 밝힌다
+            ->assertDontSee(__('portal.ship_view_only_note', ['name' => $target->name]));
+
+        $key = $c->get('desired')[0]['key'];               // 계획 화면이 실제로 그려진다(예전엔 통째로 없었다)
+        $c->call('assignVehicle', $key, 10)->call('syncBundles');
+
+        // 그 영업 명의로 전송된다.
+        Http::assertSent(fn ($req) => str_contains($req->url(), 'shipping-requests/sync')
+            && str_contains($req->url(), 'target%40ce.test'));
     }
 
     public function test_portal_degrades_when_not_configured(): void

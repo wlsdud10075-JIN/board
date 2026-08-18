@@ -5,7 +5,7 @@
 return [
     // 헤더
     'title' => '내 정산·미수·선적 (포털)',
-    'viewing_other' => ':name 님의 정보 조회 중 — car-erp 원장 읽기. 수정·선적실무는 car-erp.',
+    'viewing_other' => ':name 님의 포털 — 시스템관리자는 대신 실행할 수 있습니다. ⚠️ 요청은 :name 님 명의로 car-erp에 전달됩니다.',
     'viewing_self' => '본인(:name) 정보만 — car-erp 원장 읽기. 수정·선적실무는 car-erp.',
     'footer_note' => '읽기전용(car-erp 원장). 금액·정산·선적 실무 수정은 car-erp 담당에게. 선적요청은 car-erp 관리에게 알람으로 전달됩니다.',
 
@@ -39,7 +39,6 @@ return [
     'degrade_default' => '지금은 car-erp 정보를 불러올 수 없습니다. 잠시 후 다시 시도하세요.',
 
     // flash (선적·서류)
-    'flash_view_only_ship' => '조회 전용입니다. 선적요청은 본인 계정에서 진행하세요.',
     'flash_select_vehicle' => '차량을 선택하세요.',
     'flash_ship_failed' => '선적요청 전송 실패 — 잠시 후 다시 시도하세요.',
 
@@ -52,7 +51,6 @@ return [
     'req_sale_btn' => '판매대금확인',
     'req_sale_btn_n' => '판매대금확인 (:count대)',
     'req_note_ph' => '메모 (선택) — 예: 5/12 송금분',
-    'req_blocked_viewing' => '다른 사람 포털을 열람 중입니다 — 전송 불가(조회 전용).',
     'req_blocked_unconfigured' => 'car-erp 연결이 설정되지 않았습니다 — 전송 불가.',
     'req_blocked_no_vehicle_id' => '전송 불가 — ERP가 이 행의 차량 id 를 주지 않습니다.',
     'req_blocked_short' => '전송 불가',
@@ -68,7 +66,6 @@ return [
     'req_chip_cancelled' => '취소됨',
     'req_chip_progress' => ':done/:total 확인',
     'req_chip_unavailable' => '요청 상태를 조회하지 못했습니다 — 아래 상태 표시가 비어 있어도 "요청 안 함"이라는 뜻이 아닙니다.',
-    'flash_view_only_docs' => '조회 전용입니다. 서류는 본인 계정에서 받으세요.',
     'flash_select_vehicle_docs' => '서류 받을 차량을 선택하세요.',
     'flash_docs_failed' => '서류를 불러올 수 없습니다. (car-erp 연동 확인)',
     'flash_docs_sales_contract_failed' => '판매계약서를 발급할 수 없습니다. 동일 바이어·단일 통화 차량만 함께 발급됩니다. (묶음 구성/연동 확인)',

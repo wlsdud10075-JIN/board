@@ -5,7 +5,7 @@
 return [
     // Header
     'title' => 'My Settlement / Receivables / Shipping (Portal)',
-    'viewing_other' => "Viewing :name's information — car-erp ledger (read-only). Edits and shipping operations are in car-erp.",
+    'viewing_other' => ":name's portal — a system administrator may act on their behalf. Requests are sent to car-erp under :name's name.",
     'viewing_self' => 'Your information only (:name) — car-erp ledger (read-only). Edits and shipping operations are in car-erp.',
     'footer_note' => 'Read-only (car-erp ledger). For edits to amounts, settlement, or shipping operations, contact the car-erp owner. Shipping requests are sent to car-erp managers as an alert.',
 
@@ -39,7 +39,6 @@ return [
     'degrade_default' => 'car-erp information cannot be loaded right now. Please try again shortly.',
 
     // flash (shipping / documents)
-    'flash_view_only_ship' => 'View-only. Submit shipping requests from your own account.',
     'flash_select_vehicle' => 'Select a vehicle.',
     'flash_ship_failed' => 'Failed to send shipping request — please try again shortly.',
 
@@ -52,7 +51,6 @@ return [
     'req_sale_btn' => 'Confirm sale payment',
     'req_sale_btn_n' => 'Confirm sale payment (:count)',
     'req_note_ph' => 'Note (optional) — e.g. transfer of 5/12',
-    'req_blocked_viewing' => 'Viewing another user\'s portal — cannot send (read-only).',
     'req_blocked_unconfigured' => 'car-erp connection is not configured — cannot send.',
     'req_blocked_no_vehicle_id' => 'Cannot send — ERP did not provide a vehicle id for this row.',
     'req_blocked_short' => 'Cannot send',
@@ -68,7 +66,6 @@ return [
     'req_chip_cancelled' => 'Cancelled',
     'req_chip_progress' => ':done/:total confirmed',
     'req_chip_unavailable' => 'Could not load request status — an empty status below does not mean "not requested".',
-    'flash_view_only_docs' => 'View-only. Download documents from your own account.',
     'flash_select_vehicle_docs' => 'Select the vehicle(s) to get documents for.',
     'flash_docs_failed' => 'Could not load documents. (Check the car-erp integration)',
     'flash_docs_sales_contract_failed' => 'Could not issue the sales contract. Only vehicles with the same buyer and single currency can be issued together. (Check bundle composition / integration)',
