@@ -51,6 +51,7 @@ return [
     'buyer_lock_unsecured' => '무담보 잔액 :current원 / 한도 :limit원',
     'buyer_lock_ratio' => '미수율 :current% / 임계 :limit%',
     'buyer_lock_notice' => 'ERP 관리자 승인이 필요합니다. 승인 후 다시 시도하세요.',
+    'err_attachment_required' => '차량 사진·서류를 최소 1건 첨부해야 구매확정할 수 있습니다 — 확정 시 car-erp 첨부탭으로 함께 전달됩니다.',
     'err_buyer_required' => '바이어를 선택해야 구매확정할 수 있습니다.',
     'err_buyer_purchase_locked' => '이 바이어는 매입 등록이 막혀 있습니다 — ERP 관리자 승인 후 구매확정할 수 있습니다.',
     'err_currency_required' => '견적통화를 골라야 합니다. 안 고르면 판매가가 원화로 기록됩니다(8,590 USD → 8,590원).',

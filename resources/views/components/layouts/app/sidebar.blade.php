@@ -94,29 +94,31 @@
         open: localStorage.getItem('sidebar-open') !== 'false',
         mobileOpen: false,
         isMobile: window.innerWidth < 768,
-        openedAt: 0,
-        lastToggle: 0,
         // ⚠️ 이 x-data 는 큰따옴표 HTML 속성 안이다 — 주석에도 큰따옴표를 쓰면 속성이 거기서 끊겨
         //    Alpine 이 통째로 죽는다(사이드바가 아예 안 열림). 작은따옴표만 쓸 것.
         // 햄버거 한 번 탭에 이 핸들러가 두 번 실행되면 열렸다가 즉시 접히는 것처럼 보인다.
-        // wire:navigate 로 화면을 오가다 보면 핸들러가 중복 실행되는 사례가 이 레이아웃에 있었다
-        // (전달대기 비프음 2회 울림·백드롭 ghost click 과 같은 계열). 새로고침하면 멀쩡한 것도 그 특징.
-        // 사람이 300ms 안에 두 번 토글할 일은 없으므로 그 구간의 두 번째 호출은 버린다.
+        // wire:navigate 로 화면을 오가면 이 레이아웃의 핸들러/인스턴스가 **누적**된다
+        // (같은 파일 아래 비프음이 겪은 그 문제 — window.__boardBeepLast 로 해결했다).
+        // 새로고침하면 멀쩡한 것이 그 특징이다: 인스턴스가 하나뿐이라서.
+        //
+        // ⚠️ 그래서 가드를 **컴포넌트 프로퍼티에 두면 안 된다** — 인스턴스가 둘이면 각자 자기
+        //    lastToggle 을 가져 가드가 통째로 무효가 된다(2026-08-01 에 넣은 300ms 가드가 안 들었던 이유).
+        //    시간을 늘리지 말고 window 에 둔다. 인스턴스가 몇 개든 하나를 본다.
         toggle() {
             const now = Date.now();
-            if (now - this.lastToggle < 300) { return; }
-            this.lastToggle = now;
+            if (window.__boardSidebarToggleAt && now - window.__boardSidebarToggleAt < 300) { return; }
+            window.__boardSidebarToggleAt = now;
 
             if (this.isMobile) {
                 this.mobileOpen = !this.mobileOpen;
-                if (this.mobileOpen) { this.openedAt = Date.now(); }
+                if (this.mobileOpen) { window.__boardSidebarOpenedAt = Date.now(); }
             }
             else { this.open = !this.open; localStorage.setItem('sidebar-open', this.open); }
         },
         // 여는 탭의 잔여 합성클릭(ghost click)이 백드롭/링크에 떨어져 즉시 닫히는 것 방지(안드 크롬).
-        // 실제 메뉴 탭은 연 뒤 한참 후라 영향 없음.
+        // 이것도 같은 이유로 window 기준이다 — 연 인스턴스와 닫는 인스턴스가 다를 수 있다.
         closeMobile() {
-            if (this.isMobile && Date.now() - this.openedAt < 400) { return; }
+            if (this.isMobile && Date.now() - (window.__boardSidebarOpenedAt || 0) < 400) { return; }
             this.mobileOpen = false;
         }
      }"
