@@ -1206,12 +1206,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     @endif
                                 </div>
                             @endif
-                            {{-- 서류 (4종 중 method별 2종) + 전자서명 칩(§10-2 상태 폴링) --}}
-                            @php
-                                $signKey = $batchId ?: implode('-', array_values(array_map('intval', $vIds)));
-                                $signSt = $signStatus[$signKey]['status'] ?? 'none';   // none|pending|viewed|signed
-                                $signContractNo = $signStatus[$signKey]['contract_no'] ?? null;
-                            @endphp
+                            {{-- 선적 4종 중 method별 2종 — **실제 선적 단계 서류라 묶음에만** 둔다. --}}
                             <div class="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
                                 {{-- 버튼 이름은 car-erp 차량화면(vehicle.shipdoc.*)과 **같은 이름**을 쓴다.
                                      board 에서 새로 짓지 말 것 — 이름이 갈리면 "ERP엔 그런 서류 없다" 가 된다. --}}
@@ -1219,44 +1214,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <span class="text-gray-400">{{ __('portal.docs_label', ['method' => $method ?: 'RORO']) }}</span>
                                 <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'contract')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_'.$docMethod.'_contract') }}</button>
                                 <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'invoice_packing')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_'.$docMethod.'_invoice_packing') }}</button>
-                                <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'sales_contract')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_sales_contract') }}</button>
-                                {{-- 프로포마 인보이스 — car-erp 타입명은 'invoice'(위 인보이스·패킹과 다른 서류). --}}
-                                <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'invoice')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_proforma_invoice') }}</button>
-                                @if ($signSt === 'signed')
-                                    {{-- 서명완료(녹색) — ERP 칩과 동일 그림. 가격정정 재서명은 재요청으로. --}}
-                                    <span class="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-[11px] font-bold text-green-700">✓ {{ __('portal.sign_st_signed') }}@if ($signContractNo)<span class="font-normal">· {{ $signContractNo }}</span>@endif</span>
-                                    <button wire:click="requestSignature({{ json_encode($vIds) }}, '{{ $batchId }}')" wire:confirm="{{ __('portal.sign_reissue_confirm') }}" class="btn-ghost btn-sm">↻ {{ __('portal.sign_reissue_btn') }}</button>
-                                @elseif ($signSt === 'pending' || $signSt === 'viewed')
-                                    {{-- 서명 대기 — 링크 재발급(바이어 재전송)은 재요청. --}}
-                                    <span class="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-700">⏳ {{ __('portal.sign_st_pending') }}</span>
-                                    <button wire:click="requestSignature({{ json_encode($vIds) }}, '{{ $batchId }}')" wire:confirm="{{ __('portal.sign_reissue_confirm') }}" class="btn-ghost btn-sm">↻ {{ __('portal.sign_reissue_btn') }}</button>
-                                @else
-                                    <button wire:click="requestSignature({{ json_encode($vIds) }}, '{{ $batchId }}')" wire:confirm="{{ __('portal.sign_request_confirm') }}" class="btn-ghost btn-sm">✍️ {{ __('portal.sign_request_btn') }}</button>
-                                @endif
                             </div>
-                            {{-- §10 전자서명 세션 발급 결과 — signed_url 을 바이어에게 직접 전달(카톡/SNS/이메일). ERP 는 전달 대행 안 함. --}}
-                            @php $sign = $signResults[$signKey] ?? null; @endphp
-                            @if ($sign)
-                                <div class="mt-2 rounded-md border border-blue-200 bg-blue-50 p-2.5 text-[12px]" x-data="{ copied: false }" wire:key="sign-{{ $batchId }}">
-                                    <p class="mb-1 font-semibold text-blue-800">
-                                        ✍️ {{ __('portal.sign_ready_title') }}
-                                        @if ($sign['contract_no'])<span class="ml-1 font-normal text-blue-600">{{ $sign['contract_no'] }}</span>@endif
-                                    </p>
-                                    <p class="mb-1.5 text-[11px] text-blue-600">{{ __('portal.sign_ready_hint') }}</p>
-                                    <div class="flex items-center gap-1.5">
-                                        <input type="text" readonly x-ref="signurl" value="{{ $sign['signed_url'] }}"
-                                            @focus="$event.target.select()" class="input-base flex-1 bg-white text-[11px]">
-                                        <button type="button" class="btn-ghost btn-sm shrink-0"
-                                            @click="navigator.clipboard.writeText($refs.signurl.value); copied = true; setTimeout(() => copied = false, 1500)">
-                                            <span x-show="!copied">📋 {{ __('portal.sign_copy_btn') }}</span>
-                                            <span x-show="copied" x-cloak class="text-green-600">✅ {{ __('portal.sign_copied') }}</span>
-                                        </button>
-                                    </div>
-                                    @if ($sign['expires_at'])
-                                        <p class="mt-1 text-[11px] text-gray-500">{{ __('portal.sign_expires', ['at' => \Illuminate\Support\Carbon::parse($sign['expires_at'])->format('Y-m-d H:i')]) }}</p>
-                                    @endif
-                                </div>
-                            @endif
+                            {{-- 판매계약서·프로포마·서명은 선적 계획에도 있다(Jin 2026-08-18). 여기서도 지우지 않는 이유 =
+                                 **착수(in_progress)·완료된 묶음은 계획 화면에 안 뜬다**(desired = requested 만).
+                                 묶음에서 빼면 그 차들의 계약서·서명을 뽑을 자리가 사라진다. --}}
+                            @include('livewire.portal._sales-docs', ['vIds' => $vIds, 'method' => $method, 'batchId' => $batchId])
                             {{-- 변경요청 (in_progress = 관리 착수 → 자동변경 불가, 명시 요청만) --}}
                             @if ($busy)
                                 <div class="mt-2 border-t border-gray-200 pt-2">
@@ -1392,6 +1354,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                                 @endforeach
                                             </div>
                                             {{-- 운임비는 컨테이너에서만 총액으로 쓴다(Jin). RORO 로 보내면 ERP 가 조용히 버린다. --}}
+                                            @php $planVIds = array_values(array_map('intval', $bd['vehicle_ids'])); @endphp
                                             @if ($method === 'CONTAINER')
                                                 <span class="inline-flex items-center gap-1">
                                                     <input type="text" inputmode="numeric" autocomplete="off"
@@ -1404,6 +1367,15 @@ new #[Layout('components.layouts.app')] class extends Component {
                                                 </span>
                                             @endif
                                         </div>
+                                        {{-- 판매계약서·프로포마·전자서명 — 묶음까지 안 가고 여기서 바로(Jin 2026-08-18).
+                                             차량 id 기반이라 sync 전에도 발급된다. 차를 담아야 대상이 생기므로 빈 묶음엔 안 그린다. --}}
+                                        @if ($planVIds !== [])
+                                            @include('livewire.portal._sales-docs', [
+                                                'vIds' => $planVIds,
+                                                'method' => $method,
+                                                'batchId' => $bd['batch_id'] ?? null,
+                                            ])
+                                        @endif
                                     </div>
                                 @endforeach
                                 {{-- 같은 바이어 추가 선적(가끔 바이어당 여러 건) --}}

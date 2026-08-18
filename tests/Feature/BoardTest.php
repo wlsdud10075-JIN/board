@@ -4956,6 +4956,36 @@ class BoardTest extends TestCase
         });
     }
 
+    /**
+     * 판매계약서·프로포마·전자서명은 **선적 계획에서도** 된다(Jin 2026-08-18).
+     * 차량 id 기반이라 묶음(sync) 없이 발급되고, 차를 담아야 대상이 생기므로 빈 묶음엔 안 그린다.
+     * 선적 4종(roro_ · container_ 접두)은 실제 선적 단계 서류라 계획에 두지 않는다.
+     */
+    public function test_portal_plan_offers_sales_contract_and_signature(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 1, 'data' => [
+                ['vehicle_id' => 10, 'vehicle_number' => '11가1111', 'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignees' => []],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('portal.index')->call('setTab', 'shipping')->call('setShipSubtab', 'plan');
+
+        // 차를 담기 전 = 대상이 없으니 안 그린다.
+        $c->assertDontSee(__('portal.docs_sales_contract'));
+
+        $key = $c->get('desired')[0]['key'];
+        $c->call('assignVehicle', $key, 10)
+            ->assertSee(__('portal.docs_sales_contract'))
+            ->assertSee(__('portal.docs_proforma_invoice'))
+            ->assertSee(__('portal.sign_request_btn'))
+            ->assertDontSee(__('portal.docs_roro_contract'));   // 선적 4종은 묶음 화면에만
+    }
+
     /** RORO 묶음엔 운임비를 안 싣는다 — ERP 가 조용히 버리므로(에러가 아니라) board 가 먼저 뺀다. */
     public function test_portal_plan_omits_freight_for_roro(): void
     {

@@ -461,3 +461,29 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
   (매핑하면 본인 포털에도 그 영업 데이터가 뜬다 — 테스트엔 편하지만 "누구 것인지" 헷갈릴 수 있다.)
 - 죽은 문구 3키(`flash_view_only_ship`·`flash_view_only_docs`·`req_blocked_viewing`) 제거. 되돌릴 땐 git 이력에서.
 - 가드 = `test_portal_super_can_act_on_behalf_of_other`(구 `..._is_view_only` 를 **반대로 다시 쓴 것** — 지우지 말 것).
+
+### 14-11. 판매계약서·프로포마·전자서명은 **선적 계획에서도** (2026-08-18 Jin)
+
+- `downloadDocs(vehicleIds, method, kind)` · `requestSignature(vehicleIds, batchId?)` 는 **차량 id 기반**이고
+  `batchId` 가 옵셔널이라 **묶음(sync) 없이도 발급된다** → 선적 계획(편집상태 `desired`)에서 그대로 호출.
+  공용 partial = `_sales-docs.blade.php`(계획·묶음 양쪽이 같은 것을 include — 중복 금지).
+- **묶음 화면에서 빼지 않았다**(Jin 은 "계획에서 되어야 한다"고만 했다). 이유 = **착수(in_progress)·완료 묶음은
+  계획에 안 뜬다**(`desired` = `requested` 만) — 묶음에서 빼면 그 차들의 계약서·서명을 뽑을 자리가 사라진다.
+- **선적 4종(`roro_` · `container_` 접두)은 묶음에만** 둔다 — 실제 선적 단계 서류다.
+- 차를 담기 전(빈 묶음)엔 안 그린다 — 대상 `vehicle_ids` 가 없어 눌러도 의미가 없다.
+- ⚠️ **sync 전 차량으로 발급이 ERP 에서 정상인지는 미확인**(인계 = `meetings/handoff-carerp-late-sale-price-and-docs.md`).
+  최악은 403 이 아니라 **내용이 비거나 틀린 서류**다 — 에러가 안 나서 아무도 못 잡는다.
+- ⚠️ PHP 주석에 `roro_*/container_*` 처럼 쓰면 `*/` 가 **주석을 조기 종료**해 파스 에러가 난다(실제로 밟음).
+
+### 14-12. 판매가를 **나중에 채우면** ERP 에 안 간다 (미해결 — ERP 개정 대기)
+
+- 판매가·통화·운임비 **없이 보내는 건 지금도 된다** — 그 필수 락은 **셀프검차매입에만** 걸려 있고
+  일반 경로는 `hasSyncableAmount`(차값 또는 final_price)만 통과하면 `won` 이 된다.
+- 🚨 **하지만 나중에 채워 재전송해도 반영되지 않는다** — ERP `PurchaseSyncController` 가 `vehicle_number` 로
+  기존 차를 찾으면 **첨부만 dedup 보강하고 금액은 손대지 않은 채 200** 을 돌려준다(멱등 스킵).
+- 요청한 방향 = 멱등 경로에서 **빈 판매 필드만 채우기(fill-if-empty)**. ERP 원장 잠금 가드가 이미
+  *"빈 값 → 첫 입력은 최초 set 이므로 통과"* 이고 주석이 **"영업이 판매가·바이어 처음 입력하는 정상 흐름 보호"** 다.
+- 🚨 **`chk_sale_required` CHECK**(`sale_price>0` → `sale_date`·환율 필수)를 어떻게 만족시킬지 **ERP 가 정해야 한다** —
+  board 엔 `sale_date` 개념이 없다. 안 정하고 켜면 CHECK 위반인데 **board 는 200 만 보고 성공으로 기록**한다.
+- board 몫 = **영업용 재전송 경로**(지금은 `/manage` 관리·super 전용). ⚠️ 게다가 **`synced` 된 차의 판매가를
+  영업이 입력할 화면이 없다**(`/auction` 목록이 accepted·won·failed). **ERP 답을 받은 뒤** 설계한다.
