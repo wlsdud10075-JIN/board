@@ -862,6 +862,24 @@ new #[Layout('components.layouts.app')] class extends Component {
             ->values()->all();
     }
 
+    /**
+     * 422 사유를 car-erp 응답 **원문으로** 갈라 안내한다(2026-08-18 ERP 가드 추가).
+     *
+     * ERP 는 `No buyer: 12가3456` 처럼 **어느 차량인지까지** 준다 — 그걸 버리고 "동일 바이어"로
+     * 뭉뚱그리면 영업이 엉뚱한 곳을 고친다(sales_contract 403 을 "동일 바이어"로 안내하던 사고와 같은 형태).
+     * 🚫 board 가 사유를 **추측해 버튼을 비활성화하지 않는다** — 판정은 ERP 단일 출처, board 는 분기만.
+     */
+    private function docBlockedReason(string $message): string
+    {
+        $detail = trim(strip_tags($message));
+
+        return match (true) {
+            str_contains($message, 'No buyer') => __('portal.flash_docs_no_buyer', ['detail' => $detail]),
+            str_contains($message, 'No sale price') => __('portal.flash_docs_no_sale_price', ['detail' => $detail]),
+            default => __('portal.flash_docs_homogeneous_required'),   // Mixed buyers / Mixed currencies
+        };
+    }
+
     /** ①② 서류 — 묶음 차량의 선적서류(method별 4종 중 2종). xlsx 스트림 다운로드. */
     public function downloadDocs(array $vehicleIds, string $method, string $kind)
     {
@@ -884,7 +902,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             //    BOARD_ALLOWED_TYPES 미등록)이 오고 있어 원인을 잘못 짚게 만들었다.
             $this->shipNote = match ((int) ($res['status'] ?? 0)) {
                 403 => __('portal.flash_docs_not_allowed'),
-                422 => __('portal.flash_docs_homogeneous_required'),   // 판매계약서·프로포마 인보이스 공통
+                422 => $this->docBlockedReason((string) ($res['message'] ?? '')),
                 default => __('portal.flash_docs_failed'),
             };
 
@@ -916,9 +934,10 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $res = $this->svc()->requestSigningSession($this->salesmanEmail(), $ids);
         if (! ($res['ok'] ?? false) || empty(data_get($res, 'data.signed_url'))) {
-            // 422 = 혼합 바이어/통화·non-export(판매계약서와 동일 조건) → 같은 힌트. 그 외 = 발급 불가.
+            // 422 = 바이어 미지정·판매가 0·혼합 바이어/통화(서류와 **같은 가드**) → 원문으로 갈라 안내.
+            // ⚠️ 서명본은 ERP 에서 하드삭제 가드라 한 번 만들어지면 되돌릴 수 없다 — 사유를 정확히 짚어야 한다.
             $this->shipNote = ($res['status'] ?? 0) === 422
-                ? __('portal.flash_docs_sales_contract_failed')
+                ? $this->docBlockedReason((string) ($res['message'] ?? ''))
                 : __('portal.flash_sign_failed');
 
             return;

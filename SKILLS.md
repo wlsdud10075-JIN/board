@@ -471,8 +471,17 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
   계획에 안 뜬다**(`desired` = `requested` 만) — 묶음에서 빼면 그 차들의 계약서·서명을 뽑을 자리가 사라진다.
 - **선적 4종(`roro_` · `container_` 접두)은 묶음에만** 둔다 — 실제 선적 단계 서류다.
 - 차를 담기 전(빈 묶음)엔 안 그린다 — 대상 `vehicle_ids` 가 없어 눌러도 의미가 없다.
-- ⚠️ **sync 전 차량으로 발급이 ERP 에서 정상인지는 미확인**(인계 = `meetings/handoff-carerp-late-sale-price-and-docs.md`).
-  최악은 403 이 아니라 **내용이 비거나 틀린 서류**다 — 에러가 안 나서 아무도 못 잡는다.
+- ✅ **sync 전 차량 발급은 정상**(car-erp 회신 2026-08-18) — 서류·서명 둘 다 **차량 id + 바이어** 기준이고
+  `shipping_requests` 를 전혀 안 본다. ERP 가드 = `test_document_issues_without_any_shipping_request_row`.
+- 🚨 **ERP 가 422 가드를 새로 넣었다**(그 "빈 서류" 우려가 실재했다 — 바이어 전부 null 이면 「1바이어」 검사를
+  통과해 **공란 계약서가 200 으로 나갔고**, 판매가 검사는 아예 없었다):
+  `No buyer: {차량번호}` · `No sale price: {차량번호}` · `Mixed buyers` · `Mixed currencies`.
+  **전 type 공통(선적 4종 포함), 한 대만 비어도 묶음 전체를 막는다.**
+- 🚫 **board 는 비활성 조건을 추측하지 않는다** — 판정은 ERP 단일 출처, board 는 **422 를 원문으로 갈라 안내**만 한다
+  (`docBlockedReason()`). 전부 "동일 바이어"로 뭉뚱그리면 영업이 엉뚱한 곳을 고친다(sales_contract 403 을
+  "동일 바이어"로 안내하던 사고와 같은 형태). 가드 = `test_portal_docs_422_reasons_are_distinguished`.
+- ⚠️ **실패 응답 본문을 버리지 말 것** — `CarErpReadService` 의 `document()`·공통 `post/get` 이 실패 시 `body=null`
+  이라 **사유가 board 에 도달하지 않았다**. `message` 키로 살린다(300자). ERP 는 **어느 차량인지까지** 준다.
 - ⚠️ PHP 주석에 `roro_*/container_*` 처럼 쓰면 `*/` 가 **주석을 조기 종료**해 파스 에러가 난다(실제로 밟음).
 
 ### 14-12. 판매가를 **나중에 채우면** ERP 에 안 간다 (미해결 — ERP 개정 대기)
@@ -483,7 +492,18 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
   기존 차를 찾으면 **첨부만 dedup 보강하고 금액은 손대지 않은 채 200** 을 돌려준다(멱등 스킵).
 - 요청한 방향 = 멱등 경로에서 **빈 판매 필드만 채우기(fill-if-empty)**. ERP 원장 잠금 가드가 이미
   *"빈 값 → 첫 입력은 최초 set 이므로 통과"* 이고 주석이 **"영업이 판매가·바이어 처음 입력하는 정상 흐름 보호"** 다.
-- 🚨 **`chk_sale_required` CHECK**(`sale_price>0` → `sale_date`·환율 필수)를 어떻게 만족시킬지 **ERP 가 정해야 한다** —
-  board 엔 `sale_date` 개념이 없다. 안 정하고 켜면 CHECK 위반인데 **board 는 200 만 보고 성공으로 기록**한다.
-- board 몫 = **영업용 재전송 경로**(지금은 `/manage` 관리·super 전용). ⚠️ 게다가 **`synced` 된 차의 판매가를
-  영업이 입력할 화면이 없다**(`/auction` 목록이 accepted·won·failed). **ERP 답을 받은 뒤** 설계한다.
+- ✅ **ERP 구현 완료**(회신 2026-08-18, dev→3사 배포 대기). `sale_date` = **수신일(`now()`)** — 신규 생성 경로가
+  이미 그랬고 멱등 경로에 같은 로직을 이식했다. **board 무변경 동작**, `contract_version` 상향 없음(v3 필드 그대로).
+- 규칙 = ①빈 칸만 ②이미 값 있으면 **절대 안 덮음**(`already_set`) ③판매 3종+`sale_date` 는 **세트**, 환율 없으면
+  통째 보류(`missing_exchange_rate`) ④컨사이니는 차량 바이어 하위일 때만(`buyer_mismatch`).
+- 🚨 **응답 `fields_filled` · `fields_skipped` 를 반드시 읽을 것** — **200 만 보고 "반영됨"으로 기록하면 안 된다**.
+  `fields_filled` 가 비면 **안 채워진 것**이다(첨부 15건이 조용히 실패했던 것과 같은 부류 = `attachments_failed` 를
+  실은 이유와 동일).
+- ⚠️ **운임비 컬럼이 두 개다** — `transport_fee`(**판매통화**, 미수율 분모) vs `transport_fee_usd`(선적계획 메모,
+  §14-8). fill-if-empty 대상은 **`transport_fee`**. USD raw 를 보내면 **미수율 분모가 부풀어 매입 락 판정이 틀어진다**.
+- ⚠️ **환율을 안 보내면 판매가가 통째로 안 들어간다** → 화면은 **판매가·통화·환율을 함께** 받아야 한다(판매가만 받는 칸 ❌).
+- ⚠️ `sale_date` = 수신일이면 **채권 유예 기산점도 그날**이다. 실제 판매가 한 달 전이었으면 독촉이 한 달 늦어진다
+  (선적 전 한정, 관리가 ERP 에서 수정 가능).
+- **board 몫(착수 가능 — ERP 답 기다릴 필요 없음)** = ① **영업용 재전송 경로**(지금은 `/manage` 관리·super 전용)
+  ② ⚠️ **`synced` 된 차의 판매가·통화·환율 입력 화면이 없다**(`/auction` 목록이 accepted·won·failed 라 synced 는 빠진다)
+  ③ `fields_filled` 를 읽어 "무엇이 반영됐는지" 보여주기.

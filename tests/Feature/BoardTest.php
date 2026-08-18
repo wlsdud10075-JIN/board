@@ -4986,6 +4986,45 @@ class BoardTest extends TestCase
             ->assertDontSee(__('portal.docs_roro_contract'));   // 선적 4종은 묶음 화면에만
     }
 
+    /**
+     * 422 사유를 **원문으로 갈라** 안내한다(ERP 2026-08-18 가드 추가).
+     * 전부 "동일 바이어"로 뭉뚱그리면 영업이 엉뚱한 곳을 고친다 — 실제로 sales_contract 403 을
+     * "동일 바이어"로 안내해 원인을 잘못 짚게 만든 전례가 있다.
+     */
+    public function test_portal_docs_422_reasons_are_distinguished(): void
+    {
+        $this->carErpReadConfig();
+        $this->actingAs($this->mkUser('sales'));
+
+        $cases = [
+            ['No buyer: 11가1111', 'flash_docs_no_buyer'],
+            ['No sale price: 22나2222', 'flash_docs_no_sale_price'],
+            ['Mixed buyers', 'flash_docs_homogeneous_required'],
+        ];
+        // ⚠️ Http::fake 를 루프마다 다시 부르면 스텁이 **누적**돼 첫 것이 계속 이긴다 → sequence 로 준다.
+        $seq = Http::sequence();
+        foreach ($cases as [$erpMsg, $_]) {
+            $seq->push($erpMsg, 422);
+        }
+        // 포털 마운트가 여러 엔드포인트를 먼저 부르므로 **서류 경로만** sequence 로 준다.
+        Http::fake([
+            '*/api/internal/board/documents/*' => $seq,
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        foreach ($cases as [$erpMsg, $langKey]) {
+            $note = Volt::test('portal.index')
+                ->call('downloadDocs', [10], 'RORO', 'sales_contract')
+                ->get('shipNote');
+
+            $this->assertStringContainsString(
+                mb_substr(__('portal.'.$langKey, ['detail' => $erpMsg]), 0, 12),
+                (string) $note,
+                "422 '{$erpMsg}' 가 {$langKey} 로 안내돼야 한다. 실제 = ".(string) $note,
+            );
+        }
+    }
+
     /** RORO 묶음엔 운임비를 안 싣는다 — ERP 가 조용히 버리므로(에러가 아니라) board 가 먼저 뺀다. */
     public function test_portal_plan_omits_freight_for_roro(): void
     {
