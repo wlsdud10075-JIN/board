@@ -20,6 +20,21 @@ use Tests\TestCase;
  */
 class FaviconPerInstanceTest extends TestCase
 {
+    /**
+     * 🚨 키는 **그 박스 .env 의 APP_NAME 실측값**이다 — 리터럴로 박아둔다.
+     * 다른 테스트는 전부 지도를 순회하므로 「지도를 지도로 검증」할 뿐이다. 키를 `heymanboard`
+     * 따위로 고쳐도 그 테스트들은 다 통과하면서 두 박스가 **조용히 아이콘을 잃는다**.
+     * (실제로 ssancarboard 는 APP_NAME 이 한 번 개명된 이력이 있다 — .env 백업 파일명이 증거.)
+     */
+    public function test_map_keys_are_the_live_app_names(): void
+    {
+        $this->assertSame(
+            ['board-heyman', 'board-ssancar'],
+            array_keys(config('board.favicons')),
+            '키 = 박스 .env 의 APP_NAME. 바꾸려면 두 박스 .env 를 먼저 확인할 것'
+        );
+    }
+
     /** 지도에 적힌 파일이 실제로 있어야 한다 — 없으면 탭이 404 를 문다. */
     public function test_every_mapped_instance_has_an_icon_file(): void
     {
@@ -69,6 +84,21 @@ class FaviconPerInstanceTest extends TestCase
             '/favicon-[a-z]+\.ico\?v=\d+/',
             (string) view('partials.head')->render(),
             '캐시 무효화 쿼리가 없으면 아이콘을 바꿔도 옛것이 계속 보인다'
+        );
+    }
+
+    /**
+     * 바이어 공개 페이지(`v/{listing}`)도 같은 선언을 문다 — 그 화면만 `partials.head` 를 안 쓰는
+     * **독립 HTML** 이라 예전엔 빠질 수 있는 자리였다.
+     * ⚠️ 렌더 테스트가 아니라 include 검사인 이유 = 그 라우트는 signed URL + 외부(ssancar) 미디어에
+     *    의존해서, 아이콘 한 줄 때문에 그걸 다 세울 이유가 없다.
+     */
+    public function test_public_buyer_page_carries_the_icon_too(): void
+    {
+        $this->assertStringContainsString(
+            "@include('partials.favicon')",
+            (string) file_get_contents(resource_path('views/buyer/view.blade.php')),
+            '바이어 페이지가 아이콘 선언을 잃었다'
         );
     }
 }
