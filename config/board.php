@@ -98,4 +98,20 @@ return [
         '경남 산청군', '경남 함양군', '경남 거창군', '경남 합천군',
         '제주 제주시', '제주 서귀포시',
     ],
+
+    // ─────────── 브라우저 탭 아이콘 (jin 2026-08-21) ───────────
+    // 인스턴스(회사)별 파비콘. car-erp 와 **같은 아이콘**을 쓴다(heymanerp=파란 H, ssancarerp=빨간 SS).
+    //
+    // 🧭 키 = 그 박스 `.env` 의 **APP_NAME**. board 엔 car-erp 의 `company.template_set` 같은
+    //    「내가 어느 회사인가」 값이 없지만, APP_NAME 이 이미 박스마다 다르다(실측: heymanboard=
+    //    `board-heyman` / ssancarboard=`board-ssancar`). 그래서 식별 수단을 새로 만들지 않는다
+    //    — .env 를 건드리는 순간 백업 동기화·`config:cache`(ubuntu 전용) 가 딸려온다.
+    // ⚠️ 파일명이 car-erp 와 다른 게 하나 있다: ssancar 는 저쪽에서 `favicon-system.ico`(구 명칭
+    //    template_set='system') 인데, board 엔 그 잔재가 없어 회사명 그대로 `favicon-ssancar.ico` 다.
+    // ⚠️ 목록에 없는 APP_NAME(로컬 `board`, 아직 없는 karababoard)은 **선언 자체를 생략**한다.
+    //    아무거나 폴백하면 그 박스에 **다른 회사 로고**가 뜬다 — 조용히 틀리는 부류라 안 그리는 게 낫다.
+    'favicons' => [
+        'board-heyman' => 'favicon-heyman.ico',
+        'board-ssancar' => 'favicon-ssancar.ico',
+    ],
 ];
