@@ -6,13 +6,11 @@
         「있는 것처럼」 보였을 뿐 — car-erp 에서 실측된 현상이다). 게다가 관례는 파일명이 고정이라
         인스턴스별 분기 자체가 불가능하다.
      ⚠️ `?v=` 는 캐시 무효화용. 파비콘 캐시는 `Ctrl+Shift+R` 로도 잘 안 지워진다. 아이콘을 바꾸면 올릴 것.
-     🚨 로그인·에러 페이지를 포함한 **모든 화면**에서 렌더된다 — 여기서 예외가 나면 화면이 통째로
-        죽는다. 그래서 DB(Setting) 를 안 보고 config 배열 조회로만 끝낸다.
 
-     지도 = `config/board.php` 의 `favicons`(키 = 그 박스 .env 의 APP_NAME).
-     없는 키(로컬 `board`, 아직 없는 karababoard)면 **아무것도 안 그린다** — 아무거나 폴백하면
-     그 박스에 다른 회사 로고가 뜬다. --}}
-@php($boardFavicon = config('board.favicons')[strtolower(trim((string) config('app.name')))] ?? null)
-@if ($boardFavicon)
-    <link rel="icon" href="{{ asset($boardFavicon) }}?v=1" sizes="any" />
+     지도 = `config/board.php` 의 `instances`(키 = 그 박스 .env 의 APP_NAME). 없는 키면 안 그린다.
+     ⚠️ 이 partial 은 **바이어 공개 페이지에서도** 쓴다 — PWA(홈 화면) 선언은 여기 넣지 말 것.
+        그건 사내 화면 전용이라 `partials/pwa.blade.php` 에 따로 있다. --}}
+@php($boardInstance = \App\Support\Instance::assets())
+@if ($boardInstance)
+    <link rel="icon" href="{{ asset($boardInstance['favicon']) }}?v=1" sizes="any" />
 @endif
