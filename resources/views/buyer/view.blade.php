@@ -19,6 +19,8 @@
     <meta name="robots" content="noindex, nofollow">
     <title>{{ $company }} · {{ $listing->vehicle_number }}</title>
 
+    @include('partials.favicon')
+
     {{-- OG 미리보기 — 카톡/왓츠앱에 링크 붙으면 견적카드 이미지 + 차량/총액이 펼쳐 보임. --}}
     @php
         $ogDesc = trim(sprintf('Car %s · Shipping %s · Total %s', $fmt($breakdown['car'] ?? null), $fmt($breakdown['shipping'] ?? null), $fmt($breakdown['total'] ?? null)));
