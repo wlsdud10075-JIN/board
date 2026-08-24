@@ -177,6 +177,13 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
 - **입금요청 분리 — 계약금/매입잔금 + 금액**(2026-08-11 배포, master `c2b1e28` ↔ car-erp master `bb5af1a`): 받는 사람이 **얼마를 보낼지 몰라** 결국 카톡으로 되물었다 = 신호가 일을 못 끝냈다. `/portal` 재고 행이 [입금요청] 1버튼 → **금액칸 + [계약금] [매입잔금]**. ⚠️ 별개 `type` 이어야 하는 이유(ERP 멱등키)·금액 차량 키잉·자동계산 금지 = `SKILLS.md §14-2`. 알림톡은 **ERP 가 보낸다**(board 코드 0). 인계 = `meetings/handoff-carerp-payment-request-split.md`.
 - **매입 등록 락**(2026-08-10 배포): 연동 B 는 car-erp 저장 게이트를 안 타므로 **바이어 고르는 상류**에서 막는다. **바이어 필수** + 락 걸린 바이어면 **구매확정 버튼 비활성**. 판정은 ERP `purchase_locked` 그대로. 상세 = `SKILLS.md §14-7`.
 
+- **브라우저 탭 아이콘 + 홈 화면 앱(PWA)**(2026-08-21~22 배포, master `2dd9d30`·`5f9f9d0`): board 는 아이콘이 **없었다** — `public/favicon.ico` 가 첫 커밋부터 0바이트고 선언도 없었는데, 크롬이 캐시한 옛 아이콘을 그려서 있는 것처럼 보였을 뿐이다. 파비콘은 **car-erp 와 같은 것**(heymanboard=파란 H / ssancarboard=빨간 SS)을 쓰고, 같은 축으로 **manifest·홈화면 아이콘**까지 붙여 폰에서 "홈 화면에 추가" 하면 주소창 없는 앱으로 열린다(스토어·서명·심사 없음).
+  - ⚠️ **인스턴스 판별 = `APP_NAME` 재사용**(실측 `board-heyman`/`board-ssancar`). board 엔 car-erp 의 `company.template_set` 같은 회사 식별값이 없지만 APP_NAME 이 이미 박스마다 다르다 — 새 값을 만들면 두 LIVE 박스 `.env` 를 건드려야 한다. 지도 = `config/board.php` 의 `instances`, 조회 = `App\Support\Instance::assets()`. **목록에 없는 이름이면 선언 자체를 생략**한다(아무거나 폴백하면 다른 회사 로고가 뜬다).
+  - ⚠️ 아이폰은 manifest 의 icons 를 **안 본다** → `apple-touch-icon` + standalone 메타 별도. manifest 를 `.json` 으로 둔 건 nginx 기본 mime.types 에 `.webmanifest` 가 없어서다(박스 nginx 무변경).
+  - ⚠️ **바이어 공개 페이지는 파비콘만**, PWA 선언은 안 붙인다(설치되면 로그인 화면으로 데려간다). 테스트가 지킨다.
+  - ssancar 아이콘 원본은 **32px 뿐**(ssancar.com 공사중·apple-touch-icon 404) → 확대 후 알파 임계로 뽑음. 큰 로고가 생기면 아이콘만 재생성.
+  - 실기 확인 = 아이폰·안드로이드 모두 정상, **`/portal` 서류 다운로드도 standalone 에서 동작**(2026-08-22 Jin) → 다운로드 방식 교체는 **불필요로 종결**.
+
 ## 현재 도메인 규칙 (§6 재설계 반영 — 코딩 시 준수)
 
 - **금액 (Model A)**: 매입 = **원가**, 판매 = **매도비 제외**, 차감액 별도 컬럼. 매도비 = `config('board.sales_fee')`. 상세 = [board-flow-model-a-deployed / board-amount-mapping].
