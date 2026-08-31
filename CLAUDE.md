@@ -201,7 +201,7 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
   - 조정 `reason` 은 **ERP 가 준다**(예: "62두1461 5월 배치 환율오류 과지급 환수"). 본인 차·본인 돈이라 노출이 맞고, 안 보여주면 「−729,250」만 떠서 설명 없이 깎인 걸로 읽힌다. ERP 조정 입력칸에 "영업담당자에게 그대로 보임" 경고가 붙어 있다.
   - ⚠️ **throttle = 분당 120, 이 prefix 의 모든 엔드포인트가 같은 버킷을 공유**(문서의 `300,1` 은 오기 — car-erp 가 정정). 그래서 `/settlements` 는 **더 이상 부르지 않는다**(가드 = `test_monthly_does_not_call_legacy_settlements`). 요약 탭은 이미 finance·sales·purchases 3개를 부른다.
   - ⚠️ 배포하면 **요약의 월 금액이 달라진다** — confirmed(확정·미지급)가 빠지고 조정이 반영된다. 버그가 아니라 수정이지만 미리 알리지 않으면 버그로 읽힌다.
-  - 남음 = **Jin 눈 확인 → master 머지·두 박스 배포 허락**. 권위 스펙 = car-erp `docs/integration/board-portal-api.md` §13, 회신 = `C:\Users\User\Desktop\연구소\전달패킷_carerp→board_2026-08-31_월배치미러_배포완료.md`.
+  - **2026-08-31 두 박스 운영 배포 완료**(master `0338ab7` — heymanboard·ssancarboard job success, db:backup ✓, Nothing to migrate). 남음 = **Jin 실화면 확인**(운영 데이터로만 보이는 것 = heymanboard 조정 1건 표시·ssancarboard 배치 0건 렌더). 권위 스펙 = car-erp `docs/integration/board-portal-api.md` §13, 회신 = `C:\Users\User\Desktop\연구소\전달패킷_carerp→board_2026-08-31_월배치미러_배포완료.md`.
 
 - **입금요청 알림톡 실발송**: ERP 가 `erp_board_request` 템플릿·시각 규칙까지 배포했지만(2026-08-11), **BizM 템플릿 승인 + 수신자 번호 설정 전까지 실발송 0**. 남음 = ① BizM 승인(인스턴스별 발신프로필 각각) ② 시각 규칙에 담당자 1~2명·대표 번호 입력. **전부 car-erp 쪽 일** — board 는 알림톡 코드 0.
 
