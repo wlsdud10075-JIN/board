@@ -103,7 +103,7 @@ return [
     'monthly_note' => '판매액은 통화가 섞여 합산 대신 건수로 표시. 정산·매입은 원화 합산.',
     'col_month' => '월',
     'col_sales_cnt' => '판매(건)',
-    'col_settle_sum' => '정산 실지급(원)',
+    'col_settle_sum' => '정산 수령액(원)',   // 펼침 바닥의 「이 달 수령액」과 같은 값·같은 이름
     'col_purch_cnt' => '매입(건)',
     'col_purch_sum' => '매입가(원)',
     'm_sales' => '판매',

@@ -1,3 +1,10 @@
+> ## ✅ 2026-08-31 회신 완료 — car-erp master `488e597` 배포됨 (3사 정상 응답)
+> **권위 = car-erp `docs/integration/board-portal-api.md` §13.** 아래 본문은 *요청 당시의 경위*로 남긴다.
+> ⚠️ 회신으로 **뒤집힌 곳**: ①§3 "`net_payout` 을 그대로 표시" → 합계식은 **Σ`net_payout` + Σ`unbatched_paid`**
+> (배치 밖 지급이 예외가 아니라 **본류** — ssancarerp 는 paid 전량이 배치 밖·승인 배치 0건) ②§4 질문 = **답 나옴**
+> ③`throttle:300,1` → 실제는 **분당 120, prefix 전체 공유 버킷** ④§6 "조정 미반영 각주" = 지금은 없음(조정이 들어온다).
+> 현재 상태는 `CLAUDE.md` 「남은 작업」 항목을 볼 것.
+
 # 인계 — car-erp 세션: 정산 **월배치(승인분) 미러** 읽기 API
 
 > **from**: board 세션 (2026-08-31) / **to**: car-erp 세션
