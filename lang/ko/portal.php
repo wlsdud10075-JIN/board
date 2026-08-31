@@ -118,6 +118,16 @@ return [
     'settle_adjustment' => '조정',
     'settle_month_total' => '이 달 수령액',
 
+    // 진행 중 정산(아직 안 받은 것) — 확정/확정 전을 **합치지 않는다**(pending 은 금액이 아직 움직인다).
+    'inprog_title' => '진행 중 정산',
+    'inprog_estimate' => '예상',
+    'inprog_confirmed' => '확정 · 지급 대기',
+    'inprog_pending' => '확정 대기',
+    'inprog_calculating' => '산정 중',
+    'inprog_hint_calculating' => '정산 금액을 산정하는 중입니다.',
+    'inprog_hint_confirmed' => '금액이 확정됐고 다음 월배치 지급을 기다립니다.',
+    'inprog_hint_pending' => '아직 확정 전이라 금액이 바뀔 수 있습니다.',
+
     // 선적요청 탭
     'ship_inprogress_title' => '진행 중인 선적요청',
     'ship_status_requested' => '요청됨',

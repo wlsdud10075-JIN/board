@@ -118,6 +118,16 @@ return [
     'settle_adjustment' => 'Adjustment',
     'settle_month_total' => 'Received this month',
 
+    // In-progress settlements (not received yet) — confirmed and pending are never merged.
+    'inprog_title' => 'In-progress settlements',
+    'inprog_estimate' => 'estimated',
+    'inprog_confirmed' => 'Confirmed · awaiting payout',
+    'inprog_pending' => 'Awaiting confirmation',
+    'inprog_calculating' => 'Calculating',
+    'inprog_hint_calculating' => 'The settlement amount is still being calculated.',
+    'inprog_hint_confirmed' => 'Amount is confirmed and waiting for the next monthly payout batch.',
+    'inprog_hint_pending' => 'Not confirmed yet — the amount can still change.',
+
     // Shipping request tab
     'ship_inprogress_title' => 'Shipping requests in progress',
     'ship_status_requested' => 'Requested',

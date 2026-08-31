@@ -83,6 +83,9 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** 요약 탭 월 펼침 — [YYYY-MM => batches(승인 월배치)·rows(배치 밖 지급)·total]. collectPayouts 가 채운다. */
     public array $monthlySettle = [];
 
+    /** 요약 탭 「진행 중 정산」 — 아직 안 받은 것(confirmed/pending). paid 는 여기 없다(월별이 그린다). */
+    public array $inProgress = [];
+
     public array $salesDetail = [];           // 판매내역 펼침용 per-vehicle (바이어별 차량 리스트)
 
     private const TABS = ['finance', 'receivables', 'inventory', 'sales', 'settlements', 'shipping'];
@@ -130,18 +133,56 @@ new #[Layout('components.layouts.app')] class extends Component {
     }
 
     /**
-     * 정산만 별도 처리 — 합계뿐 아니라 **행 자체**를 월별로 남긴다(`$monthlySettle` = 월 펼침 상세).
-     * 같은 응답을 두 번 쓰는 것뿐이라 API 호출은 늘지 않는다.
+     * 진행 중 정산 — **아직 안 받은 것**(ERP 정산처리 탭의 본인 몫 미러). 월별 표(= 받은 것)와 짝을 이룬다.
      *
-     * 월 = 실지급일(`paid_at`) 우선, car-erp 가 아직 안 보내면 `confirmed_at` 폴백
-     * (handoff-car-erp-settlement-paid-at.md — paid_at 노출 후 5월/6월 자동 분리).
+     * 소스 = `GET /settlements`(상태 필터가 없어 pending·confirmed·paid 를 전부 준다).
+     * 여기서는 **`paid` 를 버린다** — 지급된 건 월배치 미러(`collectPayouts`)가 이미 그린다.
+     * 안 버리면 같은 돈이 「진행 중」과 「월별」에 두 번 뜬다.
      *
-     * ⚠️ car-erp `/settlements` 에는 **상태 필터가 없다** → `confirmed`(확정했지만 지급 전)도 섞여 온다.
-     *    그래서 `settle_sum`(전체)과 `settle_paid`(지급 확정분)를 나눠 담는다 — 안 나누면 아직 받지도
-     *    않은 달이 「정산 실지급」으로 읽힌다. `pending` 은 두 날짜가 다 없어 어느 달에도 안 걸린다(기존 동작).
-     * ⚠️ ERP 월배치의 **담당자 조정**(`settlement_payout_adjustments` — 환수·특별지급)은 설계상 개별 정산에
-     *    안 붙고 배치 총액에만 반영된다. 즉 여기 합계 ≠ 통장 입금액일 수 있다(화면 각주로 명시).
+     * - `pending`  = 거래완료로 정산이 생겼지만 관리가 **확정 전** → 금액이 아직 움직인다(비용 9개·환율).
+     * - `confirmed`= 금액 확정, 다음 월배치를 기다리는 중.
+     * 🚨 둘을 한 덩어리로 합치지 말 것. pending 금액을 "받을 돈"으로 읽으면 확정에서 줄었을 때 분쟁이 된다
+     *    — 화면도 라벨을 「예상」으로 두고 두 상태를 갈라 그린다.
+     * ⚠️ pending 은 confirmed_at·paid_at 이 둘 다 없다 = **월 축이 없다.** 그래서 월별 표에 못 걸고
+     *    별도 섹션이어야 한다(Jin 구상과 같은 구조).
      */
+    private function collectInProgress(string $email): void
+    {
+        $this->inProgress = [];
+        $env = $this->svc()->settlements($email);
+        if (! ($env['ok'] ?? false)) {
+            return;
+        }
+        // 표시 순서(곧 받을 것부터). ⚠️ 이 목록은 **화이트리스트가 아니다** — 여기 없는 상태도 담는다.
+        //    ERP KPI 「정산 대기」는 pending·calculating·confirmed 를 센다(InternalPortalController::finance).
+        //    board 가 아는 상태만 담으면 그 차가 화면에서 안 맞고, 무엇보다 **진행 중인 정산이 조용히 사라진다**.
+        $order = ['confirmed', 'calculating', 'pending'];
+        $rows = $sum = [];
+        foreach ((array) data_get($env['data'], 'data', []) as $r) {
+            $st = (string) (data_get($r, 'status') ?? '');
+            if ($st === '' || $st === 'paid') {
+                continue;   // paid = 받은 것(월배치 미러가 그린다). 여기 담으면 같은 돈이 두 번 뜬다.
+            }
+            $rows[$st][] = $r;
+            $sum[$st] = ($sum[$st] ?? 0.0) + (float) (data_get($r, 'actual_payout') ?? 0);
+        }
+        if ($rows === []) {
+            return;
+        }
+        // 아는 상태를 정해진 순서로 앞에, 모르는 상태는 뒤에(라벨이 없으면 화면이 원문을 그대로 찍는다).
+        uksort($rows, function (string $a, string $b) use ($order) {
+            $ia = array_search($a, $order, true);
+            $ib = array_search($b, $order, true);
+
+            return [$ia === false, $ia === false ? $a : $ia] <=> [$ib === false, $ib === false ? $b : $ib];
+        });
+        foreach ($rows as $st => $list) {
+            usort($list, fn ($x, $y) => (string) (data_get($y, 'confirmed_at') ?? '') <=> (string) (data_get($x, 'confirmed_at') ?? ''));
+            $rows[$st] = $list;
+        }
+        $this->inProgress = ['rows' => $rows, 'sum' => $sum, 'total' => array_sum($sum)];
+    }
+
     /**
      * 정산 = **승인된 ERP 월배치 미러**(`GET /payout-batches`, car-erp board-portal-api.md §13).
      * 합계뿐 아니라 배치·행 자체를 월별로 남긴다(`$monthlySettle` = 월 펼침 상세).
@@ -322,8 +363,11 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
         // 요약 탭 = 합계 + 월별(판매/정산/매입). 다른 탭은 월별 불필요.
         $this->monthly = $this->tab === 'finance' ? $this->buildMonthly($email) : [];
-        if ($this->tab !== 'finance') {
+        if ($this->tab === 'finance') {
+            $this->collectInProgress($email);   // 아직 안 받은 정산(월별 표와 짝) — 요약 탭에서만.
+        } else {
             $this->monthlySettle = [];   // 다른 탭에서 stale 상세가 남지 않게(펼침은 요약 탭 전용).
+            $this->inProgress = [];
         }
     }
 
@@ -1126,6 +1170,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <div class="card-sm"><div class="text-xs text-gray-500">{{ __('portal.kpi_settlement_pending') }}</div><div class="mt-1 text-lg font-bold text-gray-800">{{ isset($sum['settlement_pending_count']) ? __('portal.unit_count', ['count' => $sum['settlement_pending_count']]) : '—' }}</div></div>
                 <div class="card-sm"><div class="text-xs text-gray-500">{{ __('portal.kpi_fx_missing') }}</div><div class="mt-1 text-lg font-bold {{ ($sum['fx_missing_count'] ?? 0) ? 'text-amber-600' : 'text-gray-800' }}">{{ isset($sum['fx_missing_count']) ? __('portal.unit_count', ['count' => $sum['fx_missing_count']]) : '—' }}</div></div>
             </div>
+
+            @include('livewire.portal._settle-inprogress')
 
             {{-- 월별 (판매 건수·정산 수령·매입) — 날짜 있는 리스트서 집계. 판매액은 통화혼재라 건수만.
                  월 행 클릭 = 그 달 정산 상세 펼침 = **승인된 ERP 월배치 미러**(car-erp §13).

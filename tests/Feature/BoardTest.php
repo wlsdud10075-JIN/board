@@ -5857,9 +5857,12 @@ class BoardTest extends TestCase
     }
 
     /** 월 펼침이 쓰는 lang 키는 ko·en 양쪽에 있어야 한다(fallback=en 이라 한쪽만 넣으면 영문에서 키가 노출된다). */
+    /** 월 펼침·진행 중 섹션이 쓰는 lang 키는 ko·en 양쪽에 있어야 한다(fallback=en 이라 한쪽만 넣으면 영문에서 키가 노출된다). */
     public function test_monthly_detail_lang_keys_exist_in_both_locales(): void
     {
-        $keys = ['settle_batch_label', 'settle_batch_paid_on', 'settle_batch_net', 'settle_adjustment', 'settle_month_total'];
+        $keys = ['settle_batch_label', 'settle_batch_paid_on', 'settle_batch_net', 'settle_adjustment', 'settle_month_total',
+            'inprog_title', 'inprog_estimate', 'inprog_confirmed', 'inprog_pending', 'inprog_calculating',
+            'inprog_hint_confirmed', 'inprog_hint_pending', 'inprog_hint_calculating'];
         foreach (['ko', 'en'] as $locale) {
             foreach ($keys as $key) {
                 $this->assertNotSame('portal.'.$key, (string) __('portal.'.$key, [], $locale), "{$locale}.{$key}");
@@ -5867,17 +5870,114 @@ class BoardTest extends TestCase
         }
     }
 
+    // ── 요약 탭 「진행 중 정산」 — 아직 안 받은 것 (2026-08-31) ──
+
     /**
-     * 정산 소스는 `/payout-batches` **하나**여야 한다. `/settlements` 를 같이 부르면
-     * 이 prefix 의 분당 120 **공유 버킷**을 요약 탭 혼자 갉아먹는다(car-erp 회신 2026-08-31).
+     * ERP 정산처리 탭의 본인 몫 미러. `/settlements` 는 pending·confirmed·paid 를 전부 주는데,
+     * **paid 는 여기서 버려야 한다** — 지급된 건 월배치 미러가 이미 그린다. 안 버리면 같은 돈이 두 번 뜬다.
+     * confirmed(금액 확정·지급 대기)와 pending(확정 전·금액이 아직 움직임)은 성격이 달라 합치지 않는다.
      */
-    public function test_monthly_does_not_call_legacy_settlements(): void
+    public function test_in_progress_splits_confirmed_and_pending_and_drops_paid(): void
     {
         $this->carErpReadConfig();
-        Http::fake(['*' => Http::response(['count' => 0, 'data' => []], 200)]);
+        Http::fake([
+            '*/api/internal/board/settlements*' => Http::response(['count' => 3, 'data' => [
+                ['vehicle_number' => '11가1111', 'status' => 'confirmed', 'actual_payout' => 500000, 'confirmed_at' => '2026-08-20', 'paid_at' => null],
+                ['vehicle_number' => '22나2222', 'status' => 'pending', 'actual_payout' => 300000, 'confirmed_at' => null, 'paid_at' => null],
+                // 이미 받은 건 — 월배치 미러가 그리므로 진행 중에는 없어야 한다(이중계상 방지).
+                ['vehicle_number' => '33다3333', 'status' => 'paid', 'actual_payout' => 900000, 'confirmed_at' => '2026-07-31', 'paid_at' => '2026-08-10'],
+            ]], 200),
+            '*/api/internal/board/payout-batches*' => Http::response(['count' => 0, 'data' => [],
+                'unbatched_paid' => [['vehicle_number' => '33다3333', 'actual_payout' => 900000, 'paid_at' => '2026-08-10']],
+            ], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
         $this->actingAs($this->mkUser('sales'));
 
-        Volt::test('portal.index')->call('setTab', 'finance');
-        Http::assertNotSent(fn ($req) => str_contains($req->url(), '/api/internal/board/settlements'));
+        $c = Volt::test('portal.index')->call('setTab', 'finance');
+        $ip = $c->instance()->inProgress;
+
+        $this->assertCount(1, $ip['rows']['confirmed']);
+        $this->assertCount(1, $ip['rows']['pending']);
+        $this->assertSame(500000.0, $ip['sum']['confirmed']);
+        $this->assertSame(300000.0, $ip['sum']['pending']);
+        // paid 는 진행 중 어디에도 없다.
+        $this->assertSame([], array_filter($ip['rows'], fn ($l) => collect($l)->contains('vehicle_number', '33다3333')));
+        // 그리고 그 돈은 월별(받은 것)에만 있다 — 두 번 세지 않는다.
+        $this->assertSame(900000.0, $c->instance()->monthly['2026-08']['settle_sum'] ?? null);
+
+        $c->assertSee(__('portal.inprog_title'))
+            ->assertSee(__('portal.inprog_confirmed'))->assertSee('500,000')
+            ->assertSee(__('portal.inprog_pending'))->assertSee('300,000')
+            ->assertSee(__('portal.inprog_hint_pending'));   // "금액이 바뀔 수 있다"를 반드시 같이 띄운다
+    }
+
+    /** 진행 중 정산이 하나도 없으면 섹션 자체를 그리지 않는다(빈 상자가 남으면 "뭔가 못 받았나"로 읽힌다). */
+    public function test_in_progress_section_hidden_when_nothing_pending(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/settlements*' => Http::response(['count' => 1, 'data' => [
+                ['vehicle_number' => '44라4444', 'status' => 'paid', 'actual_payout' => 100000, 'confirmed_at' => '2026-08-01', 'paid_at' => '2026-08-10'],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'finance')
+            ->assertSet('inProgress', [])
+            ->assertDontSee(__('portal.inprog_title'));
+    }
+
+    /** 진행 중 수집은 요약 탭 전용 — 다른 탭으로 옮기면 비운다(수백 행이 Livewire 프로퍼티에 남지 않게). */
+    public function test_in_progress_is_cleared_outside_finance_tab(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/settlements*' => Http::response(['count' => 1, 'data' => [
+                ['vehicle_number' => '55마5555', 'status' => 'confirmed', 'actual_payout' => 700000, 'confirmed_at' => '2026-08-20', 'paid_at' => null],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('portal.index')->call('setTab', 'finance');
+        $this->assertNotSame([], $c->instance()->inProgress);
+
+        $c->call('setTab', 'receivables');
+        $this->assertSame([], $c->instance()->inProgress);
+    }
+
+    /**
+     * board 가 모르는 상태도 **사라지면 안 된다.** ERP KPI 「정산 대기」는 pending·**calculating**·confirmed 를
+     * 세는데(`InternalPortalController::finance`), board 가 아는 둘만 담으면 KPI 와 섹션 건수가 어긋나고
+     * 무엇보다 진행 중인 정산이 조용히 없어진다. 라벨 없는 상태는 원문을 찍고 힌트만 생략한다.
+     */
+    public function test_in_progress_keeps_calculating_and_unknown_states(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/settlements*' => Http::response(['count' => 4, 'data' => [
+                ['vehicle_number' => '11가1111', 'status' => 'confirmed', 'actual_payout' => 100000, 'confirmed_at' => '2026-08-20'],
+                ['vehicle_number' => '22나2222', 'status' => 'calculating', 'actual_payout' => 200000, 'confirmed_at' => null],
+                ['vehicle_number' => '33다3333', 'status' => 'pending', 'actual_payout' => 300000, 'confirmed_at' => null],
+                // ERP 가 나중에 새 상태를 만들어도 board 에서 없어지면 안 된다.
+                ['vehicle_number' => '44라4444', 'status' => 'erp가만든새상태', 'actual_payout' => 400000, 'confirmed_at' => null],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('portal.index')->call('setTab', 'finance');
+        $ip = $c->instance()->inProgress;
+
+        $this->assertSame(4, collect($ip['rows'])->flatten(1)->count());
+        $this->assertSame(1000000.0, $ip['total']);
+        // 아는 상태가 정해진 순서로 앞, 모르는 상태는 뒤.
+        $this->assertSame(['confirmed', 'calculating', 'pending', 'erp가만든새상태'], array_keys($ip['rows']));
+
+        $c->assertSee(__('portal.inprog_calculating'))
+            ->assertSee('erp가만든새상태')   // 라벨이 없으면 원문 — 행이 사라지는 것보다 낫다
+            ->assertSee('400,000');
     }
 }
