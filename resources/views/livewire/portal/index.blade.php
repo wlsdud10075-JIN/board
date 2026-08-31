@@ -1193,7 +1193,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <div class="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-gray-600">
                                     <div>{{ __('portal.m_sales') }} <b class="text-gray-800">{{ $row['sales_cnt'] ?? 0 }}</b>{{ __('portal.count_suffix') }}</div>
                                     <div>{{ __('portal.m_purchase') }} <b class="text-gray-800">{{ $row['purch_cnt'] ?? 0 }}</b>{{ __('portal.count_suffix') }}</div>
-                                    <div>{{ __('portal.m_settle') }} <b class="text-gray-800">{{ number_format((float) ($row['settle_sum'] ?? 0)) }}</b></div>
+                                    {{-- 접힌 상태에서도 지급확정분을 같이 보여준다 — 데스크톱은 열이 따로 있는데
+                                         여기만 전체합 하나면, 폰으로 보는 영업은 펼치기 전까지 확정·미지급이 섞인 숫자를 본다. --}}
+                                    <div>{{ __('portal.m_settle') }} <b class="text-gray-800">{{ number_format((float) ($row['settle_sum'] ?? 0)) }}</b>
+                                        @if ((float) ($row['settle_sum'] ?? 0) !== (float) ($row['settle_paid'] ?? 0))
+                                            <span class="text-[11px] text-gray-400">({{ __('portal.settle_sub_paid') }} {{ number_format((float) ($row['settle_paid'] ?? 0)) }})</span>
+                                        @endif
+                                    </div>
                                     <div>{{ __('portal.m_purch_price') }} <b class="text-gray-800">{{ number_format((float) ($row['purch_sum'] ?? 0)) }}</b></div>
                                 </div>
                                 @if ($det)

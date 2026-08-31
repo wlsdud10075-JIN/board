@@ -195,6 +195,12 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
 
 ## ⏭️ 남은 작업 (미완)
 
+- **포털 요약 「내 정산 월별 상세」**: dev 구현·**운영 미배포**(dev `187a2cc`, 2026-08-31). 요약 탭 월 행을 펼치면 그 달 정산 상세(차량별·상태 뱃지·소계 전체/지급확정). 데이터는 기존 `GET /settlements` 를 두 번 쓴 것 — 추가 API 호출 0.
+  - ⚠️ **최종 형태는 「승인된 ERP 월배치를 그대로 미러」**(Jin 2026-08-31). 이유 = `settlement_payout_adjustments`(환수·특별지급)가 **개별 정산에 안 붙고 배치 총액에만** 반영돼서, 차량별 `actual_payout` 을 아무리 정확히 합해도 **통장 입금액과 다르다**. 지금 화면은 그래서 "조정 미반영" 각주를 달고 있다.
+  - 남음 = ① **Jin**: 인계문서 `meetings/handoff-carerp-settlement-batch-mirror.md` 를 car-erp 세션에 전달 → ② ERP 가 `GET /payout-batches`(본인 스코프, 승인분만, `net_payout`) 배포 → ③ board 가 소스 교체·각주 제거 → **그때 한 번에 master 배포**.
+  - ⚠️ 인계문서 §4가 배치 미러의 **유일한 사각지대** — 대표가 직접 `paid` 로 넘긴 정산은 `payout_batch_id` 가 null 이라 배치만 미러하면 **board 에서 사라진다**. 두 ERP 박스에 그런 행이 실재하는지 확인이 와야 최종 구현이 확정된다.
+  - 확인 완료(2026-08-31): ERP `settlement_status` 값은 `pending|confirmed|paid` 뿐(`closed` 는 `secondary_status` 쪽) — board 의 "paid = 받은 것" 판정은 이 집합에 맞다.
+
 - **입금요청 알림톡 실발송**: ERP 가 `erp_board_request` 템플릿·시각 규칙까지 배포했지만(2026-08-11), **BizM 템플릿 승인 + 수신자 번호 설정 전까지 실발송 0**. 남음 = ① BizM 승인(인스턴스별 발신프로필 각각) ② 시각 규칙에 담당자 1~2명·대표 번호 입력. **전부 car-erp 쪽 일** — board 는 알림톡 코드 0.
 
 - **알림톡 2종**(지역검차·전달대기, Bizm): 코드 **운영 배포 완료**(master `77738a3`, 2026-07-13, 두 박스). 현재 enabled off 라 실발송 0 — 켜는 순간 가동.
