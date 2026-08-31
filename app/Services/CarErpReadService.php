@@ -146,6 +146,23 @@ class CarErpReadService
     }
 
     /**
+     * GET /payout-batches — **승인된 월배치 미러**(car-erp board-portal-api.md §13). 요약 탭 월 펼침의 단일 소스.
+     *
+     * 응답 = `data[]`(배치: month·decided_at·settlements[]·adjustments[]·net_payout) + `unbatched_paid[]`.
+     *
+     * ⚠️ **`unbatched_paid` 가 예외가 아니다.** 배치는 2026-07 에 생긴 개념이라 그 전 정산은 속할 배치가 없다
+     *    — car-erp 실측(2026-08-31) ssancarerp = paid 3,815건 **전부** 배치 밖(승인 배치 0건),
+     *    heymanerp = 65% 가 배치 밖. 배치만 그리면 ssancarboard 화면이 통째로 빈다.
+     *    그 달 수령액 = **Σ net_payout(그 달 배치) + Σ unbatched_paid(paid_at 이 그 달)**.
+     * ⚠️ `/settlements` 와 **같이 부르지 말 것** — 이 prefix 는 분당 120 요청을 **모든 엔드포인트가 나눠 쓰는**
+     *    공유 버킷이다(car-erp AppServiceProvider, 문서의 300,1 은 오기였음). 요약 탭은 이미 3개를 부른다.
+     */
+    public function payoutBatches(string $email): array
+    {
+        return $this->get('/payout-batches', ['salesman_email' => $email]);
+    }
+
+    /**
      * GET /shippable — 새로 묶을 차 후보. 2026-08-12 확대: **미완납 차도 온다**(`sale_price>0` + 반입지·B/L 없음).
      *
      * ⚠️ **출고일(`warehouse_out_date`)이 찍힌 차도 후보에 있다** — 출고일과 반입지는 독립된 축이라

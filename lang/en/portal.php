@@ -111,16 +111,12 @@ return [
     'm_settle' => 'Settlement',
     'm_purch_price' => 'Purchase price',
 
-    // Month expansion — per-vehicle settlement detail for that month.
-    'col_settle_status' => 'Status',
-    'col_settle_payout' => 'Payout',
-    'col_paid_date' => 'Paid on',
-    'settle_status_paid' => 'Paid',
-    'settle_status_confirmed' => 'Confirmed (not paid yet)',
-    'settle_status_pending' => 'Awaiting confirmation',
-    'settle_sub_total' => 'Total (:count)',
-    'settle_sub_paid' => 'Paid',
-    'settle_adjust_note' => 'Sum of per-vehicle settlement amounts. Monthly batch adjustments in car-erp (clawbacks / special payouts) are not reflected here.',
+    // Month expansion — settlement detail mirrored from approved car-erp payout batches.
+    'settle_batch_label' => ':month batch',
+    'settle_batch_paid_on' => 'paid :date',
+    'settle_batch_net' => 'Batch payout',
+    'settle_adjustment' => 'Adjustment',
+    'settle_month_total' => 'Received this month',
 
     // Shipping request tab
     'ship_inprogress_title' => 'Shipping requests in progress',

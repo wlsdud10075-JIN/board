@@ -80,7 +80,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public array $monthly = [];               // 요약 탭 월별 집계(판매 건수·정산 실지급·매입)
 
-    /** 요약 탭 월 펼침 — [YYYY-MM => rows(정산 행)·total·paid]. buildMonthly 가 같은 응답에서 같이 채운다. */
+    /** 요약 탭 월 펼침 — [YYYY-MM => batches(승인 월배치)·rows(배치 밖 지급)·total]. collectPayouts 가 채운다. */
     public array $monthlySettle = [];
 
     public array $salesDetail = [];           // 판매내역 펼침용 per-vehicle (바이어별 차량 리스트)
@@ -122,7 +122,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             }
         };
         $bump($svc->sales($email), 'sale_date', null, 'sales_cnt', null);
-        $this->collectSettlements($svc->settlements($email), $m);
+        $this->collectPayouts($svc->payoutBatches($email), $m);
         $bump($svc->purchases($email), 'purchase_date', 'purchase_price', 'purch_cnt', 'purch_sum');
         krsort($m);   // 최근 월 먼저
 
@@ -142,33 +142,49 @@ new #[Layout('components.layouts.app')] class extends Component {
      * ⚠️ ERP 월배치의 **담당자 조정**(`settlement_payout_adjustments` — 환수·특별지급)은 설계상 개별 정산에
      *    안 붙고 배치 총액에만 반영된다. 즉 여기 합계 ≠ 통장 입금액일 수 있다(화면 각주로 명시).
      */
-    private function collectSettlements(array $env, array &$m): void
+    /**
+     * 정산 = **승인된 ERP 월배치 미러**(`GET /payout-batches`, car-erp board-portal-api.md §13).
+     * 합계뿐 아니라 배치·행 자체를 월별로 남긴다(`$monthlySettle` = 월 펼침 상세).
+     *
+     * 월 = **받은 달**. 배치는 `decided_at`(승인=지급 시점, 없으면 귀속월 1일), 배치 밖은 `paid_at`.
+     * 두 갈래가 사실 같은 축이다 — ERP `execute()` 가 배치 승인 시점에 멤버 `paid_at = now()` 를 찍는다.
+     * 배치의 귀속월(`month`)은 **펼침 안 라벨로만** 쓴다(「2026-07월분 배치」).
+     *
+     * 🚨 **배치 밖 지급(`unbatched_paid`)이 예외가 아니다.** 배치는 2026-07 에 생긴 개념이라 그 전 정산은
+     *    속할 배치가 없고 **영원히 배치 밖**이다. car-erp 실측(2026-08-31) ssancarerp = paid 전량(3,815건)이
+     *    배치 밖·승인 배치 0건. 그래서 그 달 수령액 = **Σ net_payout + Σ unbatched_paid** 이고,
+     *    화면에서도 배치 밖을 각주가 아니라 **기본 형태**로 그린다(그러지 않으면 ssancarboard 는 전부가 각주다).
+     *
+     * ⚠️ `net_payout` 은 **그대로 쓴다**(ERP `recomputeTotal()` 과 일치 검증됨) — settlement_total+adjustment_total
+     *    로 다시 계산하지 않는다. 월 합계만 ERP 값을 **합산**한다(재계산 아님).
+     */
+    private function collectPayouts(array $env, array &$m): void
     {
         $this->monthlySettle = [];
         if (! ($env['ok'] ?? false)) {
             return;
         }
-        foreach ((array) data_get($env['data'], 'data', []) as $r) {
-            $d = data_get($r, 'paid_at') ?: data_get($r, 'confirmed_at');
-            if (! $d) {
+        $bumpMonth = function (string $key, float $amt, int $cnt) use (&$m) {
+            $m[$key]['settle_cnt'] = ($m[$key]['settle_cnt'] ?? 0) + $cnt;
+            $m[$key]['settle_sum'] = ($m[$key]['settle_sum'] ?? 0) + $amt;
+            $this->monthlySettle[$key]['total'] = ($this->monthlySettle[$key]['total'] ?? 0) + $amt;
+        };
+
+        foreach ((array) data_get($env['data'], 'data', []) as $b) {
+            // decided_at 이 없으면(이론상) 귀속월로 떨어뜨린다 — 월 없는 배치를 버리면 돈이 사라진다.
+            $d = data_get($b, 'decided_at') ?: (data_get($b, 'month').'-01');
+            $key = substr((string) $d, 0, 7);
+            $bumpMonth($key, (float) (data_get($b, 'net_payout') ?? 0), count((array) data_get($b, 'settlements', [])));
+            $this->monthlySettle[$key]['batches'][] = $b;
+        }
+
+        foreach ((array) data_get($env['data'], 'unbatched_paid', []) as $r) {
+            if (! ($d = data_get($r, 'paid_at'))) {
                 continue;
             }
-            $key = substr((string) $d, 0, 7);   // YYYY-MM
-            $amt = (float) (data_get($r, 'actual_payout') ?? 0);
-            $paid = data_get($r, 'status') === 'paid' ? $amt : 0.0;
-            $m[$key]['settle_cnt'] = ($m[$key]['settle_cnt'] ?? 0) + 1;
-            $m[$key]['settle_sum'] = ($m[$key]['settle_sum'] ?? 0) + $amt;
-            $m[$key]['settle_paid'] = ($m[$key]['settle_paid'] ?? 0) + $paid;
+            $key = substr((string) $d, 0, 7);
+            $bumpMonth($key, (float) (data_get($r, 'actual_payout') ?? 0), 1);
             $this->monthlySettle[$key]['rows'][] = $r;
-            $this->monthlySettle[$key]['total'] = ($this->monthlySettle[$key]['total'] ?? 0) + $amt;
-            $this->monthlySettle[$key]['paid'] = ($this->monthlySettle[$key]['paid'] ?? 0) + $paid;
-        }
-        // 달 안에서는 지급 확정분 먼저, 같은 상태면 최근 지급일 먼저("받은 것"이 위로).
-        foreach ($this->monthlySettle as $k => $v) {
-            $rows = $v['rows'];
-            usort($rows, fn ($a, $b) => [data_get($b, 'status') === 'paid', (string) (data_get($b, 'paid_at') ?? '')]
-                <=> [data_get($a, 'status') === 'paid', (string) (data_get($a, 'paid_at') ?? '')]);
-            $this->monthlySettle[$k]['rows'] = $rows;
         }
     }
 
@@ -1111,17 +1127,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <div class="card-sm"><div class="text-xs text-gray-500">{{ __('portal.kpi_fx_missing') }}</div><div class="mt-1 text-lg font-bold {{ ($sum['fx_missing_count'] ?? 0) ? 'text-amber-600' : 'text-gray-800' }}">{{ isset($sum['fx_missing_count']) ? __('portal.unit_count', ['count' => $sum['fx_missing_count']]) : '—' }}</div></div>
             </div>
 
-            {{-- 월별 (판매 건수·정산 실지급·매입) — 날짜 있는 리스트서 집계. 판매액은 통화혼재라 건수만.
-                 월 행 클릭 = 그 달 정산 **상세 펼침**. 데이터는 buildMonthly 가 이미 들고 있다(추가 API 호출·서버 왕복 0).
-                 ⚠️ 「정산 실지급」 열엔 confirmed(확정·지급 전)도 섞인다 — 그래서 상세에 상태 뱃지 + 지급완료 소계를 따로 낸다. --}}
-            @php
-                // 상태 = car-erp settlement_status 그대로(paid|confirmed|pending). 모르는 값은 원문 표시(가공 금지).
-                $sSt = [
-                    'paid' => [__('portal.settle_status_paid'), 'bg-emerald-100 text-emerald-700'],
-                    'confirmed' => [__('portal.settle_status_confirmed'), 'bg-amber-100 text-amber-700'],
-                    'pending' => [__('portal.settle_status_pending'), 'bg-gray-100 text-gray-500'],
-                ];
-            @endphp
+            {{-- 월별 (판매 건수·정산 수령·매입) — 날짜 있는 리스트서 집계. 판매액은 통화혼재라 건수만.
+                 월 행 클릭 = 그 달 정산 상세 펼침 = **승인된 ERP 월배치 미러**(car-erp §13).
+                 ⚠️ 배치 밖 지급(2026-07 배치 도입 전 정산)이 ssancarerp 는 100%다 — 그래서 배치 밖 행이
+                    **기본 형태**이고, 배치는 그 위에 얹히는 묶음 블록이다. 반대로 그리면 한 박스는 전부가 각주가 된다. --}}
             <div class="mt-4" wire:key="monthly" x-data="{ open: true }">
                 <button type="button" class="mb-2 flex items-center gap-2 font-bold text-gray-700" @click="open = !open">
                     <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span> 📅 {{ __('portal.monthly_perf') }}
@@ -1129,7 +1138,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <div x-show="open" x-cloak>
                     <div class="hidden overflow-x-auto sm:block">
                         <table class="tbl">
-                            <thead><tr><th>{{ __('portal.col_month') }}</th><th>{{ __('portal.col_sales_cnt') }}</th><th>{{ __('portal.col_settle_sum') }}</th><th>{{ __('portal.col_payout_paid') }}</th><th>{{ __('portal.col_purch_cnt') }}</th><th>{{ __('portal.col_purch_sum') }}</th></tr></thead>
+                            <thead><tr><th>{{ __('portal.col_month') }}</th><th>{{ __('portal.col_sales_cnt') }}</th><th>{{ __('portal.col_settle_sum') }}</th><th>{{ __('portal.col_purch_cnt') }}</th><th>{{ __('portal.col_purch_sum') }}</th></tr></thead>
                             @forelse ($monthly as $month => $row)
                                 @php $det = $monthlySettle[$month] ?? null; @endphp
                                 <tbody wire:key="mrow-{{ $month }}" x-data="{ o: false }">
@@ -1139,44 +1148,19 @@ new #[Layout('components.layouts.app')] class extends Component {
                                         </td>
                                         <td>{{ $row['sales_cnt'] ?? 0 }}</td>
                                         <td class="font-semibold text-gray-800">{{ number_format((float) ($row['settle_sum'] ?? 0)) }}</td>
-                                        <td class="text-gray-500">{{ number_format((float) ($row['settle_paid'] ?? 0)) }}</td>
                                         <td>{{ $row['purch_cnt'] ?? 0 }}</td>
                                         <td>{{ number_format((float) ($row['purch_sum'] ?? 0)) }}</td>
                                     </tr>
                                     @if ($det)
                                         <tr x-show="o" x-cloak>
-                                            <td colspan="6" class="bg-gray-50">
-                                                <table class="w-full text-[12px]">
-                                                    <thead><tr class="text-gray-500">
-                                                        <th class="py-1 text-left font-normal">{{ __('portal.col_vehicle') }}</th>
-                                                        <th class="py-1 text-left font-normal">{{ __('portal.col_settle_status') }}</th>
-                                                        <th class="py-1 text-right font-normal">{{ __('portal.col_settle_payout') }}</th>
-                                                        <th class="py-1 text-right font-normal">{{ __('portal.col_paid_date') }}</th>
-                                                    </tr></thead>
-                                                    <tbody>
-                                                        @foreach ($det['rows'] as $s)
-                                                            @php $st = $sSt[data_get($s, 'status')] ?? [data_get($s, 'status'), 'bg-gray-100 text-gray-500']; @endphp
-                                                            <tr class="border-t border-gray-200">
-                                                                <td class="py-1 font-semibold text-gray-700">{{ data_get($s, 'vehicle_number') ?: '—' }}</td>
-                                                                <td class="py-1"><span class="rounded px-1.5 py-0.5 text-[11px] font-semibold {{ $st[1] }}">{{ $st[0] }}</span></td>
-                                                                <td class="py-1 text-right text-gray-800">{{ number_format((float) (data_get($s, 'actual_payout') ?? 0)) }}</td>
-                                                                <td class="py-1 text-right text-gray-500">{{ data_get($s, 'paid_at') ?: '—' }}</td>
-                                                            </tr>
-                                                        @endforeach
-                                                    </tbody>
-                                                    <tfoot><tr class="border-t-2 border-gray-300 font-semibold text-gray-700">
-                                                        <td class="py-1" colspan="2">{{ __('portal.settle_sub_total', ['count' => count($det['rows'])]) }}</td>
-                                                        <td class="py-1 text-right">{{ number_format((float) $det['total']) }}</td>
-                                                        <td class="py-1 text-right text-emerald-700">{{ __('portal.settle_sub_paid') }} {{ number_format((float) $det['paid']) }}</td>
-                                                    </tr></tfoot>
-                                                </table>
-                                                <p class="mt-1 text-[11px] text-gray-400">⚠️ {{ __('portal.settle_adjust_note') }}</p>
+                                            <td colspan="5" class="bg-gray-50">
+                                                @include('livewire.portal._settle-detail', ['det' => $det])
                                             </td>
                                         </tr>
                                     @endif
                                 </tbody>
                             @empty
-                                <tbody><tr><td colspan="6" class="py-6 text-center text-gray-400">{{ __('portal.monthly_empty') }}</td></tr></tbody>
+                                <tbody><tr><td colspan="5" class="py-6 text-center text-gray-400">{{ __('portal.monthly_empty') }}</td></tr></tbody>
                             @endforelse
                         </table>
                     </div>
@@ -1188,37 +1172,17 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     <span class="font-semibold text-gray-700">
                                         @if ($det)<span class="mr-1 inline-block w-3 text-gray-400" x-text="o ? '▼' : '▶'"></span>@endif{{ $month }}
                                     </span>
-                                    @if ($det)<span class="shrink-0 text-[11px] text-gray-400">{{ __('portal.unit_count', ['count' => count($det['rows'])]) }}</span>@endif
+                                    @if ($det)<span class="shrink-0 text-[11px] text-gray-400">{{ __('portal.unit_count', ['count' => $row['settle_cnt'] ?? 0]) }}</span>@endif
                                 </div>
                                 <div class="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-gray-600">
                                     <div>{{ __('portal.m_sales') }} <b class="text-gray-800">{{ $row['sales_cnt'] ?? 0 }}</b>{{ __('portal.count_suffix') }}</div>
                                     <div>{{ __('portal.m_purchase') }} <b class="text-gray-800">{{ $row['purch_cnt'] ?? 0 }}</b>{{ __('portal.count_suffix') }}</div>
-                                    {{-- 접힌 상태에서도 지급확정분을 같이 보여준다 — 데스크톱은 열이 따로 있는데
-                                         여기만 전체합 하나면, 폰으로 보는 영업은 펼치기 전까지 확정·미지급이 섞인 숫자를 본다. --}}
-                                    <div>{{ __('portal.m_settle') }} <b class="text-gray-800">{{ number_format((float) ($row['settle_sum'] ?? 0)) }}</b>
-                                        @if ((float) ($row['settle_sum'] ?? 0) !== (float) ($row['settle_paid'] ?? 0))
-                                            <span class="text-[11px] text-gray-400">({{ __('portal.settle_sub_paid') }} {{ number_format((float) ($row['settle_paid'] ?? 0)) }})</span>
-                                        @endif
-                                    </div>
+                                    <div>{{ __('portal.m_settle') }} <b class="text-gray-800">{{ number_format((float) ($row['settle_sum'] ?? 0)) }}</b></div>
                                     <div>{{ __('portal.m_purch_price') }} <b class="text-gray-800">{{ number_format((float) ($row['purch_sum'] ?? 0)) }}</b></div>
                                 </div>
                                 @if ($det)
                                     <div x-show="o" x-cloak class="mt-2 border-t border-gray-200 pt-2">
-                                        @foreach ($det['rows'] as $s)
-                                            @php $st = $sSt[data_get($s, 'status')] ?? [data_get($s, 'status'), 'bg-gray-100 text-gray-500']; @endphp
-                                            <div class="flex items-center justify-between gap-2 border-b border-gray-100 py-1 text-xs last:border-0">
-                                                <span class="font-semibold text-gray-700">{{ data_get($s, 'vehicle_number') ?: '—' }}</span>
-                                                <span class="flex shrink-0 items-center gap-1.5">
-                                                    <span class="rounded px-1.5 py-0.5 text-[11px] font-semibold {{ $st[1] }}">{{ $st[0] }}</span>
-                                                    <b class="text-gray-800">{{ number_format((float) (data_get($s, 'actual_payout') ?? 0)) }}</b>
-                                                </span>
-                                            </div>
-                                        @endforeach
-                                        <div class="mt-1 flex items-center justify-between text-[11px] text-gray-500">
-                                            <span>{{ __('portal.settle_sub_paid') }}</span>
-                                            <b class="text-emerald-700">{{ number_format((float) $det['paid']) }}</b>
-                                        </div>
-                                        <p class="mt-1 text-[11px] text-gray-400">⚠️ {{ __('portal.settle_adjust_note') }}</p>
+                                        @include('livewire.portal._settle-detail', ['det' => $det])
                                     </div>
                                 @endif
                             </div>

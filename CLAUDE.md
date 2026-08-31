@@ -195,11 +195,13 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
 
 ## ⏭️ 남은 작업 (미완)
 
-- **포털 요약 「내 정산 월별 상세」**: dev 구현·**운영 미배포**(dev `187a2cc`, 2026-08-31). 요약 탭 월 행을 펼치면 그 달 정산 상세(차량별·상태 뱃지·소계 전체/지급확정). 데이터는 기존 `GET /settlements` 를 두 번 쓴 것 — 추가 API 호출 0.
-  - ⚠️ **최종 형태는 「승인된 ERP 월배치를 그대로 미러」**(Jin 2026-08-31). 이유 = `settlement_payout_adjustments`(환수·특별지급)가 **개별 정산에 안 붙고 배치 총액에만** 반영돼서, 차량별 `actual_payout` 을 아무리 정확히 합해도 **통장 입금액과 다르다**. 지금 화면은 그래서 "조정 미반영" 각주를 달고 있다.
-  - 남음 = ① **Jin**: 인계문서 `meetings/handoff-carerp-settlement-batch-mirror.md` 를 car-erp 세션에 전달 → ② ERP 가 `GET /payout-batches`(본인 스코프, 승인분만, `net_payout`) 배포 → ③ board 가 소스 교체·각주 제거 → **그때 한 번에 master 배포**.
-  - ⚠️ 인계문서 §4가 배치 미러의 **유일한 사각지대** — 대표가 직접 `paid` 로 넘긴 정산은 `payout_batch_id` 가 null 이라 배치만 미러하면 **board 에서 사라진다**. 두 ERP 박스에 그런 행이 실재하는지 확인이 와야 최종 구현이 확정된다.
-  - 확인 완료(2026-08-31): ERP `settlement_status` 값은 `pending|confirmed|paid` 뿐(`closed` 는 `secondary_status` 쪽) — board 의 "paid = 받은 것" 판정은 이 집합에 맞다.
+- **포털 요약 「내 정산 월별 상세」 = 승인된 ERP 월배치 미러**: board **dev 구현 완료·운영 미배포**(2026-08-31). car-erp 는 **배포 완료**(master `488e597`, `GET /api/internal/board/payout-batches`, 3사 정상 응답). 요약 탭 월 행을 펼치면 그 달 정산 상세 — 배치 묶음(차량행 + 조정 + `net_payout`) + 배치 밖 지급 행 + 이 달 수령액.
+  - 🚨 **배치 밖 지급이 예외가 아니라 본류다.** 배치는 2026-07 에 생긴 개념이라 그 전 정산은 속할 배치가 없고 **영원히 배치 밖**이다(과거 데이터 적재분). car-erp 실측 = **ssancarerp paid 3,815건 전량(100%)이 배치 밖·승인 배치 0건**, heymanerp 65%. ⇒ **그 달 수령액 = Σ`net_payout` + Σ`unbatched_paid`**, 화면에서도 배치 밖을 **기본 형태**로 그린다(각주로 다루면 ssancarboard 는 전부가 각주가 된다). 가드 = `BoardTest::test_monthly_payout_renders_when_there_are_no_batches`.
+  - `net_payout` 은 **그대로 표시**(ERP `recomputeTotal()` 과 일치 검증됨) — 재계산 금지. 월 합계만 ERP 값을 합산한다.
+  - 조정 `reason` 은 **ERP 가 준다**(예: "62두1461 5월 배치 환율오류 과지급 환수"). 본인 차·본인 돈이라 노출이 맞고, 안 보여주면 「−729,250」만 떠서 설명 없이 깎인 걸로 읽힌다. ERP 조정 입력칸에 "영업담당자에게 그대로 보임" 경고가 붙어 있다.
+  - ⚠️ **throttle = 분당 120, 이 prefix 의 모든 엔드포인트가 같은 버킷을 공유**(문서의 `300,1` 은 오기 — car-erp 가 정정). 그래서 `/settlements` 는 **더 이상 부르지 않는다**(가드 = `test_monthly_does_not_call_legacy_settlements`). 요약 탭은 이미 finance·sales·purchases 3개를 부른다.
+  - ⚠️ 배포하면 **요약의 월 금액이 달라진다** — confirmed(확정·미지급)가 빠지고 조정이 반영된다. 버그가 아니라 수정이지만 미리 알리지 않으면 버그로 읽힌다.
+  - 남음 = **Jin 눈 확인 → master 머지·두 박스 배포 허락**. 권위 스펙 = car-erp `docs/integration/board-portal-api.md` §13, 회신 = `C:\Users\User\Desktop\연구소\전달패킷_carerp→board_2026-08-31_월배치미러_배포완료.md`.
 
 - **입금요청 알림톡 실발송**: ERP 가 `erp_board_request` 템플릿·시각 규칙까지 배포했지만(2026-08-11), **BizM 템플릿 승인 + 수신자 번호 설정 전까지 실발송 0**. 남음 = ① BizM 승인(인스턴스별 발신프로필 각각) ② 시각 규칙에 담당자 1~2명·대표 번호 입력. **전부 car-erp 쪽 일** — board 는 알림톡 코드 0.
 
