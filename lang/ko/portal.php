@@ -103,13 +103,20 @@ return [
     'monthly_note' => '판매액은 통화가 섞여 합산 대신 건수로 표시. 정산·매입은 원화 합산.',
     'col_month' => '월',
     'col_sales_cnt' => '판매(건)',
-    'col_settle_sum' => '정산 실지급(원)',
+    'col_settle_sum' => '정산 수령액(원)',   // 펼침 바닥의 「이 달 수령액」과 같은 값·같은 이름
     'col_purch_cnt' => '매입(건)',
     'col_purch_sum' => '매입가(원)',
     'm_sales' => '판매',
     'm_purchase' => '매입',
     'm_settle' => '정산',
     'm_purch_price' => '매입가',
+
+    // 월 펼침 — 그 달 정산 상세 = 승인된 ERP 월배치 미러. 배치 밖 지급(배치 도입 전 정산)이 기본 형태다.
+    'settle_batch_label' => ':month월분 배치',
+    'settle_batch_paid_on' => ':date 지급',
+    'settle_batch_net' => '배치 수령액',
+    'settle_adjustment' => '조정',
+    'settle_month_total' => '이 달 수령액',
 
     // 선적요청 탭
     'ship_inprogress_title' => '진행 중인 선적요청',

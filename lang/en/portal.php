@@ -103,13 +103,20 @@ return [
     'monthly_note' => 'Sales amounts are shown as counts (not summed) because currencies are mixed. Settlement and purchases are summed in KRW.',
     'col_month' => 'Month',
     'col_sales_cnt' => 'Sales (count)',
-    'col_settle_sum' => 'Settlement payout (KRW)',
+    'col_settle_sum' => 'Settlement received (KRW)',
     'col_purch_cnt' => 'Purchases (count)',
     'col_purch_sum' => 'Purchase price (KRW)',
     'm_sales' => 'Sales',
     'm_purchase' => 'Purchases',
     'm_settle' => 'Settlement',
     'm_purch_price' => 'Purchase price',
+
+    // Month expansion — settlement detail mirrored from approved car-erp payout batches.
+    'settle_batch_label' => ':month batch',
+    'settle_batch_paid_on' => 'paid :date',
+    'settle_batch_net' => 'Batch payout',
+    'settle_adjustment' => 'Adjustment',
+    'settle_month_total' => 'Received this month',
 
     // Shipping request tab
     'ship_inprogress_title' => 'Shipping requests in progress',

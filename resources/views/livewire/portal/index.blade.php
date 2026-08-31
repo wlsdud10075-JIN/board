@@ -80,6 +80,9 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public array $monthly = [];               // 요약 탭 월별 집계(판매 건수·정산 실지급·매입)
 
+    /** 요약 탭 월 펼침 — [YYYY-MM => batches(승인 월배치)·rows(배치 밖 지급)·total]. collectPayouts 가 채운다. */
+    public array $monthlySettle = [];
+
     public array $salesDetail = [];           // 판매내역 펼침용 per-vehicle (바이어별 차량 리스트)
 
     private const TABS = ['finance', 'receivables', 'inventory', 'sales', 'settlements', 'shipping'];
@@ -119,13 +122,70 @@ new #[Layout('components.layouts.app')] class extends Component {
             }
         };
         $bump($svc->sales($email), 'sale_date', null, 'sales_cnt', null);
-        // 정산 월별 = 실지급일(paid_at) 우선, car-erp 가 아직 안 보내면 confirmed_at 폴백.
-        // (handoff-car-erp-settlement-paid-at.md — car-erp 가 paid_at 노출하면 5월/6월 자동 분리)
-        $bump($svc->settlements($email), ['paid_at', 'confirmed_at'], 'actual_payout', 'settle_cnt', 'settle_sum');
+        $this->collectPayouts($svc->payoutBatches($email), $m);
         $bump($svc->purchases($email), 'purchase_date', 'purchase_price', 'purch_cnt', 'purch_sum');
         krsort($m);   // 최근 월 먼저
 
         return $m;
+    }
+
+    /**
+     * 정산만 별도 처리 — 합계뿐 아니라 **행 자체**를 월별로 남긴다(`$monthlySettle` = 월 펼침 상세).
+     * 같은 응답을 두 번 쓰는 것뿐이라 API 호출은 늘지 않는다.
+     *
+     * 월 = 실지급일(`paid_at`) 우선, car-erp 가 아직 안 보내면 `confirmed_at` 폴백
+     * (handoff-car-erp-settlement-paid-at.md — paid_at 노출 후 5월/6월 자동 분리).
+     *
+     * ⚠️ car-erp `/settlements` 에는 **상태 필터가 없다** → `confirmed`(확정했지만 지급 전)도 섞여 온다.
+     *    그래서 `settle_sum`(전체)과 `settle_paid`(지급 확정분)를 나눠 담는다 — 안 나누면 아직 받지도
+     *    않은 달이 「정산 실지급」으로 읽힌다. `pending` 은 두 날짜가 다 없어 어느 달에도 안 걸린다(기존 동작).
+     * ⚠️ ERP 월배치의 **담당자 조정**(`settlement_payout_adjustments` — 환수·특별지급)은 설계상 개별 정산에
+     *    안 붙고 배치 총액에만 반영된다. 즉 여기 합계 ≠ 통장 입금액일 수 있다(화면 각주로 명시).
+     */
+    /**
+     * 정산 = **승인된 ERP 월배치 미러**(`GET /payout-batches`, car-erp board-portal-api.md §13).
+     * 합계뿐 아니라 배치·행 자체를 월별로 남긴다(`$monthlySettle` = 월 펼침 상세).
+     *
+     * 월 = **받은 달**. 배치는 `decided_at`(승인=지급 시점, 없으면 귀속월 1일), 배치 밖은 `paid_at`.
+     * 두 갈래가 사실 같은 축이다 — ERP `execute()` 가 배치 승인 시점에 멤버 `paid_at = now()` 를 찍는다.
+     * 배치의 귀속월(`month`)은 **펼침 안 라벨로만** 쓴다(「2026-07월분 배치」).
+     *
+     * 🚨 **배치 밖 지급(`unbatched_paid`)이 예외가 아니다.** 배치는 2026-07 에 생긴 개념이라 그 전 정산은
+     *    속할 배치가 없고 **영원히 배치 밖**이다. car-erp 실측(2026-08-31) ssancarerp = paid 전량(3,815건)이
+     *    배치 밖·승인 배치 0건. 그래서 그 달 수령액 = **Σ net_payout + Σ unbatched_paid** 이고,
+     *    화면에서도 배치 밖을 각주가 아니라 **기본 형태**로 그린다(그러지 않으면 ssancarboard 는 전부가 각주다).
+     *
+     * ⚠️ `net_payout` 은 **그대로 쓴다**(ERP `recomputeTotal()` 과 일치 검증됨) — settlement_total+adjustment_total
+     *    로 다시 계산하지 않는다. 월 합계만 ERP 값을 **합산**한다(재계산 아님).
+     */
+    private function collectPayouts(array $env, array &$m): void
+    {
+        $this->monthlySettle = [];
+        if (! ($env['ok'] ?? false)) {
+            return;
+        }
+        $bumpMonth = function (string $key, float $amt, int $cnt) use (&$m) {
+            $m[$key]['settle_cnt'] = ($m[$key]['settle_cnt'] ?? 0) + $cnt;
+            $m[$key]['settle_sum'] = ($m[$key]['settle_sum'] ?? 0) + $amt;
+            $this->monthlySettle[$key]['total'] = ($this->monthlySettle[$key]['total'] ?? 0) + $amt;
+        };
+
+        foreach ((array) data_get($env['data'], 'data', []) as $b) {
+            // decided_at 이 없으면(이론상) 귀속월로 떨어뜨린다 — 월 없는 배치를 버리면 돈이 사라진다.
+            $d = data_get($b, 'decided_at') ?: (data_get($b, 'month').'-01');
+            $key = substr((string) $d, 0, 7);
+            $bumpMonth($key, (float) (data_get($b, 'net_payout') ?? 0), count((array) data_get($b, 'settlements', [])));
+            $this->monthlySettle[$key]['batches'][] = $b;
+        }
+
+        foreach ((array) data_get($env['data'], 'unbatched_paid', []) as $r) {
+            if (! ($d = data_get($r, 'paid_at'))) {
+                continue;
+            }
+            $key = substr((string) $d, 0, 7);
+            $bumpMonth($key, (float) (data_get($r, 'actual_payout') ?? 0), 1);
+            $this->monthlySettle[$key]['rows'][] = $r;
+        }
     }
 
     /** 미수금 컬럼 정렬 토글. */
@@ -262,6 +322,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
         // 요약 탭 = 합계 + 월별(판매/정산/매입). 다른 탭은 월별 불필요.
         $this->monthly = $this->tab === 'finance' ? $this->buildMonthly($email) : [];
+        if ($this->tab !== 'finance') {
+            $this->monthlySettle = [];   // 다른 탭에서 stale 상세가 남지 않게(펼침은 요약 탭 전용).
+        }
     }
 
     /**
@@ -1064,7 +1127,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <div class="card-sm"><div class="text-xs text-gray-500">{{ __('portal.kpi_fx_missing') }}</div><div class="mt-1 text-lg font-bold {{ ($sum['fx_missing_count'] ?? 0) ? 'text-amber-600' : 'text-gray-800' }}">{{ isset($sum['fx_missing_count']) ? __('portal.unit_count', ['count' => $sum['fx_missing_count']]) : '—' }}</div></div>
             </div>
 
-            {{-- 월별 (판매 건수·정산 실지급·매입) — 날짜 있는 리스트서 집계. 판매액은 통화혼재라 건수만. --}}
+            {{-- 월별 (판매 건수·정산 수령·매입) — 날짜 있는 리스트서 집계. 판매액은 통화혼재라 건수만.
+                 월 행 클릭 = 그 달 정산 상세 펼침 = **승인된 ERP 월배치 미러**(car-erp §13).
+                 ⚠️ 배치 밖 지급(2026-07 배치 도입 전 정산)이 ssancarerp 는 100%다 — 그래서 배치 밖 행이
+                    **기본 형태**이고, 배치는 그 위에 얹히는 묶음 블록이다. 반대로 그리면 한 박스는 전부가 각주가 된다. --}}
             <div class="mt-4" wire:key="monthly" x-data="{ open: true }">
                 <button type="button" class="mb-2 flex items-center gap-2 font-bold text-gray-700" @click="open = !open">
                     <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span> 📅 {{ __('portal.monthly_perf') }}
@@ -1073,31 +1139,52 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <div class="hidden overflow-x-auto sm:block">
                         <table class="tbl">
                             <thead><tr><th>{{ __('portal.col_month') }}</th><th>{{ __('portal.col_sales_cnt') }}</th><th>{{ __('portal.col_settle_sum') }}</th><th>{{ __('portal.col_purch_cnt') }}</th><th>{{ __('portal.col_purch_sum') }}</th></tr></thead>
-                            <tbody>
-                                @forelse ($monthly as $month => $row)
-                                    <tr>
-                                        <td class="font-semibold text-gray-700">{{ $month }}</td>
+                            @forelse ($monthly as $month => $row)
+                                @php $det = $monthlySettle[$month] ?? null; @endphp
+                                <tbody wire:key="mrow-{{ $month }}" x-data="{ o: false }">
+                                    <tr @class(['cursor-pointer hover:bg-gray-50' => (bool) $det]) @if ($det) x-on:click="o = !o" @endif>
+                                        <td class="whitespace-nowrap font-semibold text-gray-700">
+                                            @if ($det)<span class="mr-1 inline-block w-3 text-gray-400" x-text="o ? '▼' : '▶'"></span>@endif{{ $month }}
+                                        </td>
                                         <td>{{ $row['sales_cnt'] ?? 0 }}</td>
-                                        <td>{{ number_format((float) ($row['settle_sum'] ?? 0)) }}</td>
+                                        <td class="font-semibold text-gray-800">{{ number_format((float) ($row['settle_sum'] ?? 0)) }}</td>
                                         <td>{{ $row['purch_cnt'] ?? 0 }}</td>
                                         <td>{{ number_format((float) ($row['purch_sum'] ?? 0)) }}</td>
                                     </tr>
-                                @empty
-                                    <tr><td colspan="5" class="py-6 text-center text-gray-400">{{ __('portal.monthly_empty') }}</td></tr>
-                                @endforelse
-                            </tbody>
+                                    @if ($det)
+                                        <tr x-show="o" x-cloak>
+                                            <td colspan="5" class="bg-gray-50">
+                                                @include('livewire.portal._settle-detail', ['det' => $det])
+                                            </td>
+                                        </tr>
+                                    @endif
+                                </tbody>
+                            @empty
+                                <tbody><tr><td colspan="5" class="py-6 text-center text-gray-400">{{ __('portal.monthly_empty') }}</td></tr></tbody>
+                            @endforelse
                         </table>
                     </div>
                     <div class="space-y-2 sm:hidden">
                         @forelse ($monthly as $month => $row)
-                            <div class="card-tight">
-                                <div class="font-semibold text-gray-700">{{ $month }}</div>
+                            @php $det = $monthlySettle[$month] ?? null; @endphp
+                            <div class="card-tight" wire:key="mcard-{{ $month }}" x-data="{ o: false }">
+                                <div @class(['flex items-center justify-between gap-2', 'cursor-pointer' => (bool) $det]) @if ($det) x-on:click="o = !o" @endif>
+                                    <span class="font-semibold text-gray-700">
+                                        @if ($det)<span class="mr-1 inline-block w-3 text-gray-400" x-text="o ? '▼' : '▶'"></span>@endif{{ $month }}
+                                    </span>
+                                    @if ($det)<span class="shrink-0 text-[11px] text-gray-400">{{ __('portal.unit_count', ['count' => $row['settle_cnt'] ?? 0]) }}</span>@endif
+                                </div>
                                 <div class="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-gray-600">
                                     <div>{{ __('portal.m_sales') }} <b class="text-gray-800">{{ $row['sales_cnt'] ?? 0 }}</b>{{ __('portal.count_suffix') }}</div>
                                     <div>{{ __('portal.m_purchase') }} <b class="text-gray-800">{{ $row['purch_cnt'] ?? 0 }}</b>{{ __('portal.count_suffix') }}</div>
                                     <div>{{ __('portal.m_settle') }} <b class="text-gray-800">{{ number_format((float) ($row['settle_sum'] ?? 0)) }}</b></div>
                                     <div>{{ __('portal.m_purch_price') }} <b class="text-gray-800">{{ number_format((float) ($row['purch_sum'] ?? 0)) }}</b></div>
                                 </div>
+                                @if ($det)
+                                    <div x-show="o" x-cloak class="mt-2 border-t border-gray-200 pt-2">
+                                        @include('livewire.portal._settle-detail', ['det' => $det])
+                                    </div>
+                                @endif
                             </div>
                         @empty
                             <div class="py-6 text-center text-gray-400">{{ __('portal.monthly_empty') }}</div>

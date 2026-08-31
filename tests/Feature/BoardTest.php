@@ -4904,9 +4904,9 @@ class BoardTest extends TestCase
                 ['vehicle_number' => 'A', 'sale_date' => '2026-05-10', 'sale_price' => 1, 'currency' => 'USD'],
                 ['vehicle_number' => 'B', 'sale_date' => '2026-05-20', 'sale_price' => 1, 'currency' => 'USD'],
             ]], 200),
-            '*/api/internal/board/settlements*' => Http::response(['count' => 1, 'data' => [
-                ['vehicle_number' => 'A', 'confirmed_at' => '2026-05-15', 'actual_payout' => 700000, 'status' => 'paid'],
-            ]], 200),
+            '*/api/internal/board/payout-batches*' => Http::response(['count' => 0, 'data' => [],
+                'unbatched_paid' => [['vehicle_number' => 'A', 'paid_at' => '2026-05-15', 'actual_payout' => 700000]],
+            ], 200),
             '*/api/internal/board/purchases*' => Http::response(['count' => 0, 'data' => []], 200),
             '*' => Http::response(['count' => 0, 'data' => []], 200),
         ]);
@@ -4918,21 +4918,23 @@ class BoardTest extends TestCase
 
     public function test_portal_monthly_settlement_buckets_by_paid_at(): void
     {
-        // 실지급일(paid_at)이 확정일(confirmed_at)과 다르면 월별은 paid_at 기준으로 갈려야 함.
-        // (car-erp 가 엑셀 업로드로 5월/6월 실지급을 paid_at 에 담아 보내는 케이스 — handoff-car-erp-settlement-paid-at.md)
+        // 정산 월별은 **실지급일(paid_at)** 기준으로 갈려야 한다(확정일이 아니라 — 4월 일한 분을 5/10 받으면 5월).
+        // 배치 밖 지급은 paid_at 만 있고, 배치는 decided_at(승인=지급 시점) 월로 걸린다 — 같은 축이다.
         $this->carErpReadConfig();
         Http::fake([
             '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 0], 200),
-            '*/api/internal/board/settlements*' => Http::response(['count' => 2, 'data' => [
-                ['vehicle_number' => 'A', 'paid_at' => '2026-05-31', 'confirmed_at' => '2026-06-23', 'actual_payout' => 500000, 'status' => 'paid'],
-                ['vehicle_number' => 'B', 'paid_at' => '2026-06-10', 'confirmed_at' => '2026-06-23', 'actual_payout' => 300000, 'status' => 'paid'],
-            ]], 200),
+            '*/api/internal/board/payout-batches*' => Http::response(['count' => 0, 'data' => [],
+                'unbatched_paid' => [
+                    ['vehicle_number' => 'A', 'paid_at' => '2026-05-31', 'actual_payout' => 500000],
+                    ['vehicle_number' => 'B', 'paid_at' => '2026-06-10', 'actual_payout' => 300000],
+                ],
+            ], 200),
             '*' => Http::response(['count' => 0, 'data' => []], 200),
         ]);
         $this->actingAs($this->mkUser('sales'));
 
         Volt::test('portal.index')
-            ->assertSee('2026-05')->assertSee('500,000')   // 확정은 6월이나 실지급 5월 → 5월로
+            ->assertSee('2026-05')->assertSee('500,000')
             ->assertSee('2026-06')->assertSee('300,000');
     }
 
@@ -5779,5 +5781,103 @@ class BoardTest extends TestCase
 
         $this->artisan('board:region-normalize', ['--apply' => true])->assertSuccessful();
         $this->assertSame('경기 수원시', DB::table('purchase_listings')->where('id', $listing->id)->value('region'));
+    }
+
+    // ── 요약 탭 월 펼침 — 승인된 ERP 월배치 미러 (2026-08-31) ──
+
+    /**
+     * 그 달 수령액 = Σ net_payout(그 달 배치) + Σ unbatched_paid(paid_at 이 그 달).
+     * 배치 안 금액만 세면 배치 밖 지급이 통째로 사라지고, 조정(환수)을 빼먹으면 통장과 어긋난다.
+     */
+    public function test_monthly_payout_sums_batches_and_unbatched(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/payout-batches*' => Http::response([
+                'count' => 1,
+                'data' => [[
+                    'batch_id' => 12, 'month' => '2026-07', 'status' => 'approved', 'decided_at' => '2026-08-10',
+                    'settlements' => [
+                        ['vehicle_number' => '11가1111', 'actual_payout' => 1000000, 'paid_at' => '2026-08-10'],
+                        ['vehicle_number' => '22나2222', 'actual_payout' => 500000, 'paid_at' => '2026-08-10'],
+                    ],
+                    'adjustments' => [['amount' => -300000, 'reason' => '62두1461 5월 배치 환율오류 과지급 환수']],
+                    'settlement_total' => 1500000, 'adjustment_total' => -300000, 'net_payout' => 1200000,
+                ]],
+                // 같은 달에 배치 밖 지급도 있다 — 둘 다 더해야 그 달 수령액이다.
+                'unbatched_paid' => [['vehicle_number' => '33다3333', 'actual_payout' => 800000, 'paid_at' => '2026-08-15']],
+            ], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('portal.index')->call('setTab', 'finance');
+        $m = $c->instance()->monthly;
+        $det = $c->instance()->monthlySettle;
+
+        // 배치는 귀속월(2026-07)이 아니라 **받은 달**(decided_at = 2026-08)로 걸린다.
+        $this->assertSame(2000000.0, $m['2026-08']['settle_sum'] ?? null);   // net 120만 + 배치 밖 80만
+        $this->assertSame(2000000.0, $det['2026-08']['total'] ?? null);
+        $this->assertArrayNotHasKey('2026-07', $m);
+        $this->assertCount(1, $det['2026-08']['batches']);
+        $this->assertCount(1, $det['2026-08']['rows']);
+
+        // 조정은 사유·부호가 그대로 보여야 한다(설명 없이 깎인 것으로 읽히면 안 된다).
+        $c->assertSee('11가1111')->assertSee('33다3333')
+            ->assertSee('62두1461 5월 배치 환율오류 과지급 환수')
+            ->assertSee('-300,000')
+            ->assertSee('1,200,000')   // 배치 수령액 = net_payout 그대로
+            ->assertSee('2,000,000');  // 이 달 수령액
+    }
+
+    /**
+     * 🚨 ssancarboard 형태 — 승인 배치 **0건**, paid 전량이 배치 밖(car-erp 실측 3,815건 100%).
+     * 배치만 그리는 구현이면 이 박스는 화면이 통째로 빈다. 그 회귀를 여기서 잡는다.
+     */
+    public function test_monthly_payout_renders_when_there_are_no_batches(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/payout-batches*' => Http::response([
+                'count' => 0, 'data' => [],
+                'unbatched_paid' => [
+                    ['vehicle_number' => '44라4444', 'actual_payout' => 600000, 'paid_at' => '2026-06-15'],
+                    ['vehicle_number' => '55마5555', 'actual_payout' => 400000, 'paid_at' => '2026-06-20'],
+                ],
+            ], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('portal.index')->call('setTab', 'finance');
+
+        $this->assertSame(1000000.0, $c->instance()->monthly['2026-06']['settle_sum'] ?? null);
+        $this->assertSame(2, $c->instance()->monthly['2026-06']['settle_cnt'] ?? null);
+        $c->assertSee('2026-06')->assertSee('44라4444')->assertSee('600,000')->assertSee('1,000,000');
+    }
+
+    /** 월 펼침이 쓰는 lang 키는 ko·en 양쪽에 있어야 한다(fallback=en 이라 한쪽만 넣으면 영문에서 키가 노출된다). */
+    public function test_monthly_detail_lang_keys_exist_in_both_locales(): void
+    {
+        $keys = ['settle_batch_label', 'settle_batch_paid_on', 'settle_batch_net', 'settle_adjustment', 'settle_month_total'];
+        foreach (['ko', 'en'] as $locale) {
+            foreach ($keys as $key) {
+                $this->assertNotSame('portal.'.$key, (string) __('portal.'.$key, [], $locale), "{$locale}.{$key}");
+            }
+        }
+    }
+
+    /**
+     * 정산 소스는 `/payout-batches` **하나**여야 한다. `/settlements` 를 같이 부르면
+     * 이 prefix 의 분당 120 **공유 버킷**을 요약 탭 혼자 갉아먹는다(car-erp 회신 2026-08-31).
+     */
+    public function test_monthly_does_not_call_legacy_settlements(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake(['*' => Http::response(['count' => 0, 'data' => []], 200)]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'finance');
+        Http::assertNotSent(fn ($req) => str_contains($req->url(), '/api/internal/board/settlements'));
     }
 }
