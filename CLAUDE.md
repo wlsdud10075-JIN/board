@@ -203,7 +203,7 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
   - ⚠️ 배포하면 **요약의 월 금액이 달라진다** — confirmed(확정·미지급)가 빠지고 조정이 반영된다. 버그가 아니라 수정이지만 미리 알리지 않으면 버그로 읽힌다.
   - **2026-08-31 두 박스 운영 배포 완료**(master `0338ab7` — heymanboard·ssancarboard job success, db:backup ✓, Nothing to migrate). 남음 = **Jin 실화면 확인**(운영 데이터로만 보이는 것 = heymanboard 조정 1건 표시·ssancarboard 배치 0건 렌더). 권위 스펙 = car-erp `docs/integration/board-portal-api.md` §13, 회신 = `C:\Users\User\Desktop\연구소\전달패킷_carerp→board_2026-08-31_월배치미러_배포완료.md`.
 
-- **포털 요약 「진행 중 정산」**(아직 안 받은 것 — ERP 정산처리 탭 본인 몫 미러): board **dev 구현·운영 미배포**(2026-08-31). 요약 탭 월별 표 **위**에 상태별 섹션(확정·지급 대기 / 산정 중 / 확정 대기)으로 차량·금액. ERP 작업 0 — `GET /settlements` 가 이미 pending·calculating·confirmed·paid 를 전부 준다.
+- **포털 요약 「진행 중 정산」**(아직 안 받은 것 — ERP 정산처리 탭 본인 몫 미러): **2026-08-31 두 박스 운영 배포 완료**(master `ecdf0c8` — heymanboard·ssancarboard job success, db:backup ✓). 요약 탭 월별 표 **위**에 상태별 섹션(확정·지급 대기 / 산정 중 / 확정 대기)으로 차량·금액. ERP 작업 0 — `GET /settlements` 가 이미 pending·calculating·confirmed·paid 를 전부 준다.
   - 소스 역할 분담: **월별 표 = `/payout-batches`(받은 것)**, **진행 중 = `/settlements`(안 받은 것, `paid` 제외)**. `paid` 를 안 버리면 같은 돈이 두 곳에 뜬다(가드 = `test_in_progress_splits_confirmed_and_pending_and_drops_paid`).
   - ⚠️ **상태는 ERP 가 준 것을 그대로 순회한다(화이트리스트 아님).** ERP KPI 「정산 대기」는 **pending·calculating·confirmed** 를 센다 — board 가 아는 상태만 담으면 KPI 와 어긋나고 진행 중 정산이 조용히 사라진다. 라벨 없는 상태는 원문 표시(가드 = `test_in_progress_keeps_calculating_and_unknown_states`).
   - 🚨 **pending 금액은 확정이 아니다**(비용 9개·환율이 아직 움직인다). 상태를 합치지 않고 총합도 안 낸다 + 「예상」 라벨 + "금액이 바뀔 수 있습니다" 힌트. 이걸 지우면 확정에서 줄었을 때 그대로 분쟁이 된다.
