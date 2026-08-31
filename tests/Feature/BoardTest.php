@@ -5780,4 +5780,62 @@ class BoardTest extends TestCase
         $this->artisan('board:region-normalize', ['--apply' => true])->assertSuccessful();
         $this->assertSame('경기 수원시', DB::table('purchase_listings')->where('id', $listing->id)->value('region'));
     }
+
+    // ── 요약 탭 월 펼침 — 그 달 정산 상세 (2026-08-31) ──
+
+    /**
+     * car-erp `/settlements` 에는 상태 필터가 없어 confirmed(확정·지급 전)도 같이 온다.
+     * 월 합계 하나만 보일 땐 안 드러났지만, 펼치면 "아직 안 받은 차"가 실지급으로 읽힌다.
+     * → 전체(total)와 지급 확정분(paid)을 나눠 담는지 본다. pending 은 날짜가 없어 어느 달에도 안 걸린다.
+     */
+    public function test_monthly_settlement_detail_separates_paid_from_confirmed(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/settlements*' => Http::response(['count' => 3, 'data' => [
+                ['vehicle_number' => '11가1111', 'status' => 'paid', 'actual_payout' => 1000000,
+                    'confirmed_at' => '2026-07-31', 'paid_at' => '2026-08-10'],
+                // 확정만 된 건 — paid_at 이 없어 confirmed_at 월로 걸린다(기존 폴백 유지).
+                ['vehicle_number' => '22나2222', 'status' => 'confirmed', 'actual_payout' => 500000,
+                    'confirmed_at' => '2026-08-05', 'paid_at' => null],
+                // 확정 전 — 두 날짜가 다 없어 어느 달에도 안 걸려야 한다.
+                ['vehicle_number' => '33다3333', 'status' => 'pending', 'actual_payout' => 9999999,
+                    'confirmed_at' => null, 'paid_at' => null],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('portal.index')->call('setTab', 'finance');
+        $m = $c->instance()->monthly;
+        $det = $c->instance()->monthlySettle;
+
+        $this->assertSame(2, $m['2026-08']['settle_cnt'] ?? null);
+        $this->assertSame(1500000.0, $m['2026-08']['settle_sum'] ?? null);      // 전체 = paid + confirmed
+        $this->assertSame(1000000.0, $m['2026-08']['settle_paid'] ?? null);     // 지급 확정분만
+        $this->assertSame(1500000.0, $det['2026-08']['total'] ?? null);
+        $this->assertSame(1000000.0, $det['2026-08']['paid'] ?? null);
+        $this->assertCount(2, $det['2026-08']['rows']);
+        // 달 안에서는 지급 확정분이 위로.
+        $this->assertSame('11가1111', $det['2026-08']['rows'][0]['vehicle_number']);
+        // pending 은 어느 달에도 없다 — 금액이 새어 나오면 여기서 죽는다.
+        $this->assertSame([], array_filter($det, fn ($v) => collect($v['rows'])->contains('vehicle_number', '33다3333')));
+
+        // 상세가 실제로 렌더된다(차량번호 + 상태 라벨).
+        $c->assertSee('11가1111')->assertSee('22나2222')
+            ->assertSee(__('portal.settle_status_confirmed'))
+            ->assertSee(__('portal.settle_adjust_note'));
+    }
+
+    /** 월 펼침이 쓰는 lang 키는 ko·en 양쪽에 있어야 한다(fallback=en 이라 한쪽만 넣으면 영문에서 키가 노출된다). */
+    public function test_monthly_detail_lang_keys_exist_in_both_locales(): void
+    {
+        $keys = ['col_settle_status', 'col_settle_payout', 'col_paid_date', 'settle_status_paid',
+            'settle_status_confirmed', 'settle_status_pending', 'settle_sub_total', 'settle_sub_paid', 'settle_adjust_note'];
+        foreach (['ko', 'en'] as $locale) {
+            foreach ($keys as $key) {
+                $this->assertNotSame('portal.'.$key, (string) __('portal.'.$key, [], $locale), "{$locale}.{$key}");
+            }
+        }
+    }
 }

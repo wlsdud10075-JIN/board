@@ -111,6 +111,17 @@ return [
     'm_settle' => '정산',
     'm_purch_price' => '매입가',
 
+    // 월 펼침 — 그 달 정산 상세(차량별). ⚠️ 「정산 실지급」엔 확정만 된 건도 섞여 상태를 같이 보여준다.
+    'col_settle_status' => '상태',
+    'col_settle_payout' => '실지급액',
+    'col_paid_date' => '지급일',
+    'settle_status_paid' => '지급 완료',
+    'settle_status_confirmed' => '확정(지급 전)',
+    'settle_status_pending' => '확정 대기',
+    'settle_sub_total' => '합계 :count건',
+    'settle_sub_paid' => '지급 완료',
+    'settle_adjust_note' => '차량별 정산액 합계입니다. ERP 월배치의 조정(환수·특별지급)은 반영되지 않습니다.',
+
     // 선적요청 탭
     'ship_inprogress_title' => '진행 중인 선적요청',
     'ship_status_requested' => '요청됨',
