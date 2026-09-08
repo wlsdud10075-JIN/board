@@ -223,6 +223,7 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
   - **ERP 에서 바이어를 붙이는 건 안전하다** — 화면 경로(`shouldCheckPurchaseGate`)는 `null → 42` 를 「교체」로 보고 락을 발동시킨다. 그래서 board 는 **재고매입 차에 바이어를 실어 재전송하지 않는다**(car-erp 와의 규약).
   - **어디에 앉나**: 신규 재고매입 차는 매입 미지급이라 **「지급대기」**로 먼저 간다(연동 B 는 잔금 행을 안 만든다). 재무가 매입대금을 확정 지급하면 그때 「일반재고」로 넘어간다. ⚠️ 그 사이 ERP 재고관리 **「전체」 탭에도 안 보인다**(전체 = `inStock()` = 매입완납). 버그로 읽기 쉬운 자리다.
   - `final_price` 는 **그대로 보낸다** — 판매가가 아니라 매입가 폴백(`purchase_price = purchase_price_krw ?? final_price`)이고, 둘 다 null 이면 **422** 다.
+  - 🚫 **`/listings` 판매가 후보완 재전송(§14-12)은 재고매입 차에 안 준다** — Job 이 판매측을 비우므로 보내봐야 **조용한 no-op**(200 인데 `fields_filled` 빈 배열)이고, board 컬럼에만 판매가가 남아 원장과 갈린다. 화면·서버 양쪽에서 막는다(가드 = `test_stock_purchase_cannot_use_listings_resend`).
   - ℹ️ car-erp 수신 스펙 문서에 **「v5 — fill-if-empty(2026-08-18)」라는 다른 절**이 있다. 그건 계약 버전 상향이 없는 *기능 이름*이라 이 `contract_version: 5` 와 **다른 것**이다.
 - **버전·전방호환**: `contract_version` 명시. **양쪽 모두 "모르는 필드는 무시"** → 필드 추가해도 안 깨짐.
 - **로그**: 모든 시도(성공/실패) = `integration_events`(outbound/car_erp/purchase_sync) append-only. **`payee_account` 는 로그에 `***` 마스킹**(전송 본문엔 실값). board_audit_logs 와 별개.

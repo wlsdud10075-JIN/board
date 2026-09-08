@@ -9,7 +9,12 @@
     🚨 200 만 보고 "반영됨"이라 하지 않는다 — `fields_filled` 가 비면 **안 채워진 것**이다.
 --}}
 @php $synced = (bool) $e->car_erp_vehicle_id; @endphp
-@if ($synced)
+{{-- 재고매입(바이어 미정)은 이 칸을 아예 안 준다 — 판매가·바이어는 ERP 에서 지정한다(거기엔 락 게이트가 있다).
+     칸만 남겨두면 채워 넣고 [다시 보내기]를 눌러도 ERP 엔 아무것도 안 들어간다(Job 이 판매측을 비운다). --}}
+@if ($synced && $e->buyer_undecided)
+    <div class="section-title-sm mt-4">{{ __('listings.resync.title') }}</div>
+    <p class="mt-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-800">{{ __('listings.resync.stock_purchase') }}</p>
+@elseif ($synced)
     <div class="section-title-sm mt-4">{{ __('listings.resync.title') }}
         <span class="text-[11px] font-normal text-gray-400">{{ __('listings.resync.hint') }}</span>
     </div>

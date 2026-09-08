@@ -6104,4 +6104,27 @@ class BoardTest extends TestCase
         $this->assertNull($l->fresh()->car_erp_buyer_id);
         $this->assertTrue((bool) $l->fresh()->buyer_undecided);
     }
+
+    /**
+     * 재고매입 차는 `/listings` 판매가 후보완 재전송을 **아예 못 탄다** — Job 이 판매측을 비우므로
+     * 보내봐야 ERP 엔 아무것도 안 들어가는데(200 + fields_filled 빈 배열) 화면은 "보냈다"로 읽히고,
+     * board 컬럼에만 판매가가 남아 원장과 갈린다. 판매가·바이어는 **ERP 에서** 지정한다.
+     */
+    public function test_stock_purchase_cannot_use_listings_resend(): void
+    {
+        Bus::fake();
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, [
+            'status' => 'synced', 'car_erp_vehicle_id' => 188, 'buyer_undecided' => true, 'car_erp_buyer_id' => null,
+        ]);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')->call('openEdit', $l->id)
+            ->assertSee(__('listings.resync.stock_purchase'))
+            ->set('e_sale_price', '8590')->set('e_sale_currency', 'USD')->set('e_sale_rate', '1380')
+            ->call('resendToErp')->assertHasErrors('e_sale_price');
+
+        $this->assertNull($l->fresh()->sale_price);            // 컬럼도 안 건드린다
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+    }
 }

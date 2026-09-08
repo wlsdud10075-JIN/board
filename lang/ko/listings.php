@@ -217,6 +217,7 @@ return [
         'rate_required' => '환율을 입력하세요 — 환율이 없으면 ERP 가 판매가를 통째로 보류합니다.',
         'filled' => 'ERP 에 반영됨: :fields',
         'nothing_filled' => 'ERP 에 채워진 항목이 없습니다 — 이미 값이 있거나 환율이 없어 보류됐을 수 있습니다.',
+        'stock_purchase' => '재고매입(바이어 미정) 차량입니다 — 판매가와 바이어는 ERP 차량관리에서 지정하세요. 여기서 보내면 ERP 에 반영되지 않습니다.',
     ],
 
     'attach_view' => [
