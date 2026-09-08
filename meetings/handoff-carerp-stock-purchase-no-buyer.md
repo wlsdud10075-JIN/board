@@ -3,7 +3,7 @@
 - **보내는 쪽**: board 세션 (Jin) · 2026-09-08
 - **받는 쪽**: car-erp 세션
 - **성격**: **질문 5개 + 위험 고지 1개**. car-erp 코드 변경 요청은 (현재로선) 없다 — 다만 답변에 따라 생길 수 있다.
-- **board 상태**: 미착수. **이 회신을 받고 구현 시작**(질문 1·2의 답이 board 가 보낼 payload 를 바꾼다).
+- **board 상태**: ✅ **구현·배포 완료**(2026-09-08, master `28e839b` — heymanboard·ssancarboard). car-erp 회신 = `C:\Users\User\Desktop\연구소\전달패킷_carerp→board_2026-09-08_재고매입_바이어미정.md`. 남음 = **실거래 e2e 1건**.
 
 ---
 
