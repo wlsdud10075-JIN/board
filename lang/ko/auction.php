@@ -97,6 +97,13 @@ return [
     'buyer_select' => '바이어 선택',
     'consignee_select' => '컨사이니 선택 (선택)',
 
+    // 재고매입(바이어 미정) — 차값이 쌀 때 바이어 없이 미리 사두는 매입 (2026-09-08 Jin)
+    'stock_purchase' => '재고매입 (바이어 미정)',
+    'stock_purchase_hint' => '팔 상대를 정하지 않고 먼저 사두는 매입입니다. 바이어와 판매 금액은 ERP에서 나중에 지정합니다.',
+    'stock_purchase_buyer_off' => '재고매입이라 바이어를 지정하지 않습니다 — ERP 차량관리에서 나중에 붙이세요.',
+    'stock_purchase_price' => '매입가',
+    'stock_purchase_no_sale' => '판매 금액은 아직 없습니다. ERP에서 「일반재고」로 잡히며, 매입대금 지급 전까지는 「지급대기」에 있습니다.',
+
     'attach' => [
         'title' => '딜러 차량 첨부',
         'hint' => '매입 후 딜러에게 받은 사진·서류 (최대 :max건). 낙찰 시 car-erp 첨부탭으로 전달',

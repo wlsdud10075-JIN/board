@@ -99,6 +99,13 @@ new #[Layout('components.layouts.app')] class extends Component {
         };
     }
 
+    /**
+     * 재고매입(바이어 미정) — 차값이 쌀 때 바이어 없이 미리 사두는 매입 (2026-09-08 Jin).
+     * 켜면 바이어 필수·락 검사와 **판매측 금액 전부**를 건너뛴다(ERP 「일반재고」로 앉히기 위해).
+     * 실제로 payload 를 비우는 곳은 `SyncWonListingToCarErp` 단일 지점 — 여기선 화면만 정리한다.
+     */
+    public bool $buyerUndecided = false;
+
     // v3 — car-erp 바이어/컨사이니 (드롭다운 선택 → 연동B buyer_id/consignee_id). 본인 스코프.
     public ?int $buyerId = null;
     public ?int $consigneeId = null;
@@ -199,12 +206,28 @@ new #[Layout('components.layouts.app')] class extends Component {
      */
     public function purchaseBlockReason(): ?string
     {
+        // 재고매입은 바이어가 없는 게 정상 → 필수·락 둘 다 해당 없음(걸 대상이 없다).
+        // ⚠️ 서버(`conclude`)와 **같은 조건**이어야 한다 — 갈리면 버튼은 죽어 있는데 서버는 통과한다.
+        if ($this->buyerUndecided) {
+            return null;
+        }
         if (! $this->buyerId) {
             return __('auction.err_buyer_required');
         }
         $lock = $this->buyerLock();
 
         return ($lock && $lock['locked']) ? __('auction.err_buyer_purchase_locked') : null;
+    }
+
+    /** 재고매입을 켜면 골라둔 바이어를 **즉시 지운다** — 남겨두면 화면과 전송값이 갈린다. */
+    public function updatedBuyerUndecided(): void
+    {
+        if ($this->buyerUndecided) {
+            $this->buyerId = null;
+            $this->consigneeId = null;
+            $this->consigneeOpts = [];
+        }
+        $this->resetErrorBag(['buyerId']);
     }
 
     /** 바이어 변경 시 컨사이니 목록 갱신 + 선택 초기화. */
@@ -369,6 +392,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->offer_rate = $l->offer_rate !== null
             ? (string) $l->offer_rate
             : ($l->isSelfInspection() ? null : (string) $this->rateFor($this->quoteCurrency));
+        $this->buyerUndecided = (bool) $l->buyer_undecided;
         $this->buyerId = $l->car_erp_buyer_id;
         $this->consigneeId = $l->car_erp_consignee_id;
         $this->loadBuyers();
@@ -382,7 +406,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account',
             'car_cost', 'discount_rate', 'sale_discount', 'shipping_usd', 'quoteCurrency',
             'selling_fee', 'sale_price', 'offer_rate', 'transport_fee',
-            'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts', 'salesFiles']);
+            'buyerUndecided', 'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts', 'salesFiles']);
         unset($this->detail);
     }
 
@@ -395,8 +419,11 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->selling_fee_payee_name = $this->selling_fee_payee_name ?: null;
         $l->selling_fee_payee_bank = $this->selling_fee_payee_bank ?: null;
         $l->selling_fee_payee_account = $this->selling_fee_payee_account ?: null;
-        $l->car_erp_buyer_id = $this->buyerId ?: null;
-        $l->car_erp_consignee_id = $this->consigneeId ?: null;
+        $l->buyer_undecided = $this->buyerUndecided;
+        // 재고매입이면 바이어를 컬럼에도 안 남긴다 — 화면엔 안 보이는데 값만 남아 있으면
+        // 나중에 그게 실려 나갈 자리가 생긴다(Job 이 한 번 더 막지만, 두 곳이 어긋날 이유가 없다).
+        $l->car_erp_buyer_id = $this->buyerUndecided ? null : ($this->buyerId ?: null);
+        $l->car_erp_consignee_id = $this->buyerUndecided ? null : ($this->consigneeId ?: null);
         // 차값 — 통화는 등록 시 정해진 `expected_price_currency` 그대로(여기선 금액만 보정).
         $l->car_cost = ($this->car_cost === null || $this->car_cost === '') ? null : (int) $this->car_cost;
         $l->shipping_usd = ($this->shipping_usd === null || $this->shipping_usd === '') ? null : (int) $this->shipping_usd;
@@ -497,23 +524,29 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 return;
             }
+            // 🅿️ 재고매입(바이어 미정)은 **판매측 락 3개를 통째로 건너뛴다** — 판매가·통화·환율이 아직 없는 게
+            //    정상이고, 있으면 오히려 car-erp 가 「선적전 재고」로 분류해 바이어 없는 차가 엉뚱한 탭에 앉는다.
+            //    ⚠️ 차값 게이트(위 `hasSyncableAmount`)와 첨부 필수(아래)는 **그대로 건다** — 매입 원가와
+            //    딜러 자료는 재고매입에도 똑같이 필요하다.
+            $stock = (bool) $this->buyerUndecided;
+
             // 셀프검차 필수 락 (2026-08-10 Jin) — 차값은 위 게이트가 잡고, 판매가는 여기서.
             // 판매가가 비면 car-erp 가 판매 pre-fill 을 통째로 보류해(수신측 `sale_price>0 && rate>0`)
             // ERP 판매탭이 빈 채로 생긴다 — 관리가 나중에 손으로 채워야 하고, 그때 board 값과 갈린다.
-            if ($l->isSelfInspection() && $l->sale_price === null) {
+            if (! $stock && $l->isSelfInspection() && $l->sale_price === null) {
                 $this->addError('sale_price', __('auction.err_sale_price_required'));
 
                 return;
             }
             // 통화 미선택 락 — 안 막으면 KRW 로 떨어져 **USD 판매가가 원화로 박힌다**(8,590 USD → 8,590원, 실측).
             // 조용히 1/환율 로 기록되므로 나중에 원장을 봐도 틀린 줄을 모른다.
-            if ($l->isSelfInspection() && ! $l->offer_currency) {
+            if (! $stock && $l->isSelfInspection() && ! $l->offer_currency) {
                 $this->addError('quoteCurrency', __('auction.err_currency_required'));
 
                 return;
             }
             // 원화가 아니면 환율도 필수 — 비우면 **오늘 환율**이 조용히 들어가 합의환율과 갈린다.
-            if ($l->isSelfInspection() && $l->offer_currency !== 'KRW' && ($this->offer_rate === null || $this->offer_rate === '')) {
+            if (! $stock && $l->isSelfInspection() && $l->offer_currency !== 'KRW' && ($this->offer_rate === null || $this->offer_rate === '')) {
                 $this->addError('offer_rate', __('auction.err_rate_required'));
 
                 return;
@@ -522,7 +555,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             // 매입 등록 락 (§4-0) — 연동 B 는 car-erp 저장 게이트를 안 타므로 **여기가 유일한 상류 차단점**이다.
             // 바이어 필수 (2026-08-10 Jin): 안 고르면 buyer_id 가 null 로 나가 **락 판정 자체가 성립하지 않는다**
             // = "안 고르면 통과". 그래서 필수화가 락의 전제다. 금액 검사 뒤에 두는 이유 = 금액 오류를 가리지 않기 위해.
-            if (! $this->buyerId) {
+            if (! $stock && ! $this->buyerId) {
                 $this->addError('buyerId', __('auction.err_buyer_required'));
 
                 return;
@@ -532,7 +565,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             // 락은 절대 규칙이 아니다(ERP 에서 사유를 적으면 통과) → "불가"가 아니라 "관리자 승인 필요".
             // 화면 버튼도 같이 비활성이지만 서버에서 한 번 더 본다(드로어를 열어둔 사이 바뀔 수 있고,
             // Livewire 액션은 직접 호출될 수 있다).
-            if ($this->buyerLockedNow((int) $this->buyerId)) {
+            if (! $stock && $this->buyerLockedNow((int) $this->buyerId)) {
                 $this->addError('buyerId', __('auction.err_buyer_purchase_locked'));
 
                 return;
@@ -690,7 +723,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     <input type="number" min="0" class="input-base" wire:model="selling_fee">
                                     @error('selling_fee') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
                                 </div>
-                                {{-- 아래 셋은 견적통화 기준 — 라벨에 통화를 안 붙인다(단일 표시 = 견적통화 pill). --}}
+                                {{-- 아래 셋은 견적통화 기준 — 라벨에 통화를 안 붙인다(단일 표시 = 견적통화 pill).
+                                     재고매입(바이어 미정)이면 통째로 감춘다 — 팔 상대가 없어 판매가가 아직 없는 게 정상이다. --}}
+                                @if (! $buyerUndecided)
                                 <div>
                                     <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.sale_price') }}</label>
                                     <input type="number" min="0" step="0.01" class="input-base" wire:model="sale_price">
@@ -706,7 +741,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     <input type="number" min="0" step="0.01" class="input-base" wire:model="transport_fee">
                                     @error('transport_fee') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
                                 </div>
-                            @else
+                                @endif
+                            @elseif (! $buyerUndecided)
                                 <div>
                                     <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.discount_rate') }} (%)</label>
                                     <input type="number" min="0" max="100" step="0.1" class="input-base" wire:model="discount_rate" placeholder="0">
@@ -729,6 +765,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 </div>
                             @endif
                         </div>
+                        @if (! $buyerUndecided)
                         <div class="mt-2 flex items-center gap-2">
                             <span class="text-xs text-gray-500">{{ __('auction.quote_currency') }}</span>
                             @foreach (['KRW', 'USD', 'EUR'] as $cur)
@@ -746,11 +783,25 @@ new #[Layout('components.layouts.app')] class extends Component {
                             @else
                                 <p class="mt-1 text-[11px] text-gray-600">{{ __('auction.self_currency_hint', ['currency' => $quoteCurrency]) }}</p>
                             @endif
+                        @endif
+                        @endif
+                        {{-- 매입가(차값−매도비)는 재고매입에도 그대로 보여준다 — 판매측이 아니라 **매입 원가**다. --}}
+                        @if ($d->isSelfInspection())
                             <p class="mt-0.5 text-[11px] text-gray-500">{{ __('auction.self_amount_hint', ['purchase' => number_format(max(0, (int) $car_cost - (int) $selling_fee))]) }}</p>
                         @endif
                         <p class="mt-1 text-[11px] {{ $d->car_cost === null ? 'text-red-600' : 'text-gray-400' }}">{{ $d->car_cost === null ? __('auction.car_cost_missing') : __('auction.car_cost_hint') }}</p>
                     </div>
                 @endif
+                {{-- 재고매입은 판매 금액이 존재하지 않는다 — '—' 만 띄우면 "값이 빠졌다"로 읽히므로 칸 자체를 바꾼다. --}}
+                @if ($buyerUndecided)
+                    <div class="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5">
+                        <div class="flex items-center justify-between">
+                            <span class="font-semibold text-gray-700">{{ __('auction.stock_purchase_price') }}</span>
+                            <span class="text-base font-bold text-amber-800">{{ $d->purchasePriceKrw() !== null ? number_format($d->purchasePriceKrw()).__('common.won_currency') : '—' }}</span>
+                        </div>
+                        <p class="mt-1 text-[11px] text-amber-700">{{ __('auction.stock_purchase_no_sale') }}</p>
+                    </div>
+                @else
                 {{-- 셀프검차매입은 파생계산을 안 한다 → 적은 판매가를 그대로 보여준다(계산값 아님). --}}
                 <div class="mt-3 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
                     <span class="font-semibold text-gray-700">{{ $d->isSelfInspection() ? __('auction.sale_price') : __('auction.final_price') }}</span>
@@ -762,6 +813,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                         @endif
                     </span>
                 </div>
+                @endif
 
                 @if ($d->inspection_memo || $d->inspection_note)
                     <div class="section-title-sm">{{ __('auction.inspection_memo') }}</div>
@@ -791,7 +843,23 @@ new #[Layout('components.layouts.app')] class extends Component {
                 {{-- 바이어/컨사이니 (car-erp 목록 드롭다운) — accepted·won, 본인 스코프. 미구성/무목록=수동 --}}
                 @if (in_array($d->status, ['accepted', 'won'], true))
                     <div class="section-title-sm">{{ __('auction.buyer') }} <span class="text-[11px] font-normal text-gray-400">{{ __('auction.buyer_hint') }}</span></div>
-                    @if (empty($buyerOpts))
+                    {{-- 재고매입(바이어 미정) — 차값이 쌀 때 바이어 없이 먼저 사두는 매입(2026-09-08 Jin).
+                         accepted 일 때만 켜고 끈다: won 이후엔 이미 ERP 로 넘어가 바이어는 **ERP 화면에서** 붙인다
+                         (거기엔 매입 등록 락 게이트가 있고, board 재전송 경로에는 없다). --}}
+                    @if ($d->status === 'accepted')
+                        <label class="mb-2 flex cursor-pointer items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2">
+                            <input type="checkbox" class="mt-0.5" wire:model.live="buyerUndecided">
+                            <span class="text-xs">
+                                <b class="text-amber-900">{{ __('auction.stock_purchase') }}</b>
+                                <span class="mt-0.5 block text-[11px] text-amber-700">{{ __('auction.stock_purchase_hint') }}</span>
+                            </span>
+                        </label>
+                    @elseif ($d->buyer_undecided)
+                        <p class="mb-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs font-semibold text-amber-900">{{ __('auction.stock_purchase') }}</p>
+                    @endif
+                    @if ($buyerUndecided)
+                        <p class="text-xs text-gray-500">{{ __('auction.stock_purchase_buyer_off') }}</p>
+                    @elseif (empty($buyerOpts))
                         <p class="text-xs text-gray-400">{{ __('auction.buyer_unavailable') }}</p>
                     @else
                         <select wire:model.live="buyerId" class="input-base">

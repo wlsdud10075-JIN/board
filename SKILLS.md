@@ -195,10 +195,10 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 
 **⚠️ 매칭키 = `vehicle_number` (VIN 아님 — 2026-06-15 정정)**: board 는 **VIN 을 모른다**. VIN 은 **NICE 차량조회로만** 나오고 그건 **car-erp 책임**이다. board 가 가진 건 **차량번호 + 소유자명**뿐. 그래서 board 는 `vehicle_number + owner_name` 을 보내고 **car-erp 가 NICE 로 VIN 을 조회**해 채운다. **멱등/매칭/식별 키 = `vehicle_number`** (board IDENTITY_LOCKED 도 vehicle_number 가 실질 키 — vin 은 항상 null). → 과거 이 계약을 vin 기반으로 짰던 건 drift(이 결정이 문서에 없어서). 다시 vin 으로 되돌리지 말 것.
 
-**payload** (`contract_version: 4` — v4 = v3 + 매도비 계좌, 전방호환 v1~v3 수용):
+**payload** (`contract_version: 5` — v5 = v4 + 재고매입 플래그, 전방호환 v1~v4 수용):
 ```json
 {
-  "contract_version": 4,
+  "contract_version": 5,
   "vehicle_number": "...", "owner_name": "...", "source": "encar|auction",
   "final_price": 0, "salesman_email": "...", "car_erp_salesman_id": null,
   "c_no": null, "payee_name": null, "payee_bank": null, "payee_account": null,
@@ -206,7 +206,7 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
   "attachments": [{ "s3_path": "...", "original_name": "...", "kind": "sales_photo|sales_document", "sort": 1 }],
   "purchase_price_krw": 0, "selling_fee_krw": 0,
   "transport_fee": 0, "sale_price": 0, "sale_currency": "USD|EUR|KRW", "sale_exchange_rate": 0,
-  "buyer_id": null, "consignee_id": null
+  "buyer_id": null, "consignee_id": null, "buyer_undecided": false
 }
 ```
 - `owner_name`(소유자/차주명) = car-erp NICE 조회 입력값. board 입력 UX = payee 와 동일(매입예정 영업 선택입력 → 경매/구매 드로어 보정). nullable 이지만 없으면 car-erp NICE 불가 → car-erp 는 owner_name 없으면 vehicle_number 로만 생성 후 VIN 수동.
@@ -216,6 +216,14 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 - **`attachments[]` (v2, 차량 첨부 — 영업이 board 에 올린 사진+서류)**: `s3_path`(공유 버킷 `heysellcar-erp-docs` 키, **바이트 아님**) · `original_name` · `kind`(sales_photo 외관 / sales_document 차량등록증 등) · `sort`. **검차 사진(kind=inspection)은 제외** — 그건 바이어 전송(§28) 전용. 빈 배열 가능. **1회 발사**(won→synced, `car_erp_vehicle_id` null 가드). synced 후 추가/누락 보완은 **car-erp [관리] 몫**(board 재전송 경로 없음 — 영업은 won 전 자료확보가 일반적). 수신측(car-erp): 차량 첨부탭(최대 10건 cap·`s3_path` 중복스킵)에 행 생성, S3 접근방식(키 직접참조 vs 자기 prefix 복사)은 car-erp 결정. 권위 인계 = `meetings/handoff-car-erp-vehicle-attachments.md`. **car-erp 무수정 예외 확장 → car-erp 먼저 배포.**
 - **`v3` 금액/바이어 (2026-06-23, 권위 인계 = `meetings/handoff-car-erp-amount-mapping.md`)**: 매입=KRW 원장 / 판매=확정통화. `purchase_price_krw`(구입금액=차값−할인, **매도비·배송 제외** → car-erp purchase_price 교정) · `selling_fee_krw`(매도비) · `transport_fee`(운임비 **판매통화 환산** = shipping_usd×USD환율/판매환율 — ⚠️car-erp가 sale_price와 직접합산하므로 USD 아닌 **판매통화**) · `sale_price`(차량금액→판매통화) · `sale_currency`(현지확인 확정 offer_currency) · `sale_exchange_rate`(확정 시점 환율, 관리가 ERP서 미세조정) · `buyer_id`/`consignee_id`(경매/구매 드롭다운 선택, car-erp `/buyers`·`/consignees` 본인스코프, 미선택 null). car-erp v3 수신기 구현됨(SUPPORTED_VERSIONS=[1,2,3]) — ⚠️ **운임비 통화 버그**(transport_fee_usd raw 저장) 수정 + **car-erp 먼저 배포** 후 board v3 전환(안 그럼 422). 근거 역산 = `meetings/board-carerp-amount-mapping.md`(차=원가판매·수익=부가세9%).
 - **`v4` 매도비 계좌 (2026-07-03, 권위 인계 = `meetings/handoff-car-erp-purchase-two-accounts.md`)**: 매입 정산계좌를 **2개로 분리** — 기존 `payee_*`(매입가/판매자 계좌 → car-erp `purchase_seller_*`) + 신규 **`selling_fee_payee_name`/`selling_fee_payee_bank`/`selling_fee_payee_account`**(매도비 계좌 = 판매자와 **다른 대상**, 영업 직접입력, nullable, 계좌 `encrypted`). 금액(purchase_price_krw/selling_fee_krw)은 v3서 이미 분리 — 이번은 **계좌만** 2개로. car-erp 제안 수신컬럼 `purchase_fee_*`(확정=car-erp). ⚠️ **car-erp 먼저 배포** 후 board v4 전송(그전엔 신규 3필드 무시됨=무해, 단 ERP 에 매도비 계좌 안 꽂힘). 로그 `selling_fee_payee_account`도 `***` 마스킹. board 입력=listings(추가·편집)+auction 드로어.
+- **`v5` 재고매입 (2026-09-08, 권위 인계 = `meetings/handoff-carerp-stock-purchase-no-buyer.md` + car-erp 회신)**: 차값이 쌀 때 **바이어 없이 미리 사두는 매입**. board `purchase_listings.buyer_undecided` → car-erp `vehicles.buyer_undecided`(뱃지 「바이어 미정(투기 매입)」). 입력 = `/auction` 드로어 토글(**accepted 일 때만**, 권한·출처 제한 없음 — 2026-09-08 Jin).
+  - ⚠️ **`buyer_id: null` 만 보내면 안 된다** — car-erp 에서 **레거시 무바이어 차와 구분이 안 된다**(그쪽 주석: "빈 채로 두는 것만으로 통과시키지 않는다 — 실수로 빠뜨린 것과 구분이 안 돼 가드의 목적이 사라진다"). 사람이 명시적으로 켠 사실 자체가 정보다.
+  - 🚨 **판매측을 전부 비워 보낸다**(`sale_price`·`sale_currency`·`sale_exchange_rate`·`transport_fee` = null). 화면에서 판매가를 안 적어도 **Job 이 `carPriceKrw ÷ 환율` 로 파생**하기 때문에, 안 비우면 차값이 판매가로 실려 나간다. car-erp 재고 분류는 **`sale_price` 하나로 갈린다**(`>0` = 「선적전」) → 바이어도 없는 차가 선적전 재고에 앉는다. `buyer_id` 는 분류에 **영향이 없다**(판정식에 안 나온다).
+  - 🚨 **`buyer_id`·`consignee_id` 도 Job 에서 지운다** — car-erp 재전송 경로(`fillEmptyFields`)에는 **매입 등록 락 게이트가 없다**(2026-09-08 회신 Q3). 화면 차단만으론 부족하다: /manage 재전송·/listings 판매가 후보완·savePayee 재발사가 전부 이 Job 을 다시 태워, **컬럼에 남은 값**이 나중에 실려 나갈 수 있다 → 락 걸린 바이어의 우회로가 된다. **강제 지점 = Job 단일**(화면은 보조).
+  - **ERP 에서 바이어를 붙이는 건 안전하다** — 화면 경로(`shouldCheckPurchaseGate`)는 `null → 42` 를 「교체」로 보고 락을 발동시킨다. 그래서 board 는 **재고매입 차에 바이어를 실어 재전송하지 않는다**(car-erp 와의 규약).
+  - **어디에 앉나**: 신규 재고매입 차는 매입 미지급이라 **「지급대기」**로 먼저 간다(연동 B 는 잔금 행을 안 만든다). 재무가 매입대금을 확정 지급하면 그때 「일반재고」로 넘어간다. ⚠️ 그 사이 ERP 재고관리 **「전체」 탭에도 안 보인다**(전체 = `inStock()` = 매입완납). 버그로 읽기 쉬운 자리다.
+  - `final_price` 는 **그대로 보낸다** — 판매가가 아니라 매입가 폴백(`purchase_price = purchase_price_krw ?? final_price`)이고, 둘 다 null 이면 **422** 다.
+  - ℹ️ car-erp 수신 스펙 문서에 **「v5 — fill-if-empty(2026-08-18)」라는 다른 절**이 있다. 그건 계약 버전 상향이 없는 *기능 이름*이라 이 `contract_version: 5` 와 **다른 것**이다.
 - **버전·전방호환**: `contract_version` 명시. **양쪽 모두 "모르는 필드는 무시"** → 필드 추가해도 안 깨짐.
 - **로그**: 모든 시도(성공/실패) = `integration_events`(outbound/car_erp/purchase_sync) append-only. **`payee_account` 는 로그에 `***` 마스킹**(전송 본문엔 실값). board_audit_logs 와 별개.
 - **안전밸브**: `services.car_erp.base_url`/`hmac_secret` 미설정 시 Job no-op → car-erp 수신측 배포 전 board 를 master 배포해도 안 터짐(아무것도 안 보냄).
