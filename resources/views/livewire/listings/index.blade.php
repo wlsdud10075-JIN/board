@@ -280,6 +280,14 @@ new #[Layout('components.layouts.app')] class extends Component {
 
             return;
         }
+        // 재고매입은 이 경로를 아예 안 탄다 — Job 이 판매측을 강제로 비우므로 보내봐야 **조용한 no-op** 이고
+        // (200 인데 fields_filled 가 빈 채로 돌아온다), board 컬럼에만 판매가가 남아 화면과 원장이 갈린다.
+        // 판매가·바이어는 ERP 차량관리에서 지정한다 — 거기엔 매입 등록 락 게이트가 있고 여기엔 없다.
+        if ($l->buyer_undecided) {
+            $this->addError('e_sale_price', __('listings.resync.stock_purchase'));
+
+            return;
+        }
 
         $price = $this->e_sale_price !== null && $this->e_sale_price !== ''
             ? (float) preg_replace('/[^0-9.]/', '', $this->e_sale_price) : null;

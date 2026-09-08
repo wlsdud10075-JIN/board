@@ -97,6 +97,13 @@ return [
     'buyer_select' => 'Select buyer',
     'consignee_select' => 'Select consignee (optional)',
 
+    // Stock purchase (buyer undecided) — bought ahead of a buyer while the price is low
+    'stock_purchase' => 'Stock purchase (no buyer yet)',
+    'stock_purchase_hint' => 'Bought before a buyer is decided. Buyer and sale amounts are assigned later in the ERP.',
+    'stock_purchase_buyer_off' => 'No buyer is assigned for a stock purchase — attach one later in ERP vehicle management.',
+    'stock_purchase_price' => 'Purchase price',
+    'stock_purchase_no_sale' => 'No sale amount yet. It lands as General stock in the ERP, and stays in Awaiting payment until the purchase amount is paid.',
+
     'attach' => [
         'title' => 'Dealer vehicle attachments',
         'hint' => 'Photos/documents received from the dealer after purchase (max :max). Sent to the car-erp attachments tab on win.',

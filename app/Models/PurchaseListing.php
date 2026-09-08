@@ -31,7 +31,7 @@ class PurchaseListing extends Model
         'buyer_name', 'payee_name', 'payee_bank', 'payee_account',
         'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account',
         'inspection_memo', 'inspection_note', 'lock_at', 'car_erp_vehicle_id',
-        'car_erp_buyer_id', 'car_erp_consignee_id',
+        'car_erp_buyer_id', 'car_erp_consignee_id', 'buyer_undecided',
     ];
 
     protected function casts(): array
@@ -54,6 +54,7 @@ class PurchaseListing extends Model
             'car_erp_vehicle_id' => 'integer',
             'car_erp_buyer_id' => 'integer',
             'car_erp_consignee_id' => 'integer',
+            'buyer_undecided' => 'boolean',
         ];
     }
 
@@ -323,6 +324,8 @@ class PurchaseListing extends Model
         'owner_name', 'payee_name', 'payee_bank', 'payee_account',
         'vehicle_number', 'vin', 'car_erp_vehicle_id', 'region', 'inspection_note', 'inspection_memo',
         'encar_url', 'encar_dealer', 'auction_venue', 'lot_number',
+        // 재고매입 = 바이어 없이 ERP 로 넘어간다 → 나중에 반드시 "누가 왜"를 묻게 된다.
+        'buyer_undecided',
     ];
 
     protected static function booted(): void

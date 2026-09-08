@@ -637,7 +637,7 @@ class BoardTest extends TestCase
         Http::assertSent(function ($request) {
             $att = $request['attachments'] ?? [];
 
-            return $request['contract_version'] === 4
+            return $request['contract_version'] === 5
                 && count($att) === 2                                   // 검차사진(i/x.jpg)은 제외, 영업 자료만
                 && collect($att)->pluck('s3_path')->sort()->values()->all() === ['s/a.jpg', 's/r.pdf']
                 && collect($att)->firstWhere('kind', 'sales_document')['s3_path'] === 's/r.pdf';
@@ -661,7 +661,7 @@ class BoardTest extends TestCase
         (new SyncWonListingToCarErp($l->id))->handle();
 
         Http::assertSent(function ($r) {
-            return $r['contract_version'] === 4
+            return $r['contract_version'] === 5
                 && $r['purchase_price_krw'] === 10000000         // 원가 그대로(할인 미반영, Model A)
                 && $r['selling_fee_krw'] === 440000              // 매도비(매입탭 별도, 회사 부담)
                 && $r['sale_currency'] === 'EUR'
@@ -2587,7 +2587,7 @@ class BoardTest extends TestCase
         (new SyncWonListingToCarErp($l->id))->handle();
 
         // v4: 매도비 계좌(판매자와 별개) — 전송 본문엔 실값, 로그엔 마스킹
-        Http::assertSent(fn ($r) => $r['contract_version'] === 4
+        Http::assertSent(fn ($r) => $r['contract_version'] === 5
             && $r['selling_fee_payee_name'] === '매도대행'
             && $r['selling_fee_payee_bank'] === '신한'
             && $r['selling_fee_payee_account'] === '999-888-77766');
@@ -5979,5 +5979,152 @@ class BoardTest extends TestCase
         $c->assertSee(__('portal.inprog_calculating'))
             ->assertSee('erp가만든새상태')   // 라벨이 없으면 원문 — 행이 사라지는 것보다 낫다
             ->assertSee('400,000');
+    }
+
+    // ── 재고매입(바이어 미정) — 2026-09-08 Jin, car-erp v5 ──
+
+    /**
+     * ★payload 는 판매측을 **전부 비운다**. 안 그러면 화면에서 판매가를 안 적어도 Job 이
+     * `차량금액 ÷ 환율` 로 파생해 보내고, car-erp 재고 분류는 `sale_price` 하나로 갈리므로
+     * (>0 이면 「선적전」) 바이어도 없는 차가 선적전 재고에 앉는다.
+     *
+     * ★`car_erp_buyer_id` 가 컬럼에 남아 있어도 **payload 에선 지운다** — car-erp 재전송 경로
+     * (`fillEmptyFields`)에는 매입 등록 락 게이트가 없다(2026-09-08 회신 Q3). 화면 차단만으론
+     * /manage 재전송·판매가 후보완이 그 값을 나중에 실어 보낼 수 있다.
+     */
+    public function test_stock_purchase_payload_is_v5_and_clears_buyer_and_sale_fields(): void
+    {
+        config([
+            'services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh',
+            'board.default_krw_per_usd' => 1400, 'board.default_krw_per_eur' => 1500, 'board.sales_fee' => 440000,
+        ]);
+        Http::fake(['*/api/internal/purchase-sync' => Http::response(['vehicle_id' => 910], 200)]);
+
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'won', 'source' => 'auction', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW',
+            'final_price' => 12736000, 'offer_currency' => 'EUR', 'offer_rate' => 1500, 'shipping_usd' => 1640,
+            'buyer_undecided' => true, 'car_erp_buyer_id' => 42, 'car_erp_consignee_id' => 66,
+        ]);
+
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        Http::assertSent(function ($r) {
+            return $r['contract_version'] === 5
+                && $r['buyer_undecided'] === true
+                && $r['buyer_id'] === null && $r['consignee_id'] === null   // 컬럼에 42/66 이 남아 있어도 안 싣는다
+                && $r['sale_price'] === null && $r['sale_currency'] === null
+                && $r['sale_exchange_rate'] === null && $r['transport_fee'] === null
+                && $r['purchase_price_krw'] === 10000000                    // 매입측은 그대로 간다
+                && $r['selling_fee_krw'] === 440000;
+        });
+    }
+
+    /** 일반 매입은 아무것도 안 바뀐다 — v5 는 올라가되 플래그만 false. */
+    public function test_normal_purchase_sends_buyer_undecided_false(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh']);
+        Http::fake(['*/api/internal/purchase-sync' => Http::response(['vehicle_id' => 911], 200)]);
+
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'won', 'source' => 'auction', 'car_cost' => 9000000, 'expected_price_currency' => 'KRW',
+            'offer_currency' => 'KRW', 'offer_rate' => 1, 'car_erp_buyer_id' => 55,
+        ]);
+
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        Http::assertSent(fn ($r) => $r['contract_version'] === 5
+            && $r['buyer_undecided'] === false
+            && $r['buyer_id'] === 55
+            && $r['sale_price'] !== null);
+    }
+
+    /** 재고매입은 바이어 없이 구매확정된다 — 바이어 필수·락은 걸 대상이 없다. */
+    public function test_conclude_allows_stock_purchase_without_buyer(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction',
+            'car_cost' => 8000000, 'expected_price_currency' => 'KRW', 'car_erp_buyer_id' => null,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('buyerUndecided', true)
+            ->call('conclude', $l->id, 'won')->assertHasNoErrors();
+
+        $this->assertSame('won', $l->fresh()->status);
+        $this->assertTrue((bool) $l->fresh()->buyer_undecided);
+        Bus::assertDispatched(SyncWonListingToCarErp::class);
+    }
+
+    /**
+     * 셀프검차 필수 락 4개 중 **판매측 3개(판매가·통화·환율)는 건너뛴다** — 재고매입은 팔 상대가 없어
+     * 판매 금액이 아직 없는 게 정상이다. 차값 게이트는 그대로 걸린다(위 test 가 지킨다).
+     */
+    public function test_stock_purchase_skips_self_inspection_sale_locks(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'car_cost' => null, 'final_price' => null, 'car_erp_buyer_id' => null,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('buyerUndecided', true)
+            ->set('car_cost', '6000000')      // 매입 원가는 여전히 필수
+            ->call('conclude', $l->id, 'won') // 판매가·통화·환율은 비운 채로
+            ->assertHasNoErrors();
+
+        $this->assertSame('won', $l->fresh()->status);
+    }
+
+    /** 토글을 켜면 골라둔 바이어를 즉시 지운다 — 화면과 전송값이 갈릴 자리를 안 남긴다. */
+    public function test_turning_on_stock_purchase_clears_selected_buyer(): void
+    {
+        Bus::fake();
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        Http::fake([
+            '*/api/internal/board/buyers*' => Http::response(['count' => 1, 'data' => [['id' => 55, 'name' => 'Faturat']]], 200),
+            '*/api/internal/board/consignees*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction',
+            'car_cost' => 7000000, 'expected_price_currency' => 'KRW', 'car_erp_buyer_id' => 55,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->assertSet('buyerId', 55)
+            ->set('buyerUndecided', true)
+            ->assertSet('buyerId', null)
+            ->call('savePayee')->assertHasNoErrors();
+
+        $this->assertNull($l->fresh()->car_erp_buyer_id);
+        $this->assertTrue((bool) $l->fresh()->buyer_undecided);
+    }
+
+    /**
+     * 재고매입 차는 `/listings` 판매가 후보완 재전송을 **아예 못 탄다** — Job 이 판매측을 비우므로
+     * 보내봐야 ERP 엔 아무것도 안 들어가는데(200 + fields_filled 빈 배열) 화면은 "보냈다"로 읽히고,
+     * board 컬럼에만 판매가가 남아 원장과 갈린다. 판매가·바이어는 **ERP 에서** 지정한다.
+     */
+    public function test_stock_purchase_cannot_use_listings_resend(): void
+    {
+        Bus::fake();
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, [
+            'status' => 'synced', 'car_erp_vehicle_id' => 188, 'buyer_undecided' => true, 'car_erp_buyer_id' => null,
+        ]);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')->call('openEdit', $l->id)
+            ->assertSee(__('listings.resync.stock_purchase'))
+            ->set('e_sale_price', '8590')->set('e_sale_currency', 'USD')->set('e_sale_rate', '1380')
+            ->call('resendToErp')->assertHasErrors('e_sale_price');
+
+        $this->assertNull($l->fresh()->sale_price);            // 컬럼도 안 건드린다
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
     }
 }

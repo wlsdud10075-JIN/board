@@ -124,9 +124,31 @@ class SyncWonListingToCarErp implements ShouldQueue
             $transportFee = $saleCurrency === 'KRW' ? $transportKrw : round($transportKrw / max(1, $saleRate), 2);
         }
 
+        // 재고매입(바이어 미정) — 판매측을 **전부 비운다**. 여기가 유일한 강제 지점이다.
+        //
+        // ① 판매가를 화면에서 안 적어도 위 파생식(`carPriceKrw ÷ 환율`)이 **차값을 판매가로 만들어** 보낸다.
+        //    car-erp 재고 분류는 `sale_price` 하나로 갈리므로(> 0 이면 「선적전」), 그대로 두면
+        //    바이어도 없는 차가 선적전 재고에 앉는다. 「일반재고」로 가려면 sale_price 가 비어야 한다.
+        // ② `buyer_id` 도 여기서 지운다 — car-erp 재전송 경로(`fillEmptyFields`)는 **락 검사를 하지 않는다**.
+        //    화면에서 바이어를 못 고르게 막는 것만으로는 부족하다: /manage 재전송·/listings 판매가 후보완·
+        //    savePayee 재발사가 전부 이 Job 을 다시 태우기 때문에, **컬럼에 남아 있는 값**이 나중에 실려
+        //    나갈 수 있다. 그러면 락 걸린 바이어가 재고매입을 우회로로 삼는다(car-erp 2026-09-08 회신 Q3).
+        //    ⚠️ 재고매입 차에 바이어를 붙이는 건 **ERP 화면에서** 한다 — 거기엔 게이트가 있다.
+        if ($l->buyer_undecided) {
+            $buyerId = null;
+            $consigneeId = null;
+            $salePrice = null;
+            $saleCurrency = null;
+            $saleRate = null;
+            $transportFee = null;
+        } else {
+            $buyerId = $l->car_erp_buyer_id;
+            $consigneeId = $l->car_erp_consignee_id;
+        }
+
         // board 는 VIN 을 모른다(NICE 조회=car-erp). 매칭키 = vehicle_number, NICE 입력 = owner_name.
         $payload = [
-            'contract_version' => 4,   // v4: v3 + 매도비 계좌(selling_fee_payee_*, 판매자와 별개). 전방호환(v1~v3 수용)
+            'contract_version' => 5,   // v5: v4 + buyer_undecided(재고매입). car-erp SUPPORTED_VERSIONS=[1..5], 2026-09-08 배포됨
             'vehicle_number' => $l->vehicle_number,
             'owner_name' => $l->owner_name,
             'source' => $l->source,
@@ -152,8 +174,12 @@ class SyncWonListingToCarErp implements ShouldQueue
             'sale_currency' => $saleCurrency,
             'sale_exchange_rate' => $saleRate,
             // v3 바이어/컨사이니(경매/구매 드롭다운 선택, 미선택=null)
-            'buyer_id' => $l->car_erp_buyer_id,
-            'consignee_id' => $l->car_erp_consignee_id,
+            'buyer_id' => $buyerId,
+            'consignee_id' => $consigneeId,
+            // v5 재고매입 — car-erp `vehicles.buyer_undecided`(뱃지 「바이어 미정(투기 매입)」).
+            // ⚠️ `buyer_id: null` 만으로는 car-erp 에서 **레거시 무바이어 차와 구분이 안 된다**(뱃지 없음).
+            //    바이어가 실제로 붙으면 car-erp `Vehicle::saving` 이 알아서 내린다 → board 뒤처리 불필요.
+            'buyer_undecided' => (bool) $l->buyer_undecided,
         ];
 
         // 서명 대상 = 직렬화된 raw body (car-erp 가 동일 바이트로 검증)

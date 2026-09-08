@@ -217,6 +217,7 @@ return [
         'rate_required' => 'Enter the FX rate — without it ERP withholds the sale price entirely.',
         'filled' => 'Applied in ERP: :fields',
         'nothing_filled' => 'Nothing was filled in ERP — the fields may already have values, or were withheld due to a missing FX rate.',
+        'stock_purchase' => 'This is a stock purchase (no buyer yet) — assign the sale price and buyer in ERP vehicle management. Sending from here has no effect in the ERP.',
     ],
 
     'attach_view' => [
