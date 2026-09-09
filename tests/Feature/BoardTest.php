@@ -24,6 +24,7 @@ use App\Support\ListingLink;
 use App\Support\Region;
 use App\Support\TimeGate;
 use App\Support\UploadGuard;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
@@ -6199,22 +6200,34 @@ class BoardTest extends TestCase
         $this->actingAs($kim);
 
         foreach ([$synced, $accepted] as $l) {
-            $c = Volt::test('listings.index')->call('openEdit', $l->id);
-            $c->assertDontSee(__('listings.drawer.delete'));
-            $this->assertItThrows(fn () => $c->call('deleteListing'));   // 서버 가드 403
+            Volt::test('listings.index')->call('openEdit', $l->id)
+                ->assertDontSee(__('listings.drawer.delete'))
+                ->call('deleteListing')->assertForbidden();
             $this->assertNotSoftDeleted('purchase_listings', ['id' => $l->id]);
         }
     }
 
-    /** 남의 매입예정은 열지도 못한다(SalesmanScope) → 삭제도 불가. */
+    /** 남의 매입예정은 삭제 대상이 아니다 — 영업은 열지도 못하고(SalesmanScope), 관리는 열려도 버튼이 없다. */
     public function test_sales_cannot_delete_other_reps_listing(): void
     {
         $kim = $this->mkUser('sales');
         $lee = $this->mkUser('sales');
         $l = $this->mkListing($lee);
-        $this->actingAs($kim);
 
-        $this->assertItThrows(fn () => Volt::test('listings.index')->call('openEdit', $l->id));
+        $this->actingAs($kim);
+        try {
+            Volt::test('listings.index')->call('openEdit', $l->id);
+            $this->fail('영업은 남의 매입예정을 못 연다(SalesmanScope).');
+        } catch (ModelNotFoundException $e) {
+            // 기대 동작
+        }
+
+        // 관리 role 은 전체가 보이지만(격리 대상 아님) 남의 글 삭제는 /manage 의 super 경로로만.
+        $this->actingAs($this->mkUser('manager'));
+        Volt::test('listings.index')->call('openEdit', $l->id)
+            ->assertDontSee(__('listings.drawer.delete'))
+            ->call('deleteListing')->assertForbidden();
+
         $this->assertNotSoftDeleted('purchase_listings', ['id' => $l->id]);
     }
 }
