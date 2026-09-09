@@ -93,7 +93,7 @@ draft(현지확인대기) → awaiting_buyer(회신대기) → accepted(구매�
 ## 업무 화면 (Volt, `resources/views/livewire/*/index.blade.php`)
 > ⚠️ 아래는 주요 화면만이다. **실제 화면 수는 더 많다**(`resources/views/livewire/` 를 볼 것 — forwarding·verdicts·portal·assistant·notify 등).
 > 화면 이름·탭 이름을 사용자에게 안내하기 전에 **lang 파일에서 실제 렌더 문자열을 확인**할 것(추측 금지 — 실제로 틀린 안내를 했다).
-1. **listings**(영업): 매입예정 추가(출처 토글·TimeGate 가드, 차량번호/소유자/차값/할인 가로 grid) + 본인 글 행클릭 편집 드로어.
+1. **listings**(영업): 매입예정 추가(출처 토글·TimeGate 가드, 차량번호/소유자/차값/할인 가로 grid) + 본인 글 행클릭 편집 드로어. 드로어 하단에 **본인 등록건 삭제**(soft delete — ERP 미연동 + accepted 이전 상태만, 아래 「완료된 로드맵」 참조).
 2. **inspection**(현지확인): 지역별 그룹 + 모바일 드로어(사진/영상 업로드·메모·최종금액). **전달/회신 = "선택 후 저장" 수동씬**(클릭=색강조만, 하단 저장이 상태전이 커밋).
 3. **auction**(경매/구매): accepted 차량 낙찰/유찰·구매확정/취소(→ won/failed) + 소유자·입금정보. won → 연동 B 자동 push.
 4. **manage**(관리자): KPI 5종(**클릭=그 차원 필터 토글**) + **필터(검색·상태·출처·회신, 가로 grid) + 페이지네이션(20)** 전체현황 + **무제한 수정 드로어(어지간한 필드 전부 — 식별값은 미연동만)**. 모든 변경은 옵저버가 감사기록.
@@ -162,6 +162,10 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
 - **연동 C** (car-erp 입금 → respond.io): car-erp 측 작업, board 무관.
 - **운영/배포**: S3 전환(`BOARD_PHOTO_DISK=s3`, car-erp 버킷 prefix 재사용)·deploy.yml matrix(heymanboard+ssancarboard 자동배포)·도메인(`board.heymancar.com`)·DB 백업 완료.
 - **§6 현지검차 UX·금액 재설계**: Model A 로 배포(2026-07-07, 씬재배치 포함). 권위 = `meetings/board-flow-resequencing-2026-07-06.md`. [메모리 board-flow-model-a-deployed]
+- **매입예정 삭제 — 영업 본인 손으로**(2026-09-09 배포, master `9985d86`): 검차 사진·영상이 늦어 `draft` 에 갇힌 차는 영업이 손댈 방법이 없었다 — **중복차단이 상태를 안 보고 활성 행만 보므로**(`listings/index.blade.php`) 같은 차를 다시 등록할 수도 없어, 지우려면 super 가 `/manage` 로 들어가야 했다(새벽엔 연락 불가). `/listings` 드로어에 삭제 버튼(soft delete + 감사기록, `/manage` 와 같은 경로).
+  - 게이트 = **본인 등록건** + `car_erp_vehicle_id` null + status ∉ {accepted, won, synced} + `editable()`(시간잠금 경매는 읽기전용 = 삭제도 막음). 남의 글 전체 대상 삭제는 **`/manage` 의 super 경로 그대로** — 관리 role 이 `/listings` 에서 전체를 보므로 소유자 조건을 안 걸면 그 정책이 조용히 뚫린다.
+  - 🚨 **거절(`rejected`)은 딜만 닫는다 — 재등록은 안 열린다.** 중복차단은 status 를 안 본다. 다른 바이어가 같은 차를 사겠다고 하면 **삭제 후 재등록**(또는 관리자가 `/manage` 에서 상태를 되돌려 같은 행 재활용 — 이쪽은 검차 사진·이력이 남는다). 가드 = `test_rejected_still_blocks_reregistration_until_deleted`.
+  - 재등록 차는 `created_at` 이 새것이라 **ssancar 폴러 후보에 다시 들어간다**(에이지아웃 3일) → 검차글 영상이 그대로면 자동으로 전달대기까지 복귀. 단 **board 에 직접 올린 검차 사진·메모는 옛 행에 남아 안 따라온다**.
 - **셀프검차매입**(2026-08-09 배포, master `03f45fb`): 영업이 직접 검차한 차 — ssancar 검차글에 영상이 없어 자동전이가 안 걸리고 갇히던 경로. 등록 즉시 `accepted` 로 만들어 `/auction` 에서 마무리. 상세 = 위 「출처」 절.
 - **§11 요청·확인 신호 + 재고 4분류**(2026-08-09 배포, master `b0f875a`): 카톡으로 하던 "입금해주세요/대금 확인해주세요" 두 마디를 포털로. 같이 **`매입내역` 탭을 `재고` 4분류로 교체**(전량조회 → 유한 집합). 상세·함정 = `SKILLS.md §14-2·§14-3`, 인계 = `meetings/handoff-carerp-board-requests.md`·`handoff-carerp-inventory-for-board.md`.
 
