@@ -247,5 +247,8 @@ return [
         'buyer' => '바이어',
         'buyer_name' => '바이어명',
         'updated_flash' => ':number 수정되었습니다.',
+        'delete' => '이 건 삭제',
+        'delete_confirm' => '이 매입예정을 삭제할까요? 목록에서 사라지고 같은 차량번호로 다시 등록할 수 있습니다. (감사로그에 기록)',
+        'deleted_flash' => ':number 삭제했습니다. 같은 차량번호로 다시 등록할 수 있습니다.',
     ],
 ];
