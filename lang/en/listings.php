@@ -247,5 +247,8 @@ return [
         'buyer' => 'Buyer',
         'buyer_name' => 'Buyer name',
         'updated_flash' => ':number updated.',
+        'delete' => 'Delete this record',
+        'delete_confirm' => 'Delete this purchase record? It disappears from the list and the same vehicle number can be registered again. (Logged to audit · restorable by an admin)',
+        'deleted_flash' => ':number deleted. You can register the same vehicle number again.',
     ],
 ];

@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\BoardAuditLog;
 use App\Models\InspectionPhoto;
 use App\Models\PromotionRequest;
 use App\Jobs\SyncWonListingToCarErp;
@@ -220,6 +221,46 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function editable(PurchaseListing $l): bool
     {
         return ! ($l->isAuction() && $l->isLocked()) || Auth::user()->isManager();
+    }
+
+    /**
+     * 영업이 본인 매입예정을 지울 수 있는 조건.
+     * ERP 로 넘어간 차(car_erp_vehicle_id)와 accepted/won/synced 는 제외 —
+     * accepted 이후는 /auction 에 자체 종료 경로(유찰/취소 → failed)가 있고, ERP 전송분은 되돌릴 수 없다.
+     * editable() 을 그대로 태워 경매 시간잠금 차는 삭제도 막는다(잠기면 읽기전용 = 삭제 포함).
+     */
+    public function deletable(PurchaseListing $l): bool
+    {
+        return $l->car_erp_vehicle_id === null
+            && ! in_array($l->status, ['accepted', 'won', 'synced'], true)
+            && $this->editable($l);
+    }
+
+    /**
+     * 매입예정 삭제 — 영업 본인 건(SalesmanScope 가 남의 글 로드를 막는다). soft delete(복구 가능) + 감사기록.
+     * 용도 = 검차 사진/영상이 안 올라와 현지확인대기에 갇힌 차, 거절로 끝난 차의 재등록(중복차단은 활성 행만 본다).
+     */
+    public function deleteListing(): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        abort_unless($this->deletable($l), 403);
+
+        // soft delete 는 update 이벤트를 안 거쳐 옵저버 감사가 안 잡힘 → 여기서 직접 기록(/manage 와 동일).
+        BoardAuditLog::create([
+            'user_id' => Auth::id(),
+            'purchase_listing_id' => $l->id,
+            'action' => 'delete',
+            'field' => 'deleted',
+            'old_value' => $l->statusLabel(),
+            'new_value' => null,
+        ]);
+
+        $vehicle = $l->vehicle_number;
+        $l->delete();
+
+        unset($this->listings);
+        session()->flash('ok', __('listings.drawer.deleted_flash', ['number' => $vehicle]));
+        $this->closeEdit();
     }
 
     public function openEdit(int $id): void
@@ -1106,6 +1147,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @endif
                     <button class="btn-ghost" wire:click="closeEdit">{{ $canEdit ? __('common.cancel') : __('common.close') }}</button>
                 </div>
+
+                @if ($this->deletable($e))
+                    <button class="btn-ghost mt-2 w-full justify-center text-red-600 hover:bg-red-50"
+                        wire:click="deleteListing" wire:confirm="{{ __('listings.drawer.delete_confirm') }}">🗑️ {{ __('listings.drawer.delete') }}</button>
+                @endif
             </div>
         </div>
     @endif

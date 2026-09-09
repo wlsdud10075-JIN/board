@@ -6127,4 +6127,94 @@ class BoardTest extends TestCase
         $this->assertNull($l->fresh()->sale_price);            // 컬럼도 안 건드린다
         Bus::assertNotDispatched(SyncWonListingToCarErp::class);
     }
+
+    /**
+     * 영업이 본인 매입예정을 직접 삭제 — 검차 사진/영상이 안 올라와 현지확인대기에 갇힌 차를
+     * 새벽에 관리자 없이 정리하고 같은 차로 다시 등록하기 위한 경로(2026-09-09 Jin).
+     * 삭제는 soft delete → 중복차단(활성 행만 본다)이 풀려 재등록이 통과해야 한다.
+     */
+    public function test_sales_deletes_own_stuck_draft_and_can_register_again(): void
+    {
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['vehicle_number' => '11가1111', 'vin' => 'STUCKVIN001', 'status' => 'draft']);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')->call('openEdit', $l->id)->call('deleteListing');
+
+        $this->assertSoftDeleted('purchase_listings', ['id' => $l->id]);
+        $this->assertDatabaseHas('board_audit_logs', [
+            'purchase_listing_id' => $l->id, 'user_id' => $kim->id, 'action' => 'delete', 'field' => 'deleted',
+        ]);
+
+        // 같은 차량번호·VIN 으로 재등록 — 삭제된 행은 중복차단을 안 건다.
+        Volt::test('listings.index')
+            ->set('source', 'encar')
+            ->set('vehicle_number', '11가1111')
+            ->set('vin', 'STUCKVIN001')
+            ->set('car_cost', '13000000')->set('discount_rate', '0')->set('shipping_usd', 1640)
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertSame(1, PurchaseListing::where('vehicle_number', '11가1111')->count());
+    }
+
+    /**
+     * 거절(딜 종료)만으로는 재등록이 안 된다 — 중복차단은 상태를 안 본다.
+     * 즉 rejected 는 딜을 닫을 뿐이고, 같은 차를 다시 올리려면 삭제가 필요하다(Jin Q 확인용 가드).
+     */
+    public function test_rejected_still_blocks_reregistration_until_deleted(): void
+    {
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, [
+            'vehicle_number' => '22나2222', 'vin' => 'REJVIN0001',
+            'status' => 'rejected', 'buyer_verdict' => 'rejected',
+        ]);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')
+            ->set('source', 'encar')->set('vehicle_number', '22나2222')
+            ->set('car_cost', '13000000')->set('discount_rate', '0')->set('shipping_usd', 1640)
+            ->call('save')
+            ->assertHasErrors('vehicle_number');   // 거절 상태여도 활성 행이라 막힌다
+
+        Volt::test('listings.index')->call('openEdit', $l->id)->call('deleteListing');
+        $this->assertSoftDeleted('purchase_listings', ['id' => $l->id]);
+
+        Volt::test('listings.index')
+            ->set('source', 'encar')->set('vehicle_number', '22나2222')->set('vin', 'REJVIN0002')
+            ->set('car_cost', '13000000')->set('discount_rate', '0')->set('shipping_usd', 1640)
+            ->call('save')
+            ->assertHasNoErrors();
+    }
+
+    /**
+     * ERP 로 넘어간 차·accepted 이후는 영업이 못 지운다 — 원장(car-erp)과 갈리고,
+     * accepted 이후엔 /auction 에 자체 종료 경로(유찰/취소)가 있다.
+     */
+    public function test_sales_cannot_delete_erp_synced_or_accepted(): void
+    {
+        $kim = $this->mkUser('sales');
+        $synced = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 501, 'buyer_verdict' => 'accepted']);
+        $accepted = $this->mkListing($kim, ['status' => 'accepted', 'buyer_verdict' => 'accepted']);
+        $this->actingAs($kim);
+
+        foreach ([$synced, $accepted] as $l) {
+            $c = Volt::test('listings.index')->call('openEdit', $l->id);
+            $c->assertDontSee(__('listings.drawer.delete'));
+            $this->assertItThrows(fn () => $c->call('deleteListing'));   // 서버 가드 403
+            $this->assertNotSoftDeleted('purchase_listings', ['id' => $l->id]);
+        }
+    }
+
+    /** 남의 매입예정은 열지도 못한다(SalesmanScope) → 삭제도 불가. */
+    public function test_sales_cannot_delete_other_reps_listing(): void
+    {
+        $kim = $this->mkUser('sales');
+        $lee = $this->mkUser('sales');
+        $l = $this->mkListing($lee);
+        $this->actingAs($kim);
+
+        $this->assertItThrows(fn () => Volt::test('listings.index')->call('openEdit', $l->id));
+        $this->assertNotSoftDeleted('purchase_listings', ['id' => $l->id]);
+    }
 }
