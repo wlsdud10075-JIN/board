@@ -81,7 +81,8 @@ return [
     'won_auction' => 'Won',
     'won_encar' => 'Purchase confirmed',
     'failed_auction' => 'Failed',
-    'failed_encar' => 'Cancelled',
+    'close' => 'Close',
+    'failed_encar' => 'Cancel purchase',
     'save_payment_info' => 'Save payment info',
 
     // flash
@@ -123,6 +124,9 @@ return [
         'dismiss' => 'Dismiss',
         'confirm_hint' => 'Review, then press save to apply',
         'owner_mismatch' => 'Account holder differs from the registration owner — please verify',
+        'find' => '📷 Find account details',
+        'finding' => 'Reading…',
+        'phone_like' => 'Looks like a phone number — verify if it is a phone-linked account',
         'not_found' => 'No account details found in the attachments. Please enter them below.',
         'failed' => 'Could not read account details. Please enter them below.',
         'wait' => 'Reading account details from the attached photos. Please review the candidates before confirming.',

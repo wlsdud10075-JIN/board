@@ -31,11 +31,14 @@ class PayeeExtractor
 규칙:
 - 이미지에 계좌가 여러 개 보이면 **하나도 빠뜨리지 말고** 용도에 맞게 나눠 담아라.
 - car_account = 차량대금(차값) 계좌.
+- bank 와 holder 도 **이미지에 보이면 반드시 채워라** — bank 는 은행명(기업은행·신한은행 등),
+  holder 는 예금주 이름. 계좌번호 바로 앞뒤에 적혀 있는 경우가 많다.
 - fee_account = 매도비·차량이전비·알선수수료 계좌. 그 라벨이 보이면 label 에 그 문구를 그대로 옮겨라.
 - 해당 용도의 계좌가 이미지에 없으면 그 항목만 null.
 - 계좌가 하나도 없으면 {"found":false}.
 - registration_owner = 자동차등록증·사업자등록증이 보이면 그 소유자/상호.
-- 0으로 시작하는 번호(02-/031-/010 등)는 전화번호다. 1566-/1588- 은 고객센터다. 계좌가 아니다.
+- **「계좌」라고 적힌 번호는 전화번호처럼 보여도 계좌다**(031-296-5454 같은 평생계좌). 그대로 담아라.
+- 명함·문의처의 연락처, 1566-/1588- 고객센터 번호는 계좌가 아니다.
 - 한 칸에 숫자가 여럿이면 "(계좌번호)" 표기가 붙은 것, 자릿수가 긴 것을 택하라.
 - "평생계좌"는 휴대폰 기반 별칭이다. 정식 계좌번호가 있으면 그쪽을 택하라.
 TXT;
@@ -97,7 +100,7 @@ TXT;
                 'number' => $number,
                 'holder' => trim((string) ($acc['holder'] ?? '')),
                 'source_photo_ids' => [$photoId],
-                'warnings' => [],
+                'warnings' => $this->phoneLike($number) ? ['phone_like'] : [],
             ];
         }
 
@@ -152,18 +155,23 @@ TXT;
         ];
     }
 
-    /** 계좌로 볼 수 없는 이유. null 이면 통과. */
+    /**
+     * 계좌로 볼 수 없는 이유. null 이면 통과.
+     *
+     * 🚨 **0 으로 시작한다고 버리면 안 된다.** 처음엔 「0 으로 시작 = 전화번호」로 버렸는데,
+     *    은행이 전화·휴대폰 번호로 만들어주는 **평생계좌**가 실제 송금 계좌다(IBK·농협 등).
+     *    2026-09-10 운영에서 딜러가 보낸 「차대금 계좌 기업은행 031 296 5454」를 통째로 버려
+     *    "계좌정보만 있는 사진인데 못 찾는다"가 됐다. ⇒ 버리지 말고 **경고를 달아 사람에게 보인다**
+     *    (`phoneLike()` → warnings). 진짜 명함 전화번호는 모델이 애초에 계좌로 안 뽑는다.
+     */
     private function rejectReason(string $number): ?string
     {
         if (preg_match('/[^0-9\-\s]/', $number)) {
             return 'not_numeric';
         }
         $d = $this->digits($number);
-        // 0 으로 시작 = 지역번호(02·031)·휴대폰(010). 은행 계좌번호는 1~9 로 시작한다.
-        if (str_starts_with($d, '0')) {
-            return 'phone_pattern';
-        }
-        if (preg_match('/^1(566|588|544|577|599)/', $d)) {
+        // 고객센터 대표번호는 계좌가 될 수 없다(평생계좌로도 안 쓰인다).
+        if (preg_match('/^1(566|588|544|577|599|899)/', $d)) {
             return 'call_center';
         }
         if (strlen($d) < 10 || strlen($d) > 17) {
@@ -171,6 +179,14 @@ TXT;
         }
 
         return null;
+    }
+
+    /** 전화번호 형태(0 으로 시작 10~11자리) — 평생계좌일 수도, 잘못 읽은 전화번호일 수도 있다. */
+    private function phoneLike(string $number): bool
+    {
+        $d = $this->digits($number);
+
+        return str_starts_with($d, '0') && strlen($d) <= 11;
     }
 
     private function hasFeeLabel(string $label): bool

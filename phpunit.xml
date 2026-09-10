@@ -21,6 +21,10 @@
         <env name="APP_ENV" value="testing"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BOARD_RATE_AUTO_REFRESH" value="false"/>
+        <!-- 계좌 추출은 기본 끔 — 켜면 "사진 올리며 바로 구매확정" 경로가 가드에 걸린다.
+             켜야 하는 테스트는 PayeeExtractionTest 처럼 setUp 에서 직접 켠다.
+             ⚠️ 이 줄이 없으면 로컬 .env(운영 확인용으로 켜둔 값)를 물려받아 기존 테스트가 깨진다. -->
+        <env name="BOARD_PAYEE_EXTRACT_ENABLED" value="false"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <!-- 연동 B: 테스트는 hermetic — .env 의 실제 car-erp 주소를 안 읽도록 비움(개별 테스트가 config()로 주입). -->
         <env name="CAR_ERP_BASE_URL" value=""/>

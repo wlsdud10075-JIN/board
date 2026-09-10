@@ -81,7 +81,8 @@ return [
     'won_auction' => '낙찰',
     'won_encar' => '구매확정',
     'failed_auction' => '유찰',
-    'failed_encar' => '취소',
+    'close' => '닫기',
+    'failed_encar' => '매입취소',
     'save_payment_info' => '입금정보 저장',
 
     // flash
@@ -124,6 +125,9 @@ return [
         'dismiss' => '후보 지우기',
         'confirm_hint' => '확인 후 저장을 눌러야 반영됩니다',
         'owner_mismatch' => '예금주가 등록증 소유자와 다릅니다 — 확인 필요',
+        'find' => '📷 계좌정보 찾기',
+        'finding' => '계좌를 찾는 중…',
+        'phone_like' => '전화번호 형태입니다 — 평생계좌인지 확인하세요',
         'not_found' => '첨부사진에서 계좌를 찾지 못했습니다. 아래에 직접 입력해 주세요.',
         'failed' => '계좌 읽기에 실패했습니다. 아래에 직접 입력해 주세요.',
         'wait' => '첨부사진에서 계좌를 찾는 중입니다. 잠시 후 후보를 확인하고 확정해 주세요.',

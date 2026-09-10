@@ -83,17 +83,31 @@ class PayeeExtractionTest extends TestCase
     // ───────────────────────── 후처리 규칙 ─────────────────────────
 
     /**
-     * 🚨 파일럿에서 실제로 뚫린 지점 — "계좌번호(Account No.)" 칸 첫 줄이 전화번호였고,
-     * 프롬프트에 배제 규칙을 넣고도 모델이 그걸 골랐다(해상도를 올려도 동일). 코드가 막는다.
+     * 🚨 **전화번호 형태를 버리면 안 된다.** 은행이 전화·휴대폰 번호로 만들어주는 **평생계좌**가
+     * 실제 송금 계좌다(IBK·농협 등). 2026-09-10 운영에서 딜러가 보낸 「차대금 계좌 기업은행
+     * 031 296 5454」를 통째로 버려 "계좌정보만 있는 사진인데 못 찾는다"가 됐다.
+     * ⇒ 버리지 말고 경고를 달아 사람에게 보인다.
      */
-    public function test_phone_number_is_rejected_not_stored(): void
+    public function test_phone_like_number_is_kept_with_warning(): void
     {
         $r = (new PayeeExtractor)->parseOne(
-            '{"found":true,"car_account":{"bank":"IBK기업은행","number":"031-296-5454","holder":"김장표"}}', 9
+            '{"found":true,"car_account":{"bank":"기업은행","number":"031-296-5454","holder":"김장표"}}', 9
         );
 
-        $this->assertSame([], $r['candidates']);
-        $this->assertSame('phone_pattern', $r['rejected'][0]['reason']);
+        $this->assertCount(1, $r['candidates']);
+        $this->assertSame('031-296-5454', $r['candidates'][0]['number']);
+        $this->assertContains('phone_like', $r['candidates'][0]['warnings']);
+        $this->assertSame([], $r['rejected']);
+    }
+
+    /** 정식 형식 계좌에는 그 경고가 안 붙는다. */
+    public function test_normal_account_has_no_phone_warning(): void
+    {
+        $r = (new PayeeExtractor)->parseOne(
+            '{"found":true,"car_account":{"bank":"IBK기업은행","number":"287-264407-01-016","holder":"성진모터스"}}', 1
+        );
+
+        $this->assertSame([], $r['candidates'][0]['warnings']);
     }
 
     public function test_call_center_and_short_numbers_are_rejected(): void
