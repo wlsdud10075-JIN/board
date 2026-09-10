@@ -30,7 +30,7 @@ class PurchaseListing extends Model
         'auction_venue', 'lot_number', 'status', 'buyer_verdict', 'verdict_channel',
         'buyer_name', 'payee_name', 'payee_bank', 'payee_account',
         'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account',
-        'payee_suggestions', 'payee_extraction_status',
+        'payee_suggestions', 'payee_extraction_status', 'payee_extraction_at',
         'inspection_memo', 'inspection_note', 'lock_at', 'car_erp_vehicle_id',
         'car_erp_buyer_id', 'car_erp_consignee_id', 'buyer_undecided',
     ];
@@ -51,6 +51,7 @@ class PurchaseListing extends Model
             'payee_account' => 'encrypted',   // 계좌번호 at-rest 암호화 (§6e)
             'selling_fee_payee_account' => 'encrypted',   // 매도비 계좌번호 at-rest 암호화
             'payee_suggestions' => 'encrypted:json',   // 계좌 후보(확정 전) — 실계좌라 같이 암호화
+            'payee_extraction_at' => 'datetime',
             'lock_at' => 'datetime',
             'ssancar_media_seen_at' => 'datetime',
             'car_erp_vehicle_id' => 'integer',
@@ -287,6 +288,23 @@ class PurchaseListing extends Model
     public function isSelfInspection(): bool
     {
         return $this->origin === self::ORIGIN_SELF_INSPECTION;
+    }
+
+    /** 계좌 추출 대기를 몇 분까지 인정할지 — 이 시간이 지나면 `pending` 이어도 확정을 막지 않는다. */
+    public const PAYEE_EXTRACT_WAIT_MINUTES = 5;
+
+    /**
+     * 계좌 추출이 **아직 진행 중인가**.
+     *
+     * 🚨 status 만 보면 안 된다 — Job 이 조용히 죽으면 `pending` 이 영원히 남아 구매확정이 영영 막힌다.
+     *    2026-09-10 운영에서 실제로 발생했다(배포 직후 켠 설정을 워커가 못 읽어 Job 이 무동작 종료).
+     *    그래서 **시각으로도 끊는다** — 사람이 손을 못 쓰게 되는 상태를 만들지 않는 게 우선이다.
+     */
+    public function payeeExtractionInFlight(): bool
+    {
+        return $this->payee_extraction_status === 'pending'
+            && $this->payee_extraction_at !== null
+            && $this->payee_extraction_at->gt(now()->subMinutes(self::PAYEE_EXTRACT_WAIT_MINUTES));
     }
 
     /**
