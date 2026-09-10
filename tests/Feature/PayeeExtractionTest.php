@@ -224,7 +224,7 @@ class PayeeExtractionTest extends TestCase
     public function test_conclude_is_blocked_while_extraction_pending(): void
     {
         Bus::fake();
-        $l = $this->mkListing(['payee_extraction_status' => 'pending']);
+        $l = $this->mkListing(['payee_extraction_status' => 'pending', 'payee_extraction_at' => now()]);
         $this->actingAs($this->mkUser('manager'));
 
         Volt::test('auction.index')
@@ -259,7 +259,7 @@ class PayeeExtractionTest extends TestCase
     public function test_skip_flag_allows_conclude_while_pending(): void
     {
         Bus::fake();
-        $l = $this->mkListing(['payee_extraction_status' => 'pending']);
+        $l = $this->mkListing(['payee_extraction_status' => 'pending', 'payee_extraction_at' => now()]);
         $this->actingAs($this->mkUser('manager'));
 
         Volt::test('auction.index')
@@ -277,7 +277,7 @@ class PayeeExtractionTest extends TestCase
     public function test_conclude_is_allowed_when_payee_already_filled(): void
     {
         Bus::fake();
-        $l = $this->mkListing(['payee_extraction_status' => 'pending', 'payee_account' => '110-123-456789']);
+        $l = $this->mkListing(['payee_extraction_status' => 'pending', 'payee_extraction_at' => now(), 'payee_account' => '110-123-456789']);
         $this->actingAs($this->mkUser('manager'));
 
         Volt::test('auction.index')
@@ -308,6 +308,30 @@ class PayeeExtractionTest extends TestCase
             ->assertSet('payee_bank', '신한은행');
 
         $this->assertNull($l->fresh()->payee_account);   // 저장은 아직 아니다
+    }
+
+    /**
+     * 🚨 Job 이 조용히 죽으면 `pending` 이 영원히 남아 구매확정이 영영 막힌다 —
+     * 2026-09-10 운영에서 실제로 발생했다(워커가 옛 설정을 들고 있어 Job 이 무동작 종료).
+     * 사람이 손을 못 쓰게 되는 상태를 만들지 않는 게 우선이라, 시각으로도 끊는다.
+     */
+    public function test_stale_pending_does_not_block_conclude_forever(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing([
+            'payee_extraction_status' => 'pending',
+            'payee_extraction_at' => now()->subMinutes(PurchaseListing::PAYEE_EXTRACT_WAIT_MINUTES + 1),
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')
+            ->call('openDetail', $l->id)
+            ->set('owner_name', '차주')
+            ->set('buyerId', 7)
+            ->call('conclude', $l->id, 'won')
+            ->assertHasNoErrors();
+
+        $this->assertSame('won', $l->fresh()->status);
     }
 
     /** 1x1 JPEG — GD 로 열리기만 하면 된다. */

@@ -338,7 +338,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         // 계좌 추출 — 사진이 새로 들어왔을 때만 돌린다. 결과는 후보일 뿐이라 payee_* 를 안 건드린다.
         if (config('board.payee_extract.enabled')) {
-            $l->forceFill(['payee_extraction_status' => 'pending'])->saveQuietly();
+            $l->forceFill(['payee_extraction_status' => 'pending', 'payee_extraction_at' => now()])->saveQuietly();
             ExtractPayeeFromPhotos::dispatch($l->id);
         }
     }
@@ -628,7 +628,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             //    계좌는 원래 필수가 아니므로 [계좌 없이 확정]($skipPayeeWait)으로 언제든 빠져나갈 수 있다.
             if (config('board.payee_extract.enabled') && ! $this->skipPayeeWait && $this->payee_account === '') {
                 $hasNewPhotos = count(array_filter($this->salesFiles)) > 0;
-                if ($hasNewPhotos || $l->payee_extraction_status === 'pending') {
+                if ($hasNewPhotos || $l->payeeExtractionInFlight()) {
                     if ($hasNewPhotos) {
                         $this->storeSalesFiles($l);   // 사진은 저장하고 추출만 돌린다(확정은 다음 클릭에)
                     }
@@ -959,9 +959,15 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 {{-- 계좌 후보 (첨부사진에서 읽음) — 제안일 뿐이고, 적용해도 저장 전이다. --}}
                 @if (in_array($d->status, ['accepted', 'won'], true) && config('board.payee_extract.enabled'))
-                    @if ($d->payee_extraction_status === 'pending')
+                    @if ($d->payeeExtractionInFlight())
                         <div class="mb-2 rounded-md border border-gray-200 bg-gray-50 px-2.5 py-2 text-[11px] text-gray-500"
                              wire:poll.5s>{{ __('auction.payee_extract.searching') }}</div>
+                    {{-- 못 찾았거나 실패했으면 **그렇다고 말해준다** — 아무것도 안 그리면 사용자는 계속 기다린다
+                         (2026-09-10 Jin 실사용: 화면이 멈춘 줄 알고 3분을 기다렸다). --}}
+                    @elseif (empty($d->payee_suggestions['candidates']) && in_array($d->payee_extraction_status, ['none', 'failed', 'pending'], true))
+                        <div class="mb-2 rounded-md border border-gray-200 bg-gray-50 px-2.5 py-2 text-[11px] text-gray-500">
+                            {{ $d->payee_extraction_status === 'none' ? __('auction.payee_extract.not_found') : __('auction.payee_extract.failed') }}
+                        </div>
                     @elseif (!empty($d->payee_suggestions['candidates']))
                         <div class="mb-2 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-2">
                             <div class="text-[11px] font-semibold text-blue-800">{{ __('auction.payee_extract.title') }}</div>
@@ -1095,9 +1101,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <button class="btn-green flex-1 justify-center {{ $blockWhy ? 'cursor-not-allowed opacity-40' : '' }}" @disabled($blockWhy !== null) wire:click="conclude({{ $d->id }}, 'won')">{{ $d->isAuction() ? __('auction.won_auction') : __('auction.won_encar') }}</button>
                         <button class="btn-ghost flex-1 justify-center" wire:click="conclude({{ $d->id }}, 'failed')">{{ $d->isAuction() ? __('auction.failed_auction') : __('auction.failed_encar') }}</button>
                     </div>
-                    {{-- 계좌 후보를 기다리라고 막았을 때만 탈출구를 보여준다 — 계좌는 원래 필수가 아니다. --}}
+                    {{-- 계좌 후보를 기다리라고 막았을 때만 탈출구를 보여준다 — 계좌는 원래 필수가 아니다.
+                         🚨 회색 밑줄 글씨로 뒀더니 **안 보였다**(2026-09-10 Jin). 막힌 사람이 빠져나갈
+                         유일한 문이라 버튼으로 세운다. --}}
                     @if ($errors->first('salesFiles') === __('auction.payee_extract.wait'))
-                        <button type="button" class="mt-1.5 w-full text-[11px] text-gray-400 underline"
+                        <button type="button" class="btn-ghost mt-2 w-full justify-center border-amber-300 bg-amber-50 text-amber-800"
                                 wire:click="$set('skipPayeeWait', true); $wire.conclude({{ $d->id }}, 'won')">{{ __('auction.payee_extract.skip') }}</button>
                     @endif
                 @elseif ($d->status === 'won')

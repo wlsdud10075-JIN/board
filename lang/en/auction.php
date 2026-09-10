@@ -123,6 +123,8 @@ return [
         'dismiss' => 'Dismiss',
         'confirm_hint' => 'Review, then press save to apply',
         'owner_mismatch' => 'Account holder differs from the registration owner — please verify',
+        'not_found' => 'No account details found in the attachments. Please enter them below.',
+        'failed' => 'Could not read account details. Please enter them below.',
         'wait' => 'Reading account details from the attached photos. Please review the candidates before confirming.',
         'skip' => 'Confirm without account details',
     ],
