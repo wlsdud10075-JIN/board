@@ -185,6 +185,12 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
   - 🚨 **판매가를 안 적는 것만으론 안 된다** — Job 이 `차량금액 ÷ 환율` 로 파생한다. ERP 재고 분류는 `sale_price` 하나로 갈리므로(>0 = 「선적전」) 판매측을 Job 에서 강제로 비운다. `buyer_id` 도 같이 — ERP **재전송 경로엔 매입 등록 락 게이트가 없어서**(회신 Q3) 컬럼에 남은 바이어가 나중에 실려 나가면 락 우회로가 된다. `/listings` 판매가 후보완 재전송도 이 차엔 안 준다(조용한 no-op).
   - ⚠️ 신규 재고매입 차는 **「지급대기」에 먼저 앉는다**(매입 미지급). 지급 후 「일반재고」로 이동, 그 전엔 ERP 「전체」 탭에도 안 보인다. 상세·함정 = `SKILLS.md §12` v5 절, 인계·회신 = `meetings/handoff-carerp-stock-purchase-no-buyer.md`.
 
+- **첨부사진 계좌 추출**(2026-09-10 배포, master `3d1d05e`): 딜러에게 받은 사진에 계좌가 있는데 손으로 안 옮겨 적어 `payee_account` 기재율이 **19%(6/31)** 였다 — 연동 B 가 계좌 없이 나가고 **입금요청 알림톡이 「계좌 미등록」으로** 나갔다. 사내 GPU PC 비전 모델(`qwen2.5vl:7b`)로 읽어 **후보로 제안**하고 사람이 `/auction` 드로어에서 확정한다(자동 기입 없음). 사진 5~7장에 15~20초.
+  - 🚨 **계좌는 구매확정 전에** — car-erp 는 멱등 경로에서 `payee_*` 를 갱신하지 않는다(push-once). 그래서 추출 중에는 확정을 막고, **[계좌 없이 확정하기]** 탈출구를 둔다. `conclude()` 가 `applyPayee()` 를 부르므로 **후보 적용 후 곧바로 확정하면 계좌가 함께 저장**된다.
+  - 🚨 **평생계좌를 전화번호로 오인해 버리지 말 것**(031-296-5454 형태가 실제 송금 계좌다) · **프롬프트에 이중 부정 금지**(매도비를 통째로 빠뜨렸다) · **`.env` 변경 뒤 큐 워커 재시작**(안 하면 Job 이 로그 없이 무동작 종료).
+  - 인프라 = gpu-office `qwen2.5vl:7b` **단독 상주**(8GB 라 챗봇과 공존 불가 → 3사 ERP 챗봇 off + 03:00 색인 정지). 1100px/`num_ctx` 4096 이 상한. 되살릴 때 = 색인 재개 → 1회 실행 → 챗봇 on, 둘 다 쓰려면 GPU 증설(16GB).
+  - 상세·함정 = `SKILLS.md §14-15`, 설계 = `meetings/design-payee-extraction-2026-09-10.md`.
+
 - **브라우저 탭 아이콘 + 홈 화면 앱(PWA)**(2026-08-21~22 배포, master `2dd9d30`·`5f9f9d0`): board 는 아이콘이 **없었다** — `public/favicon.ico` 가 첫 커밋부터 0바이트고 선언도 없었는데, 크롬이 캐시한 옛 아이콘을 그려서 있는 것처럼 보였을 뿐이다. 파비콘은 **car-erp 와 같은 것**(heymanboard=파란 H / ssancarboard=빨간 SS)을 쓰고, 같은 축으로 **manifest·홈화면 아이콘**까지 붙여 폰에서 "홈 화면에 추가" 하면 주소창 없는 앱으로 열린다(스토어·서명·심사 없음).
   - ⚠️ **인스턴스 판별 = `APP_NAME` 재사용**(실측 `board-heyman`/`board-ssancar`). board 엔 car-erp 의 `company.template_set` 같은 회사 식별값이 없지만 APP_NAME 이 이미 박스마다 다르다 — 새 값을 만들면 두 LIVE 박스 `.env` 를 건드려야 한다. 지도 = `config/board.php` 의 `instances`, 조회 = `App\Support\Instance::assets()`. **목록에 없는 이름이면 선언 자체를 생략**한다(아무거나 폴백하면 다른 회사 로고가 뜬다).
   - ⚠️ 아이폰은 manifest 의 icons 를 **안 본다** → `apple-touch-icon` + standalone 메타 별도. manifest 를 `.json` 으로 둔 건 nginx 기본 mime.types 에 `.webmanifest` 가 없어서다(박스 nginx 무변경).
