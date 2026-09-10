@@ -24,6 +24,18 @@ return [
     // 사진 저장 디스크 — 로컬은 public, 운영은 s3 (FILESYSTEM 분리). 운영 전환 시 .env BOARD_PHOTO_DISK=s3
     'photo_disk' => env('BOARD_PHOTO_DISK', 'public'),
 
+    // ─────────── 첨부사진 계좌 추출 (2026-09-10) ───────────
+    // 사내 GPU PC 의 비전 모델로 첨부사진에서 계좌를 읽어 **후보로 제안**한다(자동 기입 없음).
+    // Ollama URL 은 assistant.ollama 를 재사용한다 — 같은 호스트다(두 번째 URL 변수를 만들지 않는다).
+    // ⚠️ max_px/num_ctx 는 RTX 2070(8GB) 실측 상한이다. 1500px 는 비전 토큰이 4096 을 넘겨 HTTP 400.
+    //    GPU 증설 시 max_px=1500 / num_ctx=6144 로 올리면 예금주 오독·매도비 오분류가 개선된다.
+    'payee_extract' => [
+        'enabled' => filter_var(env('BOARD_PAYEE_EXTRACT_ENABLED', false), FILTER_VALIDATE_BOOL),
+        'model' => env('BOARD_PAYEE_EXTRACT_MODEL', 'qwen2.5vl:7b'),
+        'max_px' => (int) env('BOARD_PAYEE_EXTRACT_MAX_PX', 1100),
+        'num_ctx' => (int) env('BOARD_PAYEE_EXTRACT_NUM_CTX', 4096),
+    ],
+
     // ─────────── 금액 재설계 (§6) ───────────
     // 매도비 (한화 고정) — 차량금액 = 차값 − 할인 + 매도비
     'sales_fee' => (int) env('BOARD_SALES_FEE', 440000),

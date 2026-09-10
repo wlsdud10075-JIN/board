@@ -114,4 +114,16 @@ return [
         'exec_error' => 'Executable files cannot be attached (:name).',
         'max_error' => 'Up to :max attachments (:existing existing).',
     ],
+
+    'payee_extract' => [
+        'searching' => 'Reading account details from the attached photos… (about 20s)',
+        'title' => 'Account candidates (read from attachments)',
+        'apply_car' => 'Use for vehicle',
+        'apply_fee' => 'Use for selling fee',
+        'dismiss' => 'Dismiss',
+        'confirm_hint' => 'Review, then press save to apply',
+        'owner_mismatch' => 'Account holder differs from the registration owner — please verify',
+        'wait' => 'Reading account details from the attached photos. Please review the candidates before confirming.',
+        'skip' => 'Confirm without account details',
+    ],
 ];
