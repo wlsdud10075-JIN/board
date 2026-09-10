@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\ExtractPayeeFromPhotos;
 use App\Jobs\SyncWonListingToCarErp;
 use App\Models\InspectionPhoto;
 use App\Models\PurchaseListing;
@@ -18,6 +19,9 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     // 딜러 차량 첨부 (매입 후 딜러에게 받은 사진·서류 → 낙찰 시 연동 B 로 car-erp 첨부탭). 이미지=사진/그 외=서류.
     public array $salesFiles = [];
+
+    // 계좌 후보를 기다리지 않고 확정한다(= 계좌 없이 진행). 계좌는 원래 필수가 아니라 탈출구를 둔다.
+    public bool $skipPayeeWait = false;
 
     // 소유자/차주명 (연동 B: car-erp NICE 조회 입력값) — 매입예정에서 미리 입력, 여기서 보정.
     public string $owner_name = '';
@@ -331,6 +335,12 @@ new #[Layout('components.layouts.app')] class extends Component {
             ]);
         }
         $this->salesFiles = [];
+
+        // 계좌 추출 — 사진이 새로 들어왔을 때만 돌린다. 결과는 후보일 뿐이라 payee_* 를 안 건드린다.
+        if (config('board.payee_extract.enabled')) {
+            $l->forceFill(['payee_extraction_status' => 'pending'])->saveQuietly();
+            ExtractPayeeFromPhotos::dispatch($l->id);
+        }
     }
 
     /** 저장 전 선택파일 빼기. */
@@ -483,6 +493,36 @@ new #[Layout('components.layouts.app')] class extends Component {
         session()->flash('ok', __('auction.flash_payee_saved'));
     }
 
+    /**
+     * 계좌 후보를 입력칸에 옮긴다 — **저장은 아니다**. 사람이 보고 [입금정보 저장]을 눌러야 확정된다.
+     */
+    public function applySuggestion(int $index, string $role): void
+    {
+        $l = PurchaseListing::findOrFail($this->detailId);
+        $c = ($l->payee_suggestions['candidates'] ?? [])[$index] ?? null;
+        if (! $c) {
+            return;
+        }
+        if ($role === 'fee') {
+            $this->selling_fee_payee_bank = $c['bank'];
+            $this->selling_fee_payee_account = $c['number'];
+            $this->selling_fee_payee_name = $c['holder'];
+
+            return;
+        }
+        $this->payee_bank = $c['bank'];
+        $this->payee_account = $c['number'];
+        $this->payee_name = $c['holder'];
+    }
+
+    /** 후보를 지운다(오독이거나 이미 손으로 넣은 경우). payee_* 는 안 건드린다. */
+    public function dismissSuggestions(): void
+    {
+        $l = PurchaseListing::findOrFail($this->detailId);
+        $l->forceFill(['payee_suggestions' => null, 'payee_extraction_status' => 'none'])->saveQuietly();
+        unset($this->detail);
+    }
+
     public function photoUrl(string $path): string
     {
         $disk = config('board.photo_disk');
@@ -580,6 +620,22 @@ new #[Layout('components.layouts.app')] class extends Component {
                 $this->addError('salesFiles', __('auction.err_attachment_required'));
 
                 return;
+            }
+
+            // 🚨 계좌 추출이 끝나기 전에 won 으로 보내면 연동 B 가 **계좌 없이** 발사된다 —
+            //    car-erp 의 fill-if-empty 는 판매 필드 전용이라 `payee_*` 는 나중에 못 채우고,
+            //    입금요청 알림톡도 「계좌 미등록」으로 나간다(설계 §1). 결과를 볼 때까지만 잡아둔다.
+            //    계좌는 원래 필수가 아니므로 [계좌 없이 확정]($skipPayeeWait)으로 언제든 빠져나갈 수 있다.
+            if (config('board.payee_extract.enabled') && ! $this->skipPayeeWait && $this->payee_account === '') {
+                $hasNewPhotos = count(array_filter($this->salesFiles)) > 0;
+                if ($hasNewPhotos || $l->payee_extraction_status === 'pending') {
+                    if ($hasNewPhotos) {
+                        $this->storeSalesFiles($l);   // 사진은 저장하고 추출만 돌린다(확정은 다음 클릭에)
+                    }
+                    $this->addError('salesFiles', __('auction.payee_extract.wait'));
+
+                    return;
+                }
             }
         }
 
@@ -901,6 +957,43 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @endif
                 @endif
 
+                {{-- 계좌 후보 (첨부사진에서 읽음) — 제안일 뿐이고, 적용해도 저장 전이다. --}}
+                @if (in_array($d->status, ['accepted', 'won'], true) && config('board.payee_extract.enabled'))
+                    @if ($d->payee_extraction_status === 'pending')
+                        <div class="mb-2 rounded-md border border-gray-200 bg-gray-50 px-2.5 py-2 text-[11px] text-gray-500"
+                             wire:poll.5s>{{ __('auction.payee_extract.searching') }}</div>
+                    @elseif (!empty($d->payee_suggestions['candidates']))
+                        <div class="mb-2 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-2">
+                            <div class="text-[11px] font-semibold text-blue-800">{{ __('auction.payee_extract.title') }}</div>
+                            @foreach ($d->payee_suggestions['candidates'] as $i => $c)
+                                <div class="mt-1.5 flex gap-2 border-t border-blue-100 pt-1.5 first:border-0 first:pt-0">
+                                    @php $srcId = $c['source_photo_ids'][0] ?? null; @endphp
+                                    @if ($srcId && ($src = $d->salesAttachments->firstWhere('id', $srcId)))
+                                        <img src="{{ $this->photoUrl($src->s3_path) }}" class="h-12 w-12 shrink-0 rounded object-cover">
+                                    @endif
+                                    <div class="min-w-0 flex-1">
+                                        <div class="font-mono text-xs text-gray-800">{{ $c['bank'] }} {{ $c['number'] }}</div>
+                                        <div class="truncate text-[11px] text-gray-500">{{ $c['holder'] }}</div>
+                                        @if (in_array('owner_mismatch', $c['warnings'] ?? [], true))
+                                            <div class="text-[11px] text-amber-700">⚠ {{ __('auction.payee_extract.owner_mismatch') }}</div>
+                                        @endif
+                                        <div class="mt-1 flex gap-1.5">
+                                            <button type="button" wire:click="applySuggestion({{ $i }}, 'car')"
+                                                    class="rounded border border-blue-300 bg-white px-2 py-0.5 text-[11px] text-blue-700">{{ __('auction.payee_extract.apply_car') }}</button>
+                                            <button type="button" wire:click="applySuggestion({{ $i }}, 'fee')"
+                                                    class="rounded border border-blue-300 bg-white px-2 py-0.5 text-[11px] text-blue-700">{{ __('auction.payee_extract.apply_fee') }}</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            @endforeach
+                            <div class="mt-1.5 flex items-center justify-between">
+                                <span class="text-[11px] text-gray-500">{{ __('auction.payee_extract.confirm_hint') }}</span>
+                                <button type="button" wire:click="dismissSuggestions" class="text-[11px] text-gray-400 underline">{{ __('auction.payee_extract.dismiss') }}</button>
+                            </div>
+                        </div>
+                    @endif
+                @endif
+
                 {{-- 입금정보 (정산 = 판매자/경매장 계좌) — accepted·won 에서 입력/수정 --}}
                 @if (in_array($d->status, ['accepted', 'won'], true))
                     <div class="section-title-sm">{{ __('auction.payment_info') }} <span class="text-[11px] font-normal text-gray-400">{{ __('auction.payment_info_hint') }}</span></div>
@@ -1002,6 +1095,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <button class="btn-green flex-1 justify-center {{ $blockWhy ? 'cursor-not-allowed opacity-40' : '' }}" @disabled($blockWhy !== null) wire:click="conclude({{ $d->id }}, 'won')">{{ $d->isAuction() ? __('auction.won_auction') : __('auction.won_encar') }}</button>
                         <button class="btn-ghost flex-1 justify-center" wire:click="conclude({{ $d->id }}, 'failed')">{{ $d->isAuction() ? __('auction.failed_auction') : __('auction.failed_encar') }}</button>
                     </div>
+                    {{-- 계좌 후보를 기다리라고 막았을 때만 탈출구를 보여준다 — 계좌는 원래 필수가 아니다. --}}
+                    @if ($errors->first('salesFiles') === __('auction.payee_extract.wait'))
+                        <button type="button" class="mt-1.5 w-full text-[11px] text-gray-400 underline"
+                                wire:click="$set('skipPayeeWait', true); $wire.conclude({{ $d->id }}, 'won')">{{ __('auction.payee_extract.skip') }}</button>
+                    @endif
                 @elseif ($d->status === 'won')
                     <button class="btn-primary mt-3 w-full justify-center" wire:click="savePayee">{{ __('auction.save_payment_info') }}</button>
                 @endif

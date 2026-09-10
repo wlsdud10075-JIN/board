@@ -44,6 +44,25 @@ class OllamaClient
         return trim(preg_replace('/<think>.*?<\/think>/su', '', $answer));
     }
 
+    /**
+     * 비전 완성 (qwen2.5vl) — 이미지 1장 + 프롬프트 → 텍스트.
+     *
+     * ⚠️ `num_ctx` 를 **반드시 명시**한다. 이 모델의 기본 컨텍스트는 128000 이라 그대로 두면
+     *    8GB 카드에서 KV 캐시가 VRAM 을 넘겨 로드 실패하거나 CPU 로 밀린다(2026-09-10 실측).
+     */
+    public function vision(string $model, string $prompt, string $imageBase64, int $numCtx): string
+    {
+        $r = $this->post('/api/generate', [
+            'model' => $model,
+            'prompt' => $prompt,
+            'images' => [$imageBase64],
+            'stream' => false,
+            'options' => ['temperature' => 0, 'num_ctx' => $numCtx],
+        ]);
+
+        return trim($r['response'] ?? '');
+    }
+
     private function post(string $path, array $body): array
     {
         $ch = curl_init($this->baseUrl.$path);

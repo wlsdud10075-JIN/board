@@ -30,6 +30,7 @@ class PurchaseListing extends Model
         'auction_venue', 'lot_number', 'status', 'buyer_verdict', 'verdict_channel',
         'buyer_name', 'payee_name', 'payee_bank', 'payee_account',
         'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account',
+        'payee_suggestions', 'payee_extraction_status',
         'inspection_memo', 'inspection_note', 'lock_at', 'car_erp_vehicle_id',
         'car_erp_buyer_id', 'car_erp_consignee_id', 'buyer_undecided',
     ];
@@ -49,6 +50,7 @@ class PurchaseListing extends Model
             'offer_rate' => 'integer',
             'payee_account' => 'encrypted',   // 계좌번호 at-rest 암호화 (§6e)
             'selling_fee_payee_account' => 'encrypted',   // 매도비 계좌번호 at-rest 암호화
+            'payee_suggestions' => 'encrypted:json',   // 계좌 후보(확정 전) — 실계좌라 같이 암호화
             'lock_at' => 'datetime',
             'ssancar_media_seen_at' => 'datetime',
             'car_erp_vehicle_id' => 'integer',
