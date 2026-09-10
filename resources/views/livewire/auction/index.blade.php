@@ -965,8 +965,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                     {{-- 못 찾았거나 실패했으면 **그렇다고 말해준다** — 아무것도 안 그리면 사용자는 계속 기다린다
                          (2026-09-10 Jin 실사용: 화면이 멈춘 줄 알고 3분을 기다렸다). --}}
                     @elseif (empty($d->payee_suggestions['candidates']) && in_array($d->payee_extraction_status, ['none', 'failed', 'pending'], true))
-                        <div class="mb-2 rounded-md border border-gray-200 bg-gray-50 px-2.5 py-2 text-[11px] text-gray-500">
-                            {{ $d->payee_extraction_status === 'none' ? __('auction.payee_extract.not_found') : __('auction.payee_extract.failed') }}
+                        <div class="mb-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs font-semibold text-amber-800">
+                            ⚠ {{ $d->payee_extraction_status === 'none' ? __('auction.payee_extract.not_found') : __('auction.payee_extract.failed') }}
                         </div>
                     @elseif (!empty($d->payee_suggestions['candidates']))
                         <div class="mb-2 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-2">
@@ -982,6 +982,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                                         <div class="truncate text-[11px] text-gray-500">{{ $c['holder'] }}</div>
                                         @if (in_array('owner_mismatch', $c['warnings'] ?? [], true))
                                             <div class="text-[11px] text-amber-700">⚠ {{ __('auction.payee_extract.owner_mismatch') }}</div>
+                                        @endif
+                                        @if (in_array('phone_like', $c['warnings'] ?? [], true))
+                                            <div class="text-[11px] text-amber-700">⚠ {{ __('auction.payee_extract.phone_like') }}</div>
                                         @endif
                                         <div class="mt-1 flex gap-1.5">
                                             <button type="button" wire:click="applySuggestion({{ $i }}, 'car')"
@@ -1085,6 +1088,16 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @error('salesFiles') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     @error('salesFiles.*') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     <p class="mt-1 text-[11px] text-gray-400">{{ __('auction.attach.help') }}</p>
+
+                    {{-- 사진을 넣고 **여기서** 계좌를 찾는다. 이 버튼이 없으면 구매확정을 눌러 가드에 걸리는 것 말고는
+                         추출을 시작할 방법이 없었다(2026-09-10 Jin). won 은 아래 [입금정보 저장]이 같은 일을 한다. --}}
+                    @if (config('board.payee_extract.enabled') && $d->status === 'accepted')
+                        <button class="btn-primary mt-2 w-full justify-center" wire:click="savePayee"
+                                wire:loading.attr="disabled" wire:target="savePayee">
+                            <span wire:loading.remove wire:target="savePayee">{{ __('auction.payee_extract.find') }}</span>
+                            <span wire:loading wire:target="savePayee">{{ __('auction.payee_extract.finding') }}</span>
+                        </button>
+                    @endif
                 @endif
 
                 {{-- 집행 --}}
@@ -1101,6 +1114,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <button class="btn-green flex-1 justify-center {{ $blockWhy ? 'cursor-not-allowed opacity-40' : '' }}" @disabled($blockWhy !== null) wire:click="conclude({{ $d->id }}, 'won')">{{ $d->isAuction() ? __('auction.won_auction') : __('auction.won_encar') }}</button>
                         <button class="btn-ghost flex-1 justify-center" wire:click="conclude({{ $d->id }}, 'failed')">{{ $d->isAuction() ? __('auction.failed_auction') : __('auction.failed_encar') }}</button>
                     </div>
+                    {{-- 🚨 [매입취소]가 「닫기」로 읽혀 실제로 매물이 취소됐다(2026-09-10 Jin).
+                         ✕ 는 우상단에만 있어 하단 버튼 줄에서는 눈에 안 들어온다 → 여기에도 닫기를 둔다. --}}
+                    <button type="button" class="btn-ghost mt-2 w-full justify-center" wire:click="closeDetail">{{ __('auction.close') }}</button>
                     {{-- 계좌 후보를 기다리라고 막았을 때만 탈출구를 보여준다 — 계좌는 원래 필수가 아니다.
                          🚨 회색 밑줄 글씨로 뒀더니 **안 보였다**(2026-09-10 Jin). 막힌 사람이 빠져나갈
                          유일한 문이라 버튼으로 세운다. --}}
