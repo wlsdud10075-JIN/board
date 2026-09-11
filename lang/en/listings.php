@@ -222,12 +222,12 @@ return [
 
     // Edit drawer
     'resync' => [
-        'title' => 'Complete sale amount · resend to ERP',
-        'hint' => 'Fill in the sale price later for vehicles sent with only the purchase price (only empty ERP fields are filled)',
+        'title' => '💰 Resend the amount',
+        'hint' => 'Amounts only · photos are below',
         'sale_price' => 'Sale price',
         'currency' => 'Currency',
         'rate' => 'FX rate',
-        'btn' => 'Resend to ERP',
+        'btn' => 'Send amount only',
         'not_synced_yet' => 'This vehicle has not been sent to ERP yet. Available after purchase confirmation.',
         'currency_required' => 'Select a currency — without it ERP will not store the sale price.',
         'rate_required' => 'Enter the FX rate — without it ERP withholds the sale price entirely.',
@@ -256,18 +256,18 @@ return [
 
     'attach_view' => [
         'title' => 'Dealer vehicle attachments',
-        'hint' => 'Photos/documents added at purchase confirmation (add below · delete on the auction/purchase screen)',
+        'hint' => 'Already uploaded (delete on the auction/purchase screen)',
         'empty' => 'No photos or documents uploaded yet.',
     ],
 
     // Adding photos/documents after the car has been pushed to the ERP (2026-09-11) — amounts are not re-sent.
     'attach_add' => [
-        'section' => '＋ Add photos/documents',
+        'section' => '📷 Add photos/documents',
         'dropzone' => 'Tap here to choose files',
-        'dropzone_sub' => 'Then press [Add and send to ERP] below — they are registered in the ERP too',
-        'btn' => 'Add and send to ERP',
+        'dropzone_sub' => 'Then press the button below to register them in the ERP',
+        'btn' => 'Send photos/documents',
         'sending' => 'Sending…',
-        'help' => '💡 Photos the dealer sends late can be uploaded here and will be attached to the ERP vehicle (up to :max · the same file is never added twice · amounts are left untouched). Deleting here would not delete them in the ERP, so deletion stays disabled.',
+        'help' => 'Photos only · amounts stay as they are · up to :max',
         'not_synced_yet' => 'This vehicle has not been sent to the ERP yet — upload photos on the auction/purchase screen.',
         'none_selected' => 'Choose the files to add first.',
         'queued' => 'Queued :count file(s) — the result will appear here in a few seconds.',
