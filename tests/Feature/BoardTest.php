@@ -1119,20 +1119,21 @@ class BoardTest extends TestCase
     }
 
     /**
-     * ★셀프검차매입 — 매도비는 **차값에 포함**된 금액이라 ERP 매입가에서 뺀다(2026-08-10 Jin 확정).
-     * 빼지 않으면 매도비가 두 번 잡혀 car-erp 부가세마진(매입가 × 9%)까지 부풀어 오른다.
+     * ★**차값은 차값, 매도비는 매도비**(2026-09-11 Jin) — 출처를 안 가리고 각각 그대로 ERP 에 준다.
+     * 🚫 셀프검차만 `차값 − 매도비` 를 하던 예외를 없앴다. 그 계산은 "차값 칸에 매도비가 포함돼 들어온다"는
+     *    전제에 기대고 있었고, 그 전제를 버렸다(이제 영업이 두 칸에 따로 적는다).
      */
-    public function test_self_inspection_purchase_price_excludes_selling_fee(): void
+    public function test_purchase_price_is_car_cost_for_every_origin(): void
     {
-        $l = $this->mkListing($this->mkUser('sales'), [
-            'origin' => 'self_inspection', 'source' => 'encar',
-            'car_cost' => 13600000, 'expected_price_currency' => 'KRW', 'selling_fee' => 440000,
-        ]);
+        foreach (['self_inspection', 'encar'] as $origin) {
+            $l = $this->mkListing($this->mkUser('sales'), [
+                'origin' => $origin, 'source' => 'encar',
+                'car_cost' => 13600000, 'expected_price_currency' => 'KRW', 'selling_fee' => 440000,
+            ]);
 
-        $this->assertSame(13160000, $l->purchasePriceKrw(1400, 1500));   // 13,600,000 − 440,000
-        $this->assertSame(440000, $l->sellingFeeKrw(1400, 1500));
-        // 합계가 영업이 적은 차값 그대로여야 한다
-        $this->assertSame(13600000, $l->purchasePriceKrw(1400, 1500) + $l->sellingFeeKrw(1400, 1500));
+            $this->assertSame(13600000, $l->purchasePriceKrw(1400, 1500), $origin);   // 안 뺀다
+            $this->assertSame(440000, $l->sellingFeeKrw(1400, 1500), $origin);        // 따로 간다
+        }
     }
 
     /**
@@ -1181,7 +1182,7 @@ class BoardTest extends TestCase
             }
             $b = json_decode($r->body(), true);
             $this->assertSame(300000, $b['selling_fee_krw']);
-            $this->assertSame(13300000, $b['purchase_price_krw']);   // 13,600,000 − 300,000
+            $this->assertSame(13600000, $b['purchase_price_krw']);   // 차값 그대로(매도비를 빼지 않는다)
 
             return true;
         });
@@ -1283,7 +1284,7 @@ class BoardTest extends TestCase
             }
             $b = json_decode($req->body(), true);
 
-            return ($b['purchase_price_krw'] ?? null) === 13160000
+            return ($b['purchase_price_krw'] ?? null) === 13600000   // 차값 그대로(2026-09-11)
                 && ($b['selling_fee_krw'] ?? null) === 440000
                 && (float) ($b['sale_price'] ?? 0) === 8590.0
                 && ($b['sale_currency'] ?? null) === 'USD'
@@ -1413,10 +1414,13 @@ class BoardTest extends TestCase
         $this->assertSame('won', $l->fresh()->status);
     }
 
-    /** 매도비 > 차값 = 오타. 통과시키면 매입가가 0 으로 깎여 **0원짜리 차**가 ERP 원장에 생긴다(ERP 검증도 min:0). */
-    public function test_selling_fee_cannot_exceed_car_cost(): void
+    /**
+     * 🚫 매도비 상한(`lte:car_cost`) **폐지**(2026-09-11 Jin) — 매도비는 이제 차값과 **무관한 별개 금액**이라
+     * 차값보다 커도 막을 근거가 없다. 예전엔 차값에 포함된 값이라 넘으면 매입가가 0 으로 깎였다.
+     */
+    public function test_selling_fee_may_exceed_car_cost_now(): void
     {
-        Bus::fake();
+        Bus::fake();   // 상태 전이만 본다(전송은 다른 테스트가 검증한다)
         $l = $this->mkListing($this->mkUser('sales'), [
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
             'source' => 'encar', 'expected_price_currency' => 'KRW',
@@ -1426,11 +1430,13 @@ class BoardTest extends TestCase
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '400000')
             ->set('selling_fee', '440000')
+            ->set('quoteCurrency', 'KRW')
+            ->set('sale_price', '400000')
+            ->set('offer_rate', '1')
             ->call('conclude', $l->id, 'won')
-            ->assertHasErrors('selling_fee');
+            ->assertHasNoErrors();
 
-        $this->assertSame('accepted', $l->fresh()->status);
-        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+        $this->assertSame('won', $l->fresh()->status);
     }
 
     /** 차값이 비었을 땐 매도비 규칙을 걸지 않는다 — 진짜 원인(차값 누락)을 가리면 엉뚱한 칸을 고치게 된다. */

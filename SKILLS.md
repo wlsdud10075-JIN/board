@@ -714,7 +714,13 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
 - 🚨 **구매확정 전에 넣어야 한다** — ERP 는 멱등 재전송에서 `selling_fee` 를 갱신하지 **않는다**
   (fill-if-empty 대상 = `sale_price`·`sale_currency`·`sale_exchange_rate`·`transport_fee`·`buyer_id`·`consignee_id`).
   확정 뒤에 적은 매도비는 원장에 영영 안 간다 — `payee_*` 와 같은 push-once 부류(§14-15). 고치려면 ERP 화면에서.
-- 매입가 계산은 **안 바뀌었다**: 셀프검차만 `차값 − 매도비`(합계 보존), 다른 출처는 차값 그대로.
-  매도비를 비우면 셀프검차 매입가 = 차값 전체가 된다(= "차값만 넣으면 차값만").
+- 🚫 **매입가에서 매도비를 빼지 않는다**(같은 날 Jin 추가 지시로 셀프검차 예외까지 제거).
+  `purchasePriceKrw()` = **차값 그대로, 출처 무관**. 차값은 차값대로·매도비는 매도비대로 각각 ERP 에 준다
+  (있으면 있는 대로, 없으면 안 보냄).
+  ⚠️ **운영 관행이 같이 바뀐다** — 셀프검차 차값 칸에 예전처럼 **매도비까지 합친 금액을 적으면 안 된다**
+  (그만큼 ERP 매입가가 커지고 부가세마진도 같이 커진다). 두 칸에 따로 적는다.
+  ⚠️ `lte:car_cost` 상한도 **폐지** — 매도비가 차값과 무관한 별개 금액이 됐으므로 넘어도 막을 근거가 없다.
+  (예전엔 차값에 포함된 값이라 넘으면 매입가가 0 으로 깎였다.)
+  ⚠️ 드로어 안내는 계산식 대신 **"매입가 N원 · 매도비 M원으로 각각 전달"**(`auction.amount_split_hint`).
 - 가드 = `test_selling_fee_is_sent_only_when_entered` · `test_selling_fee_goes_through_when_entered` ·
   `test_selling_fee_field_is_shown_for_every_origin`.

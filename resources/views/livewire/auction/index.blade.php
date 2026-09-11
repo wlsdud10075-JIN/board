@@ -253,19 +253,17 @@ new #[Layout('components.layouts.app')] class extends Component {
             'selling_fee_payee_bank' => 'nullable|string|max:40',
             'selling_fee_payee_account' => 'nullable|string|max:40',
             'car_cost' => 'nullable|numeric|min:0',
+            // 매도비 — 출처 무관 공통(차값과 별개 금액이라 상한을 걸지 않는다).
+            'selling_fee' => 'nullable|numeric|min:0',
             'salesFiles.*' => 'file|max:204800',
         ];
 
         // 셀프검차매입은 운임비를 직접 적는다 → 고정 선택지(config)로 묶지 않는다.
         if ($selfInspection) {
             return $base + [
-                // 매도비는 차값에 포함된 금액이라 차값을 넘을 수 없다 — 넘으면 매입가가 0 으로 깎여
-                // **매입가 0원짜리 차**가 조용히 ERP 원장에 생긴다(car-erp 검증도 min:0 이라 통과).
-                // ⚠️ 차값이 비었을 때는 걸지 않는다 — 안 그러면 "차값을 넣으세요" 대신 "매도비가 차값보다 큽니다"가 떠서
-                //    영업이 엉뚱한 칸을 고치게 된다(진짜 원인은 차값 누락이고 그건 아래 금액 게이트가 잡는다).
-                'selling_fee' => $this->car_cost !== null && $this->car_cost !== ''
-                    ? 'nullable|numeric|min:0|lte:car_cost'
-                    : 'nullable|numeric|min:0',
+                // 🚫 `lte:car_cost` 제거(2026-09-11 Jin) — 매도비는 이제 **차값과 무관한 별개 금액**이다.
+                //    예전엔 차값에 포함된 값이라 넘을 수 없었다(넘으면 매입가가 0 으로 깎였다).
+                //    매도비는 공통 규칙으로 위(비-셀프검차 분기와 같은 자리)에서 검증한다.
                 'sale_price' => 'nullable|numeric|min:0',
                 'offer_rate' => 'nullable|numeric|min:1',
                 'transport_fee' => 'nullable|numeric|min:0',
@@ -273,8 +271,6 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
 
         return $base + [
-            // 매도비 — 일반 출처는 **회사 부담 별도**라 차값과 무관하다(lte 를 걸지 않는다).
-            'selling_fee' => 'nullable|numeric|min:0',
             'discount_rate' => 'nullable|numeric|min:0|max:100',
             'sale_discount' => 'nullable|numeric|min:0',
             'shipping_usd' => 'nullable|integer|in:'.implode(',', config('board.shipping_options')),
@@ -852,9 +848,14 @@ new #[Layout('components.layouts.app')] class extends Component {
                             @endif
                         @endif
                         @endif
-                        {{-- 매입가(차값−매도비)는 재고매입에도 그대로 보여준다 — 판매측이 아니라 **매입 원가**다. --}}
-                        @if ($d->isSelfInspection())
-                            <p class="mt-0.5 text-[11px] text-gray-500">{{ __('auction.self_amount_hint', ['purchase' => number_format(max(0, (int) $car_cost - (int) $selling_fee))]) }}</p>
+                        {{-- ERP 로 가는 금액을 그대로 보여준다 — 차값은 차값, 매도비는 매도비(2026-09-11 Jin).
+                             🚫 예전엔 셀프검차만 `차값 − 매도비` 를 매입가로 보냈다. 그 전제(차값에 매도비 포함)를
+                                버렸으므로 계산식도 화면에서 없앤다. --}}
+                        @if ($car_cost !== null && $car_cost !== '')
+                            <p class="mt-0.5 text-[11px] text-gray-500">{{ __('auction.amount_split_hint', [
+                                'purchase' => number_format((int) $car_cost),
+                                'fee' => ($selling_fee === null || $selling_fee === '') ? __('auction.fee_none') : number_format((int) $selling_fee).__('common.won_currency'),
+                            ]) }}</p>
                         @endif
                         <p class="mt-1 text-[11px] {{ $d->car_cost === null ? 'text-red-600' : 'text-gray-400' }}">{{ $d->car_cost === null ? __('auction.car_cost_missing') : __('auction.car_cost_hint') }}</p>
                     </div>

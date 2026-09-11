@@ -99,21 +99,16 @@ class PurchaseListing extends Model
     }
 
     /**
-     * ERP 로 보낼 매입가(KRW) — **연동 B `purchase_price_krw` 단일 출처**.
+     * ERP 로 보낼 매입가(KRW) — **연동 B `purchase_price_krw` 단일 출처**. **차값 그대로**다.
      *
-     * 셀프검차매입은 매도비가 **차값에 포함**된 금액이라 빼야 합계가 보존된다(2026-08-10 Jin 확정):
-     *   차값 13,600,000(매도비 포함) → 매입가 13,160,000 + 매도비 440,000 = 13,600,000.
-     * 빼지 않으면 매도비가 두 번 잡혀 car-erp 부가세마진(매입가 × 9%)까지 부풀어 오른다.
-     * 다른 출처는 매도비가 **회사 부담 별도**라 차값 그대로다 — 여기서 빼면 매입가가 깎인다.
+     * 🚫 셀프검차매입에서 `차값 − 매도비` 를 하던 예외를 **제거**했다(2026-09-11 Jin).
+     *    그 계산은 "차값 칸에 매도비가 포함돼 들어온다"는 전제에 기대고 있었는데, 전제 자체를 바꿨다 —
+     *    **차값 칸엔 차값만, 매도비 칸엔 매도비만** 적고 둘을 각각 그대로 ERP 에 준다.
+     *    ⚠️ 그래서 셀프검차 차값 칸에 **매도비까지 합친 금액을 적으면 안 된다**(매입가가 그만큼 커진다).
      */
     public function purchasePriceKrw(?int $krwPerUsd = null, ?int $krwPerEur = null): ?int
     {
-        $cost = $this->carCostKrw($krwPerUsd, $krwPerEur);
-        if ($cost === null || ! $this->isSelfInspection()) {
-            return $cost;
-        }
-
-        return max(0, $cost - (int) ($this->sellingFeeKrw($krwPerUsd, $krwPerEur) ?? 0));
+        return $this->carCostKrw($krwPerUsd, $krwPerEur);
     }
 
     public function carPriceKrw(?int $krwPerUsd = null, ?int $krwPerEur = null): ?int
