@@ -11,11 +11,48 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
 use Livewire\WithFileUploads;
+use Livewire\WithPagination;
 
 new #[Layout('components.layouts.app')] class extends Component {
-    use WithFileUploads;
+    use WithFileUploads, WithPagination;
+
+    // ─────── 목록 탭 + 페이지네이션 (2026-09-11 Jin) ───────
+    // 예전엔 `latest()->get()` 으로 **전량**을 읽었다. synced(ERP 전환완료)는 영원히 쌓이기만 하는 통이라
+    // 그대로 두면 랜딩이 매년 느려진다.
+    // 기본 = **「전체」 탭 + 30건**(2026-09-11 Jin) — 목록의 성격은 그대로 두고(전과 같은 화면),
+    // 느려지는 원인이었던 **전량 로드만** 페이지네이션으로 끊는다. 좁혀 보고 싶으면 탭을 누른다.
+
+    /** 목록 탭 — `PurchaseListing::TAB_STATUSES` 의 키(또는 'all'). */
+    #[Url]
+    public string $tab = 'all';
+
+    /** 페이지당 건수. 0 = 「건수만」(행을 안 그린다 — car-erp 차량관리와 같은 규칙). */
+    #[Url]
+    public int $perPage = 30;
+
+    public const PER_PAGE_COUNT_ONLY = 0;
+
+    public const PER_PAGE_OPTIONS = [self::PER_PAGE_COUNT_ONLY, 10, 20, 30, 50, 100];
+
+    public function setTab(string $tab): void
+    {
+        $this->tab = ($tab === 'all' || array_key_exists($tab, PurchaseListing::TAB_STATUSES)) ? $tab : 'all';
+        unset($this->listings);
+        $this->resetPage();
+    }
+
+    /** ⚠️ `#[Url]` 이라 `?perPage=` 로 아무 값이나 들어온다 — 화이트리스트 밖이면 되돌린다. */
+    public function updatedPerPage(): void
+    {
+        if (! in_array($this->perPage, self::PER_PAGE_OPTIONS, true)) {
+            $this->perPage = 30;
+        }
+        unset($this->listings);
+        $this->resetPage();
+    }
 
     public bool $showAdd = false;
 
@@ -137,7 +174,13 @@ new #[Layout('components.layouts.app')] class extends Component {
         };
     }
 
-    /** 차량금액(KRW) = 차값(통화 KRW환산) − (×할인율%) + 매도비(고정). $cur=차값 통화(엔카=KRW). */
+    /**
+     * 차량금액(KRW) = 차값(통화 KRW환산) − (×할인율%). $cur=차값 통화(엔카=KRW).
+     *
+     * 🚨 예전엔 여기서 **고정 매도비 440,000 을 더해** 보여줬는데, 저장되는 `final_price`(모델 `totalKrw()`)
+     *    에는 매도비가 없다 — **화면 숫자와 원장 숫자가 매도비만큼 달랐다**(2026-09-11 발견).
+     *    Model A 기준으로 판매가는 매도비 제외(회사 부담)가 맞으므로 **화면을 원장에 맞춘다**.
+     */
     public function calcCarPrice($cost, $rate, string $cur = 'KRW'): ?int
     {
         $krw = \App\Support\Money::toKrw($cost, $cur, $this->usdRate(), $this->eurRate());
@@ -146,7 +189,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
         $discount = (int) round($krw * ((float) $rate / 100));
 
-        return $krw - $discount + (int) config('board.sales_fee');
+        return $krw - $discount;
     }
 
     /** 최종금액(KRW) = 차량금액 + 배송(USD→KRW, 임시환율). */
@@ -161,10 +204,56 @@ new #[Layout('components.layouts.app')] class extends Component {
         return $car + $shipKrw;
     }
 
+    /** 현재 탭의 상태 필터를 건 쿼리(정렬 전). 카운트와 목록이 **같은 조건**을 보게 하는 단일 지점. */
+    private function tabQuery()
+    {
+        $statuses = PurchaseListing::TAB_STATUSES[$this->tab] ?? null;
+
+        return PurchaseListing::query()
+            ->when($statuses !== null, fn ($q) => $q->whereIn('status', $statuses));
+    }
+
     #[Computed]
     public function listings()
     {
-        return PurchaseListing::with('creator')->latest()->get();
+        // ⚠️ `#[Url]` 둘 다 — `?tab=nope&perPage=7` 로 바로 들어오면 `setTab`·`updated*` 훅을 안 거친다.
+        //    탭이 모르는 값이면 조건 없이 전량이 뜨는데 **칩은 아무것도 안 켜져** 왜 그런지 알 수가 없다.
+        if ($this->tab !== 'all' && ! array_key_exists($this->tab, PurchaseListing::TAB_STATUSES)) {
+            $this->tab = 'all';
+        }
+        if (! in_array($this->perPage, self::PER_PAGE_OPTIONS, true)) {
+            $this->perPage = 30;
+        }
+
+        // 「건수만」 — 행을 안 불러오면 creator eager load 와 행마다 도는 금액 계산이 통째로 빠진다.
+        //   빈 paginator 를 돌려주므로 total()·links() 를 쓰는 뷰가 그대로 동작한다(car-erp 와 같은 수법).
+        if ($this->perPage === self::PER_PAGE_COUNT_ONLY) {
+            return new \Illuminate\Pagination\LengthAwarePaginator(
+                [], $this->tabQuery()->count(), 10, 1, ['path' => request()->url()]
+            );
+        }
+
+        return $this->tabQuery()->with('creator')->latest()->paginate($this->perPage);
+    }
+
+    /**
+     * 탭별 건수 — **쿼리 1번**(상태별 group by)으로 낸다. 탭마다 COUNT 를 돌리지 말 것.
+     * SalesmanScope 가 그대로 걸리므로 영업은 본인 것만 세어진다(= 목록과 같은 모수).
+     */
+    #[Computed]
+    public function tabCounts(): array
+    {
+        $byStatus = PurchaseListing::query()
+            ->selectRaw('status, count(*) as c')
+            ->groupBy('status')
+            ->pluck('c', 'status');
+
+        $out = ['all' => (int) $byStatus->sum()];
+        foreach (PurchaseListing::TAB_STATUSES as $tab => $statuses) {
+            $out[$tab] = (int) collect($statuses)->sum(fn ($st) => (int) ($byStatus[$st] ?? 0));
+        }
+
+        return $out;
     }
 
     #[Computed]
@@ -260,7 +349,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $vehicle = $l->vehicle_number;
         $l->delete();
 
-        unset($this->listings);
+        unset($this->listings, $this->tabCounts);
         session()->flash('ok', __('listings.drawer.deleted_flash', ['number' => $vehicle]));
         $this->closeEdit();
     }
@@ -290,6 +379,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->e_sale_currency = $l->offer_currency ?: null;
         $this->e_sale_rate = $l->offer_rate ? (string) $l->offer_rate : null;
         $this->resyncResult = null;
+        $this->attachResult = null;   // 앞 차의 결과 카드가 다음 차 드로어에 남으면 안 된다
+        $this->syncSince = null;
         $this->reset(['eSalesFiles']);
         $this->resetErrorBag();
     }
@@ -307,6 +398,12 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     /** 마지막 재전송 결과 — car-erp 응답의 fields_filled/fields_skipped. 200 만 보고 "반영됨"이라 하지 않는다. */
     public ?array $resyncResult = null;
+
+    /** 마지막 [사진 추가] 결과 — 보낸 장수 + car-erp 가 실제로 붙인 장수(cap 에 잘렸는지 이걸로 안다). */
+    public ?array $attachResult = null;
+
+    /** 직전 전송의 기준 이벤트 id — 비동기 큐(운영)에서 응답이 도착했는지 폴링으로 다시 볼 때 쓴다. */
+    public ?int $syncSince = null;
 
     /**
      * ERP 로 다시 보내기 — 판매 3종을 저장한 뒤 resync 발사.
@@ -356,8 +453,81 @@ new #[Layout('components.layouts.app')] class extends Component {
             $l->save();   // 옵저버가 감사기록
         }
 
+        $this->syncSince = $this->lastSyncEventId($l->id);
         SyncWonListingToCarErp::dispatch($l->id, resync: true);
-        $this->resyncResult = $this->latestSyncFields($l->id);
+        $this->resyncResult = $this->latestSyncFields($l->id, $this->syncSince);
+    }
+
+    /**
+     * ERP 로 넘어간 차에 **사진·서류를 나중에 추가**한다 (2026-09-11 Jin).
+     *
+     * 딜러가 사진을 늦게 주면 board 에는 올릴 데가 없었다 — 업로드 화면은 `/auction` 하나뿐인데
+     * 그 화면은 synced 를 안 다룬다. 여기(전 상태를 여는 유일한 화면)에서 올리고 ERP 로 민다.
+     *
+     * 🚨 **첨부 전용 재전송**(`attachmentsOnly`)이다 — 평범한 `resync` 는 판매 금액도 같이 보내서
+     *    ERP 빈 판매가가 채워지고 `sale_date=now()` 가 찍힌다(→ 「판매중」 + 채권 독촉 기산점이 오늘).
+     *    "사진 추가" 버튼이 차 상태를 바꾸면 안 된다.
+     * ℹ️ 재고매입(바이어 미정) 차도 **막지 않는다** — Job 이 어차피 판매측을 비우므로 첨부만 간다.
+     */
+    public function addAttachments(): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);   // SalesmanScope: 영업은 본인 것만
+        $this->attachResult = null;
+        $this->resetErrorBag();
+
+        // 아직 ERP 에 없는 차는 여기서 보내지 않는다 — 수신측이 신규 생성 경로를 타 버린다(Job 도 막는다).
+        if (! $l->car_erp_vehicle_id) {
+            $this->addError('eSalesFiles', __('listings.attach_add.not_synced_yet'));
+
+            return;
+        }
+
+        $files = array_values(array_filter($this->eSalesFiles));
+        if (empty($files)) {
+            $this->addError('eSalesFiles', __('listings.attach_add.none_selected'));
+
+            return;
+        }
+
+        $this->validate(['eSalesFiles.*' => 'file|max:204800']);
+        if (! $this->checkSalesFiles($files, $l->salesAttachments()->count(), 'eSalesFiles')) {
+            return;
+        }
+
+        // ⚠️ 저장이 **먼저**, 전송이 나중 (§14-13 재발방지) — 순서가 바뀌면 방금 올린 파일이 payload 에서 빠진다.
+        $this->storeSalesFiles($l, $files);
+        $this->reset(['eSalesFiles']);
+
+        $this->syncSince = $this->lastSyncEventId($l->id);
+        SyncWonListingToCarErp::dispatch($l->id, resync: true, attachmentsOnly: true);
+
+        $this->attachResult = $this->latestSyncFields($l->id, $this->syncSince) + ['sent' => count($files)];
+        unset($this->editing);   // 첨부 목록 새로고침
+    }
+
+    /**
+     * 비동기 큐(운영)의 응답이 도착했는지 다시 본다 — **pending 카드가 떠 있는 동안만** 폴링한다.
+     * 이게 없으면 화면이 "결과는 곧"이라고 해 놓고 영영 안 바뀐다(드로어를 다시 열면 결과가 초기화된다).
+     */
+    public function refreshSyncResult(): void
+    {
+        if ($this->editingId === null || $this->syncSince === null) {
+            return;
+        }
+        if ($this->attachResult !== null && ($this->attachResult['pending'] ?? false)) {
+            $sent = (int) ($this->attachResult['sent'] ?? 0);
+            $this->attachResult = $this->latestSyncFields($this->editingId, $this->syncSince) + ['sent' => $sent];
+        }
+        if ($this->resyncResult !== null && ($this->resyncResult['pending'] ?? false)) {
+            $this->resyncResult = $this->latestSyncFields($this->editingId, $this->syncSince);
+        }
+    }
+
+    /** 전송 **직전**의 마지막 응답 id — 이 값보다 커야 "이번 전송의 결과"다(운영 큐는 비동기라 늦게 온다). */
+    private function lastSyncEventId(int $listingId): int
+    {
+        return (int) \App\Models\IntegrationEvent::where('purchase_listing_id', $listingId)
+            ->where('event_type', 'purchase_sync')->max('id');
     }
 
     /**
@@ -365,23 +535,34 @@ new #[Layout('components.layouts.app')] class extends Component {
      * 🚨 car-erp 는 **200 이어도 아무것도 안 채웠을 수 있다**(이미 값 있음/환율 없음) — `fields_filled` 가
      *    비면 반영 안 된 것이다. 첨부가 조용히 실패하던 것과 같은 부류라 화면에 그대로 편다.
      */
-    private function latestSyncFields(int $listingId): array
+    private function latestSyncFields(int $listingId, int $since = 0): array
     {
         $ev = \App\Models\IntegrationEvent::where('purchase_listing_id', $listingId)
             ->where('event_type', 'purchase_sync')->latest('id')->first();
 
+        // 운영 큐는 비동기(database)라 버튼을 누른 직후엔 아직 응답이 없다. 그때 **직전 전송 결과**를
+        // 이번 것처럼 보여주면 조용한 오표시가 된다 → "보냈고, 결과는 곧" 이라고 말한다.
+        if ($ev === null || (int) $ev->id <= $since) {
+            return ['pending' => true, 'status' => null, 'filled' => [], 'skipped' => [], 'added' => null, 'failed' => null];
+        }
+
         $body = json_decode((string) ($ev->response_body ?? ''), true);
 
         return [
+            'pending' => false,
             'status' => $ev->response_status ?? null,
             'filled' => (array) ($body['fields_filled'] ?? []),
             'skipped' => (array) ($body['fields_skipped'] ?? []),
+            // 🚨 **cap 초과는 실패로 안 잡힌다** — 수신측은 10건에 닿으면 조용히 `break` 한다(`failed` 증가 없음).
+            //    그래서 "보낸 장수 vs 붙은 장수"를 비교해야 잘린 걸 알 수 있다.
+            'added' => isset($body['attachments_added']) ? (int) $body['attachments_added'] : null,
+            'failed' => isset($body['attachments_failed']) ? (int) $body['attachments_failed'] : null,
         ];
     }
 
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'eSalesFiles', 'e_sale_price', 'e_sale_currency', 'e_sale_rate', 'resyncResult']);
+        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'eSalesFiles', 'e_sale_price', 'e_sale_currency', 'e_sale_rate', 'resyncResult', 'attachResult', 'syncSince']);
         unset($this->editing);
     }
 
@@ -447,7 +628,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->save();
         $this->storeSalesFiles($l, $this->eSalesFiles);
 
-        unset($this->listings);
+        unset($this->listings, $this->tabCounts);
         session()->flash('ok', __('listings.drawer.updated_flash', ['number' => $l->vehicle_number]));
         $this->closeEdit();
     }
@@ -709,7 +890,8 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $this->resetForm();
         $this->showAdd = false;
-        unset($this->listings);
+        unset($this->listings, $this->tabCounts);
+        $this->resetPage();   // 2페이지를 보다 등록하면 새 행(=1페이지 맨 위)이 안 보인다
 
         // 셀프검차매입은 저장 즉시 경매/구매 탭에서 마무리한다 — 화면까지 데려다 준다.
         if ($selfInspection) {
@@ -879,8 +1061,32 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     <div class="card">
         <div class="mb-3 flex items-center justify-between">
-            <h2 class="font-bold text-gray-800">{{ __('listings.list.heading') }} <span class="text-gray-400">· {{ __('listings.list.count', ['count' => $this->listings->count()]) }}</span></h2>
+            <h2 class="font-bold text-gray-800">{{ __('listings.list.heading') }} <span class="text-gray-400">· {{ __('listings.list.count', ['count' => $this->listings->total()]) }}</span></h2>
             <button class="btn-primary" wire:click="toggleAdd">{{ __('listings.list.add') }}</button>
+        </div>
+
+        {{-- 상태 탭 + 페이지당 건수 (2026-09-11) — 예전엔 전량을 읽어 그렸다. 기본 = 전체 + 30건.
+             ⚠️ **모바일이 주 사용처다**(Jin). 탭은 줄바꿈이 아니라 **가로 스크롤 칩** — 9개가 줄바꿈하면
+                목록이 화면 두 줄 아래로 밀린다.
+             🚨 스크롤 컨테이너에 **`min-w-0` 필수** — flex 자식은 기본 `min-width:auto` 라 칩 9개가
+                줄어들 줄을 모르고 **부모를 넘쳐** overflow-x-auto 가 죽는다(= 페이지 전체가 가로로 밀린다).
+             ⚠️ 좁은 폭에선 셀렉트를 **아래 줄**로 내린다 — 한 줄에 같이 두면 탭이 보일 폭이 90px 남짓 남는다. --}}
+        <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div class="-mx-1 flex min-w-0 gap-1 overflow-x-auto whitespace-nowrap px-1 pb-1">
+                @foreach (\App\Models\PurchaseListing::TABS as $t)
+                    <button type="button" wire:click="setTab('{{ $t }}')"
+                        class="shrink-0 rounded-md border px-2.5 py-1.5 text-[12px] font-semibold {{ $tab === $t ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">
+                        {{ __('listings.tabs.'.$t) }}
+                        <span class="{{ $tab === $t ? 'text-white/80' : 'text-gray-400' }}">{{ $this->tabCounts[$t] ?? 0 }}</span>
+                    </button>
+                @endforeach
+            </div>
+            <select wire:model.live="perPage" class="input-filter shrink-0 self-end sm:self-auto">
+                @foreach ([10, 20, 30, 50, 100] as $n)
+                    <option value="{{ $n }}">{{ __('listings.list.per_page', ['count' => $n]) }}</option>
+                @endforeach
+                <option value="0">{{ __('listings.list.count_only') }}</option>
+            </select>
         </div>
 
         {{-- 추가 폼 --}}
@@ -1008,6 +1214,10 @@ new #[Layout('components.layouts.app')] class extends Component {
             </div>
         @endif
 
+        @if ($perPage === 0)
+            {{-- 「건수만」 — 행을 안 불러온다. 빈 목록의 「없습니다」와 구분되게 문구를 따로 준다. --}}
+            <div class="py-8 text-center text-[13px] text-gray-500">{{ __('listings.list.count_only_hint', ['count' => $this->listings->total()]) }}</div>
+        @else
         {{-- 리스트 (데스크톱: 표) --}}
         <div class="hidden overflow-x-auto sm:block">
             <table class="tbl">
@@ -1060,6 +1270,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <div class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</div>
             @endforelse
         </div>
+        <div class="mt-3">{{ $this->listings->links() }}</div>
+        @endif
         <p class="mt-2 text-xs text-gray-400">{{ __('listings.list.row_hint') }}</p>
     </div>
 

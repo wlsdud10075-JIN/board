@@ -86,34 +86,29 @@ class PurchaseListing extends Model
      * 입력 없으면 null.
      */
     /**
-     * 매도비(KRW) — 입력값 우선, 없으면 기존 고정값(`config('board.sales_fee')`).
-     * 차값이 없으면 null(= 안 보냄) — 기존 Job 동작 유지.
+     * 매도비(KRW) — **사람이 적은 값만**. 안 적었으면 null(= ERP 로 안 보냄).
+     *
+     * 🚫 예전엔 안 적으면 고정값 440,000(`config('board.sales_fee')`)을 **차값 있는 모든 차에** 실어 보냈다
+     *    (2026-09-11 Jin 폐지). 매도비가 없는 거래에도 붙어 나갔고, 영업은 그 숫자를 본 적이 없다.
+     * ⚠️ `$krwPerUsd`·`$krwPerEur` 는 이제 안 쓰지만 **시그니처는 유지**한다 — 호출부가 여럿이고
+     *    매도비는 언제나 KRW 입력이라 환산이 필요 없다.
      */
     public function sellingFeeKrw(?int $krwPerUsd = null, ?int $krwPerEur = null): ?int
     {
-        if ($this->selling_fee !== null) {
-            return (int) $this->selling_fee;
-        }
-
-        return $this->carCostKrw($krwPerUsd, $krwPerEur) !== null ? (int) config('board.sales_fee') : null;
+        return $this->selling_fee !== null ? (int) $this->selling_fee : null;
     }
 
     /**
-     * ERP 로 보낼 매입가(KRW) — **연동 B `purchase_price_krw` 단일 출처**.
+     * ERP 로 보낼 매입가(KRW) — **연동 B `purchase_price_krw` 단일 출처**. **차값 그대로**다.
      *
-     * 셀프검차매입은 매도비가 **차값에 포함**된 금액이라 빼야 합계가 보존된다(2026-08-10 Jin 확정):
-     *   차값 13,600,000(매도비 포함) → 매입가 13,160,000 + 매도비 440,000 = 13,600,000.
-     * 빼지 않으면 매도비가 두 번 잡혀 car-erp 부가세마진(매입가 × 9%)까지 부풀어 오른다.
-     * 다른 출처는 매도비가 **회사 부담 별도**라 차값 그대로다 — 여기서 빼면 매입가가 깎인다.
+     * 🚫 셀프검차매입에서 `차값 − 매도비` 를 하던 예외를 **제거**했다(2026-09-11 Jin).
+     *    그 계산은 "차값 칸에 매도비가 포함돼 들어온다"는 전제에 기대고 있었는데, 전제 자체를 바꿨다 —
+     *    **차값 칸엔 차값만, 매도비 칸엔 매도비만** 적고 둘을 각각 그대로 ERP 에 준다.
+     *    ⚠️ 그래서 셀프검차 차값 칸에 **매도비까지 합친 금액을 적으면 안 된다**(매입가가 그만큼 커진다).
      */
     public function purchasePriceKrw(?int $krwPerUsd = null, ?int $krwPerEur = null): ?int
     {
-        $cost = $this->carCostKrw($krwPerUsd, $krwPerEur);
-        if ($cost === null || ! $this->isSelfInspection()) {
-            return $cost;
-        }
-
-        return max(0, $cost - (int) ($this->sellingFeeKrw($krwPerUsd, $krwPerEur) ?? 0));
+        return $this->carCostKrw($krwPerUsd, $krwPerEur);
     }
 
     public function carPriceKrw(?int $krwPerUsd = null, ?int $krwPerEur = null): ?int
@@ -216,6 +211,28 @@ class PurchaseListing extends Model
     public const STATUSES = [
         'draft', 'inspected', 'awaiting_buyer', 'accepted', 'rejected', 'won', 'failed', 'synced',
     ];
+
+    /**
+     * 매입예정 목록 탭 (2026-09-11 Jin) — 상태를 묶어 **한 번에 한 덩어리만** 읽는다.
+     * 예전엔 `latest()->get()` 으로 전량을 읽었다. `synced`(ERP 전환완료)는 **영원히 쌓이기만 하는** 통이라
+     * 그대로 두면 랜딩이 매년 느려진다.
+     *
+     * 🚨 **여기 없는 상태는 「전체」 탭에서만 보인다** — 상태를 새로 만들면 반드시 한 탭에 넣을 것.
+     *    가드 = `test_every_status_belongs_to_a_tab`.
+     */
+    public const TAB_STATUSES = [
+        'active' => ['draft', 'inspected', 'awaiting_buyer', 'accepted', 'won'],   // 진행중(기본)
+        'draft' => ['draft'],
+        'inspected' => ['inspected'],
+        'awaiting_buyer' => ['awaiting_buyer'],
+        'accepted' => ['accepted'],
+        'won' => ['won'],
+        'synced' => ['synced'],
+        'closed' => ['rejected', 'failed'],   // 종료 = 거절 + 유찰/취소
+    ];
+
+    /** 탭 순서 — 「전체」는 상태 필터가 없어 TAB_STATUSES 에 없다(맨 앞 고정). 라벨은 `listings.tabs.*`. */
+    public const TABS = ['all', 'active', 'draft', 'inspected', 'awaiting_buyer', 'accepted', 'won', 'synced', 'closed'];
 
     /** 드롭다운/필터용 정적 라벨(출처 무관 통합). 출처별 표기는 statusLabel() 사용. */
     public const STATUS_LABELS = [

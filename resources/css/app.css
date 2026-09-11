@@ -133,6 +133,11 @@ input, textarea, select { color: #1f2937; background-color: #ffffff; }
 .input-base { width:100%; border:1px solid #d1d5db; border-radius:6px; padding:6px 10px; font-size:13px; background:#fff; color:#111827; transition:border-color .15s, box-shadow .15s; }
 .input-base:focus { outline:none; border-color:var(--color-primary); box-shadow:0 0 0 1px var(--color-primary); }
 .input-base.input-required { background:#fef3c7; }
+/* 필터 바 전용 (car-erp 이식) — `.input-base` 는 width:100% 라 필터줄에 쓰면 폭을 다 먹고 옆 요소를 밀어낸다.
+   ⚠️ Tailwind `w-auto` 로는 못 이긴다(커스텀 클래스가 유틸리티 레이어 뒤에 온다). */
+.input-filter { width:auto; border:1px solid #d1d5db; border-radius:6px; padding:6px 10px; font-size:12px; background:#fff; color:#111827; transition:border-color .15s, box-shadow .15s; }
+.input-filter:focus { outline:none; border-color:var(--color-primary); box-shadow:0 0 0 1px var(--color-primary); }
+
 .label-base { display:block; font-size:11px; font-weight:600; color:#4b5563; margin-bottom:4px; }
 
 /* ── 섹션 헤더 ── */

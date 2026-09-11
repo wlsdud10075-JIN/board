@@ -46,6 +46,9 @@ return [
         'add' => '+ Add purchase',
         'empty' => 'No purchases yet. Use “+ Add purchase” to register one.',
         'row_hint' => '💡 Click a row to view and edit (except time-locked auction vehicles).',
+        'per_page' => ':count per page',
+        'count_only' => 'Count only',
+        'count_only_hint' => ':count listing(s) in this tab. (Pick a page size to see them)',
     ],
 
     // Table headers
@@ -187,6 +190,19 @@ return [
     ],
 
     // Attachments
+    // List tabs (2026-09-11) — statuses grouped so only one bucket is read at a time. Default = in progress.
+    'tabs' => [
+        'all' => 'All',
+        'active' => 'In progress',
+        'draft' => 'Awaiting inspection',
+        'inspected' => 'Inspected',
+        'awaiting_buyer' => 'Awaiting reply',
+        'accepted' => 'Buyer accepted',
+        'won' => 'Won/confirmed',
+        'synced' => 'Synced to ERP',
+        'closed' => 'Closed',
+    ],
+
     'attach' => [
         'add_label' => 'Vehicle attachments',
         'add_hint' => '(photos · documents · Excel etc. · up to :max · auto-registered to car-erp on win)',
@@ -206,24 +222,59 @@ return [
 
     // Edit drawer
     'resync' => [
-        'title' => 'Complete sale amount · resend to ERP',
-        'hint' => 'Fill in the sale price later for vehicles sent with only the purchase price (only empty ERP fields are filled)',
+        'title' => '💰 Resend the amount',
+        'hint' => 'Amounts only · photos are below',
         'sale_price' => 'Sale price',
         'currency' => 'Currency',
         'rate' => 'FX rate',
-        'btn' => 'Resend to ERP',
+        'btn' => 'Send amount only',
         'not_synced_yet' => 'This vehicle has not been sent to ERP yet. Available after purchase confirmation.',
         'currency_required' => 'Select a currency — without it ERP will not store the sale price.',
         'rate_required' => 'Enter the FX rate — without it ERP withholds the sale price entirely.',
         'filled' => 'Applied in ERP: :fields',
         'nothing_filled' => 'Nothing was filled in ERP — the fields may already have values, or were withheld due to a missing FX rate.',
+        'queued' => 'Queued for the ERP — the result will appear here in a few seconds.',
+        // Keys the ERP returns, in plain words. Unknown values fall back to the raw key.
+        'field' => [
+            'sale_price' => 'Sale price',
+            'sale_currency' => 'Currency',
+            'sale_exchange_rate' => 'Exchange rate',
+            'sale_date' => 'Sale date',
+            'transport_fee' => 'Transport fee',
+            'buyer_id' => 'Buyer',
+            'consignee_id' => 'Consignee',
+        ],
+        'why' => [
+            'already_set' => 'already set in the ERP, left as is',
+            'missing_exchange_rate' => 'held back — no exchange rate',
+            'invalid_or_inactive' => 'missing or inactive in the ERP',
+            'buyer_mismatch' => 'not under that buyer',
+            'buyer_not_sent' => 'buyer was not sent along',
+        ],
         'stock_purchase' => 'This is a stock purchase (no buyer yet) — assign the sale price and buyer in ERP vehicle management. Sending from here has no effect in the ERP.',
     ],
 
     'attach_view' => [
         'title' => 'Dealer vehicle attachments',
-        'hint' => 'Photos/documents added at purchase confirmation (view only — add or delete on the auction/purchase screen)',
+        'hint' => 'Already uploaded (delete on the auction/purchase screen)',
         'empty' => 'No photos or documents uploaded yet.',
+    ],
+
+    // Adding photos/documents after the car has been pushed to the ERP (2026-09-11) — amounts are not re-sent.
+    'attach_add' => [
+        'section' => '📷 Add photos/documents',
+        'dropzone' => 'Tap here to choose files',
+        'dropzone_sub' => 'Then press the button below to register them in the ERP',
+        'btn' => 'Send photos/documents',
+        'sending' => 'Sending…',
+        'help' => 'Photos only · amounts stay as they are · up to :max',
+        'not_synced_yet' => 'This vehicle has not been sent to the ERP yet — upload photos on the auction/purchase screen.',
+        'none_selected' => 'Choose the files to add first.',
+        'queued' => 'Queued :count file(s) — the result will appear here in a few seconds.',
+        'sent' => 'Sent :count file(s).',
+        'ok' => ':added file(s) attached to the ERP vehicle.',
+        'partial' => 'Only :added of :sent file(s) made it into the ERP — the vehicle may have hit the 10-attachment limit or already have the same file. Check the vehicle in the ERP.',
+        'failed' => 'The ERP could not copy :count file(s) — please tell a manager.',
     ],
 
     'drawer' => [

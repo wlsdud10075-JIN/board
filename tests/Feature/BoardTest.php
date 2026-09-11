@@ -147,19 +147,352 @@ class BoardTest extends TestCase
      */
     public function test_resend_says_when_nothing_was_filled(): void
     {
-        Bus::fake();
         $kim = $this->mkUser('sales');
         $l = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 188]);
-        IntegrationEvent::create([
-            'direction' => 'outbound', 'target' => 'car_erp', 'event_type' => 'purchase_sync',
-            'purchase_listing_id' => $l->id, 'response_status' => 200,
-            'response_body' => json_encode(['vehicle_id' => 188, 'fields_filled' => [], 'fields_skipped' => ['sale_price' => 'already_set']]),
-        ]);
+        // ⚠️ Job 을 **실제로** 태워 이번 전송의 응답이 생기게 한다(테스트 큐 = sync). 미리 만들어 둔 옛 이벤트를
+        //    읽히면 화면이 "직전 결과"를 이번 것처럼 말하게 되는데, 그건 2026-09-11 부터 pending 으로 잡힌다.
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'hs']);
+        Http::fake(['*' => Http::response([
+            'vehicle_id' => 188, 'fields_filled' => [], 'fields_skipped' => ['sale_price' => 'already_set'],
+        ], 200)]);
         $this->actingAs($kim);
 
         Volt::test('listings.index')->call('openEdit', $l->id)->call('resendToErp')
             ->assertSee(__('listings.resync.nothing_filled'))
-            ->assertSee('already_set');
+            // 🚫 `sale_price — already_set` 을 그대로 그리지 않는다 — 사람 말로 바꿔 보여준다.
+            ->assertSee(__('listings.resync.field.sale_price'))
+            ->assertSee(__('listings.resync.why.already_set'))
+            ->assertDontSee('already_set');
+    }
+
+    /** ERP 가 **모르는 사유**를 보내면 원문을 살린다 — 사유를 버리면 왜 안 들어갔는지 알 길이 없다. */
+    public function test_resend_keeps_unknown_skip_reason_as_is(): void
+    {
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 188]);
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'hs']);
+        Http::fake(['*' => Http::response([
+            'vehicle_id' => 188, 'fields_filled' => [], 'fields_skipped' => ['some_new_field' => 'some_new_reason'],
+        ], 200)]);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')->call('openEdit', $l->id)->call('resendToErp')
+            ->assertSee('some_new_field')
+            ->assertSee('some_new_reason');
+    }
+
+    /**
+     * 이번에 새로 만든 화면 문구가 **한·영 양쪽에서** 성립하는지. 키가 빠지면 화면에 `listings.tabs.all`
+     * 같은 날것이 그대로 뜬다(영어로 바꿔 쓰는 사람은 board 에도 있다).
+     */
+    public function test_new_listing_strings_exist_in_both_locales(): void
+    {
+        $keys = [
+            'listings.list.per_page', 'listings.list.count_only', 'listings.list.count_only_hint',
+            'listings.attach_add.section', 'listings.attach_add.dropzone', 'listings.attach_add.dropzone_sub',
+            'listings.attach_add.btn', 'listings.attach_add.sending',
+            'listings.attach_add.help', 'listings.attach_add.not_synced_yet', 'listings.attach_add.none_selected',
+            'listings.attach_add.queued', 'listings.attach_add.sent', 'listings.attach_add.ok',
+            'listings.attach_add.partial', 'listings.attach_add.failed',
+            'listings.resync.queued', 'listings.resync.field.sale_price', 'listings.resync.why.already_set',
+            'pagination.previous', 'pagination.next',
+        ];
+        foreach (PurchaseListing::TABS as $t) {
+            $keys[] = 'listings.tabs.'.$t;
+        }
+
+        foreach (['ko', 'en'] as $locale) {
+            foreach ($keys as $k) {
+                $v = (string) __($k, [], $locale);
+                $this->assertNotSame($k, $v, "{$locale} 에 {$k} 없음 — 화면에 키가 그대로 뜬다");
+                $this->assertNotSame('', trim($v), "{$locale}.{$k} 가 비었다");
+            }
+        }
+
+        // 한국어 화면에 영어 식별자가 섞이지 않는지(고유명사 ERP·VIN 등은 예외).
+        foreach ($keys as $k) {
+            $ko = (string) __($k, [], 'ko');
+            foreach (['sale_price', 'already_set', 'attachments_added', 'perPage', 'vehicle_id'] as $ident) {
+                $this->assertStringNotContainsString($ident, $ko, "ko.{$k} 에 변수명 {$ident} 가 들어 있다");
+            }
+        }
+    }
+
+    /**
+     * 비동기 큐라 "결과는 곧"으로 떠 있던 카드가 **스스로 결과를 받아온다**(2026-09-11).
+     * 🚫 "잠시 후 드로어를 다시 열어 보세요"는 거짓말이다 — `openEdit` 이 결과를 초기화한다.
+     */
+    public function test_pending_result_card_picks_up_response_by_polling(): void
+    {
+        Bus::fake();   // = 아직 안 돌아간 큐
+        Storage::fake('public');
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 188]);
+        $this->actingAs($kim);
+
+        $c = Volt::test('listings.index')
+            ->call('openEdit', $l->id)
+            ->set('eSalesFiles', [UploadedFile::fake()->image('a.jpg')])
+            ->call('addAttachments')
+            ->assertSee(__('listings.attach_add.queued', ['count' => 1]));
+
+        // 워커가 뒤늦게 돌아 응답이 기록된 상황.
+        IntegrationEvent::create([
+            'direction' => 'outbound', 'target' => 'car_erp', 'event_type' => 'purchase_sync',
+            'purchase_listing_id' => $l->id, 'response_status' => 200,
+            'response_body' => json_encode(['vehicle_id' => 188, 'attachments_added' => 1, 'attachments_failed' => 0]),
+        ]);
+
+        $c->call('refreshSyncResult')->assertSee(__('listings.attach_add.ok', ['added' => 1]));
+    }
+
+    /**
+     * 🚨 운영 큐는 비동기라 버튼 직후엔 응답이 **아직 없다** — 그때 직전 전송 결과를 이번 것처럼 보여주면
+     * 조용한 오표시가 된다(2026-09-11). "보냈고 결과는 곧"이라고 말한다.
+     */
+    public function test_resend_says_queued_when_response_not_back_yet(): void
+    {
+        Bus::fake();   // = 아직 안 돌아간 큐
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 188]);
+        IntegrationEvent::create([   // 직전(다른) 전송의 결과 — 이번 것으로 읽히면 안 된다
+            'direction' => 'outbound', 'target' => 'car_erp', 'event_type' => 'purchase_sync',
+            'purchase_listing_id' => $l->id, 'response_status' => 200,
+            'response_body' => json_encode(['vehicle_id' => 188, 'fields_filled' => ['sale_price']]),
+        ]);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')->call('openEdit', $l->id)->call('resendToErp')
+            ->assertSee(__('listings.resync.queued'))
+            ->assertDontSee(__('listings.resync.filled', ['fields' => 'sale_price']));
+    }
+
+    /**
+     * 🚨 **여기 없는 상태는 「전체」 탭에서만 보인다.** 상태를 새로 만들고 탭에 안 넣으면
+     * 그 차들이 목록에서 조용히 사라진다(영업은 전체 탭을 잘 안 본다).
+     */
+    public function test_every_status_belongs_to_a_tab(): void
+    {
+        $covered = array_unique(array_merge(...array_values(PurchaseListing::TAB_STATUSES)));
+        sort($covered);
+        $all = PurchaseListing::STATUSES;
+        sort($all);
+
+        $this->assertSame($all, $covered);
+
+        // 화면에 그리는 탭(TABS)과 실제 필터(TAB_STATUSES)도 어긋나면 안 된다 —
+        // TABS 에만 있는 탭은 조건 없이 전량을 보여주면서 이름만 다르게 붙는다.
+        $this->assertSame(
+            array_keys(PurchaseListing::TAB_STATUSES),
+            array_values(array_diff(PurchaseListing::TABS, ['all']))
+        );
+    }
+
+    /** 탭 = 상태 묶음. 기본은 **「전체」**(2026-09-11 Jin) — 화면 성격은 그대로 두고 전량 로드만 끊는다. */
+    public function test_listing_tabs_filter_rows_and_default_is_all(): void
+    {
+        $kim = $this->mkUser('sales');
+        $draft = $this->mkListing($kim, ['status' => 'draft']);
+        $synced = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 1]);
+        $this->actingAs($kim);
+
+        $c = Volt::test('listings.index');
+        $this->assertSame('all', $c->get('tab'));
+        $c->assertSee($draft->vehicle_number)->assertSee($synced->vehicle_number);   // 기본 = 전부 보인다
+
+        $c->call('setTab', 'synced')->assertSee($synced->vehicle_number)->assertDontSee($draft->vehicle_number);
+        $c->call('setTab', 'active')->assertSee($draft->vehicle_number)->assertDontSee($synced->vehicle_number);
+        $c->call('setTab', 'all')->assertSee($draft->vehicle_number)->assertSee($synced->vehicle_number);
+
+        // 모르는 탭 값은 전체로 떨어뜨린다(?tab= 으로 아무거나 들어온다).
+        $c->call('setTab', 'nope');
+        $this->assertSame('all', $c->get('tab'));
+
+        // ⚠️ URL 로 **바로** 들어오면 setTab 을 안 거친다 — 목록을 그리는 자리에서도 되돌려야
+        //    "칩은 아무것도 안 켜졌는데 전량이 뜨는" 화면이 안 나온다.
+        $c->set('tab', 'nope2')->assertSee($draft->vehicle_number);
+        $this->assertSame('all', $c->get('tab'));
+    }
+
+    /** 탭 건수 = 목록과 **같은 모수**(SalesmanScope 포함). 쿼리는 1번(상태별 group by). */
+    public function test_tab_counts_match_the_rows_each_tab_shows(): void
+    {
+        $kim = $this->mkUser('sales');
+        $lee = $this->mkUser('sales');
+        $this->mkListing($kim, ['status' => 'draft']);
+        $this->mkListing($kim, ['status' => 'won']);
+        $this->mkListing($kim, ['status' => 'rejected']);
+        $this->mkListing($lee, ['status' => 'draft']);   // 남의 차 — 영업 화면에서는 안 세어져야 한다
+        $this->actingAs($kim);
+
+        $counts = Volt::test('listings.index')->get('tabCounts');
+
+        $this->assertSame(3, $counts['all']);
+        $this->assertSame(2, $counts['active']);    // draft + won
+        $this->assertSame(1, $counts['draft']);
+        $this->assertSame(1, $counts['closed']);    // rejected
+        $this->assertSame(0, $counts['synced']);
+    }
+
+    /**
+     * 등록·삭제하면 **탭 배지 숫자도 같이** 바뀌어야 한다 — 목록만 무효화하면 숫자가 굳은 채로 남는다.
+     */
+    public function test_tab_counts_refresh_after_delete(): void
+    {
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'draft']);
+        $this->actingAs($kim);
+
+        $c = Volt::test('listings.index')->call('openEdit', $l->id);
+        $this->assertSame(1, $c->get('tabCounts')['draft']);
+
+        $c->call('deleteListing');   // 드로어에서 연 매물(editingId)을 지운다
+        $this->assertSame(0, $c->get('tabCounts')['draft']);
+    }
+
+    /** 페이지당 건수 — 기본 30, 화이트리스트 밖(`?perPage=` 로 아무 값)이면 기본으로 되돌린다. */
+    public function test_per_page_is_whitelisted_and_paginates(): void
+    {
+        $kim = $this->mkUser('sales');
+        for ($i = 0; $i < 32; $i++) {
+            $this->mkListing($kim, ['status' => 'draft']);
+        }
+        $this->actingAs($kim);
+
+        $c = Volt::test('listings.index');
+        $this->assertSame(30, $c->get('listings')->count());   // 기본 30건
+        $this->assertSame(32, $c->get('listings')->total());
+
+        $c->set('perPage', 10);
+        $this->assertSame(10, $c->get('listings')->count());
+
+        $c->set('perPage', 7);                                  // 화이트리스트 밖
+        $this->assertSame(30, $c->get('perPage'));
+    }
+
+    /** 「건수만」 = 행을 아예 안 불러온다(총계만). 빈 목록의 「없습니다」와 다른 문구로 말한다. */
+    public function test_count_only_mode_renders_total_without_rows(): void
+    {
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'draft']);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')
+            ->set('perPage', 0)
+            ->assertSee(__('listings.list.count_only_hint', ['count' => 1]))
+            ->assertDontSee($l->vehicle_number);
+    }
+
+    /**
+     * ERP 로 넘어간 차에 **사진을 나중에 추가**한다(2026-09-11 Jin) — 딜러가 늦게 준 사진의 자리.
+     * 올리는 화면(`/auction`)은 synced 를 안 다뤄서, 전 상태를 여는 이 드로어가 유일한 자리다.
+     */
+    public function test_sales_can_add_attachments_after_erp_sync(): void
+    {
+        Bus::fake();
+        Storage::fake('public');
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 188]);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')
+            ->call('openEdit', $l->id)
+            ->assertSee(__('listings.attach_add.dropzone'))   // synced 차에서만 그려지는 업로드 칸
+            ->set('eSalesFiles', [UploadedFile::fake()->image('late.jpg'), UploadedFile::fake()->image('late2.jpg')])
+            ->call('addAttachments')
+            ->assertHasNoErrors();
+
+        // 픽스처 1건 + 방금 2건.
+        $this->assertSame(3, $l->salesAttachments()->count());
+
+        // 🚨 **첨부 전용**으로 나가야 한다 — 평범한 resync 면 판매가가 채워지고 sale_date 가 오늘로 찍힌다.
+        Bus::assertDispatched(fn (SyncWonListingToCarErp $job) => $job->listingId === $l->id
+            && $job->resync === true && $job->attachmentsOnly === true);
+    }
+
+    /** 아직 ERP 에 없는 차는 여기서 안 보낸다 — 수신측이 **신규 생성 경로**를 타 버린다. */
+    public function test_attachment_add_is_blocked_before_erp_sync(): void
+    {
+        Bus::fake();
+        Storage::fake('public');
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'won', 'car_erp_vehicle_id' => null]);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')
+            ->call('openEdit', $l->id)
+            ->assertDontSee(__('listings.attach_add.dropzone'))   // 칸 자체가 없다 — 서버 가드는 그 뒤의 안전망
+            ->set('eSalesFiles', [UploadedFile::fake()->image('late.jpg')])
+            ->call('addAttachments')
+            ->assertHasErrors('eSalesFiles');
+
+        $this->assertSame(1, $l->salesAttachments()->count());   // 픽스처 그대로
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+    }
+
+    /**
+     * 🚨 첨부 전용 재전송은 **판매측·바이어를 비워** 보낸다 — 사진 한 장 올렸을 뿐인데 ERP 판매가가 채워지고
+     * `sale_date=now()` 가 찍히면(→ 「판매중」 + 채권 독촉 기산점이 오늘) 버튼 이름과 하는 일이 달라진다.
+     */
+    public function test_attachments_only_resync_does_not_send_sale_fields(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'hs']);
+        Http::fake(['*' => Http::response(['vehicle_id' => 188, 'attachments_added' => 1], 200)]);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'synced', 'car_erp_vehicle_id' => 188, 'car_cost' => 5000000,
+            'sale_price' => 8590, 'offer_currency' => 'USD', 'offer_rate' => 1380,
+        ]);
+
+        (new SyncWonListingToCarErp($l->id, resync: true, attachmentsOnly: true))->handle();
+
+        Http::assertSent(function ($req) {
+            $b = json_decode($req->body(), true);
+            $this->assertNull($b['sale_price']);
+            $this->assertNull($b['sale_currency']);
+            $this->assertNull($b['sale_exchange_rate']);
+            $this->assertNull($b['transport_fee']);
+            $this->assertNull($b['buyer_id']);
+            $this->assertNull($b['consignee_id']);
+            // 매입측과 첨부는 그대로 간다 — `final_price`/`purchase_price_krw` 가 둘 다 없으면 422 다.
+            $this->assertNotEmpty($b['attachments']);
+            $this->assertNotNull($b['purchase_price_krw'] ?? $b['final_price']);
+
+            return true;
+        });
+    }
+
+    /** 첨부 전용은 **이미 ERP 에 있는 차에만** — 아니면 판매측이 빈 차가 원장에 새로 만들어진다. */
+    public function test_attachments_only_skips_listing_not_yet_in_erp(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'hs']);
+        Http::fake(['*' => Http::response(['vehicle_id' => 999], 201)]);
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'won', 'car_erp_vehicle_id' => null, 'car_cost' => 5000000]);
+
+        (new SyncWonListingToCarErp($l->id, resync: true, attachmentsOnly: true))->handle();
+
+        Http::assertNothingSent();
+        $this->assertSame('won', $l->refresh()->status);
+    }
+
+    /**
+     * 🚨 **cap 초과는 실패로 안 잡힌다** — 수신측은 첨부 10건에 닿으면 조용히 `break` 한다(`attachments_failed` 안 늘어남).
+     * 그래서 "보낸 장수 vs 붙은 장수"를 비교해 말해야 잘린 걸 알 수 있다.
+     */
+    public function test_attachment_add_reports_when_erp_attached_fewer(): void
+    {
+        Storage::fake('public');
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 188]);
+        // 큐가 sync 라 전송이 그 자리에서 끝난다 → 응답을 그대로 읽는다(운영은 비동기 = pending 안내).
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'hs']);
+        Http::fake(['*' => Http::response(['vehicle_id' => 188, 'attachments_added' => 1, 'attachments_failed' => 0], 200)]);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')
+            ->call('openEdit', $l->id)
+            ->set('eSalesFiles', [UploadedFile::fake()->image('a.jpg'), UploadedFile::fake()->image('b.jpg')])
+            ->call('addAttachments')
+            ->assertSee(__('listings.attach_add.partial', ['sent' => 2, 'added' => 1]));
     }
 
     /**
@@ -656,6 +989,7 @@ class BoardTest extends TestCase
         $l = $this->mkListing($this->mkUser('sales'), [
             'status' => 'won', 'source' => 'auction', 'final_price' => 12736000,
             'car_cost' => 10000000, 'expected_price_currency' => 'KRW', 'discount_rate' => 1, 'shipping_usd' => 1640,
+            'selling_fee' => 440000,   // 사람이 적은 값만 실린다(2026-09-11) — 픽스처도 명시한다
             'offer_currency' => 'EUR', 'offer_rate' => 1500, 'car_erp_buyer_id' => 55, 'car_erp_consignee_id' => 66,
         ]);
 
@@ -785,20 +1119,96 @@ class BoardTest extends TestCase
     }
 
     /**
-     * ★셀프검차매입 — 매도비는 **차값에 포함**된 금액이라 ERP 매입가에서 뺀다(2026-08-10 Jin 확정).
-     * 빼지 않으면 매도비가 두 번 잡혀 car-erp 부가세마진(매입가 × 9%)까지 부풀어 오른다.
+     * ★**차값은 차값, 매도비는 매도비**(2026-09-11 Jin) — 출처를 안 가리고 각각 그대로 ERP 에 준다.
+     * 🚫 셀프검차만 `차값 − 매도비` 를 하던 예외를 없앴다. 그 계산은 "차값 칸에 매도비가 포함돼 들어온다"는
+     *    전제에 기대고 있었고, 그 전제를 버렸다(이제 영업이 두 칸에 따로 적는다).
      */
-    public function test_self_inspection_purchase_price_excludes_selling_fee(): void
+    public function test_purchase_price_is_car_cost_for_every_origin(): void
     {
-        $l = $this->mkListing($this->mkUser('sales'), [
-            'origin' => 'self_inspection', 'source' => 'encar',
-            'car_cost' => 13600000, 'expected_price_currency' => 'KRW', 'selling_fee' => 440000,
-        ]);
+        foreach (['self_inspection', 'encar'] as $origin) {
+            $l = $this->mkListing($this->mkUser('sales'), [
+                'origin' => $origin, 'source' => 'encar',
+                'car_cost' => 13600000, 'expected_price_currency' => 'KRW', 'selling_fee' => 440000,
+            ]);
 
-        $this->assertSame(13160000, $l->purchasePriceKrw(1400, 1500));   // 13,600,000 − 440,000
-        $this->assertSame(440000, $l->sellingFeeKrw(1400, 1500));
-        // 합계가 영업이 적은 차값 그대로여야 한다
-        $this->assertSame(13600000, $l->purchasePriceKrw(1400, 1500) + $l->sellingFeeKrw(1400, 1500));
+            $this->assertSame(13600000, $l->purchasePriceKrw(1400, 1500), $origin);   // 안 뺀다
+            $this->assertSame(440000, $l->sellingFeeKrw(1400, 1500), $origin);        // 따로 간다
+        }
+    }
+
+    /**
+     * 매도비는 **적은 것만 간다**(2026-09-11 Jin). 안 적으면 payload 에서 빠지고 ERP 매도비는 0 이다.
+     * 🚫 예전엔 차값만 있으면 고정 440,000 이 자동으로 실려 나갔다 — 매도비가 없는 거래에도 붙었다.
+     */
+    public function test_selling_fee_is_sent_only_when_entered(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 's']);
+        Http::fake(['*' => Http::response(['vehicle_id' => 905], 201)]);
+
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'won', 'source' => 'encar', 'car_cost' => 10000000,
+            'expected_price_currency' => 'KRW', 'final_price' => 10000000,
+        ]);
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        Http::assertSent(function ($r) {
+            if (! str_contains($r->url(), 'purchase-sync')) {
+                return false;
+            }
+            $b = json_decode($r->body(), true);
+            $this->assertNull($b['selling_fee_krw']);                 // 안 적었으면 안 보낸다
+            $this->assertSame(10000000, $b['purchase_price_krw']);    // 차값은 그대로
+
+            return true;
+        });
+    }
+
+    /** 적으면 그 값이 그대로 간다 — 셀프검차는 차값에 포함된 금액이라 매입가에서 빠진다(합계 보존). */
+    public function test_selling_fee_goes_through_when_entered(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 's']);
+        Http::fake(['*' => Http::response(['vehicle_id' => 906], 201)]);
+
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'won', 'origin' => 'self_inspection', 'source' => 'encar',
+            'car_cost' => 13600000, 'expected_price_currency' => 'KRW', 'selling_fee' => 300000,
+            'sale_price' => 8590, 'offer_currency' => 'USD', 'offer_rate' => 1400, 'final_price' => null,
+        ]);
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        Http::assertSent(function ($r) {
+            if (! str_contains($r->url(), 'purchase-sync')) {
+                return false;
+            }
+            $b = json_decode($r->body(), true);
+            $this->assertSame(300000, $b['selling_fee_krw']);
+            $this->assertSame(13600000, $b['purchase_price_krw']);   // 차값 그대로(매도비를 빼지 않는다)
+
+            return true;
+        });
+    }
+
+    /**
+     * 매도비 칸은 **출처를 안 가린다**(2026-09-11). 예전엔 셀프검차 드로어에만 있어서
+     * 나머지 차는 영업이 손댈 방법 없이 고정값이 나갔다(어디 있는지도 못 찾았다 — Jin).
+     */
+    public function test_selling_fee_field_is_shown_for_every_origin(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'encar', 'source' => 'encar',
+            'car_cost' => 10000000, 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->assertSee(__('auction.selling_fee'))
+            ->assertSet('selling_fee', null)          // 미리 채우지 않는다
+            ->set('selling_fee', '250000')
+            ->call('conclude', $l->id, 'won')
+            ->assertHasNoErrors();
+
+        $this->assertSame(250000, (int) $l->fresh()->selling_fee);
     }
 
     /** 다른 출처는 매도비가 **회사 부담 별도**라 차값에서 빼면 안 된다 — 빼면 매입가가 깎인다. */
@@ -809,8 +1219,13 @@ class BoardTest extends TestCase
             'car_cost' => 13600000, 'expected_price_currency' => 'KRW',
         ]);
 
-        $this->assertSame(13600000, $l->purchasePriceKrw(1400, 1500));            // 그대로
-        $this->assertSame((int) config('board.sales_fee'), $l->sellingFeeKrw(1400, 1500));   // 고정값 유지
+        $this->assertSame(13600000, $l->purchasePriceKrw(1400, 1500));   // 그대로
+        // 🚫 안 적었으면 **안 보낸다**(2026-09-11 Jin) — 예전엔 차값만 있으면 고정 440,000 이 자동으로 실렸다.
+        $this->assertNull($l->sellingFeeKrw(1400, 1500));
+
+        $l->selling_fee = 300000;
+        $this->assertSame(300000, $l->sellingFeeKrw(1400, 1500));        // 적으면 적은 값 그대로
+        $this->assertSame(13600000, $l->purchasePriceKrw(1400, 1500));   // 일반 출처는 차값에서 빼지 않는다
     }
 
     /** 셀프검차 6칸 — 판매가·통화·환율·운임비를 적은 그대로 저장하고 최종금액은 판매가×환율. */
@@ -824,7 +1239,7 @@ class BoardTest extends TestCase
         $this->actingAs($this->mkUser('manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
-            ->assertSet('selling_fee', (string) (int) config('board.sales_fee'))   // 기본값 미리 채움
+            ->assertSet('selling_fee', null)   // 🚫 미리 채우지 않는다(2026-09-11 — 08-10 프리필을 뒤집었다)
             ->set('car_cost', '13600000')
             ->set('selling_fee', '440000')
             ->set('quoteCurrency', 'USD')
@@ -869,7 +1284,7 @@ class BoardTest extends TestCase
             }
             $b = json_decode($req->body(), true);
 
-            return ($b['purchase_price_krw'] ?? null) === 13160000
+            return ($b['purchase_price_krw'] ?? null) === 13600000   // 차값 그대로(2026-09-11)
                 && ($b['selling_fee_krw'] ?? null) === 440000
                 && (float) ($b['sale_price'] ?? 0) === 8590.0
                 && ($b['sale_currency'] ?? null) === 'USD'
@@ -999,10 +1414,13 @@ class BoardTest extends TestCase
         $this->assertSame('won', $l->fresh()->status);
     }
 
-    /** 매도비 > 차값 = 오타. 통과시키면 매입가가 0 으로 깎여 **0원짜리 차**가 ERP 원장에 생긴다(ERP 검증도 min:0). */
-    public function test_selling_fee_cannot_exceed_car_cost(): void
+    /**
+     * 🚫 매도비 상한(`lte:car_cost`) **폐지**(2026-09-11 Jin) — 매도비는 이제 차값과 **무관한 별개 금액**이라
+     * 차값보다 커도 막을 근거가 없다. 예전엔 차값에 포함된 값이라 넘으면 매입가가 0 으로 깎였다.
+     */
+    public function test_selling_fee_may_exceed_car_cost_now(): void
     {
-        Bus::fake();
+        Bus::fake();   // 상태 전이만 본다(전송은 다른 테스트가 검증한다)
         $l = $this->mkListing($this->mkUser('sales'), [
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
             'source' => 'encar', 'expected_price_currency' => 'KRW',
@@ -1012,11 +1430,13 @@ class BoardTest extends TestCase
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '400000')
             ->set('selling_fee', '440000')
+            ->set('quoteCurrency', 'KRW')
+            ->set('sale_price', '400000')
+            ->set('offer_rate', '1')
             ->call('conclude', $l->id, 'won')
-            ->assertHasErrors('selling_fee');
+            ->assertHasNoErrors();
 
-        $this->assertSame('accepted', $l->fresh()->status);
-        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+        $this->assertSame('won', $l->fresh()->status);
     }
 
     /** 차값이 비었을 땐 매도비 규칙을 걸지 않는다 — 진짜 원인(차값 누락)을 가리면 엉뚱한 칸을 고치게 된다. */
@@ -6004,6 +6424,7 @@ class BoardTest extends TestCase
         $l = $this->mkListing($this->mkUser('sales'), [
             'status' => 'won', 'source' => 'auction', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW',
             'final_price' => 12736000, 'offer_currency' => 'EUR', 'offer_rate' => 1500, 'shipping_usd' => 1640,
+            'selling_fee' => 440000,   // 사람이 적은 값만 실린다(2026-09-11) — 픽스처도 명시한다
             'buyer_undecided' => true, 'car_erp_buyer_id' => 42, 'car_erp_consignee_id' => 66,
         ]);
 
