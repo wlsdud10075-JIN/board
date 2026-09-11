@@ -189,7 +189,8 @@ class BoardTest extends TestCase
     {
         $keys = [
             'listings.list.per_page', 'listings.list.count_only', 'listings.list.count_only_hint',
-            'listings.attach_add.dropzone', 'listings.attach_add.btn', 'listings.attach_add.sending',
+            'listings.attach_add.section', 'listings.attach_add.dropzone', 'listings.attach_add.dropzone_sub',
+            'listings.attach_add.btn', 'listings.attach_add.sending',
             'listings.attach_add.help', 'listings.attach_add.not_synced_yet', 'listings.attach_add.none_selected',
             'listings.attach_add.queued', 'listings.attach_add.sent', 'listings.attach_add.ok',
             'listings.attach_add.partial', 'listings.attach_add.failed',

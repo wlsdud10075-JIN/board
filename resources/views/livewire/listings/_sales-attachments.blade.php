@@ -40,9 +40,14 @@
 
 @php $syncedAtt = (bool) $e->car_erp_vehicle_id; @endphp
 @if ($syncedAtt)
-    {{-- ERP 로 넘어간 차만 — 아직 안 넘간 차는 `/auction` 에서 올린다(거기서 구매확정과 함께 나간다). --}}
-    <label class="mt-2 flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-gray-300 py-2.5 text-[13px] text-gray-500 hover:border-[var(--color-primary)]">
+    {{-- ERP 로 넘어간 차만 — 아직 안 넘어간 차는 `/auction` 에서 올린다(거기서 구매확정과 함께 나간다).
+         ⚠️ **위 그리드(보기 전용)와 시각적으로 갈라 놓아야 한다** — 한 덩어리로 보이면 점선 칸이
+            "위에 있는 첨부 설명"으로 읽힌다(Jin 2026-09-11 실측). 소제목 + 보라 점선으로 분리한다. --}}
+    <div class="section-title-sm mt-4 text-[var(--color-primary-text)]">{{ __('listings.attach_add.section') }}</div>
+    <label class="flex cursor-pointer flex-col items-center justify-center gap-0.5 rounded-lg border-2 border-dashed border-[var(--color-primary)] bg-[var(--color-primary-soft)] py-4 text-[13px] font-semibold text-[var(--color-primary-text)] hover:bg-[#e2ddf5]">
+        <span class="text-lg leading-none">＋</span>
         {{ __('listings.attach_add.dropzone') }}
+        <span class="text-[11px] font-normal text-gray-500">{{ __('listings.attach_add.dropzone_sub') }}</span>
         <input type="file" multiple wire:model="eSalesFiles" class="hidden">
     </label>
     <div wire:loading wire:target="eSalesFiles" class="mt-1 text-xs text-gray-400">{{ __('listings.attach.uploading') }}</div>

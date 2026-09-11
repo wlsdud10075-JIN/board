@@ -262,7 +262,9 @@ return [
 
     // Adding photos/documents after the car has been pushed to the ERP (2026-09-11) — amounts are not re-sent.
     'attach_add' => [
-        'dropzone' => '📎 Add photos/documents (also pushed to the ERP)',
+        'section' => '＋ Add photos/documents',
+        'dropzone' => 'Tap here to choose files',
+        'dropzone_sub' => 'Then press [Add and send to ERP] below — they are registered in the ERP too',
         'btn' => 'Add and send to ERP',
         'sending' => 'Sending…',
         'help' => '💡 Photos the dealer sends late can be uploaded here and will be attached to the ERP vehicle (up to :max · the same file is never added twice · amounts are left untouched). Deleting here would not delete them in the ERP, so deletion stays disabled.',
