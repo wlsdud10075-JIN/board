@@ -217,7 +217,7 @@ return [
         'rate_required' => 'Enter the FX rate — without it ERP withholds the sale price entirely.',
         'filled' => 'Applied in ERP: :fields',
         'nothing_filled' => 'Nothing was filled in ERP — the fields may already have values, or were withheld due to a missing FX rate.',
-        'queued' => 'Queued for the ERP — reopen this drawer shortly to see what was filled.',
+        'queued' => 'Queued for the ERP — the result will appear here in a few seconds.',
         'stock_purchase' => 'This is a stock purchase (no buyer yet) — assign the sale price and buyer in ERP vehicle management. Sending from here has no effect in the ERP.',
     ],
 
@@ -235,7 +235,7 @@ return [
         'help' => '💡 Photos the dealer sends late can be uploaded here and will be attached to the ERP vehicle (up to :max · duplicates are skipped · amounts are left untouched). Deletion is not propagated to the ERP, so it stays disabled here.',
         'not_synced_yet' => 'This vehicle has not been sent to the ERP yet — upload photos on the auction/purchase screen.',
         'none_selected' => 'Choose the files to add first.',
-        'queued' => 'Queued :count file(s) — reopen this drawer shortly to see what the ERP accepted.',
+        'queued' => 'Queued :count file(s) — the result will appear here in a few seconds.',
         'sent' => 'Sent :count file(s).',
         'ok' => ':added file(s) attached to the ERP vehicle.',
         'partial' => 'Only :added of :sent file(s) were attached in the ERP — the vehicle may have hit the 10-attachment limit or already have the same file. Check the vehicle in the ERP.',

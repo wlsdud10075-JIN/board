@@ -290,6 +290,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->e_sale_currency = $l->offer_currency ?: null;
         $this->e_sale_rate = $l->offer_rate ? (string) $l->offer_rate : null;
         $this->resyncResult = null;
+        $this->attachResult = null;   // 앞 차의 결과 카드가 다음 차 드로어에 남으면 안 된다
+        $this->syncSince = null;
         $this->reset(['eSalesFiles']);
         $this->resetErrorBag();
     }
@@ -310,6 +312,9 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     /** 마지막 [사진 추가] 결과 — 보낸 장수 + car-erp 가 실제로 붙인 장수(cap 에 잘렸는지 이걸로 안다). */
     public ?array $attachResult = null;
+
+    /** 직전 전송의 기준 이벤트 id — 비동기 큐(운영)에서 응답이 도착했는지 폴링으로 다시 볼 때 쓴다. */
+    public ?int $syncSince = null;
 
     /**
      * ERP 로 다시 보내기 — 판매 3종을 저장한 뒤 resync 발사.
@@ -359,9 +364,9 @@ new #[Layout('components.layouts.app')] class extends Component {
             $l->save();   // 옵저버가 감사기록
         }
 
-        $since = $this->lastSyncEventId($l->id);
+        $this->syncSince = $this->lastSyncEventId($l->id);
         SyncWonListingToCarErp::dispatch($l->id, resync: true);
-        $this->resyncResult = $this->latestSyncFields($l->id, $since);
+        $this->resyncResult = $this->latestSyncFields($l->id, $this->syncSince);
     }
 
     /**
@@ -404,11 +409,29 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->storeSalesFiles($l, $files);
         $this->reset(['eSalesFiles']);
 
-        $since = $this->lastSyncEventId($l->id);
+        $this->syncSince = $this->lastSyncEventId($l->id);
         SyncWonListingToCarErp::dispatch($l->id, resync: true, attachmentsOnly: true);
 
-        $this->attachResult = $this->latestSyncFields($l->id, $since) + ['sent' => count($files)];
+        $this->attachResult = $this->latestSyncFields($l->id, $this->syncSince) + ['sent' => count($files)];
         unset($this->editing);   // 첨부 목록 새로고침
+    }
+
+    /**
+     * 비동기 큐(운영)의 응답이 도착했는지 다시 본다 — **pending 카드가 떠 있는 동안만** 폴링한다.
+     * 이게 없으면 화면이 "결과는 곧"이라고 해 놓고 영영 안 바뀐다(드로어를 다시 열면 결과가 초기화된다).
+     */
+    public function refreshSyncResult(): void
+    {
+        if ($this->editingId === null || $this->syncSince === null) {
+            return;
+        }
+        if ($this->attachResult !== null && ($this->attachResult['pending'] ?? false)) {
+            $sent = (int) ($this->attachResult['sent'] ?? 0);
+            $this->attachResult = $this->latestSyncFields($this->editingId, $this->syncSince) + ['sent' => $sent];
+        }
+        if ($this->resyncResult !== null && ($this->resyncResult['pending'] ?? false)) {
+            $this->resyncResult = $this->latestSyncFields($this->editingId, $this->syncSince);
+        }
     }
 
     /** 전송 **직전**의 마지막 응답 id — 이 값보다 커야 "이번 전송의 결과"다(운영 큐는 비동기라 늦게 온다). */
@@ -450,7 +473,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'eSalesFiles', 'e_sale_price', 'e_sale_currency', 'e_sale_rate', 'resyncResult', 'attachResult']);
+        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'eSalesFiles', 'e_sale_price', 'e_sale_currency', 'e_sale_rate', 'resyncResult', 'attachResult', 'syncSince']);
         unset($this->editing);
     }
 

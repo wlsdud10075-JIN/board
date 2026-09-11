@@ -163,6 +163,34 @@ class BoardTest extends TestCase
     }
 
     /**
+     * 비동기 큐라 "결과는 곧"으로 떠 있던 카드가 **스스로 결과를 받아온다**(2026-09-11).
+     * 🚫 "잠시 후 드로어를 다시 열어 보세요"는 거짓말이다 — `openEdit` 이 결과를 초기화한다.
+     */
+    public function test_pending_result_card_picks_up_response_by_polling(): void
+    {
+        Bus::fake();   // = 아직 안 돌아간 큐
+        Storage::fake('public');
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 188]);
+        $this->actingAs($kim);
+
+        $c = Volt::test('listings.index')
+            ->call('openEdit', $l->id)
+            ->set('eSalesFiles', [UploadedFile::fake()->image('a.jpg')])
+            ->call('addAttachments')
+            ->assertSee(__('listings.attach_add.queued', ['count' => 1]));
+
+        // 워커가 뒤늦게 돌아 응답이 기록된 상황.
+        IntegrationEvent::create([
+            'direction' => 'outbound', 'target' => 'car_erp', 'event_type' => 'purchase_sync',
+            'purchase_listing_id' => $l->id, 'response_status' => 200,
+            'response_body' => json_encode(['vehicle_id' => 188, 'attachments_added' => 1, 'attachments_failed' => 0]),
+        ]);
+
+        $c->call('refreshSyncResult')->assertSee(__('listings.attach_add.ok', ['added' => 1]));
+    }
+
+    /**
      * 🚨 운영 큐는 비동기라 버튼 직후엔 응답이 **아직 없다** — 그때 직전 전송 결과를 이번 것처럼 보여주면
      * 조용한 오표시가 된다(2026-09-11). "보냈고 결과는 곧"이라고 말한다.
      */
@@ -197,6 +225,7 @@ class BoardTest extends TestCase
 
         Volt::test('listings.index')
             ->call('openEdit', $l->id)
+            ->assertSee(__('listings.attach_add.dropzone'))   // synced 차에서만 그려지는 업로드 칸
             ->set('eSalesFiles', [UploadedFile::fake()->image('late.jpg'), UploadedFile::fake()->image('late2.jpg')])
             ->call('addAttachments')
             ->assertHasNoErrors();
@@ -220,6 +249,7 @@ class BoardTest extends TestCase
 
         Volt::test('listings.index')
             ->call('openEdit', $l->id)
+            ->assertDontSee(__('listings.attach_add.dropzone'))   // 칸 자체가 없다 — 서버 가드는 그 뒤의 안전망
             ->set('eSalesFiles', [UploadedFile::fake()->image('late.jpg')])
             ->call('addAttachments')
             ->assertHasErrors('eSalesFiles');

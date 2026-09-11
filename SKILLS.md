@@ -645,3 +645,7 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
   읽으면 **직전 전송 결과를 이번 것처럼** 보여준다 → 전송 **직전** 이벤트 id 를 기억해 그보다 크지 않으면
   「보냈고 결과는 곧」으로 말한다(`lastSyncEventId()`). 같은 헬퍼를 쓰는 **판매가 재전송(§14-12)도 같이 고쳤다**
   (가드 = `test_resend_says_queued_when_response_not_back_yet`).
+  🚫 그 카드에 **"잠시 후 다시 열어 보세요"라고 쓰지 말 것** — `openEdit` 이 결과를 초기화하므로 다시 열면
+  아무것도 없다. 카드가 **스스로 받아온다**(`wire:poll.3s="refreshSyncResult"`, pending 일 때만).
+  ⚠️ `openEdit` 은 `closeEdit` 을 안 거치는 경로가 있다(행을 바로 클릭) — 결과 3종(`resyncResult`·
+  `attachResult`·`syncSince`)을 **거기서도 비워야** 앞 차의 카드가 다음 차 드로어에 안 남는다.

@@ -82,7 +82,9 @@
         @endphp
         <div class="card-sm mt-2 text-[12px] {{ ($attachResult['pending'] ?? false) || $short ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-green-200 bg-green-50 text-green-800' }}">
             @if ($attachResult['pending'] ?? false)
-                <b>{{ __('listings.attach_add.queued', ['count' => $sent]) }}</b>
+                {{-- 운영 큐는 비동기라 응답이 늦게 온다 — 카드가 스스로 결과를 받아온다(드로어를 다시 열면
+                     결과가 초기화되므로 "나중에 다시 열어 보라"고 말할 수 없다). --}}
+                <b wire:poll.3s="refreshSyncResult">{{ __('listings.attach_add.queued', ['count' => $sent]) }}</b>
             @elseif ($added === null)
                 <b>{{ __('listings.attach_add.sent', ['count' => $sent]) }}</b>
             @elseif ($short)
