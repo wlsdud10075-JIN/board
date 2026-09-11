@@ -1059,19 +1059,23 @@ new #[Layout('components.layouts.app')] class extends Component {
             <button class="btn-primary" wire:click="toggleAdd">{{ __('listings.list.add') }}</button>
         </div>
 
-        {{-- 상태 탭 + 페이지당 건수 (2026-09-11) — 예전엔 전량을 읽어 그렸다. synced 는 영원히 쌓이는 통이라
-             기본 탭은 「진행중」. ⚠️ 모바일은 줄바꿈 대신 **가로 스크롤 칩**(줄바꿈하면 표가 아래로 밀린다). --}}
-        <div class="mb-3 flex items-center justify-between gap-2">
-            <div class="-mx-1 flex gap-1 overflow-x-auto whitespace-nowrap px-1 pb-1">
+        {{-- 상태 탭 + 페이지당 건수 (2026-09-11) — 예전엔 전량을 읽어 그렸다. 기본 = 전체 + 30건.
+             ⚠️ **모바일이 주 사용처다**(Jin). 탭은 줄바꿈이 아니라 **가로 스크롤 칩** — 9개가 줄바꿈하면
+                목록이 화면 두 줄 아래로 밀린다.
+             🚨 스크롤 컨테이너에 **`min-w-0` 필수** — flex 자식은 기본 `min-width:auto` 라 칩 9개가
+                줄어들 줄을 모르고 **부모를 넘쳐** overflow-x-auto 가 죽는다(= 페이지 전체가 가로로 밀린다).
+             ⚠️ 좁은 폭에선 셀렉트를 **아래 줄**로 내린다 — 한 줄에 같이 두면 탭이 보일 폭이 90px 남짓 남는다. --}}
+        <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div class="-mx-1 flex min-w-0 gap-1 overflow-x-auto whitespace-nowrap px-1 pb-1">
                 @foreach (\App\Models\PurchaseListing::TABS as $t)
                     <button type="button" wire:click="setTab('{{ $t }}')"
-                        class="shrink-0 rounded-md border px-2.5 py-1 text-[12px] font-semibold {{ $tab === $t ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">
+                        class="shrink-0 rounded-md border px-2.5 py-1.5 text-[12px] font-semibold {{ $tab === $t ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">
                         {{ __('listings.tabs.'.$t) }}
                         <span class="{{ $tab === $t ? 'text-white/80' : 'text-gray-400' }}">{{ $this->tabCounts[$t] ?? 0 }}</span>
                     </button>
                 @endforeach
             </div>
-            <select wire:model.live="perPage" class="input-filter shrink-0">
+            <select wire:model.live="perPage" class="input-filter shrink-0 self-end sm:self-auto">
                 @foreach ([10, 20, 30, 50, 100] as $n)
                     <option value="{{ $n }}">{{ __('listings.list.per_page', ['count' => $n]) }}</option>
                 @endforeach
