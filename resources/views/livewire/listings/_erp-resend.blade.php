@@ -47,7 +47,11 @@
     @if ($resyncResult !== null)
         @php $filled = $resyncResult['filled'] ?? []; @endphp
         <div class="card-sm mt-2 text-[12px] {{ $filled === [] ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-green-200 bg-green-50 text-green-800' }}">
-            @if ($filled === [])
+            {{-- 운영 큐는 비동기라 누른 직후엔 응답이 아직 없다 — 그때 **직전 전송 결과**를 이번 것처럼
+                 보여주면 조용한 오표시가 된다(2026-09-11). --}}
+            @if ($resyncResult['pending'] ?? false)
+                <b>{{ __('listings.resync.queued') }}</b>
+            @elseif ($filled === [])
                 {{-- 200 이어도 안 채워졌을 수 있다: 이미 값이 있거나(already_set) 환율이 없어 보류(missing_exchange_rate). --}}
                 <b>{{ __('listings.resync.nothing_filled') }}</b>
                 @if (! empty($resyncResult['skipped']))

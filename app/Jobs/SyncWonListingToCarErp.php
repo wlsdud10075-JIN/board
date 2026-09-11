@@ -33,8 +33,13 @@ class SyncWonListingToCarErp implements ShouldQueue
      *                        나중에 판매가·통화·환율을 넣어 보내면 그때 채워진다.
      *                        🚫 `car_erp_vehicle_id` 를 지워서 되돌리는 방식은 쓰지 말 것 —
      *                        전송이 실패하면 "미연동 + won" 상태로 남아 그 차가 /auction 목록에 되살아난다.
+     * @param  bool  $attachmentsOnly  **사진만 추가**하러 가는 재전송(2026-09-11). 판매측·바이어를 비워 보내
+     *                                 car-erp 가 fill-if-empty 를 건너뛰게 한다 — 사진 한 장 올렸을 뿐인데
+     *                                 ERP 판매가가 채워지고 `sale_date=now()` 가 찍혀 **채권 유예 기산점이 오늘**이
+     *                                 되는 걸 막는다. 첨부는 멱등 분기에서도 dedup 보강되므로 그대로 붙는다.
+     *                                 ⚠️ 항상 `resync: true` 와 함께 쓴다(단독으로는 의미 없음).
      */
-    public function __construct(public int $listingId, public bool $resync = false) {}
+    public function __construct(public int $listingId, public bool $resync = false, public bool $attachmentsOnly = false) {}
 
     /** 재시도 백오프(초): 1분 → 5분 → 15분 → 30분 */
     public function backoff(): array
@@ -68,8 +73,19 @@ class SyncWonListingToCarErp implements ShouldQueue
             return;
         }
 
+        // 🚨 첨부 전용은 **이미 ERP 에 있는 차에만** 쓴다. 아직 없는 차에 쓰면 수신측이 멱등 분기가 아니라
+        //    **신규 생성 경로**를 타서, 판매측이 비어 있는(= 「일반재고」로 앉는) 차량이 원장에 만들어진다.
+        //    그 경우는 첨부를 늦게 올리더라도 정상 구매확정 전송을 기다리는 게 맞다.
+        if ($this->attachmentsOnly && $l->car_erp_vehicle_id === null) {
+            return;
+        }
+
         // 영업이 board 에 올린 차량 첨부(외관 사진 + 서류) — 키만 전송(바이트 아님, 공유 S3).
-        // car-erp 가 받아 차량 첨부탭(최대 10건)에 행 생성. 1회 발사(synced 후 추가는 car-erp 몫).
+        // car-erp 가 받아 차량 첨부탭(최대 10건)에 행 생성.
+        // ℹ️ **1회 발사가 아니다**(2026-09-11 정정) — 수신측은 멱등 분기(이미 있는 차)에서도 첨부를 보강하고,
+        //    target 키가 source 로 결정적이라 **목록을 통째로 다시 보내도 새 것만** 붙는다(중복 없음).
+        //    그래서 synced 이후 추가는 `/listings` 드로어 [사진 추가] → `attachmentsOnly` 재전송으로 한다.
+        //    ⚠️ **삭제는 전파되지 않는다** — board 에서 지워도 ERP 에 복사된 사진은 남는다(추가만 양방 일치).
         $attachments = $l->salesAttachments->map(fn ($p) => [
             's3_path' => $p->s3_path,
             'original_name' => $p->original_name,
@@ -134,7 +150,12 @@ class SyncWonListingToCarErp implements ShouldQueue
         //    savePayee 재발사가 전부 이 Job 을 다시 태우기 때문에, **컬럼에 남아 있는 값**이 나중에 실려
         //    나갈 수 있다. 그러면 락 걸린 바이어가 재고매입을 우회로로 삼는다(car-erp 2026-09-08 회신 Q3).
         //    ⚠️ 재고매입 차에 바이어를 붙이는 건 **ERP 화면에서** 한다 — 거기엔 게이트가 있다.
-        if ($l->buyer_undecided) {
+        //
+        // 🖼 **첨부 전용 재전송도 같은 처리를 쓴다**(2026-09-11) — 사진만 올렸는데 ERP 판매가가 채워지고
+        //    `sale_date` 가 오늘로 찍히면(그래서 진행상태가 「판매중」이 되고 채권 독촉이 오늘부터 시작되면)
+        //    버튼 이름과 하는 일이 달라진다. 비워 보내면 수신측이 `missing_exchange_rate`·`buyer_not_sent`
+        //    로 건너뛰고 첨부만 붙인다 — 재고매입이 이미 쓰고 있는 길이라 검증돼 있다.
+        if ($l->buyer_undecided || $this->attachmentsOnly) {
             $buyerId = null;
             $consigneeId = null;
             $salePrice = null;

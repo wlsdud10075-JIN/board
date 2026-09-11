@@ -308,6 +308,9 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** 마지막 재전송 결과 — car-erp 응답의 fields_filled/fields_skipped. 200 만 보고 "반영됨"이라 하지 않는다. */
     public ?array $resyncResult = null;
 
+    /** 마지막 [사진 추가] 결과 — 보낸 장수 + car-erp 가 실제로 붙인 장수(cap 에 잘렸는지 이걸로 안다). */
+    public ?array $attachResult = null;
+
     /**
      * ERP 로 다시 보내기 — 판매 3종을 저장한 뒤 resync 발사.
      * ⚠️ 환율이 없으면 car-erp 가 판매가를 **통째로 보류**한다 → 세트로 받고, 빠지면 여기서 막는다.
@@ -356,8 +359,63 @@ new #[Layout('components.layouts.app')] class extends Component {
             $l->save();   // 옵저버가 감사기록
         }
 
+        $since = $this->lastSyncEventId($l->id);
         SyncWonListingToCarErp::dispatch($l->id, resync: true);
-        $this->resyncResult = $this->latestSyncFields($l->id);
+        $this->resyncResult = $this->latestSyncFields($l->id, $since);
+    }
+
+    /**
+     * ERP 로 넘어간 차에 **사진·서류를 나중에 추가**한다 (2026-09-11 Jin).
+     *
+     * 딜러가 사진을 늦게 주면 board 에는 올릴 데가 없었다 — 업로드 화면은 `/auction` 하나뿐인데
+     * 그 화면은 synced 를 안 다룬다. 여기(전 상태를 여는 유일한 화면)에서 올리고 ERP 로 민다.
+     *
+     * 🚨 **첨부 전용 재전송**(`attachmentsOnly`)이다 — 평범한 `resync` 는 판매 금액도 같이 보내서
+     *    ERP 빈 판매가가 채워지고 `sale_date=now()` 가 찍힌다(→ 「판매중」 + 채권 독촉 기산점이 오늘).
+     *    "사진 추가" 버튼이 차 상태를 바꾸면 안 된다.
+     * ℹ️ 재고매입(바이어 미정) 차도 **막지 않는다** — Job 이 어차피 판매측을 비우므로 첨부만 간다.
+     */
+    public function addAttachments(): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);   // SalesmanScope: 영업은 본인 것만
+        $this->attachResult = null;
+        $this->resetErrorBag();
+
+        // 아직 ERP 에 없는 차는 여기서 보내지 않는다 — 수신측이 신규 생성 경로를 타 버린다(Job 도 막는다).
+        if (! $l->car_erp_vehicle_id) {
+            $this->addError('eSalesFiles', __('listings.attach_add.not_synced_yet'));
+
+            return;
+        }
+
+        $files = array_values(array_filter($this->eSalesFiles));
+        if (empty($files)) {
+            $this->addError('eSalesFiles', __('listings.attach_add.none_selected'));
+
+            return;
+        }
+
+        $this->validate(['eSalesFiles.*' => 'file|max:204800']);
+        if (! $this->checkSalesFiles($files, $l->salesAttachments()->count(), 'eSalesFiles')) {
+            return;
+        }
+
+        // ⚠️ 저장이 **먼저**, 전송이 나중 (§14-13 재발방지) — 순서가 바뀌면 방금 올린 파일이 payload 에서 빠진다.
+        $this->storeSalesFiles($l, $files);
+        $this->reset(['eSalesFiles']);
+
+        $since = $this->lastSyncEventId($l->id);
+        SyncWonListingToCarErp::dispatch($l->id, resync: true, attachmentsOnly: true);
+
+        $this->attachResult = $this->latestSyncFields($l->id, $since) + ['sent' => count($files)];
+        unset($this->editing);   // 첨부 목록 새로고침
+    }
+
+    /** 전송 **직전**의 마지막 응답 id — 이 값보다 커야 "이번 전송의 결과"다(운영 큐는 비동기라 늦게 온다). */
+    private function lastSyncEventId(int $listingId): int
+    {
+        return (int) \App\Models\IntegrationEvent::where('purchase_listing_id', $listingId)
+            ->where('event_type', 'purchase_sync')->max('id');
     }
 
     /**
@@ -365,23 +423,34 @@ new #[Layout('components.layouts.app')] class extends Component {
      * 🚨 car-erp 는 **200 이어도 아무것도 안 채웠을 수 있다**(이미 값 있음/환율 없음) — `fields_filled` 가
      *    비면 반영 안 된 것이다. 첨부가 조용히 실패하던 것과 같은 부류라 화면에 그대로 편다.
      */
-    private function latestSyncFields(int $listingId): array
+    private function latestSyncFields(int $listingId, int $since = 0): array
     {
         $ev = \App\Models\IntegrationEvent::where('purchase_listing_id', $listingId)
             ->where('event_type', 'purchase_sync')->latest('id')->first();
 
+        // 운영 큐는 비동기(database)라 버튼을 누른 직후엔 아직 응답이 없다. 그때 **직전 전송 결과**를
+        // 이번 것처럼 보여주면 조용한 오표시가 된다 → "보냈고, 결과는 곧" 이라고 말한다.
+        if ($ev === null || (int) $ev->id <= $since) {
+            return ['pending' => true, 'status' => null, 'filled' => [], 'skipped' => [], 'added' => null, 'failed' => null];
+        }
+
         $body = json_decode((string) ($ev->response_body ?? ''), true);
 
         return [
+            'pending' => false,
             'status' => $ev->response_status ?? null,
             'filled' => (array) ($body['fields_filled'] ?? []),
             'skipped' => (array) ($body['fields_skipped'] ?? []),
+            // 🚨 **cap 초과는 실패로 안 잡힌다** — 수신측은 10건에 닿으면 조용히 `break` 한다(`failed` 증가 없음).
+            //    그래서 "보낸 장수 vs 붙은 장수"를 비교해야 잘린 걸 알 수 있다.
+            'added' => isset($body['attachments_added']) ? (int) $body['attachments_added'] : null,
+            'failed' => isset($body['attachments_failed']) ? (int) $body['attachments_failed'] : null,
         ];
     }
 
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'eSalesFiles', 'e_sale_price', 'e_sale_currency', 'e_sale_rate', 'resyncResult']);
+        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'eSalesFiles', 'e_sale_price', 'e_sale_currency', 'e_sale_rate', 'resyncResult', 'attachResult']);
         unset($this->editing);
     }
 

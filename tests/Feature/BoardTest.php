@@ -147,19 +147,150 @@ class BoardTest extends TestCase
      */
     public function test_resend_says_when_nothing_was_filled(): void
     {
-        Bus::fake();
         $kim = $this->mkUser('sales');
         $l = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 188]);
-        IntegrationEvent::create([
-            'direction' => 'outbound', 'target' => 'car_erp', 'event_type' => 'purchase_sync',
-            'purchase_listing_id' => $l->id, 'response_status' => 200,
-            'response_body' => json_encode(['vehicle_id' => 188, 'fields_filled' => [], 'fields_skipped' => ['sale_price' => 'already_set']]),
-        ]);
+        // ⚠️ Job 을 **실제로** 태워 이번 전송의 응답이 생기게 한다(테스트 큐 = sync). 미리 만들어 둔 옛 이벤트를
+        //    읽히면 화면이 "직전 결과"를 이번 것처럼 말하게 되는데, 그건 2026-09-11 부터 pending 으로 잡힌다.
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'hs']);
+        Http::fake(['*' => Http::response([
+            'vehicle_id' => 188, 'fields_filled' => [], 'fields_skipped' => ['sale_price' => 'already_set'],
+        ], 200)]);
         $this->actingAs($kim);
 
         Volt::test('listings.index')->call('openEdit', $l->id)->call('resendToErp')
             ->assertSee(__('listings.resync.nothing_filled'))
             ->assertSee('already_set');
+    }
+
+    /**
+     * 🚨 운영 큐는 비동기라 버튼 직후엔 응답이 **아직 없다** — 그때 직전 전송 결과를 이번 것처럼 보여주면
+     * 조용한 오표시가 된다(2026-09-11). "보냈고 결과는 곧"이라고 말한다.
+     */
+    public function test_resend_says_queued_when_response_not_back_yet(): void
+    {
+        Bus::fake();   // = 아직 안 돌아간 큐
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 188]);
+        IntegrationEvent::create([   // 직전(다른) 전송의 결과 — 이번 것으로 읽히면 안 된다
+            'direction' => 'outbound', 'target' => 'car_erp', 'event_type' => 'purchase_sync',
+            'purchase_listing_id' => $l->id, 'response_status' => 200,
+            'response_body' => json_encode(['vehicle_id' => 188, 'fields_filled' => ['sale_price']]),
+        ]);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')->call('openEdit', $l->id)->call('resendToErp')
+            ->assertSee(__('listings.resync.queued'))
+            ->assertDontSee(__('listings.resync.filled', ['fields' => 'sale_price']));
+    }
+
+    /**
+     * ERP 로 넘어간 차에 **사진을 나중에 추가**한다(2026-09-11 Jin) — 딜러가 늦게 준 사진의 자리.
+     * 올리는 화면(`/auction`)은 synced 를 안 다뤄서, 전 상태를 여는 이 드로어가 유일한 자리다.
+     */
+    public function test_sales_can_add_attachments_after_erp_sync(): void
+    {
+        Bus::fake();
+        Storage::fake('public');
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 188]);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')
+            ->call('openEdit', $l->id)
+            ->set('eSalesFiles', [UploadedFile::fake()->image('late.jpg'), UploadedFile::fake()->image('late2.jpg')])
+            ->call('addAttachments')
+            ->assertHasNoErrors();
+
+        // 픽스처 1건 + 방금 2건.
+        $this->assertSame(3, $l->salesAttachments()->count());
+
+        // 🚨 **첨부 전용**으로 나가야 한다 — 평범한 resync 면 판매가가 채워지고 sale_date 가 오늘로 찍힌다.
+        Bus::assertDispatched(fn (SyncWonListingToCarErp $job) => $job->listingId === $l->id
+            && $job->resync === true && $job->attachmentsOnly === true);
+    }
+
+    /** 아직 ERP 에 없는 차는 여기서 안 보낸다 — 수신측이 **신규 생성 경로**를 타 버린다. */
+    public function test_attachment_add_is_blocked_before_erp_sync(): void
+    {
+        Bus::fake();
+        Storage::fake('public');
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'won', 'car_erp_vehicle_id' => null]);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')
+            ->call('openEdit', $l->id)
+            ->set('eSalesFiles', [UploadedFile::fake()->image('late.jpg')])
+            ->call('addAttachments')
+            ->assertHasErrors('eSalesFiles');
+
+        $this->assertSame(1, $l->salesAttachments()->count());   // 픽스처 그대로
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+    }
+
+    /**
+     * 🚨 첨부 전용 재전송은 **판매측·바이어를 비워** 보낸다 — 사진 한 장 올렸을 뿐인데 ERP 판매가가 채워지고
+     * `sale_date=now()` 가 찍히면(→ 「판매중」 + 채권 독촉 기산점이 오늘) 버튼 이름과 하는 일이 달라진다.
+     */
+    public function test_attachments_only_resync_does_not_send_sale_fields(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'hs']);
+        Http::fake(['*' => Http::response(['vehicle_id' => 188, 'attachments_added' => 1], 200)]);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'synced', 'car_erp_vehicle_id' => 188, 'car_cost' => 5000000,
+            'sale_price' => 8590, 'offer_currency' => 'USD', 'offer_rate' => 1380,
+        ]);
+
+        (new SyncWonListingToCarErp($l->id, resync: true, attachmentsOnly: true))->handle();
+
+        Http::assertSent(function ($req) {
+            $b = json_decode($req->body(), true);
+            $this->assertNull($b['sale_price']);
+            $this->assertNull($b['sale_currency']);
+            $this->assertNull($b['sale_exchange_rate']);
+            $this->assertNull($b['transport_fee']);
+            $this->assertNull($b['buyer_id']);
+            $this->assertNull($b['consignee_id']);
+            // 매입측과 첨부는 그대로 간다 — `final_price`/`purchase_price_krw` 가 둘 다 없으면 422 다.
+            $this->assertNotEmpty($b['attachments']);
+            $this->assertNotNull($b['purchase_price_krw'] ?? $b['final_price']);
+
+            return true;
+        });
+    }
+
+    /** 첨부 전용은 **이미 ERP 에 있는 차에만** — 아니면 판매측이 빈 차가 원장에 새로 만들어진다. */
+    public function test_attachments_only_skips_listing_not_yet_in_erp(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'hs']);
+        Http::fake(['*' => Http::response(['vehicle_id' => 999], 201)]);
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'won', 'car_erp_vehicle_id' => null, 'car_cost' => 5000000]);
+
+        (new SyncWonListingToCarErp($l->id, resync: true, attachmentsOnly: true))->handle();
+
+        Http::assertNothingSent();
+        $this->assertSame('won', $l->refresh()->status);
+    }
+
+    /**
+     * 🚨 **cap 초과는 실패로 안 잡힌다** — 수신측은 첨부 10건에 닿으면 조용히 `break` 한다(`attachments_failed` 안 늘어남).
+     * 그래서 "보낸 장수 vs 붙은 장수"를 비교해 말해야 잘린 걸 알 수 있다.
+     */
+    public function test_attachment_add_reports_when_erp_attached_fewer(): void
+    {
+        Storage::fake('public');
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 188]);
+        // 큐가 sync 라 전송이 그 자리에서 끝난다 → 응답을 그대로 읽는다(운영은 비동기 = pending 안내).
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'hs']);
+        Http::fake(['*' => Http::response(['vehicle_id' => 188, 'attachments_added' => 1, 'attachments_failed' => 0], 200)]);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')
+            ->call('openEdit', $l->id)
+            ->set('eSalesFiles', [UploadedFile::fake()->image('a.jpg'), UploadedFile::fake()->image('b.jpg')])
+            ->call('addAttachments')
+            ->assertSee(__('listings.attach_add.partial', ['sent' => 2, 'added' => 1]));
     }
 
     /**

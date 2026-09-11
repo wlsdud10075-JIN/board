@@ -213,7 +213,7 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 - **vin 은 payload 에 없음**(board 가 모름). car-erp 가 NICE 로 채워 `nice_reg_vin` 에 저장.
 - `salesman_email` = board 영업의 **`users.car_erp_salesman_email`(오버라이드) ?: 로그인 email**. car-erp 가 이 이메일로 salesmen 매칭. (`/users` 에서 숫자 id 대신 car-erp 이메일만 입력 — id 는 DB 봐야 알아서 폐기. `car_erp_salesman_id` 는 잔존하나 보통 null.)
 - **응답(계약)**: `2xx` + `{"vehicle_id": <int>}`. board 는 이 id 를 `car_erp_vehicle_id` 에 저장 후 `won→synced` 전이. 비-2xx 또는 vehicle_id 없으면 Job 예외 → 큐 재시도(`$tries=5`, backoff 60/300/900/1800s).
-- **`attachments[]` (v2, 차량 첨부 — 영업이 board 에 올린 사진+서류)**: `s3_path`(공유 버킷 `heysellcar-erp-docs` 키, **바이트 아님**) · `original_name` · `kind`(sales_photo 외관 / sales_document 차량등록증 등) · `sort`. **검차 사진(kind=inspection)은 제외** — 그건 바이어 전송(§28) 전용. 빈 배열 가능. **1회 발사**(won→synced, `car_erp_vehicle_id` null 가드). synced 후 추가/누락 보완은 **car-erp [관리] 몫**(board 재전송 경로 없음 — 영업은 won 전 자료확보가 일반적). 수신측(car-erp): 차량 첨부탭(최대 10건 cap·`s3_path` 중복스킵)에 행 생성, S3 접근방식(키 직접참조 vs 자기 prefix 복사)은 car-erp 결정. 권위 인계 = `meetings/handoff-car-erp-vehicle-attachments.md`. **car-erp 무수정 예외 확장 → car-erp 먼저 배포.**
+- **`attachments[]` (v2, 차량 첨부 — 영업이 board 에 올린 사진+서류)**: `s3_path`(공유 버킷 `heysellcar-erp-docs` 키, **바이트 아님**) · `original_name` · `kind`(sales_photo 외관 / sales_document 차량등록증 등) · `sort`. **검차 사진(kind=inspection)은 제외** — 그건 바이어 전송(§28) 전용. 빈 배열 가능. 최초 발사 = won→synced(`car_erp_vehicle_id` null 가드). **⚠️ "1회 발사"가 아니다**(2026-09-11 정정) — 수신측은 **멱등 분기(이미 있는 차)에서도 첨부를 보강**하고 target 키가 source 로 결정적이라 목록을 통째로 다시 보내도 **새 것만** 붙는다 ⇒ synced 후 추가는 `/listings` 드로어 [사진 추가] → `attachmentsOnly` 재전송(§14-16). **삭제는 전파 안 됨**(추가만 양방 일치). 수신측(car-erp): 차량 첨부탭(최대 10건 cap·`s3_path` 중복스킵)에 행 생성, S3 접근방식(키 직접참조 vs 자기 prefix 복사)은 car-erp 결정. 권위 인계 = `meetings/handoff-car-erp-vehicle-attachments.md`. **car-erp 무수정 예외 확장 → car-erp 먼저 배포.**
 - **`v3` 금액/바이어 (2026-06-23, 권위 인계 = `meetings/handoff-car-erp-amount-mapping.md`)**: 매입=KRW 원장 / 판매=확정통화. `purchase_price_krw`(구입금액=차값−할인, **매도비·배송 제외** → car-erp purchase_price 교정) · `selling_fee_krw`(매도비) · `transport_fee`(운임비 **판매통화 환산** = shipping_usd×USD환율/판매환율 — ⚠️car-erp가 sale_price와 직접합산하므로 USD 아닌 **판매통화**) · `sale_price`(차량금액→판매통화) · `sale_currency`(현지확인 확정 offer_currency) · `sale_exchange_rate`(확정 시점 환율, 관리가 ERP서 미세조정) · `buyer_id`/`consignee_id`(경매/구매 드롭다운 선택, car-erp `/buyers`·`/consignees` 본인스코프, 미선택 null). car-erp v3 수신기 구현됨(SUPPORTED_VERSIONS=[1,2,3]) — ⚠️ **운임비 통화 버그**(transport_fee_usd raw 저장) 수정 + **car-erp 먼저 배포** 후 board v3 전환(안 그럼 422). 근거 역산 = `meetings/board-carerp-amount-mapping.md`(차=원가판매·수익=부가세9%).
 - **`v4` 매도비 계좌 (2026-07-03, 권위 인계 = `meetings/handoff-car-erp-purchase-two-accounts.md`)**: 매입 정산계좌를 **2개로 분리** — 기존 `payee_*`(매입가/판매자 계좌 → car-erp `purchase_seller_*`) + 신규 **`selling_fee_payee_name`/`selling_fee_payee_bank`/`selling_fee_payee_account`**(매도비 계좌 = 판매자와 **다른 대상**, 영업 직접입력, nullable, 계좌 `encrypted`). 금액(purchase_price_krw/selling_fee_krw)은 v3서 이미 분리 — 이번은 **계좌만** 2개로. car-erp 제안 수신컬럼 `purchase_fee_*`(확정=car-erp). ⚠️ **car-erp 먼저 배포** 후 board v4 전송(그전엔 신규 3필드 무시됨=무해, 단 ERP 에 매도비 계좌 안 꽂힘). 로그 `selling_fee_payee_account`도 `***` 마스킹. board 입력=listings(추가·편집)+auction 드로어.
 - **`v5` 재고매입 (2026-09-08, 권위 인계 = `meetings/handoff-carerp-stock-purchase-no-buyer.md` + car-erp 회신)**: 차값이 쌀 때 **바이어 없이 미리 사두는 매입**. board `purchase_listings.buyer_undecided` → car-erp `vehicles.buyer_undecided`(뱃지 「바이어 미정(투기 매입)」). 입력 = `/auction` 드로어 토글(**accepted 일 때만**, 권한·출처 제한 없음 — 2026-09-08 Jin).
@@ -425,15 +425,17 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
 
 ### 14-9. 딜러 차량 첨부는 **올리는 곳과 보는 곳이 다르다** (2026-08-12)
 
-- **올리는 곳 = `/auction`(구매·경매) 드로어 하나뿐**이다. `/listings` 에도 업로드 *로직*(`eSalesFiles`·
-  `storeSalesFiles`·`deleteSalesAttachment`)이 있지만 **렌더부에 UI 가 없다** — 만들다 만 상태다.
-  ⚠️ 로직이 있다고 "그 화면에서 올린다"고 말하지 말 것(실제로 그렇게 잘못 안내했다).
+- **처음 올리는 곳 = `/auction`(구매·경매) 드로어**(구매확정과 함께 나간다). **ERP 로 넘어간 뒤 추가하는 곳
+  = `/listings` 드로어**(2026-09-11 신설, 아래 §14-16). 예전엔 `/listings` 에 업로드 *로직*만 있고 UI 가 없었는데
+  그 로직 위에 전용 액션(`addAttachments`)을 얹은 것이다 — `update()`(일반 저장)에는 안 붙였다.
+  ⚠️ 로직이 있다고 "그 화면에서 올린다"고 말하지 말 것(실제로 그렇게 잘못 안내한 적이 있다).
 - **보는 곳 = `/listings`(매입예정) 편집 드로어** — 읽기 전용 그리드. 이유: `/auction` 목록은
   `accepted·won·failed` 만, 첨부 블록은 **`accepted·won` 에서만** 그린다 ⇒ 연동 B 로 넘어가 **`synced` 가
   되는 순간 board 어디서도 못 봤다**(`failed` 도 마찬가지). 매입예정 목록은 **전 상태 전량**이고
   `openEdit` 에 **상태 가드가 없어** synced 행도 열린다 — 본인 차를 전 상태로 여는 유일한 화면.
-- 🚫 **보는 곳에 삭제·업로드를 붙이지 말 것** — `won` 이후엔 같은 첨부를 **ERP 도 갖고 있다**.
+- 🚫 **보는 곳에 삭제를 붙이지 말 것** — `won` 이후엔 같은 첨부를 **ERP 도 갖고 있고 삭제는 전파되지 않는다**.
   board 에서 지우면 양쪽이 조용히 갈리고 board 가 더 이상 유일한 권위가 아니게 된다.
+  **추가는 반대다** — board→ERP 로 같이 늘어나서 갈리지 않는다(수신측이 멱등 분기에서도 dedup 보강). §14-16.
 - **URL 은 `InspectionPhoto::url()`**(모델 accessor). ⚠️ 같은 로직이 화면 컴포넌트에 `photoUrl()` 로
   **3벌**(auction·forwarding·inspection) 더 있다 — **새 화면은 accessor 를 쓰고 4벌째를 만들지 말 것**.
   디스크가 로컬(public)/운영(s3)로 갈려 경로를 손으로 조립하면 깨지고, presigned 는 **캐시로 문자열을
@@ -614,3 +616,32 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
 있는 건 뺀다 / **제안은 눈으로 대조**한다(예금주는 가끔 틀린다, 계좌번호는 거의 정확) / 계좌는 **확정 전에**.
 
 설계·근거 = `meetings/design-payee-extraction-2026-09-10.md`
+
+### 14-16. ERP 로 넘어간 차에 **사진을 나중에 추가** (2026-09-11 Jin)
+
+딜러가 사진을 늦게 주면 board 에는 올릴 데가 없었다 — 업로드 화면은 `/auction` 하나뿐인데 그 화면은
+`accepted·won` 만 다뤄서 **`synced` 가 되면 추가할 방법이 사라졌다**(§14-9). 그래서 ERP 에 직접 들어가야 했다.
+
+- **수신측은 손댈 게 없었다** — car-erp `PurchaseSyncController` 는 **멱등 분기(이미 있는 차)에서도**
+  `syncAttachments()` 를 돌리고 `attachments_added`/`attachments_failed` 를 돌려준다. target 키가
+  `vehicles/{id}/synced/{md5(source)8}_{basename}` 로 **source 에서 결정적**이라 목록을 통째로 다시 보내도
+  **새 것만** 붙는다. 이 문은 2026-08-18 fill-if-empty(§14-12) 때 이미 열려 있었고 board 만 안 쓰고 있었다.
+- **자리 = `/listings` 드로어**(본인 차를 전 상태로 여는 유일한 화면) + 전용 액션 `addAttachments()`.
+  🚫 `update()`(일반 저장)에 얹지 말 것 — **평범한 필드 저장마다 ERP 전송이 나간다**.
+- 🚨 **`attachmentsOnly` 로 보낸다** — 평범한 `resync` 는 판매 금액도 같이 실어서, ERP 빈 판매가가 채워지고
+  **`sale_date=now()`** 가 찍힌다(→ 진행상태 「판매중」 + **채권 유예 기산점이 오늘**, §14-12).
+  "사진 추가" 버튼이 차 상태와 수금 일정을 바꾸면 안 된다. Job 이 판매측·바이어를 null 로 비워 보내면
+  수신측이 `missing_exchange_rate`·`buyer_not_sent` 로 건너뛰고 첨부만 붙인다 —
+  **재고매입(§12 v5)이 이미 쓰는 길**이라 검증돼 있다. ⇒ 재고매입 차도 이 버튼은 **막지 않는다**.
+- 🚨 **아직 ERP 에 없는 차엔 쓰지 않는다**(화면·Job 양쪽 가드) — 수신측이 멱등이 아니라 **신규 생성 경로**를
+  타서 판매측이 빈 차량이 원장에 만들어진다. 그 경우는 정상 구매확정 전송을 기다리는 게 맞다.
+- 🚨 **cap 초과는 실패로 안 잡힌다** — 수신측은 기본정보 갤러리 10건(`VehiclePhoto::MAX_BASIC`)에 닿으면
+  조용히 `break` 하고 `attachments_failed` 는 **안 늘어난다**. board 첨부 한도(10)만 통과해도 **ERP 관리자가
+  직접 올린 사진이 있으면 잘린다** ⇒ 화면은 **보낸 장수 vs 붙은 장수**를 비교해 말한다
+  (가드 = `test_attachment_add_reports_when_erp_attached_fewer`).
+- 🚫 **삭제는 여전히 없다** — ERP 로 복사된 사진은 board 삭제로 안 지워진다(추가만 양방 일치, §14-9).
+- ⚠️ **저장이 먼저, 전송이 나중**(§14-13 재발방지) — 순서가 바뀌면 방금 올린 파일이 payload 에서 빠진다.
+- ⚠️ **운영 큐는 비동기(database)라 버튼 직후엔 응답이 아직 없다.** 그때 `integration_events` 의 마지막 행을
+  읽으면 **직전 전송 결과를 이번 것처럼** 보여준다 → 전송 **직전** 이벤트 id 를 기억해 그보다 크지 않으면
+  「보냈고 결과는 곧」으로 말한다(`lastSyncEventId()`). 같은 헬퍼를 쓰는 **판매가 재전송(§14-12)도 같이 고쳤다**
+  (가드 = `test_resend_says_queued_when_response_not_back_yet`).
