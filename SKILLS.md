@@ -685,6 +685,10 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
   🚨 스크롤 컨테이너에 **`min-w-0` 필수** — flex 자식은 기본 `min-width:auto` 라 칩이 줄어들 줄 모르고
   **부모를 넘쳐** `overflow-x-auto` 가 죽는다(= 페이지 전체가 가로로 밀린다). 이 한 클래스가 모바일 깨짐의 원인.
   ⚠️ 좁은 폭에선 건수 셀렉트를 **아랫줄**로(`flex-col sm:flex-row`) — 한 줄에 두면 탭에 90px 남짓만 남는다.
+- 🚫 **ERP 응답 키를 화면에 그대로 그리지 말 것** — 재전송 결과에 `sale_price — already_set` 이 떴다
+  (2026-09-11 점검). `listings.resync.field.*`·`why.*` 로 사람 말로 바꾸되, **모르는 값은 원문을 살린다**
+  (car-erp 가 사유를 새로 추가할 수 있고, 사유를 버리면 왜 안 들어갔는지 추적할 길이 없다).
+  가드 = `test_resend_says_when_nothing_was_filled`(사람 말) + `test_resend_keeps_unknown_skip_reason_as_is`(원문).
 - ⚠️ **페이지네이션 문구는 `lang/{ko,en}/pagination.php`** — 없으면 프레임워크 기본 영어("« Previous")가 뜬다.
   모바일 기본 뷰는 **이전/다음 두 버튼이 전부**라 바로 보인다(2026-09-11 추가, 기존 페이지네이션 화면 전부에 적용).
 - **인덱스는 이미 있다** — `status`(최초 마이그) · `created_at`(2026-06-15 manage 필터용). 추가 마이그 불필요.

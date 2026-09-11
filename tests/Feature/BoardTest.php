@@ -159,7 +159,62 @@ class BoardTest extends TestCase
 
         Volt::test('listings.index')->call('openEdit', $l->id)->call('resendToErp')
             ->assertSee(__('listings.resync.nothing_filled'))
-            ->assertSee('already_set');
+            // 🚫 `sale_price — already_set` 을 그대로 그리지 않는다 — 사람 말로 바꿔 보여준다.
+            ->assertSee(__('listings.resync.field.sale_price'))
+            ->assertSee(__('listings.resync.why.already_set'))
+            ->assertDontSee('already_set');
+    }
+
+    /** ERP 가 **모르는 사유**를 보내면 원문을 살린다 — 사유를 버리면 왜 안 들어갔는지 알 길이 없다. */
+    public function test_resend_keeps_unknown_skip_reason_as_is(): void
+    {
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 188]);
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'hs']);
+        Http::fake(['*' => Http::response([
+            'vehicle_id' => 188, 'fields_filled' => [], 'fields_skipped' => ['some_new_field' => 'some_new_reason'],
+        ], 200)]);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')->call('openEdit', $l->id)->call('resendToErp')
+            ->assertSee('some_new_field')
+            ->assertSee('some_new_reason');
+    }
+
+    /**
+     * 이번에 새로 만든 화면 문구가 **한·영 양쪽에서** 성립하는지. 키가 빠지면 화면에 `listings.tabs.all`
+     * 같은 날것이 그대로 뜬다(영어로 바꿔 쓰는 사람은 board 에도 있다).
+     */
+    public function test_new_listing_strings_exist_in_both_locales(): void
+    {
+        $keys = [
+            'listings.list.per_page', 'listings.list.count_only', 'listings.list.count_only_hint',
+            'listings.attach_add.dropzone', 'listings.attach_add.btn', 'listings.attach_add.sending',
+            'listings.attach_add.help', 'listings.attach_add.not_synced_yet', 'listings.attach_add.none_selected',
+            'listings.attach_add.queued', 'listings.attach_add.sent', 'listings.attach_add.ok',
+            'listings.attach_add.partial', 'listings.attach_add.failed',
+            'listings.resync.queued', 'listings.resync.field.sale_price', 'listings.resync.why.already_set',
+            'pagination.previous', 'pagination.next',
+        ];
+        foreach (PurchaseListing::TABS as $t) {
+            $keys[] = 'listings.tabs.'.$t;
+        }
+
+        foreach (['ko', 'en'] as $locale) {
+            foreach ($keys as $k) {
+                $v = (string) __($k, [], $locale);
+                $this->assertNotSame($k, $v, "{$locale} 에 {$k} 없음 — 화면에 키가 그대로 뜬다");
+                $this->assertNotSame('', trim($v), "{$locale}.{$k} 가 비었다");
+            }
+        }
+
+        // 한국어 화면에 영어 식별자가 섞이지 않는지(고유명사 ERP·VIN 등은 예외).
+        foreach ($keys as $k) {
+            $ko = (string) __($k, [], 'ko');
+            foreach (['sale_price', 'already_set', 'attachments_added', 'perPage', 'vehicle_id'] as $ident) {
+                $this->assertStringNotContainsString($ident, $ko, "ko.{$k} 에 변수명 {$ident} 가 들어 있다");
+            }
+        }
     }
 
     /**

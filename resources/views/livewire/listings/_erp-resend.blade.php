@@ -55,9 +55,12 @@
                 {{-- 200 이어도 안 채워졌을 수 있다: 이미 값이 있거나(already_set) 환율이 없어 보류(missing_exchange_rate). --}}
                 <b>{{ __('listings.resync.nothing_filled') }}</b>
                 @if (! empty($resyncResult['skipped']))
+                    {{-- 🚫 ERP 가 준 키를 그대로 그리지 말 것 — 화면에 `sale_price — already_set` 이 떴다(2026-09-11).
+                         모르는 값은 원문을 살린다(사유를 버리면 왜 안 들어갔는지 추적할 길이 없다). --}}
                     <div class="mt-1 text-[11px]">
                         @foreach ($resyncResult['skipped'] as $field => $why)
-                            <span class="mr-2">{{ $field }} — {{ $why }}</span>
+                            <span class="mr-2">{{ __('listings.resync.field.'.$field) === 'listings.resync.field.'.$field ? $field : __('listings.resync.field.'.$field) }}
+                                — {{ __('listings.resync.why.'.$why) === 'listings.resync.why.'.$why ? $why : __('listings.resync.why.'.$why) }}</span>
                         @endforeach
                     </div>
                 @endif
