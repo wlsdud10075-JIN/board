@@ -208,6 +208,11 @@ new #[Layout('components.layouts.app')] class extends Component {
     #[Computed]
     public function listings()
     {
+        // ⚠️ `#[Url]` 둘 다 — `?tab=nope&perPage=7` 로 바로 들어오면 `setTab`·`updated*` 훅을 안 거친다.
+        //    탭이 모르는 값이면 조건 없이 전량이 뜨는데 **칩은 아무것도 안 켜져** 왜 그런지 알 수가 없다.
+        if ($this->tab !== 'all' && ! array_key_exists($this->tab, PurchaseListing::TAB_STATUSES)) {
+            $this->tab = 'all';
+        }
         if (! in_array($this->perPage, self::PER_PAGE_OPTIONS, true)) {
             $this->perPage = 10;
         }
@@ -878,6 +883,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->resetForm();
         $this->showAdd = false;
         unset($this->listings, $this->tabCounts);
+        $this->resetPage();   // 2페이지를 보다 등록하면 새 행(=1페이지 맨 위)이 안 보인다
 
         // 셀프검차매입은 저장 즉시 경매/구매 탭에서 마무리한다 — 화면까지 데려다 준다.
         if ($selfInspection) {
@@ -1063,7 +1069,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     </button>
                 @endforeach
             </div>
-            <select wire:model.live="perPage" class="input-filter shrink-0 text-[12px]">
+            <select wire:model.live="perPage" class="input-base w-auto shrink-0 text-[12px]">
                 @foreach ([10, 20, 30, 50, 100] as $n)
                     <option value="{{ $n }}">{{ __('listings.list.per_page', ['count' => $n]) }}</option>
                 @endforeach

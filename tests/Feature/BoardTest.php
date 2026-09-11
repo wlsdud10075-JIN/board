@@ -223,6 +223,13 @@ class BoardTest extends TestCase
         sort($all);
 
         $this->assertSame($all, $covered);
+
+        // 화면에 그리는 탭(TABS)과 실제 필터(TAB_STATUSES)도 어긋나면 안 된다 —
+        // TABS 에만 있는 탭은 조건 없이 전량을 보여주면서 이름만 다르게 붙는다.
+        $this->assertSame(
+            array_keys(PurchaseListing::TAB_STATUSES),
+            array_values(array_diff(PurchaseListing::TABS, ['all']))
+        );
     }
 
     /** 탭 = 상태 묶음. 기본은 「진행중」이라 ERP 전환완료(synced)가 랜딩에 안 실린다. */
@@ -242,6 +249,11 @@ class BoardTest extends TestCase
 
         // 모르는 탭 값은 전체로 떨어뜨린다(?tab= 으로 아무거나 들어온다).
         $c->call('setTab', 'nope');
+        $this->assertSame('all', $c->get('tab'));
+
+        // ⚠️ URL 로 **바로** 들어오면 setTab 을 안 거친다 — 목록을 그리는 자리에서도 되돌려야
+        //    "칩은 아무것도 안 켜졌는데 전량이 뜨는" 화면이 안 나온다.
+        $c->set('tab', 'nope2')->assertSee($draft->vehicle_number);
         $this->assertSame('all', $c->get('tab'));
     }
 
