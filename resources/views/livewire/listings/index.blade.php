@@ -21,15 +21,17 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     // ─────── 목록 탭 + 페이지네이션 (2026-09-11 Jin) ───────
     // 예전엔 `latest()->get()` 으로 **전량**을 읽었다. synced(ERP 전환완료)는 영원히 쌓이기만 하는 통이라
-    // 그대로 두면 랜딩이 매년 느려진다. 기본 탭 = 「진행중」(아직 손이 가야 하는 차만).
+    // 그대로 두면 랜딩이 매년 느려진다.
+    // 기본 = **「전체」 탭 + 30건**(2026-09-11 Jin) — 목록의 성격은 그대로 두고(전과 같은 화면),
+    // 느려지는 원인이었던 **전량 로드만** 페이지네이션으로 끊는다. 좁혀 보고 싶으면 탭을 누른다.
 
     /** 목록 탭 — `PurchaseListing::TAB_STATUSES` 의 키(또는 'all'). */
     #[Url]
-    public string $tab = 'active';
+    public string $tab = 'all';
 
     /** 페이지당 건수. 0 = 「건수만」(행을 안 그린다 — car-erp 차량관리와 같은 규칙). */
     #[Url]
-    public int $perPage = 10;
+    public int $perPage = 30;
 
     public const PER_PAGE_COUNT_ONLY = 0;
 
@@ -46,7 +48,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function updatedPerPage(): void
     {
         if (! in_array($this->perPage, self::PER_PAGE_OPTIONS, true)) {
-            $this->perPage = 10;
+            $this->perPage = 30;
         }
         unset($this->listings);
         $this->resetPage();
@@ -214,7 +216,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             $this->tab = 'all';
         }
         if (! in_array($this->perPage, self::PER_PAGE_OPTIONS, true)) {
-            $this->perPage = 10;
+            $this->perPage = 30;
         }
 
         // 「건수만」 — 행을 안 불러오면 creator eager load 와 행마다 도는 금액 계산이 통째로 빠진다.

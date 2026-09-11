@@ -232,8 +232,8 @@ class BoardTest extends TestCase
         );
     }
 
-    /** 탭 = 상태 묶음. 기본은 「진행중」이라 ERP 전환완료(synced)가 랜딩에 안 실린다. */
-    public function test_listing_tabs_filter_rows_and_default_is_active(): void
+    /** 탭 = 상태 묶음. 기본은 **「전체」**(2026-09-11 Jin) — 화면 성격은 그대로 두고 전량 로드만 끊는다. */
+    public function test_listing_tabs_filter_rows_and_default_is_all(): void
     {
         $kim = $this->mkUser('sales');
         $draft = $this->mkListing($kim, ['status' => 'draft']);
@@ -241,10 +241,11 @@ class BoardTest extends TestCase
         $this->actingAs($kim);
 
         $c = Volt::test('listings.index');
-        $this->assertSame('active', $c->get('tab'));
-        $c->assertSee($draft->vehicle_number)->assertDontSee($synced->vehicle_number);
+        $this->assertSame('all', $c->get('tab'));
+        $c->assertSee($draft->vehicle_number)->assertSee($synced->vehicle_number);   // 기본 = 전부 보인다
 
         $c->call('setTab', 'synced')->assertSee($synced->vehicle_number)->assertDontSee($draft->vehicle_number);
+        $c->call('setTab', 'active')->assertSee($draft->vehicle_number)->assertDontSee($synced->vehicle_number);
         $c->call('setTab', 'all')->assertSee($draft->vehicle_number)->assertSee($synced->vehicle_number);
 
         // 모르는 탭 값은 전체로 떨어뜨린다(?tab= 으로 아무거나 들어온다).
@@ -293,23 +294,24 @@ class BoardTest extends TestCase
         $this->assertSame(0, $c->get('tabCounts')['draft']);
     }
 
-    /** 페이지당 건수 — 화이트리스트 밖(`?perPage=` 로 아무 값)이면 10 으로 되돌린다. */
+    /** 페이지당 건수 — 기본 30, 화이트리스트 밖(`?perPage=` 로 아무 값)이면 기본으로 되돌린다. */
     public function test_per_page_is_whitelisted_and_paginates(): void
     {
         $kim = $this->mkUser('sales');
-        for ($i = 0; $i < 12; $i++) {
+        for ($i = 0; $i < 32; $i++) {
             $this->mkListing($kim, ['status' => 'draft']);
         }
         $this->actingAs($kim);
 
         $c = Volt::test('listings.index');
-        $this->assertSame(10, $c->get('listings')->count());   // 기본 10건
+        $this->assertSame(30, $c->get('listings')->count());   // 기본 30건
+        $this->assertSame(32, $c->get('listings')->total());
 
-        $c->set('perPage', 20);
-        $this->assertSame(12, $c->get('listings')->count());
+        $c->set('perPage', 10);
+        $this->assertSame(10, $c->get('listings')->count());
 
         $c->set('perPage', 7);                                  // 화이트리스트 밖
-        $this->assertSame(10, $c->get('perPage'));
+        $this->assertSame(30, $c->get('perPage'));
     }
 
     /** 「건수만」 = 행을 아예 안 불러온다(총계만). 빈 목록의 「없습니다」와 다른 문구로 말한다. */
