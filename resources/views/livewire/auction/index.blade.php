@@ -273,6 +273,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
 
         return $base + [
+            // 매도비 — 일반 출처는 **회사 부담 별도**라 차값과 무관하다(lte 를 걸지 않는다).
+            'selling_fee' => 'nullable|numeric|min:0',
             'discount_rate' => 'nullable|numeric|min:0|max:100',
             'sale_discount' => 'nullable|numeric|min:0',
             'shipping_usd' => 'nullable|integer|in:'.implode(',', config('board.shipping_options')),
@@ -393,8 +395,10 @@ new #[Layout('components.layouts.app')] class extends Component {
         // 셀프검차는 통화를 **미선택으로 시작**한다(2026-08-10 Jin). KRW 를 미리 골라두면 USD 판매가를 적고
         // 통화를 안 눌러도 그대로 통과해 ERP 에 **1/환율 금액**으로 박힌다(8,590 USD → 8,590원, 실측 확인).
         $this->quoteCurrency = $l->offer_currency ?: ($l->isSelfInspection() ? '' : 'KRW');
-        // 매도비 기본값 = 기존 고정값(대부분 그대로라 미리 채워 입력을 줄인다 — 2026-08-10 Jin).
-        $this->selling_fee = (string) ($l->selling_fee ?? (int) config('board.sales_fee'));
+        // 🚫 매도비 자동 채움 폐지(2026-09-11 Jin — 2026-08-10 의 "미리 채워 입력을 줄인다" 를 뒤집는다).
+        //    매도비가 없는 거래에도 440,000 이 붙어 나갔고, 영업은 그 숫자를 본 적도 없었다.
+        //    **적은 것만 간다** — 비워 두면 ERP 매도비는 0 이다.
+        $this->selling_fee = $l->selling_fee !== null ? (string) $l->selling_fee : null;
         $this->sale_price = $l->sale_price !== null ? (string) (0 + $l->sale_price) : null;
         $this->transport_fee = $l->transport_fee !== null ? (string) (0 + $l->transport_fee) : null;
         // 셀프검차는 환율을 **미리 채우지 않는다** — '1' 이 들어가 있으면 USD 를 골라도 그대로 통과해
@@ -437,11 +441,13 @@ new #[Layout('components.layouts.app')] class extends Component {
         // 차값 — 통화는 등록 시 정해진 `expected_price_currency` 그대로(여기선 금액만 보정).
         $l->car_cost = ($this->car_cost === null || $this->car_cost === '') ? null : (int) $this->car_cost;
         $l->shipping_usd = ($this->shipping_usd === null || $this->shipping_usd === '') ? null : (int) $this->shipping_usd;
+        // 매도비 — **출처 무관 공통**(2026-09-11). 적은 것만 저장하고, 비우면 null(= ERP 로 안 보낸다).
+        //   ⚠️ 예전엔 이 줄이 셀프검차 분기 안에만 있어서 다른 출처는 칸을 만들어도 값이 안 남았다.
+        $l->selling_fee = ($this->selling_fee === null || $this->selling_fee === '') ? null : (int) $this->selling_fee;
 
         if ($l->isSelfInspection()) {
             // 셀프검차매입 — 견적 씬이 없어 파생계산의 근거가 없다. 적은 값을 그대로 쓴다.
-            // 차값·매도비 = 항상 KRW. 판매가·환율·운임비 = 선택한 견적통화 기준.
-            $l->selling_fee = ($this->selling_fee === null || $this->selling_fee === '') ? null : (int) $this->selling_fee;
+            // 차값 = 항상 KRW. 판매가·환율·운임비 = 선택한 견적통화 기준.(매도비는 위에서 공통 저장)
             $l->sale_price = ($this->sale_price === null || $this->sale_price === '') ? null : (float) $this->sale_price;
             $l->transport_fee = ($this->transport_fee === null || $this->transport_fee === '') ? null : (float) $this->transport_fee;
             $l->shipping_usd = null;   // 셀프검차는 USD 선택형을 안 쓴다 — 두 값이 같이 있으면 어느 게 진짜인지 갈린다
@@ -771,14 +777,19 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 @error('car_cost') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
                             </div>
 
-                            {{-- 셀프검차매입 = 매도비·판매가·환율·운임비를 직접 적는다(견적 씬이 없어 파생계산의 근거가 없다).
+                            {{-- 매도비 — **출처 무관 공통 칸**(2026-09-11 Jin). 예전엔 셀프검차에만 있었고 나머지는
+                                 고정값이 자동으로 실려 나갔다. 이제 적은 것만 간다(비우면 ERP 매도비 0).
+                                 🚨 **구매확정 전에** 넣어야 한다 — ERP 는 멱등 재전송에서 매도비를 갱신하지 않는다
+                                    (fill-if-empty 대상이 아니다, §12). 나중에 고치려면 ERP 화면에서. --}}
+                            <div>
+                                <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.selling_fee') }} <span class="text-gray-400">({{ __('common.won_currency') }})</span></label>
+                                <input type="number" min="0" class="input-base" wire:model="selling_fee" placeholder="{{ __('auction.selling_fee_ph') }}">
+                                @error('selling_fee') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                            </div>
+
+                            {{-- 셀프검차매입 = 판매가·환율·운임비도 직접 적는다(견적 씬이 없어 파생계산의 근거가 없다).
                                  그 외 출처 = 기존 견적 공식(할인율·차감액·배송 선택). --}}
                             @if ($d->isSelfInspection())
-                                <div>
-                                    <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.selling_fee') }} <span class="text-gray-400">({{ __('common.won_currency') }})</span></label>
-                                    <input type="number" min="0" class="input-base" wire:model="selling_fee">
-                                    @error('selling_fee') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
-                                </div>
                                 {{-- 아래 셋은 견적통화 기준 — 라벨에 통화를 안 붙인다(단일 표시 = 견적통화 pill).
                                      재고매입(바이어 미정)이면 통째로 감춘다 — 팔 상대가 없어 판매가가 아직 없는 게 정상이다. --}}
                                 @if (! $buyerUndecided)

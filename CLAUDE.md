@@ -200,7 +200,7 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
 
 ## 현재 도메인 규칙 (§6 재설계 반영 — 코딩 시 준수)
 
-- **금액 (Model A)**: 매입 = **원가**, 판매 = **매도비 제외**, 차감액 별도 컬럼. 매도비 = `config('board.sales_fee')`. 상세 = [board-flow-model-a-deployed / board-amount-mapping].
+- **금액 (Model A)**: 매입 = **원가**, 판매 = **매도비 제외**, 차감액 별도 컬럼. **매도비 = 수기 입력만**(`/auction` 드로어, 출처 무관 공통 칸 — 2026-09-11 Jin). 안 적으면 **안 보낸다**(ERP 매도비 0). 🚫 고정값 자동 기입(`config('board.sales_fee')` 440,000) 폐지. 상세 = [board-flow-model-a-deployed / board-amount-mapping].
 - **차값 통화**: 엔카 = KRW, 싼카 = 원/미/유로 토글 택1을 `car_cost` 에 **외화 그대로** 보관(`expected_price_currency`). KRW 환산은 **계산 시에만** — 단일 경로 `App\Support\Money::toKrw()` ↔ 모델 `carCostKrw/carPriceKrw/totalKrw`. **매물표시가 토글 = 차값 선택 / `displayCurrency` = 표시만**(차값 불변). `expected_price` 컬럼은 **재활용·리네임 금지**. final_price = KRW 스냅샷(연동 B 무변).
 - **환율**: board 가 car-erp `/rates`(네이버 전신환매입률) 받아씀 — 값 일치. [board-exchange-rate-source]
 - **입금정보**: `payee_name·payee_bank·payee_account`(**`payee_account` = `encrypted` 캐스트**). 입력 = `/listings`(영업 선택) → `/auction` 드로어 자동표시 → 연동 B 로 car-erp 전달. 은행 datalist + 계좌 동적 마스킹(`Alpine.store('koreanBanks')`).

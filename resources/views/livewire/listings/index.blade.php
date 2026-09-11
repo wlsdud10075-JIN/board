@@ -174,7 +174,13 @@ new #[Layout('components.layouts.app')] class extends Component {
         };
     }
 
-    /** 차량금액(KRW) = 차값(통화 KRW환산) − (×할인율%) + 매도비(고정). $cur=차값 통화(엔카=KRW). */
+    /**
+     * 차량금액(KRW) = 차값(통화 KRW환산) − (×할인율%). $cur=차값 통화(엔카=KRW).
+     *
+     * 🚨 예전엔 여기서 **고정 매도비 440,000 을 더해** 보여줬는데, 저장되는 `final_price`(모델 `totalKrw()`)
+     *    에는 매도비가 없다 — **화면 숫자와 원장 숫자가 매도비만큼 달랐다**(2026-09-11 발견).
+     *    Model A 기준으로 판매가는 매도비 제외(회사 부담)가 맞으므로 **화면을 원장에 맞춘다**.
+     */
     public function calcCarPrice($cost, $rate, string $cur = 'KRW'): ?int
     {
         $krw = \App\Support\Money::toKrw($cost, $cur, $this->usdRate(), $this->eurRate());
@@ -183,7 +189,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
         $discount = (int) round($krw * ((float) $rate / 100));
 
-        return $krw - $discount + (int) config('board.sales_fee');
+        return $krw - $discount;
     }
 
     /** 최종금액(KRW) = 차량금액 + 배송(USD→KRW, 임시환율). */

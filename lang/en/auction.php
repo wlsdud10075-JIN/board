@@ -35,6 +35,7 @@ return [
     'quote_currency' => 'Quote currency',
     // Self-inspected purchases (2026-08-10) — no quote scene, so nothing to derive these from.
     'selling_fee' => 'Selling fee',
+    'selling_fee_ph' => 'Leave empty if none',
     'sale_price' => 'Sale price',
     'offer_rate' => 'Exchange rate',
     'transport_fee' => 'Freight',

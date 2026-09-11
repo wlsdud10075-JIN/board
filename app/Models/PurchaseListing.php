@@ -86,16 +86,16 @@ class PurchaseListing extends Model
      * 입력 없으면 null.
      */
     /**
-     * 매도비(KRW) — 입력값 우선, 없으면 기존 고정값(`config('board.sales_fee')`).
-     * 차값이 없으면 null(= 안 보냄) — 기존 Job 동작 유지.
+     * 매도비(KRW) — **사람이 적은 값만**. 안 적었으면 null(= ERP 로 안 보냄).
+     *
+     * 🚫 예전엔 안 적으면 고정값 440,000(`config('board.sales_fee')`)을 **차값 있는 모든 차에** 실어 보냈다
+     *    (2026-09-11 Jin 폐지). 매도비가 없는 거래에도 붙어 나갔고, 영업은 그 숫자를 본 적이 없다.
+     * ⚠️ `$krwPerUsd`·`$krwPerEur` 는 이제 안 쓰지만 **시그니처는 유지**한다 — 호출부가 여럿이고
+     *    매도비는 언제나 KRW 입력이라 환산이 필요 없다.
      */
     public function sellingFeeKrw(?int $krwPerUsd = null, ?int $krwPerEur = null): ?int
     {
-        if ($this->selling_fee !== null) {
-            return (int) $this->selling_fee;
-        }
-
-        return $this->carCostKrw($krwPerUsd, $krwPerEur) !== null ? (int) config('board.sales_fee') : null;
+        return $this->selling_fee !== null ? (int) $this->selling_fee : null;
     }
 
     /**

@@ -35,6 +35,7 @@ return [
     'quote_currency' => '견적 통화',
     // 셀프검차매입 전용 금액칸 (2026-08-10) — 검차·견적 씬이 없어 파생계산의 근거가 없다.
     'selling_fee' => '매도비',
+    'selling_fee_ph' => '없으면 비워 두세요',
     'sale_price' => '판매가',
     'offer_rate' => '환율',
     'transport_fee' => '운임비',
