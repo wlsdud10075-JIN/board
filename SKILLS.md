@@ -649,3 +649,29 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
   아무것도 없다. 카드가 **스스로 받아온다**(`wire:poll.3s="refreshSyncResult"`, pending 일 때만).
   ⚠️ `openEdit` 은 `closeEdit` 을 안 거치는 경로가 있다(행을 바로 클릭) — 결과 3종(`resyncResult`·
   `attachResult`·`syncSince`)을 **거기서도 비워야** 앞 차의 카드가 다음 차 드로어에 안 남는다.
+
+### 14-17. 매입예정 목록 — 상태 탭 + 페이지네이션 (2026-09-11 Jin)
+
+`/listings` 는 `PurchaseListing::with('creator')->latest()->get()` 으로 **전량**을 읽고 있었다.
+`synced`(ERP 전환완료)는 **영원히 쌓이기만 하는 통**이라 그대로 두면 랜딩이 매년 느려진다 —
+100건에선 안 보이고 1000건에서 드러나는 종류다(`/manage` 는 2026-06 부터 페이지네이션이 있었다).
+
+- **탭 = 상태 묶음**(`PurchaseListing::TAB_STATUSES`) — 전체·진행중·현지확인대기·검차완료·회신대기·수락·
+  낙찰/확정·ERP전환완료·종료(거절+유찰). **기본 = 「진행중」**(draft…won) — 손이 가야 하는 차만 랜딩에 싣는다.
+- 🚨 **TAB_STATUSES 에 없는 상태는 「전체」 탭에서만 보인다.** 상태를 새로 만들면 반드시 한 탭에 넣을 것 —
+  안 넣으면 그 차들이 목록에서 조용히 사라진다(영업은 전체 탭을 잘 안 본다).
+  가드 = `test_every_status_belongs_to_a_tab`(TAB_STATUSES 합집합 == STATUSES).
+- **탭 배지 숫자 = 쿼리 1번**(`selectRaw('status, count(*)')->groupBy('status')`). 탭마다 COUNT 를 돌리지 말 것.
+  SalesmanScope 가 그대로 걸려 **영업은 본인 것만** 세어진다(= 목록과 같은 모수).
+  ⚠️ 등록·삭제·수정 뒤엔 **`unset($this->listings, $this->tabCounts)`** — 목록만 비우면 배지가 굳는다
+  (가드 = `test_tab_counts_refresh_after_delete`).
+- **페이지당 건수** = 10/20/30/50/100 + **「건수만」(0)**. car-erp 차량관리와 같은 규칙·같은 수법 —
+  건수만 모드는 **빈 `LengthAwarePaginator` 에 total 만** 실어 돌려주므로 `total()`·`links()` 를 쓰는 뷰가
+  그대로 동작하고, 행을 안 불러와 eager load 와 행별 계산이 통째로 빠진다.
+  ⚠️ `#[Url]` 이라 `?perPage=7` 처럼 아무 값이나 들어온다 → **화이트리스트 밖이면 10 으로 되돌린다**
+  (`updatedPerPage()` + `listings()` 양쪽 — URL 로 바로 들어오면 `updated*` 훅이 안 도는 경로가 있다).
+- ⚠️ 탭 전환·건수 변경은 **반드시 `resetPage()`** — 3페이지를 보다 탭을 바꾸면 빈 페이지가 뜬다.
+- ⚠️ 모바일 탭줄은 **가로 스크롤 칩**(`overflow-x-auto whitespace-nowrap`). 줄바꿈시키면 탭이 3줄이 되어
+  목록이 화면 밖으로 밀린다.
+- **인덱스는 이미 있다** — `status`(최초 마이그) · `created_at`(2026-06-15 manage 필터용). 추가 마이그 불필요.
+- ℹ️ 구매확정한 차는 「진행중」에서 빠져 「ERP 전환완료」로 간다 — 사라진 게 아니다(탭 배지가 그걸 보여준다).

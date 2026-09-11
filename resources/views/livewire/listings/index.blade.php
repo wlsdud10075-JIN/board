@@ -11,11 +11,46 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
 use Livewire\WithFileUploads;
+use Livewire\WithPagination;
 
 new #[Layout('components.layouts.app')] class extends Component {
-    use WithFileUploads;
+    use WithFileUploads, WithPagination;
+
+    // ─────── 목록 탭 + 페이지네이션 (2026-09-11 Jin) ───────
+    // 예전엔 `latest()->get()` 으로 **전량**을 읽었다. synced(ERP 전환완료)는 영원히 쌓이기만 하는 통이라
+    // 그대로 두면 랜딩이 매년 느려진다. 기본 탭 = 「진행중」(아직 손이 가야 하는 차만).
+
+    /** 목록 탭 — `PurchaseListing::TAB_STATUSES` 의 키(또는 'all'). */
+    #[Url]
+    public string $tab = 'active';
+
+    /** 페이지당 건수. 0 = 「건수만」(행을 안 그린다 — car-erp 차량관리와 같은 규칙). */
+    #[Url]
+    public int $perPage = 10;
+
+    public const PER_PAGE_COUNT_ONLY = 0;
+
+    public const PER_PAGE_OPTIONS = [self::PER_PAGE_COUNT_ONLY, 10, 20, 30, 50, 100];
+
+    public function setTab(string $tab): void
+    {
+        $this->tab = ($tab === 'all' || array_key_exists($tab, PurchaseListing::TAB_STATUSES)) ? $tab : 'all';
+        unset($this->listings);
+        $this->resetPage();
+    }
+
+    /** ⚠️ `#[Url]` 이라 `?perPage=` 로 아무 값이나 들어온다 — 화이트리스트 밖이면 되돌린다. */
+    public function updatedPerPage(): void
+    {
+        if (! in_array($this->perPage, self::PER_PAGE_OPTIONS, true)) {
+            $this->perPage = 10;
+        }
+        unset($this->listings);
+        $this->resetPage();
+    }
 
     public bool $showAdd = false;
 
@@ -161,10 +196,51 @@ new #[Layout('components.layouts.app')] class extends Component {
         return $car + $shipKrw;
     }
 
+    /** 현재 탭의 상태 필터를 건 쿼리(정렬 전). 카운트와 목록이 **같은 조건**을 보게 하는 단일 지점. */
+    private function tabQuery()
+    {
+        $statuses = PurchaseListing::TAB_STATUSES[$this->tab] ?? null;
+
+        return PurchaseListing::query()
+            ->when($statuses !== null, fn ($q) => $q->whereIn('status', $statuses));
+    }
+
     #[Computed]
     public function listings()
     {
-        return PurchaseListing::with('creator')->latest()->get();
+        if (! in_array($this->perPage, self::PER_PAGE_OPTIONS, true)) {
+            $this->perPage = 10;
+        }
+
+        // 「건수만」 — 행을 안 불러오면 creator eager load 와 행마다 도는 금액 계산이 통째로 빠진다.
+        //   빈 paginator 를 돌려주므로 total()·links() 를 쓰는 뷰가 그대로 동작한다(car-erp 와 같은 수법).
+        if ($this->perPage === self::PER_PAGE_COUNT_ONLY) {
+            return new \Illuminate\Pagination\LengthAwarePaginator(
+                [], $this->tabQuery()->count(), 10, 1, ['path' => request()->url()]
+            );
+        }
+
+        return $this->tabQuery()->with('creator')->latest()->paginate($this->perPage);
+    }
+
+    /**
+     * 탭별 건수 — **쿼리 1번**(상태별 group by)으로 낸다. 탭마다 COUNT 를 돌리지 말 것.
+     * SalesmanScope 가 그대로 걸리므로 영업은 본인 것만 세어진다(= 목록과 같은 모수).
+     */
+    #[Computed]
+    public function tabCounts(): array
+    {
+        $byStatus = PurchaseListing::query()
+            ->selectRaw('status, count(*) as c')
+            ->groupBy('status')
+            ->pluck('c', 'status');
+
+        $out = ['all' => (int) $byStatus->sum()];
+        foreach (PurchaseListing::TAB_STATUSES as $tab => $statuses) {
+            $out[$tab] = (int) collect($statuses)->sum(fn ($st) => (int) ($byStatus[$st] ?? 0));
+        }
+
+        return $out;
     }
 
     #[Computed]
@@ -260,7 +336,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $vehicle = $l->vehicle_number;
         $l->delete();
 
-        unset($this->listings);
+        unset($this->listings, $this->tabCounts);
         session()->flash('ok', __('listings.drawer.deleted_flash', ['number' => $vehicle]));
         $this->closeEdit();
     }
@@ -539,7 +615,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->save();
         $this->storeSalesFiles($l, $this->eSalesFiles);
 
-        unset($this->listings);
+        unset($this->listings, $this->tabCounts);
         session()->flash('ok', __('listings.drawer.updated_flash', ['number' => $l->vehicle_number]));
         $this->closeEdit();
     }
@@ -801,7 +877,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $this->resetForm();
         $this->showAdd = false;
-        unset($this->listings);
+        unset($this->listings, $this->tabCounts);
 
         // 셀프검차매입은 저장 즉시 경매/구매 탭에서 마무리한다 — 화면까지 데려다 준다.
         if ($selfInspection) {
@@ -971,8 +1047,28 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     <div class="card">
         <div class="mb-3 flex items-center justify-between">
-            <h2 class="font-bold text-gray-800">{{ __('listings.list.heading') }} <span class="text-gray-400">· {{ __('listings.list.count', ['count' => $this->listings->count()]) }}</span></h2>
+            <h2 class="font-bold text-gray-800">{{ __('listings.list.heading') }} <span class="text-gray-400">· {{ __('listings.list.count', ['count' => $this->listings->total()]) }}</span></h2>
             <button class="btn-primary" wire:click="toggleAdd">{{ __('listings.list.add') }}</button>
+        </div>
+
+        {{-- 상태 탭 + 페이지당 건수 (2026-09-11) — 예전엔 전량을 읽어 그렸다. synced 는 영원히 쌓이는 통이라
+             기본 탭은 「진행중」. ⚠️ 모바일은 줄바꿈 대신 **가로 스크롤 칩**(줄바꿈하면 표가 아래로 밀린다). --}}
+        <div class="mb-3 flex items-center justify-between gap-2">
+            <div class="-mx-1 flex gap-1 overflow-x-auto whitespace-nowrap px-1 pb-1">
+                @foreach (\App\Models\PurchaseListing::TABS as $t)
+                    <button type="button" wire:click="setTab('{{ $t }}')"
+                        class="shrink-0 rounded-md border px-2.5 py-1 text-[12px] font-semibold {{ $tab === $t ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">
+                        {{ __('listings.tabs.'.$t) }}
+                        <span class="{{ $tab === $t ? 'text-white/80' : 'text-gray-400' }}">{{ $this->tabCounts[$t] ?? 0 }}</span>
+                    </button>
+                @endforeach
+            </div>
+            <select wire:model.live="perPage" class="input-filter shrink-0 text-[12px]">
+                @foreach ([10, 20, 30, 50, 100] as $n)
+                    <option value="{{ $n }}">{{ __('listings.list.per_page', ['count' => $n]) }}</option>
+                @endforeach
+                <option value="0">{{ __('listings.list.count_only') }}</option>
+            </select>
         </div>
 
         {{-- 추가 폼 --}}
@@ -1100,6 +1196,10 @@ new #[Layout('components.layouts.app')] class extends Component {
             </div>
         @endif
 
+        @if ($perPage === 0)
+            {{-- 「건수만」 — 행을 안 불러온다. 빈 목록의 「없습니다」와 구분되게 문구를 따로 준다. --}}
+            <div class="py-8 text-center text-[13px] text-gray-500">{{ __('listings.list.count_only_hint', ['count' => $this->listings->total()]) }}</div>
+        @else
         {{-- 리스트 (데스크톱: 표) --}}
         <div class="hidden overflow-x-auto sm:block">
             <table class="tbl">
@@ -1152,6 +1252,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <div class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</div>
             @endforelse
         </div>
+        <div class="mt-3">{{ $this->listings->links() }}</div>
+        @endif
         <p class="mt-2 text-xs text-gray-400">{{ __('listings.list.row_hint') }}</p>
     </div>
 

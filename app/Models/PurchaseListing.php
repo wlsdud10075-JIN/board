@@ -217,6 +217,28 @@ class PurchaseListing extends Model
         'draft', 'inspected', 'awaiting_buyer', 'accepted', 'rejected', 'won', 'failed', 'synced',
     ];
 
+    /**
+     * 매입예정 목록 탭 (2026-09-11 Jin) — 상태를 묶어 **한 번에 한 덩어리만** 읽는다.
+     * 예전엔 `latest()->get()` 으로 전량을 읽었다. `synced`(ERP 전환완료)는 **영원히 쌓이기만 하는** 통이라
+     * 그대로 두면 랜딩이 매년 느려진다.
+     *
+     * 🚨 **여기 없는 상태는 「전체」 탭에서만 보인다** — 상태를 새로 만들면 반드시 한 탭에 넣을 것.
+     *    가드 = `test_every_status_belongs_to_a_tab`.
+     */
+    public const TAB_STATUSES = [
+        'active' => ['draft', 'inspected', 'awaiting_buyer', 'accepted', 'won'],   // 진행중(기본)
+        'draft' => ['draft'],
+        'inspected' => ['inspected'],
+        'awaiting_buyer' => ['awaiting_buyer'],
+        'accepted' => ['accepted'],
+        'won' => ['won'],
+        'synced' => ['synced'],
+        'closed' => ['rejected', 'failed'],   // 종료 = 거절 + 유찰/취소
+    ];
+
+    /** 탭 순서 — 「전체」는 상태 필터가 없어 TAB_STATUSES 에 없다(맨 앞 고정). 라벨은 `listings.tabs.*`. */
+    public const TABS = ['all', 'active', 'draft', 'inspected', 'awaiting_buyer', 'accepted', 'won', 'synced', 'closed'];
+
     /** 드롭다운/필터용 정적 라벨(출처 무관 통합). 출처별 표기는 statusLabel() 사용. */
     public const STATUS_LABELS = [
         'draft' => '현지확인 대기',

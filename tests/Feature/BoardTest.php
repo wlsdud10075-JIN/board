@@ -212,6 +212,108 @@ class BoardTest extends TestCase
     }
 
     /**
+     * 🚨 **여기 없는 상태는 「전체」 탭에서만 보인다.** 상태를 새로 만들고 탭에 안 넣으면
+     * 그 차들이 목록에서 조용히 사라진다(영업은 전체 탭을 잘 안 본다).
+     */
+    public function test_every_status_belongs_to_a_tab(): void
+    {
+        $covered = array_unique(array_merge(...array_values(PurchaseListing::TAB_STATUSES)));
+        sort($covered);
+        $all = PurchaseListing::STATUSES;
+        sort($all);
+
+        $this->assertSame($all, $covered);
+    }
+
+    /** 탭 = 상태 묶음. 기본은 「진행중」이라 ERP 전환완료(synced)가 랜딩에 안 실린다. */
+    public function test_listing_tabs_filter_rows_and_default_is_active(): void
+    {
+        $kim = $this->mkUser('sales');
+        $draft = $this->mkListing($kim, ['status' => 'draft']);
+        $synced = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 1]);
+        $this->actingAs($kim);
+
+        $c = Volt::test('listings.index');
+        $this->assertSame('active', $c->get('tab'));
+        $c->assertSee($draft->vehicle_number)->assertDontSee($synced->vehicle_number);
+
+        $c->call('setTab', 'synced')->assertSee($synced->vehicle_number)->assertDontSee($draft->vehicle_number);
+        $c->call('setTab', 'all')->assertSee($draft->vehicle_number)->assertSee($synced->vehicle_number);
+
+        // 모르는 탭 값은 전체로 떨어뜨린다(?tab= 으로 아무거나 들어온다).
+        $c->call('setTab', 'nope');
+        $this->assertSame('all', $c->get('tab'));
+    }
+
+    /** 탭 건수 = 목록과 **같은 모수**(SalesmanScope 포함). 쿼리는 1번(상태별 group by). */
+    public function test_tab_counts_match_the_rows_each_tab_shows(): void
+    {
+        $kim = $this->mkUser('sales');
+        $lee = $this->mkUser('sales');
+        $this->mkListing($kim, ['status' => 'draft']);
+        $this->mkListing($kim, ['status' => 'won']);
+        $this->mkListing($kim, ['status' => 'rejected']);
+        $this->mkListing($lee, ['status' => 'draft']);   // 남의 차 — 영업 화면에서는 안 세어져야 한다
+        $this->actingAs($kim);
+
+        $counts = Volt::test('listings.index')->get('tabCounts');
+
+        $this->assertSame(3, $counts['all']);
+        $this->assertSame(2, $counts['active']);    // draft + won
+        $this->assertSame(1, $counts['draft']);
+        $this->assertSame(1, $counts['closed']);    // rejected
+        $this->assertSame(0, $counts['synced']);
+    }
+
+    /**
+     * 등록·삭제하면 **탭 배지 숫자도 같이** 바뀌어야 한다 — 목록만 무효화하면 숫자가 굳은 채로 남는다.
+     */
+    public function test_tab_counts_refresh_after_delete(): void
+    {
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'draft']);
+        $this->actingAs($kim);
+
+        $c = Volt::test('listings.index')->call('openEdit', $l->id);
+        $this->assertSame(1, $c->get('tabCounts')['draft']);
+
+        $c->call('deleteListing');   // 드로어에서 연 매물(editingId)을 지운다
+        $this->assertSame(0, $c->get('tabCounts')['draft']);
+    }
+
+    /** 페이지당 건수 — 화이트리스트 밖(`?perPage=` 로 아무 값)이면 10 으로 되돌린다. */
+    public function test_per_page_is_whitelisted_and_paginates(): void
+    {
+        $kim = $this->mkUser('sales');
+        for ($i = 0; $i < 12; $i++) {
+            $this->mkListing($kim, ['status' => 'draft']);
+        }
+        $this->actingAs($kim);
+
+        $c = Volt::test('listings.index');
+        $this->assertSame(10, $c->get('listings')->count());   // 기본 10건
+
+        $c->set('perPage', 20);
+        $this->assertSame(12, $c->get('listings')->count());
+
+        $c->set('perPage', 7);                                  // 화이트리스트 밖
+        $this->assertSame(10, $c->get('perPage'));
+    }
+
+    /** 「건수만」 = 행을 아예 안 불러온다(총계만). 빈 목록의 「없습니다」와 다른 문구로 말한다. */
+    public function test_count_only_mode_renders_total_without_rows(): void
+    {
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'draft']);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')
+            ->set('perPage', 0)
+            ->assertSee(__('listings.list.count_only_hint', ['count' => 1]))
+            ->assertDontSee($l->vehicle_number);
+    }
+
+    /**
      * ERP 로 넘어간 차에 **사진을 나중에 추가**한다(2026-09-11 Jin) — 딜러가 늦게 준 사진의 자리.
      * 올리는 화면(`/auction`)은 synced 를 안 다뤄서, 전 상태를 여는 이 드로어가 유일한 자리다.
      */

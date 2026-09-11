@@ -46,6 +46,9 @@ return [
         'add' => '+ Add purchase',
         'empty' => 'No purchases yet. Use “+ Add purchase” to register one.',
         'row_hint' => '💡 Click a row to view and edit (except time-locked auction vehicles).',
+        'per_page' => ':count per page',
+        'count_only' => 'Count only',
+        'count_only_hint' => ':count listing(s) match. (Pick a page size to see them)',
     ],
 
     // Table headers
@@ -187,6 +190,19 @@ return [
     ],
 
     // Attachments
+    // List tabs (2026-09-11) — statuses grouped so only one bucket is read at a time. Default = in progress.
+    'tabs' => [
+        'all' => 'All',
+        'active' => 'In progress',
+        'draft' => 'Awaiting inspection',
+        'inspected' => 'Inspected',
+        'awaiting_buyer' => 'Awaiting reply',
+        'accepted' => 'Accepted',
+        'won' => 'Won/confirmed',
+        'synced' => 'Synced to ERP',
+        'closed' => 'Closed',
+    ],
+
     'attach' => [
         'add_label' => 'Vehicle attachments',
         'add_hint' => '(photos · documents · Excel etc. · up to :max · auto-registered to car-erp on win)',
