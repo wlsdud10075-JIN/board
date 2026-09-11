@@ -1071,7 +1071,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     </button>
                 @endforeach
             </div>
-            <select wire:model.live="perPage" class="input-base w-auto shrink-0 text-[12px]">
+            <select wire:model.live="perPage" class="input-filter shrink-0">
                 @foreach ([10, 20, 30, 50, 100] as $n)
                     <option value="{{ $n }}">{{ __('listings.list.per_page', ['count' => $n]) }}</option>
                 @endforeach
