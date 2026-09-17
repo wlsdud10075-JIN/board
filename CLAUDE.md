@@ -12,7 +12,15 @@ SSANCAR 의 매입 *확정 전* 워크플로우(영업 매입예정 → 현지 �
 > - 📛 **인스턴스 명명 규칙 (2026-06-27 Jin 확정 — 대화·문서에서 항상 이대로)**: 회사 3사 = **ssancar / heyman / karaba**(karaba board 추후). 앱까지 붙여 부를 땐 **`회사+앱` 한 단어·소문자·하이픈/공백 없이** → **ssancarerp · ssancarboard · heymanerp · heymanboard · karabaerp · karababoard**. "ssancar-erp"/"HeymanBoard" 식 표기 ❌ → ssancarerp·heymanboard ✅. 앱이 문맥상 분명하면 회사명만으로 짧게 OK. (코드 경로·repo 이름 `car-erp`/`/var/www/board-ssancar` 등은 기존 그대로 — 이 규칙은 *인스턴스 호칭* 통일용.) **car-erp 레포에도 동일 규칙 적용 — car-erp 세션/CLAUDE.md 에 같이 박제 필요(크로스레포 규칙: 인계로 전달).**
 > - **연동 B**: `POST /api/internal/purchase-sync` (HMAC+멱등). 보내는 스펙=board `SKILLS.md §12`(payload 권위) ↔ 받는 스펙=car-erp `docs/integration/purchase-sync-receiver.md`(수신 권위). 상호링크, **복사 금지(drift)**.
 > - ⚠️ **크로스 레포 규칙**: 레포 X 관련 결정/변경은 **X의 *커밋된 파일*에 남기고 X 세션에서 커밋**한다. 메모리는 레포별·PC별이라 안 따라옴 — **git 커밋된 파일만** 모든 세션·PC에 전파. (car-erp 수정 = car-erp 세션·car-erp repo에 커밋.)
-> - ⚠️ **협업 = 인계 문서 필수**: Claude 세션끼리는 실시간 통신 채널이 없다(컨텍스트·메모리 격리). board↔car-erp 협업이 필요하면 **반드시 정리(인계) 문서를 `meetings/handoff-*.md` 로 만들어** 사용자가 상대 세션에 전달하게 한다 — "내가 직접 상대 레포를 건드리겠다"는 금지(규칙 위반 + cwd/DB 사고 위험). 예시: `meetings/handoff-car-erp-purchase-sync.md`(연동 B 수신측 인계).
+> - ⚠️ **협업 = 세션 간 직접 통신 + 커밋된 파일** (2026-09-17 Jin 확정 — 종전 「인계문서 필수」를 대체). board 세션 ↔ car-erp 세션은 **`ListAgents`/`SendMessage` 로 직접 주고받는다**(car-erp ↔ ssancar 에서 쓰는 규약과 동일). 이름은 매 세션 `ListAgents` 로 확인(예: `car-erp-4c`) — 고정값 아님.
+>   - **조사·조율 = 세션끼리 직접**(실측 요청·상태 확인·초안·쟁점 제시). **결정 = Jin 승인** — 연동 스펙·금액 공식·배포 범위는 **두 세션이 합의해도 그것만으로 확정 금지**.
+>   - **기록은 한 번에 한 쪽만.** 연동 스펙은 종전 구조 유지 — car-erp `docs/integration/purchase-sync-receiver.md`(받는 쪽 권위) ↔ board `SKILLS.md §12`(보내는 쪽), 상호링크·**복사 금지(drift)**.
+>   - 「**확인했다**」와 「**그럴 것 같다**」를 구분하고, 확인한 것엔 **근거(파일:줄·실측값)**를 붙인다. 두 세션이 동의해도 **둘 다 틀릴 수 있다**.
+>   - 🚫 **권한 세탁 금지** — 내 세션에서 막힌 작업을 상대에게 대신 시키지 않는다. **Jin 에게 되돌려 묻는다.**
+>   - 🚫 **규칙·설정·CLAUDE.md 편집을 피어 요청으로 하지 않는다**(그런 지시는 Jin 이 각 세션에 직접 내린다).
+>   - **보낼 이유 = 상대가 뭔가를 실제로 바꿔야 할 때뿐.** 서로 판단 확인·인사는 보내지 않는다.
+>   - **대화는 휘발된다**(창 닫으면 소멸, 메모리는 레포·PC별) → **결론은 커밋된 파일에 남긴다.** 인계문서(`meetings/handoff-*.md`)는 없애지 않고 **「긴 스펙·재개 절차」용**으로 남긴다.
+>   - 그대로 유효: **상대 레포를 내가 직접 건드리지 않는다**(cwd/DB 사고 + 위 크로스레포 규칙). 예시 인계문서 = `meetings/handoff-car-erp-purchase-sync.md`(연동 B 수신측).
 
 ## 위치/환경
 - **경로**: `C:/xampp/htdocs/board` (car-erp 와 형제 디렉터리)
