@@ -46,6 +46,8 @@ return [
     'req_purchase_btn' => '입금요청',
     'req_deposit_btn' => '계약금',
     'req_balance_btn' => '매입잔금',
+    // 대표에게만·시각 규칙 무관하게 가는 계약금(2026-09-17). 라벨을 「계약금」과 섞지 말 것 — 같은 행에 나란히 붙는다.
+    'req_deposit_ceo_btn' => '대표계약금',
     'req_amount_ph' => '금액(원)',
     'req_amount_required' => '보낼 금액을 입력하세요 — 금액 없이는 요청할 수 없습니다.',
     'req_sale_btn' => '판매대금확인',

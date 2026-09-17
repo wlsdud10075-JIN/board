@@ -29,13 +29,26 @@ class CarErpReadService
 
     public const REQ_PURCHASE_BALANCE = 'purchase_balance';
 
+    /**
+     * 대표 계약금 — **시각 규칙을 타지 않고 대표에게만** 가는 계약금 요청(2026-09-17 Jin).
+     * 담당자가 자리를 비우면(휴가·외근) 평시 시각 규칙상 담당자 1~2명에게만 알림톡이 가고,
+     * 그걸 누가 봤는지 사람이 계속 확인해 줘야 했다. 그 확인을 없애려고 **수신자가 고정된 별도 신호**를 둔다.
+     *
+     * ⚠️ 기존 `purchase_deposit` 과 **별개 type** 이다(같은 이유 — ERP 멱등키 `(vehicle_id, type)`).
+     *    같은 차에 일반 계약금 open + 대표 계약금 open 이 **동시에 성립**한다. 의도된 것이고,
+     *    board 가 칩을 보고 서로 막지 않는다(상태 재계산 금지 §11-4 항목 4).
+     * ⚠️ **시각 판정은 board 가 하지 않는다** — "지금이 근무시간 밖" 같은 힌트를 실어 보내지 않는다.
+     *    라우팅(대표 고정)·뱃지(「대표계약금」)는 전부 ERP 가 type 하나로 분기한다.
+     */
+    public const REQ_PURCHASE_DEPOSIT_CEO = 'purchase_deposit_ceo';
+
     public const REQ_SALE_CONFIRM = 'sale_payment_confirm';
 
     /** 구 단일 입금요청 — 신규 생성은 안 하지만 **기존 open 행의 칩은 계속 그려야 한다**(요청 이력이 사라지면 재요청을 부른다). */
     public const REQ_PURCHASE_LEGACY = 'purchase_payment';
 
-    /** 금액을 싣는 type(= 매입 2종). 판매대금확인은 금액 없음. */
-    public const PURCHASE_REQUEST_TYPES = [self::REQ_PURCHASE_DEPOSIT, self::REQ_PURCHASE_BALANCE];
+    /** 금액을 싣는 type(= 매입 3종). 판매대금확인은 금액 없음. */
+    public const PURCHASE_REQUEST_TYPES = [self::REQ_PURCHASE_DEPOSIT, self::REQ_PURCHASE_BALANCE, self::REQ_PURCHASE_DEPOSIT_CEO];
 
     /** 계약 prefix(canonical PATH 에 그대로 들어감). */
     private const PREFIX = '/api/internal/board';
@@ -298,6 +311,7 @@ class CarErpReadService
      * §11 요청·확인 신호 — 카톡으로 하던 "해주세요" 두 마디를 옮긴 것.
      *   purchase_deposit      = "이 차 계약금 N원 보내주세요"   (차량 1대 단위)
      *   purchase_balance      = "이 차 잔금 N원 보내주세요"     (차량 1대 단위)
+     *   purchase_deposit_ceo  = "이 차 계약금 N원 보내주세요 — 대표에게, 시각 규칙 무시" (차량 1대 단위)
      *   sale_payment_confirm  = "이 바이어 차 N대 확인해주세요" (바이어 1 + 차량 N = 한 묶음, buyer_id 필수)
      *
      * 💰 **금액은 매입 2종에만 싣는다**(2026-08-11 Jin — §11-2 개정). 받는 사람이 얼마를 보낼지 알아야 한다.

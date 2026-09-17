@@ -46,6 +46,7 @@ return [
     'req_purchase_btn' => 'Request payment',
     'req_deposit_btn' => 'Deposit',
     'req_balance_btn' => 'Balance',
+    'req_deposit_ceo_btn' => 'Deposit (CEO)',
     'req_amount_ph' => 'Amount (KRW)',
     'req_amount_required' => 'Enter the amount to send — a request cannot be sent without it.',
     'req_sale_btn' => 'Confirm sale payment',
