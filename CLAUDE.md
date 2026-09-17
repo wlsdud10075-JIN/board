@@ -229,7 +229,9 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
   - 🚨 **배포 순서 = ERP 먼저.** ERP type 검증 목록에 `purchase_deposit_ceo` 가 없으면 버튼이 **422** 만 돌려준다. board master 머지는 ERP 배포 확인 후 Jin 허락받고.
   - ⚠️ **별개 type 이어야 한다** — 멱등키 `(vehicle_id, type)` 이라 플래그로 얹으면 일반 계약금이 open 인 차에서 `already_open` 으로 **조용히 버려진다**(계약금/잔금 분리와 같은 이유). 같은 차에 둘 다 open 이 **정상**이고 board 는 안 막는다.
   - 🚫 **시각 판정은 board 가 하지 않는다**(근무시간 여부 힌트를 payload 에 싣지 않음) — 서버시각 단일 판정은 ERP 몫. 라우팅·「대표계약금」 뱃지는 ERP 가 type 으로 분기.
-  - ❓ 선행조건 = **입금요청 알림톡 실발송 현황**(아래 항목 — 승인·수신자 번호 전까지 실발송 0) + BizM 템플릿에서 계약금/잔금이 변수인지 고정문구인지(고정이면 **프로필 수만큼** 재검수). 인계 = `meetings/handoff-carerp-ceo-deposit-request.md`.
+  - ✅ **선행조건 2건은 해소됐다**(2026-09-17 car-erp 세션 회신, 근거는 그쪽 실측): ① 알림톡은 **이미 실발송 중**(위 항목) ② `erp_board_request` 본문에는 「계약금/잔금」이 **없다** — 본문 변수는 `#{건수}`·`#{요청내역}` 둘뿐이고 신호 종류는 `#{요청내역}` 조립에서 갈린다 ⇒ **BizM 재검수·발신프로필별 재승인 불필요**. (board 가 병목으로 예상했던 지점은 실제로 없었다.)
+  - ⏳ 남은 결정 = **Jin 승인 2건**(car-erp 세션도 같은 건을 올림): ① 대표 수신자를 어디서 읽을지(시각 규칙 fallback 재사용 여부) ② 같은 차에 일반 계약금 + 대표계약금이 동시에 열릴 때 중복 송금을 어떻게 막을지. car-erp 잠정 의견 = 뱃지 병렬만으론 부족, ERP 화면이 「이미 일반 계약금이 열려 있음」을 같은 줄에서 말해야 한다. **board 쪽은 이미 그렇게 되어 있다** — 재고 행에 type 별 칩을 각각 그린다(`resources/views/livewire/portal/_request-purchase-action.blade.php:23-27`).
+  - 긴 스펙·재개 절차 = `meetings/handoff-carerp-ceo-deposit-request.md`(§4-1·§4-2 질문은 위 회신으로 해소됨).
 
 - **포털 요약 「내 정산 월별 상세」 = 승인된 ERP 월배치 미러**: board **dev 구현 완료·운영 미배포**(2026-08-31). car-erp 는 **배포 완료**(master `488e597`, `GET /api/internal/board/payout-batches`, 3사 정상 응답). 요약 탭 월 행을 펼치면 그 달 정산 상세 — 배치 묶음(차량행 + 조정 + `net_payout`) + 배치 밖 지급 행 + 이 달 수령액.
   - 🚨 **배치 밖 지급이 예외가 아니라 본류다.** 배치는 2026-07 에 생긴 개념이라 그 전 정산은 속할 배치가 없고 **영원히 배치 밖**이다(과거 데이터 적재분). car-erp 실측 = **ssancarerp paid 3,815건 전량(100%)이 배치 밖·승인 배치 0건**, heymanerp 65%. ⇒ **그 달 수령액 = Σ`net_payout` + Σ`unbatched_paid`**, 화면에서도 배치 밖을 **기본 형태**로 그린다(각주로 다루면 ssancarboard 는 전부가 각주가 된다). 가드 = `BoardTest::test_monthly_payout_renders_when_there_are_no_batches`.
@@ -248,7 +250,7 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
     ⛔ **board 단독으로는 불가능**(확인 완료) — ① 마진 값이 **어떤 응답에도 안 온다**(§3 차단, board 코드 수신 0건) ② 공식으로 만들어낼 수도 없다: `판매마진 = (정산판매금원화 − 비용9합) − (매입가 + 매도비)` 인데 **정산판매금원화는 입금 시점 실효환율**(`settlement_exchange_rate`)이라 board 의 `/rates`(네이버 전신환)와 다른 값이고, 부가세율·차감율·정산율은 전부 **ERP 기능설정 파라미터**(런타임 변경). 복제하면 급여 숫자가 두 개가 된다.
     ⛔ `board_show_margin` 토글은 **문서에만 있고 car-erp 코드에 없다**(미구현) — 하려면 토글부터 만들어야 한다.
     ⚠️ 노출 판단 = **총마진 − 실지급액 = 회사이익**(ERP `SettlementPayoutBatch::profitStats` 공식 그대로). 즉 마진 공개 = 차 단위 회사 이익 공개 → 대표 승인 사안. 토글은 인스턴스별이라 회사별로 따로 열 수 있다.
-- **입금요청 알림톡 실발송**: ERP 가 `erp_board_request` 템플릿·시각 규칙까지 배포했지만(2026-08-11), **BizM 템플릿 승인 + 수신자 번호 설정 전까지 실발송 0**. 남음 = ① BizM 승인(인스턴스별 발신프로필 각각) ② 시각 규칙에 담당자 1~2명·대표 번호 입력. **전부 car-erp 쪽 일** — board 는 알림톡 코드 0.
+- ~~**입금요청 알림톡 실발송**~~ **✅ 가동 중**(2026-09-17 car-erp 세션 실측 회신으로 확인 — 종전의 「실발송 0」은 2026-08-11 시점 상태였다). heymanerp 운영 실측 = `alimtalk_logs(erp_board_request)` **sent 95**·skipped 12·failed 4, 마지막 발송 2026-09-16 13:51 / 템플릿 설정·토글 ON·시각 규칙 3행. board_requests 실사용 = `purchase_balance` 37 · `purchase_deposit` 18(구 `purchase_payment` 는 2건, 마지막 08-10). **board 는 알림톡 코드 0**(전부 car-erp 쪽) — 이 줄은 board 판단의 전제라서만 남긴다.
 
 - **알림톡 2종**(지역검차·전달대기, Bizm): 코드 **운영 배포 완료**(master `77738a3`, 2026-07-13, 두 박스). 현재 enabled off 라 실발송 0 — 켜는 순간 가동.
   - **2026-07-27 BizM 1차 반려**("수신 대상 불명확") → **개정 문구 dev 반영 완료**(`AlimtalkTemplates.php` + `docs/operations/alimtalk-templates-draft.md`). 개정점 = `[사내 업무용]` 접두 · "회원님"→"담당자님" · `ssancar.com`/`board`→"사내 업무 시스템(board)". 템플릿코드·명·프로필·카테고리·변수는 불변(재검수라 기존과 매칭돼야 함).
