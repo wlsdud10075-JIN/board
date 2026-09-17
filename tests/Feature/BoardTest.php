@@ -4514,6 +4514,91 @@ class BoardTest extends TestCase
         });
     }
 
+    /**
+     * 대표 계약금 — 시각 규칙을 타지 않고 **대표에게만** 가는 별개 신호(2026-09-17 Jin).
+     * 기존 `purchase_deposit` 과 같은 type 으로 보내면 ERP 멱등키 `(vehicle_id, type)` 에 걸려
+     * 둘 중 뒤에 누른 것이 `already_open` 으로 조용히 버려진다(계약금/잔금 분리와 같은 이유).
+     *
+     * 🚫 board 가 **시각을 판정해 힌트를 실어 보내지 않는다** — 근무시간 밖 여부는 ERP 서버시각 단일 판정이다.
+     *    board 가 "지금은 시간 외" 를 같이 보내면 두 판정이 갈려 수신자가 조용히 어긋난다.
+     */
+    public function test_ceo_deposit_request_is_a_separate_type_with_amount_and_no_time_hint(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test']);
+        $this->actingAs($sales);
+
+        Http::fake([
+            '*/api/internal/board/requests*' => Http::response(['batch_id' => null, 'created' => ['11가1111'], 'skipped' => []], 201),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        Volt::test('portal.index')
+            ->set('reqAmount.6', '3,000,000')
+            ->call('sendPurchaseRequest', CarErpReadService::REQ_PURCHASE_DEPOSIT_CEO, 6)
+            ->assertSet('reqResult.created', ['11가1111']);
+
+        Http::assertSent(function ($req) {
+            if (! str_contains($req->url(), '/board/requests') || $req->method() !== 'POST') {
+                return false;
+            }
+            $body = json_decode($req->body(), true);
+            $this->assertSame('purchase_deposit_ceo', $body['type']);
+            $this->assertSame(3000000, $body['amount_krw']);
+            $this->assertSame([6], $body['vehicle_ids']);
+            foreach (['after_hours', 'urgent', 'recipient', 'notify_at', 'is_holiday', 'sent_at'] as $banned) {
+                $this->assertArrayNotHasKey($banned, $body);
+            }
+
+            return true;
+        });
+    }
+
+    /** 대표계약금은 일반 계약금과 **서로 막지 않는다** — 같은 차에 둘 다 열려 있을 수 있다(별개 type). */
+    public function test_ceo_deposit_and_normal_deposit_are_independent_signals(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test']);
+        $this->actingAs($sales);
+
+        Http::fake([
+            '*/api/internal/board/requests*' => Http::response(['batch_id' => null, 'created' => ['11가1111'], 'skipped' => []], 201),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        Volt::test('portal.index')
+            ->set('reqAmount.6', '3000000')
+            ->call('sendPurchaseRequest', CarErpReadService::REQ_PURCHASE_DEPOSIT, 6)
+            ->assertSet('reqResult.created', ['11가1111'])
+            ->set('reqAmount.6', '3000000')
+            ->call('sendPurchaseRequest', CarErpReadService::REQ_PURCHASE_DEPOSIT_CEO, 6)
+            ->assertSet('reqResult.created', ['11가1111']);
+
+        $types = [];
+        Http::assertSent(function ($req) use (&$types) {
+            if (str_contains($req->url(), '/board/requests') && $req->method() === 'POST') {
+                $types[] = json_decode($req->body(), true)['type'];
+            }
+
+            return true;
+        });
+        $this->assertSame(['purchase_deposit', 'purchase_deposit_ceo'], $types);
+    }
+
+    /** 대표계약금 버튼 라벨은 ko·en 양쪽에 있어야 한다(fallback=en 이라 한쪽만 넣으면 영문에서 키가 노출된다). */
+    public function test_ceo_deposit_label_exists_in_both_locales(): void
+    {
+        foreach (['ko', 'en'] as $locale) {
+            $this->assertNotSame(
+                'portal.req_deposit_ceo_btn',
+                __('portal.req_deposit_ceo_btn', [], $locale),
+                "{$locale} lang 에 req_deposit_ceo_btn 이 없다."
+            );
+        }
+    }
+
     /** 금액칸이 비면 **아무것도 보내지 않는다** — 금액 없는 요청은 받는 사람이 처리할 수 없다. */
     public function test_purchase_request_without_amount_is_not_sent(): void
     {
