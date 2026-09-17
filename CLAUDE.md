@@ -214,6 +214,12 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
 
 ## ⏭️ 남은 작업 (미완)
 
+- **대표 계약금(`purchase_deposit_ceo`)**: board **dev 완료·미배포**(`537a547`) — ERP 작업 대기. `/portal` 재고(지급대기) 행에 [대표계약금] 버튼 1개 추가(계약금과 같은 payload, `type` 만 다름). 다른 점은 **수신자가 대표 고정 · 알림톡 시각 규칙 무시** 하나뿐이고, 기존 계약금·매입잔금 씬은 그대로다.
+  - 🚨 **배포 순서 = ERP 먼저.** ERP type 검증 목록에 `purchase_deposit_ceo` 가 없으면 버튼이 **422** 만 돌려준다. board master 머지는 ERP 배포 확인 후 Jin 허락받고.
+  - ⚠️ **별개 type 이어야 한다** — 멱등키 `(vehicle_id, type)` 이라 플래그로 얹으면 일반 계약금이 open 인 차에서 `already_open` 으로 **조용히 버려진다**(계약금/잔금 분리와 같은 이유). 같은 차에 둘 다 open 이 **정상**이고 board 는 안 막는다.
+  - 🚫 **시각 판정은 board 가 하지 않는다**(근무시간 여부 힌트를 payload 에 싣지 않음) — 서버시각 단일 판정은 ERP 몫. 라우팅·「대표계약금」 뱃지는 ERP 가 type 으로 분기.
+  - ❓ 선행조건 = **입금요청 알림톡 실발송 현황**(아래 항목 — 승인·수신자 번호 전까지 실발송 0) + BizM 템플릿에서 계약금/잔금이 변수인지 고정문구인지(고정이면 **프로필 수만큼** 재검수). 인계 = `meetings/handoff-carerp-ceo-deposit-request.md`.
+
 - **포털 요약 「내 정산 월별 상세」 = 승인된 ERP 월배치 미러**: board **dev 구현 완료·운영 미배포**(2026-08-31). car-erp 는 **배포 완료**(master `488e597`, `GET /api/internal/board/payout-batches`, 3사 정상 응답). 요약 탭 월 행을 펼치면 그 달 정산 상세 — 배치 묶음(차량행 + 조정 + `net_payout`) + 배치 밖 지급 행 + 이 달 수령액.
   - 🚨 **배치 밖 지급이 예외가 아니라 본류다.** 배치는 2026-07 에 생긴 개념이라 그 전 정산은 속할 배치가 없고 **영원히 배치 밖**이다(과거 데이터 적재분). car-erp 실측 = **ssancarerp paid 3,815건 전량(100%)이 배치 밖·승인 배치 0건**, heymanerp 65%. ⇒ **그 달 수령액 = Σ`net_payout` + Σ`unbatched_paid`**, 화면에서도 배치 밖을 **기본 형태**로 그린다(각주로 다루면 ssancarboard 는 전부가 각주가 된다). 가드 = `BoardTest::test_monthly_payout_renders_when_there_are_no_batches`.
   - `net_payout` 은 **그대로 표시**(ERP `recomputeTotal()` 과 일치 검증됨) — 재계산 금지. 월 합계만 ERP 값을 합산한다.
