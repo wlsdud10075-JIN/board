@@ -4725,6 +4725,34 @@ class BoardTest extends TestCase
         });
     }
 
+    /**
+     * 재고(출고 전 3분류)는 ERP 가 매입일 오름차순으로 준다 → 방금 등록한 차가 맨 아래로 밀렸다(2026-09-22 Jin).
+     * 옛 「매입내역」 이 하던 최신순 뒤집기가 4분류 교체 때 빠졌다 — 헬퍼 단독 테스트만 있어서 놓쳤다.
+     * 출고완료는 ERP 가 출고일 역순으로 **잘라서** 주는 페이지라 받은 순서를 그대로 둔다.
+     */
+    public function test_inventory_lists_newest_purchase_first_except_shipped_out(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'inv@ce.test']);
+        $this->actingAs($sales);
+
+        $ascending = [
+            ['vehicle_id' => 9, 'vehicle_number' => '11가0009', 'purchase_date' => '2026-04-22'],
+            ['vehicle_id' => 59, 'vehicle_number' => '11가0059', 'purchase_date' => '2026-08-09'],
+            ['vehicle_id' => 61, 'vehicle_number' => '11가0061', 'purchase_date' => '2026-04-22'],
+        ];
+        Http::fake(['*' => Http::response(['count' => 3, 'total' => 3, 'data' => $ascending], 200)]);
+
+        foreach (['awaiting_payment', 'general', 'pre_ship'] as $category) {
+            $c = Volt::test('portal.index')->call('setTab', 'inventory')->call('setInvCategory', $category);
+            $this->assertSame(['11가0059', '11가0061', '11가0009'], array_column($c->get('invRows'), 'vehicle_number'), $category);
+        }
+
+        $c = Volt::test('portal.index')->call('setTab', 'inventory')->call('setInvCategory', 'shipped_out');
+        $this->assertSame(['11가0009', '11가0059', '11가0061'], array_column($c->get('invRows'), 'vehicle_number'));
+    }
+
     /** 출고완료만 영원히 누적된다 → 탭을 열었다고 전량을 부르면 안 된다. */
     public function test_shipped_out_is_paged_but_stock_is_not(): void
     {
