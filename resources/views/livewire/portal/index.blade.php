@@ -374,13 +374,20 @@ new #[Layout('components.layouts.app')] class extends Component {
     /**
      * 재고 로딩 — 카테고리 하나만 받는다(탭 전환 = 재조회). 반환 = degrade 봉투.
      * shipped_out 만 limit/offset(누적되는 유일한 분류) — 나머지는 전량.
+     *
+     * 정렬(2026-09-22 Jin): 출고 전 3분류는 ERP 가 `purchase_date` **오름차순**으로 준다
+     * (car-erp `InternalPortalController::inventory` 실측) → 방금 등록한 차가 맨 아래로 밀린다.
+     * 전량이 오므로 화면에서 최신 우선으로 뒤집는다(옛 「매입내역」 이 하던 그대로 — 4분류 교체 때 빠졌다).
+     * ⚠️ 출고완료는 건드리지 않는다 — ERP 가 출고일 역순으로 **잘라서** 주는 페이지라, 여기서 다른 축으로
+     *    재정렬하면 [더 보기]가 집합은 출고일로 키우고 표시는 매입일로 하는 어긋난 목록이 된다.
      */
     private function loadInventory(string $email, CarErpReadService $svc): array
     {
         $paged = $this->invCategory === 'shipped_out';
         $env = $svc->inventory($email, $this->invCategory, $this->invSearch, $paged ? $this->invLimit : null);
 
-        $this->invRows = ($env['ok'] ?? false) ? (array) data_get($env['data'], 'data', []) : [];
+        $rows = ($env['ok'] ?? false) ? (array) data_get($env['data'], 'data', []) : [];
+        $this->invRows = $paged ? $rows : $this->latestFirst($rows, 'purchase_date');
         $this->invTotal = (int) data_get($env['data'], 'total', count($this->invRows));
 
         return $env;
