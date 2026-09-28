@@ -57,6 +57,10 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
+            // 세션 time_zone. 시각 컬럼이 lock_at(DATETIME) 하나 빼고 전부 TIMESTAMP 라, 이 오프셋이
+            // 기존 UTC 저장값을 KST 로 읽어 주고(데이터 보정 불필요) useCurrent() 기본값(failed_at)도 KST 로 맞춘다.
+            // 오프셋 고정('+09:00') — 이름 zone 은 mysql tz 테이블이 필요하고 한국은 DST 가 없다. app.timezone 과 쌍.
+            'timezone' => env('DB_TIMEZONE', '+09:00'),
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],

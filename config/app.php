@@ -65,7 +65,10 @@ return [
     |
     */
 
-    'timezone' => 'UTC',
+    // board 는 KST 단일 운영(TimeGate 10:00 잠금·스케줄 dailyAt·화면 시각 전부 서울 기준).
+    // 2026-09-28 까지 'UTC' 하드코딩이라 .env 의 APP_TIMEZONE 이 읽힌 적이 없었다 — 기본값도 Seoul 로 둔다.
+    // 기존 저장값은 MySQL TIMESTAMP(세션 시간대로 변환) 라 config/database.php 의 timezone(+09:00) 이 함께 있어야 한다.
+    'timezone' => env('APP_TIMEZONE', 'Asia/Seoul'),
 
     /*
     |--------------------------------------------------------------------------

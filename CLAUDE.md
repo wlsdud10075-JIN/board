@@ -28,7 +28,7 @@ SSANCAR 의 매입 *확정 전* 워크플로우(영업 매입예정 → 현지 �
 - **프레임워크**: Laravel 12 + Livewire 4 (Volt 1.6 단일파일) + Flux UI 2 + Tailwind v4 + Alpine
 - **DB**: MySQL/MariaDB **`board`** (전용 user `board_user`, **car_erp 접근 권한 0** — 비밀번호는 `.env`)
 - **포트**: 개발 서버 `8003` — ⚠️ **`APP_URL`(:8003)과 반드시 일치**시켜 serve(불일치 시 Livewire 액션 전부 죽음; 이 PC 8002 는 다른 앱). car-erp 8001 과 분리.
-- **타임존**: `APP_TIMEZONE=Asia/Seoul` (TimeGate 서버판정 근거)
+- **타임존**: `Asia/Seoul` — `config/app.php` 가 `env('APP_TIMEZONE','Asia/Seoul')` + **mysql 세션 `timezone='+09:00'`(`config/database.php`) 쌍**. ⚠️ 2026-09-28 까지 'UTC' 하드코딩이라 운영이 UTC 로 돌았다(정정 경위 = 「완료된 로드맵」). 시각 컬럼은 `lock_at`(DATETIME, 벽시계 의도값) 빼고 전부 TIMESTAMP 라 **세션 오프셋이 저장값 해석을 맡는다 — 둘 중 하나만 바꾸면 9시간 틀어진다**(핀 = `TimezoneConfigTest`).
 - **APP_KEY**: car-erp 와 **분리**. board 는 RRN·개인정보 미보유(분리 정당성).
 - **GitHub**: `https://github.com/wlsdud10075-JIN/board.git` — `dev`(작업) + `master`(production). 로컬 기본 = dev.
 
@@ -234,8 +234,10 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
   - **✅ 2026-09-28 두 박스 배포 완료**(master `afd0cef`, ERP 는 `a13e138c`). 첫 실행 결과 heymanboard = ERP 부재 3 + 정합성 1 → **전부 ERP 쪽에서 사람이 소프트 삭제한 차**(동기화는 성공). Jin 결정 = 「보고만」 한 주 관찰, board 무변경(실무자 안내는 Jin).
   - **운영 스케줄러 실측(2026-09-28)**: heymanboard = `/etc/cron.d/board`(www-data, config 캐시로 .env 우회) / ssancarboard = **2026-06-27 배포 이후 schedule:run 이 등록돼 있지 않았다** → `/etc/cron.d/board-ssancar`(ubuntu — .env 600) 신설. heymanboard 매일 03:00 `db:backup` 이 `storage/backups/db` 그룹 쓰기 없음으로 **매일 실패 중이었다** → `chmod g+w` 로 해소(로컬 백업은 배포 시점 것만 남아 있었음).
 
-- 🚨 **board 운영 시간대 = UTC (기존 버그, Jin 결정 대기 2026-09-28)**: `config/app.php` 가 `'timezone' => 'UTC'` 하드코딩이라 `.env` 의 `APP_TIMEZONE=Asia/Seoul` 을 **읽지 않는다**(첫 커밋부터, 두 박스 실측 `config('app.timezone')=UTC`, car-erp 는 `Asia/Seoul`). 영향: TimeGate 10:00 잠금이 **19:00 KST** 에 걸리고 주말 판정도 UTC(운영 경매 등록은 1건뿐이라 실피해 미미) · 스케줄 `dailyAt` 전부 UTC(백업 03:00→12:00 KST, 감사 07:40→**16:40 KST**, 알림톡 Setting 시각도 UTC 해석) · 화면 시각(감사로그·manage) 이 UTC 로 표시. 위 CLAUDE.md 「타임존」 줄은 **의도**였고 실제가 아니었다.
-  - 선택지: **(A)** `'timezone' => env('APP_TIMEZONE','UTC')` 로 배선 + 기존 datetime 컬럼 **+9h 일괄 보정**(저장값은 UTC 벽시계라 그냥 바꾸면 과거 데이터가 9시간 이르게 표시됨; 박스별 dry-run→apply, 백업 선행) — 정석·1회 배포. **(B)** 저장은 UTC 유지, `app.schedule_timezone=Asia/Seoul`(Laravel 12 지원 확인) + TimeGate 만 KST 명시(lock_at 은 UTC 로 변환 저장) — 작지만 화면 UTC 표시는 그대로. 권고 = A(데이터 105건 규모라 보정 부담 작음).
+- **운영 시간대 UTC → 서울 정정**(2026-09-28 Jin 「서울시간과 맞게」, dev 구현·**master 머지 대기**): `config/app.php` 가 첫 커밋부터 `'UTC'` 하드코딩이라 `.env` 의 `APP_TIMEZONE=Asia/Seoul` 을 읽은 적이 없었다(두 박스 실측, car-erp 는 Seoul). 영향이던 것 = TimeGate 10:00 잠금이 **19:00 KST**(운영 경매 등록 1건뿐이라 실피해 미미) · 스케줄 `dailyAt` 전부 UTC(백업 03:00→정오, 감사 07:40→16:40 KST) · 감사로그·manage 화면 시각 UTC 표시.
+  - **방식 = 데이터 무보정.** 시각 컬럼 26개가 전부 MySQL TIMESTAMP(내부 UTC 순간 저장, 세션 시간대로 변환)라 `database.connections.mysql.timezone='+09:00'` 하나로 기존 저장값이 KST 로 읽히고 새 값도 정확히 저장된다(실측: id 40 `06:19`→`15:19`). `useCurrent()`(failed_at) 도 같은 오프셋으로 맞는다. **`lock_at` 은 건드리지 않는다** — DATETIME 이고 `10:00` 은 벽시계 의도값이라 새 체제에서 그대로 10:00 KST 로 읽히는 게 맞다. HMAC `X-Timestamp` 는 unix 초라 무영향(확인). 배포가 `config:cache`+`queue:restart` 를 하므로 캐시·워커 모두 새 시간대를 탄다.
+  - 검증(배포 후 두 박스): `config('app.timezone')`=Asia/Seoul · `@@session.time_zone`=+09:00 · id 40 created_at 15:19 · `schedule:list` 07:40 Next Due 가 KST 거리 · 감사 JSON `generated_at` 이 `+09:00`.
+  - ℹ️ 로컬(xampp MariaDB) 은 SYSTEM tz 가 이미 KST 라 옛 로컬 행은 다른 방향으로 어긋나 있다 — dev 데이터라 무시.
 
 - **ssancar.com 미디어 — 워터마크 없는 원본을 받는다**(2026-09-17 Jin, 🅿️ **기록만 · 미착수**): 지금 board 가 ssancar.com 에서 받아오는 **사진·영상 둘 다** 워터마크가 박힌 것이다. 추후 **워터마크 없는 원본**을 받도록 바꾼다. 현재 수신 경로 = `app/Services/SsancarMediaService.php`(검차글 영상·사진) + 바이어 전달은 ssancar.com CDN 링크 방식. 착수 시 조율은 **ssancar.com 세션과 직접 통신**(위 협업 규약). 범위·방식(원본 URL 추가 제공인지, 별도 파라미터인지, 바이어 전달분도 원본인지)은 **아직 미정 — Jin 결정 사항**.
 
