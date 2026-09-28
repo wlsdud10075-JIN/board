@@ -36,6 +36,10 @@ Schedule::command('board:poll-ssancar-media')->everyTwoMinutes()->withoutOverlap
 // 색인은 하루 1회 갱신이라 매시면 충분(더 자주 볼 이유가 없다).
 Schedule::command('board:assistant-health')->hourly()->withoutOverlapping();
 
+// 연동 B 감사(읽기 전용) — won 정체·정합성·ERP 부재를 JSON 으로. ERP 08:00 아침 보고가 그 파일을 읽으므로 그 전에.
+// 두 박스(heymanboard·ssancarboard) 모두 돌고, 각 ERP 는 **같은 박스의** board 파일을 읽는다.
+Schedule::command('board:purchase-sync-audit')->dailyAt('07:40')->withoutOverlapping();
+
 // 지역 검차 안내 알림톡(A) — 내일 배정분 전날 저녁 발송. 시각 = 기능설정 Setting(HH:MM).
 // 시각 미설정이면 스케줄 미등록(자동발송 안 함). Setting 은 매 schedule:run(분 단위) 평가 → 값 바꾸면 즉시 반영.
 // 알림톡 off/미승인이면 커맨드 내부에서 skipped(no-op)라 이중 안전.

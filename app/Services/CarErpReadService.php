@@ -116,6 +116,18 @@ class CarErpReadService
      * `shipped_out` 만 영원히 누적되므로 limit/offset 으로 끊어 받는다. 나머지 3분류는 유한(영업당 20~50대).
      * 검색은 ERP 로 넘긴다 — 최근 N건만 받아놓고 board 에서 거르면 옛날 차를 영영 못 찾는다.
      */
+    /**
+     * 연동 B 감사용 — ERP 차량 존재 확인(car-erp §4-3, 2026-09-28). `salesman_email` 없음(스코프 없음).
+     * 응답 `{exists:[…], missing:[…]}`, 소프트 삭제 = missing. **한 번에 500개 초과면 422** → 호출측이 나눠 보낸다.
+     * ids 는 쉼표 결합 문자열(`sales()` 의 `exclude_status` 와 같은 형태 — HMAC canonical 을 그대로 탄다).
+     *
+     * @param  list<int>  $ids
+     */
+    public function vehiclesExist(array $ids): array
+    {
+        return $this->get('/vehicles/exists', ['ids' => implode(',', $ids)]);
+    }
+
     public function inventory(string $email, string $category, string $search = '', ?int $limit = null, int $offset = 0): array
     {
         $query = ['salesman_email' => $email, 'category' => $category];

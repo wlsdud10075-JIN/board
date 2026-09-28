@@ -227,6 +227,11 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
 
 ## ⏭️ 남은 작업 (미완)
 
+- **연동 B 감사 명령 `board:purchase-sync-audit`**(2026-09-28 Jin 승인, **dev 구현 완료·운영 미배포** — 「야간 배치 실행기」 1단계, 정본 = car-erp `docs/design/agent-virtual-office-analysis.md` §11·§12): won 인데 60분 넘게 ERP 로 안 넘어간 차(`stalled`) · 정합성 2식(synced인데 erp id 없음 / erp id 있는데 synced 아님) · synced 매물의 erp id 를 ERP `GET /vehicles/exists`(car-erp §4-3, dev `b8f2d423`)로 대조한 `missing_in_erp` 를 **JSON 으로만** 기록(`storage/app/integration/purchase-sync-audit.json`, exit 항상 0, DB 쓰기·재전송 0). 스케줄 07:40 — ERP 08:00 아침 보고가 `BOARD_AUDIT_JSON` 으로 그 파일을 읽는다. 테스트 = `tests/Feature/PurchaseSyncAuditTest.php`.
+  - ⚠️ **두 박스 모두 돈다**(heymanboard·ssancarboard) — ERP 는 같은 박스의 board 파일을 읽어야 하고 경로가 다르다(`/var/www/board/...` vs `/var/www/board-ssancar/...`). ERP 측은 heymanerp 만 설정(2026-09-28 car-erp 세션).
+  - ⚠️ stalled 시계 = `updated_at` — won 행을 다른 이유로 저장하면(드로어 편집) 60분이 다시 시작된다. 더 엄밀히 하려면 `board_audit_logs` 의 won status_change 시각으로 바꿀 것(미착수).
+  - ERP 호출 실패 시 `missing_in_erp=null` + `errors[]`(명령은 성공) — **null 은 "없음" 이 아니라 "못 봤다"** 다. 배포 순서 = ERP 먼저 → board(Jin 승인).
+
 - **ssancar.com 미디어 — 워터마크 없는 원본을 받는다**(2026-09-17 Jin, 🅿️ **기록만 · 미착수**): 지금 board 가 ssancar.com 에서 받아오는 **사진·영상 둘 다** 워터마크가 박힌 것이다. 추후 **워터마크 없는 원본**을 받도록 바꾼다. 현재 수신 경로 = `app/Services/SsancarMediaService.php`(검차글 영상·사진) + 바이어 전달은 ssancar.com CDN 링크 방식. 착수 시 조율은 **ssancar.com 세션과 직접 통신**(위 협업 규약). 범위·방식(원본 URL 추가 제공인지, 별도 파라미터인지, 바이어 전달분도 원본인지)은 **아직 미정 — Jin 결정 사항**.
 
 - **포털 요약 「내 정산 월별 상세」 = 승인된 ERP 월배치 미러**: board **dev 구현 완료·운영 미배포**(2026-08-31). car-erp 는 **배포 완료**(master `488e597`, `GET /api/internal/board/payout-batches`, 3사 정상 응답). 요약 탭 월 행을 펼치면 그 달 정산 상세 — 배치 묶음(차량행 + 조정 + `net_payout`) + 배치 밖 지급 행 + 이 달 수령액.
