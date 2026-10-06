@@ -231,6 +231,7 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
   - ⚠️ **두 박스 모두 돈다**(heymanboard·ssancarboard) — ERP 는 같은 박스의 board 파일을 읽어야 하고 경로가 다르다(`/var/www/board/...` vs `/var/www/board-ssancar/...`). ERP 측은 heymanerp 만 설정(2026-09-28 car-erp 세션).
   - ⚠️ stalled 시계 = `updated_at` — won 행을 다른 이유로 저장하면(드로어 편집) 60분이 다시 시작된다. 더 엄밀히 하려면 `board_audit_logs` 의 won status_change 시각으로 바꿀 것(미착수).
   - ERP 호출 실패 시 `missing_in_erp=null` + `errors[]`(명령은 성공) — **null 은 "없음" 이 아니라 "못 봤다"** 다.
+  - **`deleted_in_erp` 분리**(2026-10-06 Jin 결정 1번안, dev 반영 · 운영 미배포): heymanerp 아침점검에 매일 뜨던 「ERP 미도착 5건」은 전부 **ERP 에 생긴 뒤 ERP 에서 소프트 삭제한 차**였다(전송 누락 아님). ERP `/vehicles/exists` 가 `{exists, missing, deleted}` 로 바뀌어(car-erp dev `33b91d7e`, 스펙 §4-3) board 는 `deleted` 를 `missing_in_erp` 에 **넣지 않고** `counts.deleted_in_erp` + 목록 `deleted_in_erp[]` 로 따로 낸다. missing = **ERP 에 아예 없는 id** 만. ERP 실패 시 deleted 도 **null**(0 아님). 옛 ERP 응답(키 없음)은 0 — 배포 순서 무관.
   - **✅ 2026-09-28 두 박스 배포 완료**(master `afd0cef`, ERP 는 `a13e138c`). 첫 실행 결과 heymanboard = ERP 부재 3 + 정합성 1 → **전부 ERP 쪽에서 사람이 소프트 삭제한 차**(동기화는 성공). Jin 결정 = 「보고만」 한 주 관찰, board 무변경(실무자 안내는 Jin).
   - **운영 스케줄러 실측(2026-09-28)**: heymanboard = `/etc/cron.d/board`(www-data, config 캐시로 .env 우회) / ssancarboard = **2026-06-27 배포 이후 schedule:run 이 등록돼 있지 않았다** → `/etc/cron.d/board-ssancar`(ubuntu — .env 600) 신설. heymanboard 매일 03:00 `db:backup` 이 `storage/backups/db` 그룹 쓰기 없음으로 **매일 실패 중이었다** → `chmod g+w` 로 해소(로컬 백업은 배포 시점 것만 남아 있었음).
 
