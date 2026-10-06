@@ -132,9 +132,27 @@ class PurchaseSyncAuditTest extends TestCase
 
         $this->assertSame(1, $r['counts']['missing_in_erp']);
         $this->assertSame([['listing_id' => $gone->id, 'vehicle_number' => '22나0006', 'car_erp_vehicle_id' => 6]], $r['missing_in_erp']);
+        $this->assertSame(0, $r['counts']['deleted_in_erp']);   // 옛 ERP 응답(deleted 키 없음) = 0 — 하위호환
+        $this->assertSame([], $r['deleted_in_erp']);
         $this->assertSame([], $r['errors']);
         Http::assertSent(fn ($req) => str_contains($req->url(), '/api/internal/board/vehicles/exists')
             && $req['ids'] === '5,6');
+    }
+
+    /** ERP 에서 소프트 삭제한 차(`deleted`)는 전송 누락이 아니다 — missing 에 섞지 않고 따로 센다(2026-10-06 Jin). */
+    public function test_deleted_in_erp_is_counted_separately_from_missing(): void
+    {
+        Http::fake(['*/vehicles/exists*' => Http::response(['exists' => [5], 'missing' => [6], 'deleted' => [7]], 200)]);
+        $this->mkListing(['status' => 'synced', 'car_erp_vehicle_id' => 5]);
+        $gone = $this->mkListing(['status' => 'synced', 'car_erp_vehicle_id' => 6, 'vehicle_number' => '22나0006']);
+        $erased = $this->mkListing(['status' => 'synced', 'car_erp_vehicle_id' => 7, 'vehicle_number' => '22나0007']);
+
+        $r = $this->audit();
+
+        $this->assertSame(1, $r['counts']['missing_in_erp']);
+        $this->assertSame(1, $r['counts']['deleted_in_erp']);
+        $this->assertSame([['listing_id' => $gone->id, 'vehicle_number' => '22나0006', 'car_erp_vehicle_id' => 6]], $r['missing_in_erp']);
+        $this->assertSame([['listing_id' => $erased->id, 'vehicle_number' => '22나0007', 'car_erp_vehicle_id' => 7]], $r['deleted_in_erp']);
     }
 
     /** ERP 가 죽어도 명령은 성공(exit 0)하고 그 항목만 null + errors — 침묵은 "이상 없음" 으로 읽히기 때문. */
@@ -150,6 +168,8 @@ class PurchaseSyncAuditTest extends TestCase
 
         $this->assertNull($r['missing_in_erp']);
         $this->assertNull($r['counts']['missing_in_erp']);
+        $this->assertNull($r['deleted_in_erp']);               // 못 봤으면 deleted 도 0 이 아니라 null
+        $this->assertNull($r['counts']['deleted_in_erp']);
         $this->assertNotEmpty($r['errors']);
         $this->assertStringContainsString('HTTP 500', $r['errors'][0]);
         $this->assertSame(1, $r['counts']['stalled']);
@@ -176,10 +196,11 @@ class PurchaseSyncAuditTest extends TestCase
             ->assertExitCode(0);
         $r = json_decode(file_get_contents($this->out), true);
 
-        $this->assertSame(['generated_at', 'counts', 'stalled', 'missing_in_erp', 'errors'], array_keys($r));
-        $this->assertSame(['stalled', 'synced_without_erp_id', 'erp_id_without_synced', 'missing_in_erp'], array_keys($r['counts']));
+        $this->assertSame(['generated_at', 'counts', 'stalled', 'missing_in_erp', 'deleted_in_erp', 'errors'], array_keys($r));
+        $this->assertSame(['stalled', 'synced_without_erp_id', 'erp_id_without_synced', 'missing_in_erp', 'deleted_in_erp'], array_keys($r['counts']));
         $this->assertSame([], $r['stalled']);
         $this->assertSame([], $r['missing_in_erp']);   // synced 매물 0 → ERP 호출 없이 빈 배열
+        $this->assertSame([], $r['deleted_in_erp']);
         Http::assertNothingSent();
     }
 
