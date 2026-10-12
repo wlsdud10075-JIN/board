@@ -288,6 +288,8 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
     - ℹ️ ERP 라우팅은 **시각 규칙 표가 아니라 코드 분기**다(car-erp 실측 회신). 기존 시각 규칙 3행은 `types` 가 비어 **전 신호에 적용**되는 하위호환이라, 표로 풀면 평일 낮엔 담당자 행이 걸려 대표에게 **안 가고**, 넓히면 **기존 3종(판매대금확인 포함)까지 평일에 대표로** 간다. board 가 "시각 규칙 한 줄이면 되는 일"로 오해하지 말 것.
   - ⚠️ **금액칸은 `reqAmount[vehicle_id]` 로 차량 키잉** — `reqNote[$buyerId ?? 0]` 처럼 한 칸을 공유하면 A 행 금액이 B 행 요청으로 나간다(틀린 금액이 그대로 송금되는 사고). 가드 = `test_purchase_request_amount_is_keyed_per_vehicle`.
   - 🚫 **금액 자동계산 금지** — 잔금 = 매입가 − 계약금 자동채움 ❌. 계약금은 board 가 알 수 없다(§14-5 와 같은 원칙).
+    ✅ **단 「ERP 미지급값 프리필」은 허용**(2026-10-12 Jin): [매입잔금] 금액칸이 **비어 있으면** `/inventory` 의 `purchase_unpaid`(=(매입가+**매도비**)−확정 지급분, ERP 원장값)를 그대로 싣는다. board 가 숫자를 만드는 게 아니라 ERP 숫자를 옮기는 것. 누르기 전 `confirm` 으로 그 금액을 보여 주고(open 계약금 요청이 있으면 「미반영 가능」 힌트), 서버(`sendPurchaseRequest`→`remainingUnpaidFor`)가 **현재 재고 탭 행에서** 다시 읽는다(클라이언트 값 불신). 미지급 0·누락이면 거절(`req_balance_fill_unavailable`). 계약금·대표계약금은 그대로 필수 입력. 🚫 **요청한 계약금을 빼서 잔금을 만들지 말 것** — 재무가 이미 기입·확정했으면 미지급에서 빠져 있어 이중 차감이 된다. 가드 = `test_balance_request_with_empty_amount_sends_erp_unpaid`.
+  - **거절 씬(2026-10-12, ERP dev `508b6b2a`)** — ERP 사용자가 드로어에서 「입금 확인 | 거절(사유 필수)」. 라인 상태 `rejected` + `reject_reason`·`resolved_at`·`resolved_by`(묶음에도 같은 셋). ⚠️ **거절 라인은 `status=all` 로만 온다**(기본 `open` 은 라인 필터). 칩은 `rejected`→빨간 「거절」+사유 원문, **모르는 상태는 원문**(「요청중」으로 뭉개면 ERP 가 먼저 배포될 때 거절이 요청중으로 보인다 — 그래서 board 칩이 ERP 보다 먼저 나간다). 거절 뒤 같은 차 재요청은 멱등 가드(open 만 봄)상 바로 허용. 알림은 §14-19.
   - **알림톡은 ERP 가 보낸다**(board 발송 코드 0). 번호를 가진 쪽이 ERP 이고, board 가 보내면 "요청은 skip 됐는데 알림톡은 갔다"가 생긴다. 근무시간 밖(평일 17:30 이후·주말·공휴일) 라우팅도 ERP 판정 — board 가 미리 판정해 힌트를 실어 보내지 말 것(판정 지점이 갈리면 어긋난다). 인계 = `meetings/handoff-carerp-payment-request-split.md`.
   - **상태 칩은 ERP 집계값 그대로**(open/partial/done/cancelled). board 가 재계산·완료 coerce 금지.
   - 바이어 혼합은 **ERP 422 `buyer_mismatch` 가 진짜 보증**이다. board UI(바이어 블록 안에서만 체크)는 실수 방지용 — `toggleReqVehicle` 은 공개 Livewire 액션이라 조작된 호출로는 섞을 수 있다.
@@ -751,3 +753,14 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
   ⚠️ 드로어 안내는 계산식 대신 **"매입가 N원 · 매도비 M원으로 각각 전달"**(`auction.amount_split_hint`).
 - 가드 = `test_selling_fee_is_sent_only_when_entered` · `test_selling_fee_goes_through_when_entered` ·
   `test_selling_fee_field_is_shown_for_every_origin`.
+
+### 14-19. 상단 종 + 웹푸시 — 내 §11 요청 결과를 운전 중에도 (2026-10-12 Jin)
+
+> ERP 사용자는 화면을 켜 두니 초록 알림으로 알지만 board 영업은 운전 중이라 포털 칩을 못 본다. 거절 씬(§14-2)과 함께 **결과가 사람을 찾아가는** 두 경로.
+
+- **원천은 ERP 하나** — `GET /requests?status=all&since=`. board 는 결과를 복제하지 않고 **시각 두 개**만 갖는다: `users.portal_seen_at`(사람이 종을 연 시각) · `users.push_notified_at`(스케줄러가 보낸 기준 시각). 🚫 둘을 합치지 말 것 — "읽었으니 안 보냄"/"보냈으니 읽은 셈"이 된다. 라인 평탄화는 `App\Support\BoardRequestLines` **단일 출처**(종·푸시가 다르게 읽으면 "종엔 뜨는데 푸시는 안 온다").
+- **상단 종(`notify.bell`)** = 상단바 우측(언어 토글 왼쪽). 데스크톱 드롭다운 / **모바일은 상단바 아래 전체 너비 시트**(하단 모서리는 토스트·챗봇이 쓴다). 30초 폴링 = 미읽음 배지(`resolved_at > portal_seen_at`) + 새 거절 빨간 토스트·비프 / 새 확인 초록 무음(`notify.poll` 리스너 재사용). 패널 = 결과(done·rejected, 사유 원문·처리자) + 진행 중(open). 열면 읽음. **대상은 항상 로그인 본인**(포털의 super 대리 열람과 무관). 첫 사용자는 마운트에 now 를 찍어 과거 이력을 미읽음으로 세지 않는다. 조회 실패 = 회색 점 + 패널 경고(비어 있어도 「요청 없음」이 아니다).
+- **웹푸시** = `board:push-request-results` **매분**(두 박스 각자). 구독 있는 활성 사용자별로 `since=커서−2분` 조회 → `resolved_at > 커서` 결과를 `WebPushService` 로 → 커서 = 실행 시작 시각. 첫 실행은 커서만 찍고 **안 보낸다**(켜는 순간 수십 건 울리면 바로 끈다). ERP 실패 시 **커서 유지**. 만료 구독(404/410)은 지운다. 거절은 `sticky`(사람이 치울 때까지) + 진동 패턴. 클릭 = `/portal`.
+  - 수신 = `public/sw.js`(push·notificationclick 만, **fetch 핸들러 금지** — Livewire 요청을 가로채면 조용히 옛 응답). 구독 = 종 패널 하단 토글 → `window.__boardPush`(sidebar 레이아웃) → `POST /push/subscribe`(같은 endpoint 는 **현재 사용자로 갱신** — 공용 기기). 권한 요청은 **버튼 제스처에서만**.
+  - VAPID = 박스별 `.env` `BOARD_VAPID_*`(`php artisan board:push-vapid-keys`). 키를 바꾸면 기존 구독 전부 무효. 로컬 XAMPP 는 `OPENSSL_CONF=C:\xampp\apache\conf\openssl.cnf` 없이는 EC 키 생성이 죽는다(운영 Ubuntu 무관). 아이폰은 **홈 화면 앱(standalone)** 에서만 PushManager 가 있다.
+- 가드 = `test_bell_*` 4건(BoardTest) · `PushNotifyTest` 8건.
