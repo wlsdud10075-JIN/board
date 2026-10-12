@@ -40,6 +40,10 @@ Schedule::command('board:assistant-health')->hourly()->withoutOverlapping();
 // 두 박스(heymanboard·ssancarboard) 모두 돌고, 각 ERP 는 **같은 박스의** board 파일을 읽는다.
 Schedule::command('board:purchase-sync-audit')->dailyAt('07:40')->withoutOverlapping();
 
+// §11 요청 결과(ERP 확인·거절) → 웹푸시. ERP→board 역방향 채널이 없어 board 가 매분 사용자별 since 조회.
+// VAPID·car-erp 미설정이면 명령 내부 no-op. 두 박스 모두 돈다(각자 자기 ERP).
+Schedule::command('board:push-request-results')->everyMinute()->withoutOverlapping();
+
 // 지역 검차 안내 알림톡(A) — 내일 배정분 전날 저녁 발송. 시각 = 기능설정 Setting(HH:MM).
 // 시각 미설정이면 스케줄 미등록(자동발송 안 함). Setting 은 매 schedule:run(분 단위) 평가 → 값 바꾸면 즉시 반영.
 // 알림톡 off/미승인이면 커맨드 내부에서 skipped(no-op)라 이중 안전.

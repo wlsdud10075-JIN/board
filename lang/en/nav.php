@@ -76,5 +76,13 @@ return [
         'toast_rejected' => '🔔 :count request(s) rejected — open the bell for the reason',
         'toast_done' => '✅ :count request(s) confirmed',
         'footer' => 'See the portal Inventory and Sales tabs for details.',
+        'push_enable' => 'Enable phone alerts',
+        'push_on' => 'Phone alerts on — you will be notified even when the screen is off',
+        'push_disable' => 'Turn off',
+        'push_denied' => 'Notifications are blocked in this browser — allow them in site settings and try again.',
+        'push_unsupported' => 'This browser does not support push notifications. On iPhone, use the app added to the Home Screen.',
+        'push_error' => 'Setup failed — please try again.',
+        'push_title_rejected' => '🔔 Request rejected',
+        'push_title_done' => '✅ Request confirmed',
     ],
 ];

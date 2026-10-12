@@ -75,6 +75,16 @@ return [
     // 기다리는 사용자가 없으므로 넉넉히 잡는다(ssancar 권고 15초).
     'ssancar_poll_timeout' => (int) env('BOARD_SSANCAR_POLL_TIMEOUT', 15),
 
+    // ─────────── 웹푸시 (2026-10-12) ───────────
+    // §11 요청 결과(ERP 확인·거절)를 화면이 꺼진 폰에도 보낸다. VAPID 키는 **박스별** `.env`(인스턴스마다 다른 키 OK).
+    //   생성 = `php artisan board:push-vapid-keys`(운영 Ubuntu / 로컬은 OPENSSL_CONF 지정). 셋 다 비면 전부 no-op.
+    //   ⚠️ 운영 `.env` 변경 = 백업 동기화 + config:cache(ubuntu) + 큐 워커 재시작(메모리 규칙).
+    'push' => [
+        'vapid_public' => env('BOARD_VAPID_PUBLIC_KEY'),
+        'vapid_private' => env('BOARD_VAPID_PRIVATE_KEY'),
+        'vapid_subject' => env('BOARD_VAPID_SUBJECT'),   // mailto:… 또는 https://… (푸시 서비스 연락처)
+    ],
+
     // 업무 가이드(Notion 등 외부) — 사이드바 하단 링크. 비우면 미노출.
     'work_guide_url' => env('BOARD_WORK_GUIDE_URL', 'https://dashing-stick-008.notion.site/37345d82bd838108a418c76a210f1854'),
 

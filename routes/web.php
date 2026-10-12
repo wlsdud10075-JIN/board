@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\BuyerViewController;
 use App\Http\Controllers\PhotoController;
+use App\Http\Controllers\PushSubscriptionController;
 use App\Models\Setting;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -55,6 +56,10 @@ Route::middleware(['auth'])->group(function () {
 
     // 사진 같은출처 스트리밍 (모바일 다중 공유 fetch 의 CORS 우회) — 스코프는 컨트롤러에서
     Route::get('photos/{photo}', [PhotoController::class, 'show'])->name('photos.show');
+
+    // 웹푸시 구독 저장/해제 — 상단 종 패널의 「휴대폰 알림」 토글이 브라우저 PushSubscription 을 그대로 보낸다(2026-10-12)
+    Route::post('push/subscribe', [PushSubscriptionController::class, 'store'])->name('push.subscribe');
+    Route::post('push/unsubscribe', [PushSubscriptionController::class, 'destroy'])->name('push.unsubscribe');
 
     // 설정
     Route::redirect('settings', 'settings/profile');

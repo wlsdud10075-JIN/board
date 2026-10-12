@@ -1,6 +1,8 @@
 <?php
 
 use App\Services\CarErpReadService;
+use App\Services\WebPushService;
+use App\Support\BoardRequestLines;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Volt\Component;
@@ -71,10 +73,7 @@ new class extends Component
         return $u->car_erp_salesman_email ?: $u->email;
     }
 
-    /**
-     * GET /requests 를 **라인 단위로 평탄화**. null = 조회 실패.
-     * 묶음(판매대금확인 N대)도 차량별 결과가 다를 수 있어(부분 확인·부분 거절) 라인이 단위다.
-     */
+    /** GET /requests → 라인 단위(`BoardRequestLines::flatten`, 웹푸시 스케줄러와 같은 모양). null = 조회 실패. */
     private function lines(?string $since): ?array
     {
         $env = $this->svc()->boardRequests($this->email(), 'all', $since);
@@ -82,43 +81,17 @@ new class extends Component
             return null;
         }
 
-        $out = [];
-        foreach ((array) data_get($env['data'], 'requests', []) as $batch) {
-            foreach ((array) data_get($batch, 'vehicles', []) as $line) {
-                $out[] = [
-                    'key' => data_get($batch, 'batch_id').'|'.data_get($line, 'vehicle_number'),
-                    'type' => (string) data_get($batch, 'type'),
-                    'vehicle_number' => (string) data_get($line, 'vehicle_number'),
-                    'buyer_name' => data_get($batch, 'buyer_name'),
-                    'amount' => data_get($line, 'amount_krw') ?? data_get($batch, 'amount_krw'),
-                    'status' => (string) data_get($line, 'status'),
-                    'requested_at' => data_get($batch, 'requested_at'),
-                    // 처리 시각 — ERP 신버전은 resolved_at(확인·거절 공통), 구버전은 확인 라인에 confirmed_at 만.
-                    'resolved_at' => data_get($line, 'resolved_at') ?? data_get($line, 'confirmed_at'),
-                    'resolved_by' => data_get($line, 'resolved_by') ?? data_get($batch, 'resolved_by'),
-                    'reason' => data_get($line, 'reject_reason') ?? data_get($batch, 'reject_reason'),
-                ];
-            }
-        }
-
-        return $out;
+        return BoardRequestLines::flatten($env['data']);
     }
 
     private static function isResult(array $l): bool
     {
-        return in_array($l['status'], self::RESULT_STATUSES, true) && ! empty($l['resolved_at']);
+        return BoardRequestLines::isResult($l);
     }
 
     private static function resolvedAfter(array $l, ?string $ts): bool
     {
-        if ($ts === null) {
-            return true;
-        }
-        try {
-            return Carbon::parse($l['resolved_at'])->gt(Carbon::parse($ts));
-        } catch (\Throwable) {
-            return false;   // 파싱 불가 시각은 미읽음·토스트 어느 쪽에도 세지 않는다
-        }
+        return BoardRequestLines::resolvedAfter($l, $ts);
     }
 
     /** 폴링(30초) — 배지 갱신 + 새로 끝난 결과 토스트. 패널이 열려 있으면 목록은 건드리지 않는다(읽는 중 하이라이트가 사라진다). */
@@ -290,6 +263,29 @@ new class extends Component
             <div class="border-t border-gray-100 px-3 py-1.5 text-[11px] text-gray-400">
                 <a href="{{ route('portal') }}" wire:navigate class="hover:underline">{{ __('nav.bell.footer') }}</a>
             </div>
+
+            {{-- 웹푸시 토글 — 화면이 꺼져 있어도 폰이 울리게(Jin 2026-10-12 「알림톡 말고 웹푸시로」). VAPID 가 있을 때만.
+                 상태는 브라우저가 진실(구독 유무)이라 Alpine 이 매번 묻는다. 'error' 는 콘솔에 사유. --}}
+            @if (WebPushService::configured())
+                <div class="border-t border-gray-100 px-3 py-2 text-[12px]"
+                     x-data="{ st: 'unknown', busy: false,
+                               async load() { this.st = window.__boardPush ? await window.__boardPush.status() : 'unsupported'; },
+                               async go(fn) { this.busy = true; try { this.st = await window.__boardPush[fn](); } finally { this.busy = false; } } }"
+                     x-init="load()">
+                    <template x-if="st === 'off' || st === 'error'">
+                        <button type="button" @click="go('enable')" :disabled="busy" class="btn-outline btn-sm">📳 {{ __('nav.bell.push_enable') }}</button>
+                    </template>
+                    <template x-if="st === 'on'">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-green-700">📳 {{ __('nav.bell.push_on') }}</span>
+                            <button type="button" @click="go('disable')" :disabled="busy" class="btn-ghost btn-sm">{{ __('nav.bell.push_disable') }}</button>
+                        </div>
+                    </template>
+                    <template x-if="st === 'denied'"><span class="text-amber-600">{{ __('nav.bell.push_denied') }}</span></template>
+                    <template x-if="st === 'unsupported'"><span class="text-gray-400">{{ __('nav.bell.push_unsupported') }}</span></template>
+                    <template x-if="st === 'error'"><span class="ml-2 text-red-600">{{ __('nav.bell.push_error') }}</span></template>
+                </div>
+            @endif
         </div>
     @endif
 </div>

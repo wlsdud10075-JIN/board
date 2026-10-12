@@ -277,6 +277,54 @@
             };
         })();
     </script>
+
+    {{-- 웹푸시 — 상단 종 패널의 「휴대폰 알림」 토글이 이 객체를 부른다. VAPID 미설정이면 supported()=false 로 토글이 안 뜬다.
+         구독은 **사용자 제스처(버튼)** 에서만 요청한다(브라우저 정책 + 묻지도 않고 권한창을 띄우면 거부당한다).
+         아이폰은 홈 화면에 추가한(standalone) 앱에서만 PushManager 가 있다 → 사파리 탭에서는 unsupported 로 보인다. --}}
+    <script>
+        window.__boardPush = window.__boardPush || {
+            vapid: @js((string) config('board.push.vapid_public')),
+            supported() { return !!(this.vapid && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window); },
+            key() {
+                const b64 = (this.vapid + '='.repeat((4 - this.vapid.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+                const raw = atob(b64); const out = new Uint8Array(raw.length);
+                for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+                return out;
+            },
+            async post(url, body) {
+                const token = document.querySelector('meta[name=csrf-token]')?.content || '';
+                const r = await fetch(url, { method: 'POST', credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
+                    body: JSON.stringify(body) });
+                if (!r.ok) throw new Error('push endpoint ' + r.status);
+            },
+            async status() {
+                if (!this.supported()) return 'unsupported';
+                if (Notification.permission === 'denied') return 'denied';
+                const reg = await navigator.serviceWorker.getRegistration('/');
+                const sub = reg && await reg.pushManager.getSubscription();
+                return sub ? 'on' : 'off';
+            },
+            async enable() {
+                try {
+                    const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+                    const perm = await Notification.requestPermission();
+                    if (perm !== 'granted') return perm === 'denied' ? 'denied' : 'off';
+                    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: this.key() });
+                    await this.post(@js(route('push.subscribe')), sub.toJSON());
+                    return 'on';
+                } catch (e) { console.warn('push enable failed', e); return 'error'; }
+            },
+            async disable() {
+                try {
+                    const reg = await navigator.serviceWorker.getRegistration('/');
+                    const sub = reg && await reg.pushManager.getSubscription();
+                    if (sub) { await this.post(@js(route('push.unsubscribe')), { endpoint: sub.endpoint }); await sub.unsubscribe(); }
+                    return 'off';
+                } catch (e) { console.warn('push disable failed', e); return 'error'; }
+            },
+        };
+    </script>
 @endif
 
 {{-- 사내 업무 도우미(챗봇) — 영업·관리·super + 서버설정·기능설정 둘 다 on 일 때만 --}}
