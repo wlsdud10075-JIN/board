@@ -497,6 +497,29 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
   "동일 바이어"로 안내하던 사고와 같은 형태). 가드 = `test_portal_docs_422_reasons_are_distinguished`.
 - ⚠️ **실패 응답 본문을 버리지 말 것** — `CarErpReadService` 의 `document()`·공통 `post/get` 이 실패 시 `body=null`
   이라 **사유가 board 에 도달하지 않았다**. `message` 키로 살린다(300자). ERP 는 **어느 차량인지까지** 준다.
+  - `failureMessage()` 가 JSON 봉투에서 `message` 만 꺼낸다(2026-10-12) — `acceptJson` 이라 ERP `abort(422,'No buyer: X')` 는
+    `{"message":"No buyer: X"}` 로 오고, 그대로 내보내면 화면에 `({"message":"…"})` 가 떴다.
+- 🚨 **서명 422 와 서류 422 는 메시지 형식이 다르다**(2026-10-12 점검에서 발견·수정, Jin 결정 = 「ERP 문구 그대로」):
+  서류는 영문 `abort('No buyer: …')`, 서명은 `SigningRequestController` 가 **ERP lang 문구(한글)** 를 보낸다
+  (`signed_contract.issue.no_buyer` = "바이어가 지정된 차량만 발급할 수 있습니다."). 서명 실패에 `docBlockedReason()` 의
+  영문 매칭을 태운 탓에 **모든 서명 거절이 「동일 바이어·단일 통화」로 오안내**됐다(운영 heymanerp 서명 세션 = revoked 1건뿐).
+  - 지금 = 서명 422 → `flash_sign_declined` + ERP 사유 원문 / 서류 422 → `No buyer`·`No sale price`·`Mixed` 만 board 문구,
+    그 외(`Too many vehicles` 등) → `flash_docs_declined` + 원문. **한글 문구 패턴 매칭으로 되돌리지 말 것**(ERP lang 한 글자 바뀌면 다시 깨짐).
+  - ⚠️ ERP API 경로엔 `SetLocale` 이 안 붙어(web 그룹만) 사유는 **항상 ERP 로케일(한글)** — board 영어 사용자(heymanboard 2명)에겐
+    앞머리만 영어, 사유는 한글. Jin 인지(2026-10-12). 영어 사유가 필요해지면 ERP 가 요청 언어를 읽게 하는 car-erp 수정.
+  - 가드 = `test_portal_signature_422_shows_erp_reason_verbatim` · `test_portal_docs_422_detail_strips_json_envelope`.
+- 🚨 **서명 상태 폴링은 서명 버튼이 그려지는 묶음(requested·in_progress)만**(2026-10-12 Jin). `/bundles` 는 전 상태를 주고
+  묶음은 영원히 쌓인다 — 운영 실측 heymanerp 영업 1명 묶음 **44개 → 선적 탭 한 번에 46 호출**(묶음당 GET 1회·직렬·timeout 20s).
+  throttle 은 **분당 120·영업 이메일 단위 공유 버킷**이라 1분에 2~3번 열면 429 → 칩과 `/bundles` 자체가 **로그 없이 「조회 불가」**.
+  - done 묶음엔 **서명 버튼·칩도 안 그린다**(`_sales-docs` `allowSign=false`) — 폴링을 끊은 곳에 상태 모르는 「요청」 버튼을 두면
+    눌렀을 때 ERP 단일활성 규칙으로 바이어의 미서명 링크가 조용히 무효화된다. 서류 받기 버튼은 그대로.
+  - ERP 일괄 상태 엔드포인트(묶음 N개 → 1호출)는 **안 만들었다** — 진행 중 묶음 수가 다시 문제 되면 그때(car-erp 작업).
+  - 가드 = `test_portal_skips_sign_poll_and_button_for_done_bundles`.
+- 🚨 **계획 그룹(sync 전, batch_id 없음)은 차를 담는 순간 그 set 으로 서명 상태를 묻는다**(`pollPlanSignStatus`, 2026-10-12 Jin).
+  계획 그룹은 `/bundles` 에 없어 진입 폴링이 못 보고, 새로고침하면 그룹 자체가 사라져 "다시 담는" 순간이 유일한 조회 시점이다.
+  안 물으면 이미 링크를 보낸 차에도 「✍️ 요청」(재발급 경고 없는 confirm)이 떠서 다시 누르면 **바이어가 들고 있는 링크가 무효**.
+  ERP 상태 조회는 원래 차량 id 기준(§10-2)이라 묶음 없이 된다. 키 = 차량 id 를 `-` 로 이은 것(`_sales-docs` `$signKey` 와 동일).
+  가드 = `test_portal_plan_group_polls_sign_status_when_vehicle_assigned`.
 - ⚠️ PHP 주석에 `roro_*/container_*` 처럼 쓰면 `*/` 가 **주석을 조기 종료**해 파스 에러가 난다(실제로 밟음).
 
 ### 14-12. 판매가를 **나중에 채우면** ERP 에 안 간다 (미해결 — ERP 개정 대기)
