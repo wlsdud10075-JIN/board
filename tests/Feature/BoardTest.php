@@ -4673,6 +4673,105 @@ class BoardTest extends TestCase
     }
 
     /**
+     * 거절 씬(2026-10-12) — ERP 가 `rejected` + 사유를 주면 빨간 「거절」 칩 + 사유 원문. 모르는 상태는 원문 그대로.
+     * 종전 칩은 done·cancelled 외 전부 「요청중」으로 뭉갰다 → ERP 가 먼저 배포되면 거절이 「요청중」으로 보였을 것.
+     */
+    public function test_portal_chip_shows_rejected_with_reason_and_unknown_status_raw(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test']);
+        $this->actingAs($sales);
+
+        Http::fake([
+            '*/api/internal/board/inventory*' => Http::response(['count' => 1, 'total' => 1, 'data' => [
+                ['vehicle_id' => 5, 'vehicle_number' => '22나2222', 'purchase_price' => 10000000, 'purchase_unpaid' => 7000000],
+            ]], 200),
+            '*/api/internal/board/requests*' => Http::response(['count' => 2, 'requests' => [
+                ['batch_id' => 'R1', 'type' => 'purchase_balance', 'status' => 'rejected', 'amount_krw' => 7000000, 'requested_at' => '2026-10-12T10:00:00+09:00',
+                    'vehicles' => [['vehicle_number' => '22나2222', 'status' => 'rejected', 'amount_krw' => 7000000, 'reject_reason' => '바이어 입금 미확인 — 내일 다시 요청해 주세요']]],
+                ['batch_id' => 'R2', 'type' => 'purchase_deposit', 'status' => 'on_hold', 'amount_krw' => 3000000, 'requested_at' => '2026-10-12T10:00:00+09:00',
+                    'vehicles' => [['vehicle_number' => '22나2222', 'status' => 'on_hold', 'amount_krw' => 3000000]]],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        Volt::test('portal.index')->call('setTab', 'inventory')
+            ->assertSee(__('portal.req_chip_rejected'))
+            ->assertSee('바이어 입금 미확인 — 내일 다시 요청해 주세요')
+            ->assertSee('on_hold')                        // 모르는 상태 = 원문
+            ->assertDontSee(__('portal.req_chip_open'));  // 둘 중 어느 것도 「요청중」으로 뭉개지지 않는다
+    }
+
+    /**
+     * [매입잔금] 빈 금액칸 = ERP 미지급 전액(매도비 포함, 2026-10-12 Jin). board 가 계산한 숫자가 아니라
+     * `/inventory` 의 `purchase_unpaid` 를 그대로 싣는다. 계약금·대표계약금은 그대로 필수 입력.
+     */
+    public function test_balance_request_with_empty_amount_sends_erp_unpaid(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test']);
+        $this->actingAs($sales);
+
+        Http::fake([
+            '*/api/internal/board/inventory*' => Http::response(['count' => 1, 'total' => 1, 'data' => [
+                ['vehicle_id' => 6, 'vehicle_number' => '11가1111', 'purchase_price' => 10000000, 'purchase_unpaid' => 7500000],
+            ]], 200),
+            '*/api/internal/board/requests*' => Http::response(['batch_id' => null, 'created' => ['11가1111'], 'skipped' => []], 201),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        $c = Volt::test('portal.index')->call('setTab', 'inventory')
+            ->assertSee('7,500,000');   // 확인창 문구에 전액이 미리 찍힌다(누르기 전에 숫자를 본다)
+
+        // 계약금은 빈 칸이면 여전히 거절 — 미지급 전액을 계약금으로 보내는 일은 없어야 한다.
+        $c->call('sendPurchaseRequest', CarErpReadService::REQ_PURCHASE_DEPOSIT, 6)
+            ->assertSet('reqResult.error', __('portal.req_amount_required'));
+        Http::assertNotSent(fn ($req) => str_contains($req->url(), '/board/requests') && $req->method() === 'POST');
+
+        $c->call('sendPurchaseRequest', CarErpReadService::REQ_PURCHASE_BALANCE, 6)
+            ->assertSet('reqResult.created', ['11가1111']);
+
+        Http::assertSent(function ($req) {
+            if (! str_contains($req->url(), '/board/requests') || $req->method() !== 'POST') {
+                return false;
+            }
+            $body = json_decode($req->body(), true);
+            $this->assertSame(CarErpReadService::REQ_PURCHASE_BALANCE, $body['type']);
+            $this->assertSame([6], $body['vehicle_ids']);
+            $this->assertSame(7500000, $body['amount_krw']);
+
+            return true;
+        });
+    }
+
+    /** 미지급이 0·누락이면 전액 요청을 만들지 않는다 — 조용히 0원이나 매입가를 보내는 쪽이 더 나쁘다. */
+    public function test_balance_request_with_empty_amount_and_no_unpaid_is_not_sent(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test']);
+        $this->actingAs($sales);
+
+        Http::fake([
+            '*/api/internal/board/inventory*' => Http::response(['count' => 2, 'total' => 2, 'data' => [
+                ['vehicle_id' => 6, 'vehicle_number' => '11가1111', 'purchase_price' => 10000000, 'purchase_unpaid' => 0],
+                ['vehicle_id' => 7, 'vehicle_number' => '22나2222', 'purchase_price' => 10000000],   // ERP 가 안 줌
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        Volt::test('portal.index')->call('setTab', 'inventory')
+            ->call('sendPurchaseRequest', CarErpReadService::REQ_PURCHASE_BALANCE, 6)
+            ->assertSet('reqResult.error', __('portal.req_balance_fill_unavailable'))
+            ->call('sendPurchaseRequest', CarErpReadService::REQ_PURCHASE_BALANCE, 7)
+            ->assertSet('reqResult.error', __('portal.req_balance_fill_unavailable'));
+
+        Http::assertNotSent(fn ($req) => str_contains($req->url(), '/board/requests') && $req->method() === 'POST');
+    }
+
+    /**
      * ERP 읽기 API 는 정렬 없이(id 순) 준다 → 방금 넘어온 차가 목록 맨 아래로 밀렸다.
      * 날짜 빈 행이 최신처럼 올라오면 더 헷갈리므로 그건 맨 뒤로 보낸다.
      */

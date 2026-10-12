@@ -66,6 +66,12 @@ return [
     'req_chip_open' => '요청중',
     'req_chip_done' => '확인됨',
     'req_chip_cancelled' => '취소됨',
+    'req_chip_rejected' => '거절',
+    'req_reject_reason' => '거절 사유: :reason',
+    // 매입잔금 — 금액칸이 비어 있으면 ERP 미지급 전액(매도비 포함)으로 보낸다. 누르기 전에 숫자를 보여 준다(2026-10-12 Jin).
+    'req_balance_fill_confirm' => '금액을 비워 두셨습니다. 남은 잔금 전액 :amount원(매도비 포함, ERP 미지급 기준)으로 매입잔금을 요청합니다.',
+    'req_balance_fill_deposit_hint' => "\n⚠️ 계약금 :amount원 요청이 아직 확인 전입니다 — ERP 미지급에 반영되지 않았을 수 있으니 필요하면 금액을 직접 입력하세요.",
+    'req_balance_fill_unavailable' => 'ERP 가 이 차의 미지급 금액을 주지 않아 전액 요청을 만들 수 없습니다 — 금액을 직접 입력하세요.',
     'req_chip_progress' => ':done/:total 확인',
     'req_chip_unavailable' => '요청 상태를 조회하지 못했습니다 — 아래 상태 표시가 비어 있어도 "요청 안 함"이라는 뜻이 아닙니다.',
     'flash_select_vehicle_docs' => '서류 받을 차량을 선택하세요.',

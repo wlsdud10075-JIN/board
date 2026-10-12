@@ -33,17 +33,39 @@
     </div>
 
     @if ($vid)
+        @php
+            // [매입잔금] 빈 금액칸 = ERP 미지급 전액(매도비 포함) — 누르기 전에 그 숫자를 확인창으로 보여 준다(2026-10-12 Jin).
+            //   계약금 요청이 아직 open 이면 미지급에 반영 전일 수 있다고 덧붙인다(요청액 ≠ 지급액, 이중 차감 방지는 사람 판단).
+            $unpaidRaw = data_get($row, 'purchase_unpaid');
+            $unpaidInt = is_numeric($unpaidRaw) && (float) $unpaidRaw > 0 ? (int) round((float) $unpaidRaw) : null;
+            $openDeposit = collect([\App\Services\CarErpReadService::REQ_PURCHASE_DEPOSIT, \App\Services\CarErpReadService::REQ_PURCHASE_DEPOSIT_CEO])
+                ->map(fn ($t) => $vno !== '' ? $this->requestChip($vno, $t) : null)
+                ->first(fn ($c) => $c && ($c['status'] ?? '') === 'open' && is_numeric($c['amount'] ?? null));
+            $fillConfirm = $unpaidInt !== null
+                ? __('portal.req_balance_fill_confirm', ['amount' => number_format($unpaidInt)])
+                    .($openDeposit ? __('portal.req_balance_fill_deposit_hint', ['amount' => number_format((float) $openDeposit['amount'])]) : '')
+                : null;
+        @endphp
         {{-- 좁은 화면(≈360px)에서 input+버튼 2개가 한 줄에 안 들어간다 — 넘치는 대신 접히게 둔다. --}}
-        <div class="flex flex-wrap items-center justify-end gap-1">
+        <div class="flex flex-wrap items-center justify-end gap-1" x-data>
             <input type="text" inputmode="numeric" autocomplete="off"
                 wire:model="reqAmount.{{ (int) $vid }}"
                 wire:key="reqamt-{{ (int) $vid }}"
+                x-ref="amt"
                 placeholder="{{ __('portal.req_amount_ph') }}"
                 class="input-base w-24 shrink-0 text-right text-[12px]">
             @foreach ($reqBtns as $reqType => $reqLabel)
-                <button type="button" wire:click="sendPurchaseRequest('{{ $reqType }}', {{ (int) $vid }})"
-                    wire:loading.attr="disabled" wire:target="sendPurchaseRequest"
-                    class="btn-outline btn-sm shrink-0">{{ $reqLabel }}</button>
+                @if ($reqType === \App\Services\CarErpReadService::REQ_PURCHASE_BALANCE && $fillConfirm !== null)
+                    {{-- 빈 칸이면 확인창(금액 표시) 뒤 전송, 적었으면 바로 전송. 서버(sendPurchaseRequest)가 같은 규칙으로 다시 판정한다. --}}
+                    <button type="button"
+                        @click="if ($refs.amt.value.trim() !== '' || confirm(@js($fillConfirm))) $wire.sendPurchaseRequest('{{ $reqType }}', {{ (int) $vid }})"
+                        wire:loading.attr="disabled" wire:target="sendPurchaseRequest"
+                        class="btn-outline btn-sm shrink-0">{{ $reqLabel }}</button>
+                @else
+                    <button type="button" wire:click="sendPurchaseRequest('{{ $reqType }}', {{ (int) $vid }})"
+                        wire:loading.attr="disabled" wire:target="sendPurchaseRequest"
+                        class="btn-outline btn-sm shrink-0">{{ $reqLabel }}</button>
+                @endif
             @endforeach
         </div>
     @else
