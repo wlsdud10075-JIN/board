@@ -7,6 +7,8 @@
     선적 4종(`roro_*`/`container_*`)은 **실제 선적 단계 서류라 묶음 화면에만** 둔다.
 
     필요 변수: $vIds(차량 id 배열) · $method(RORO|CONTAINER) · $batchId(없으면 null) · $signStatus · $signResults
+    선택 변수: $allowSign(기본 true) — false 면 서명 버튼·칩을 안 그린다(완료 묶음: 상태 폴링을 끊은 곳에 「요청」 버튼을
+    두면 미서명 링크를 모르고 무효화한다, 2026-10-12). 서류 받기 버튼은 영향 없음.
     ⚠️ 서류 버튼 이름은 car-erp `vehicle.shipdoc.*` 과 **같은 이름**을 쓴다 — board 에서 새로 지으면
        "ERP엔 그런 서류 없다"가 된다.
 --}}
@@ -14,12 +16,14 @@
     $signKey = $batchId ?: implode('-', array_values(array_map('intval', $vIds)));
     $signSt = $signStatus[$signKey]['status'] ?? 'none';
     $signContractNo = $signStatus[$signKey]['contract_no'] ?? null;
+    $allowSign = $allowSign ?? true;
 @endphp
 <div class="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
     <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'sales_contract')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_sales_contract') }}</button>
     {{-- 프로포마 인보이스 — car-erp 타입명은 'invoice'(선적 인보이스·패킹과 다른 서류). --}}
     <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'invoice')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_proforma_invoice') }}</button>
-    @if ($signSt === 'signed')
+    @if (! $allowSign)
+    @elseif ($signSt === 'signed')
         <span class="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-[11px] font-bold text-green-700">✓ {{ __('portal.sign_st_signed') }}@if ($signContractNo)<span class="font-normal">· {{ $signContractNo }}</span>@endif</span>
         <button wire:click="requestSignature({{ json_encode($vIds) }}, {{ $batchId ? "'".$batchId."'" : 'null' }})" wire:confirm="{{ __('portal.sign_reissue_confirm') }}" class="btn-ghost btn-sm">↻ {{ __('portal.sign_reissue_btn') }}</button>
     @elseif ($signSt === 'pending' || $signSt === 'viewed')
@@ -30,7 +34,7 @@
     @endif
 </div>
 {{-- §10 서명 세션 결과 — signed_url 을 영업이 바이어에게 직접 전달(ERP 는 전달 대행 안 함). --}}
-@php $sign = $signResults[$signKey] ?? null; @endphp
+@php $sign = $allowSign ? ($signResults[$signKey] ?? null) : null; @endphp
 @if ($sign)
     <div class="mt-2 rounded-md border border-blue-200 bg-blue-50 p-2.5 text-[12px]" x-data="{ copied: false }" wire:key="sign-{{ $signKey }}">
         <p class="mb-1 font-semibold text-blue-800">

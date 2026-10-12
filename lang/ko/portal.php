@@ -78,6 +78,9 @@ return [
     // 422 = car-erp 동질성 가드(HOMOGENEOUS_TYPES). 판매계약서·프로포마 인보이스 공통.
     'flash_docs_homogeneous_required' => '이 서류는 동일 바이어·단일 통화 차량만 함께 발급됩니다. 묶음에 다른 바이어나 다른 통화가 섞여 있는지 확인해 주세요.',
     'flash_sign_failed' => '전자서명 세션을 발급할 수 없습니다. 잠시 후 다시 시도하세요. (car-erp 연동 확인)',
+    // 422 사유는 ERP 문구 **그대로**(:detail) — 서명 422 는 ERP lang(한글)이고 서류 422 는 영문 abort 라 패턴 매칭이 깨진다(2026-10-12).
+    'flash_sign_declined' => 'car-erp 가 전자서명 발급을 거절했습니다: :detail',
+    'flash_docs_declined' => 'car-erp 가 서류 발급을 거절했습니다: :detail',
 
     // §10 전자서명 요청 (ERP 발급 → board 는 서명 URL 전달만)
     'sign_request_btn' => '전자서명 요청',
