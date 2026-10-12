@@ -48,6 +48,8 @@ new class extends Component
 
     private const MAX_RESULTS = 30;
 
+    private const PANEL_WINDOW_DAYS = 90;
+
     public function mount(): void
     {
         $u = Auth::user();
@@ -57,7 +59,8 @@ new class extends Component
         }
         $this->seenAt = $u->portal_seen_at->toIso8601String();
         $this->pollFrom = now()->toIso8601String();
-        $this->refresh();
+        // ⚠️ 여기서 refresh() 를 부르지 않는다 — 이 컴포넌트는 **모든 화면의 레이아웃**에 있어서, 마운트에서 ERP 를
+        //    동기 호출하면 heymanerp 가 느릴 때 /listings·/auction 전부가 최대 20초 멈춘다. 첫 조회는 `wire:init`(렌더 뒤).
     }
 
     private function svc(): CarErpReadService
@@ -124,7 +127,10 @@ new class extends Component
     public function openPanel(): void
     {
         $this->open = true;
-        $lines = $this->lines(null);
+        // 패널도 전체 이력을 끌어오지 않는다 — 최근 PANEL_WINDOW_DAYS 일(ERP `since` = updated_at 기준)만.
+        //   진행 중(open) 라인도 같은 호출에서 나오므로 그보다 오래 방치된 open 요청은 여기 안 보인다(포털 칩엔 보인다).
+        //   잔금은 지급 시 자동소멸·계약금은 계약금 행 저장 시 소멸이라 90일 넘게 열린 요청은 사실상 없다.
+        $lines = $this->lines(now()->subDays(self::PANEL_WINDOW_DAYS)->toIso8601String());
         if ($lines === null) {
             $this->loadFailed = true;
             $this->results = [];
@@ -182,7 +188,7 @@ new class extends Component
     }
 }; ?>
 
-<div class="relative" wire:poll.30s="refresh"
+<div class="relative" wire:init="refresh" wire:poll.30s="refresh"
      x-data
      @keydown.escape.window="$wire.open && $wire.closePanel()">
     <button type="button" wire:click="openPanel"

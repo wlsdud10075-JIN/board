@@ -4704,7 +4704,8 @@ class BoardTest extends TestCase
             '*' => Http::response(['count' => 0, 'data' => []], 200),
         ]);
 
-        $c = Volt::test('notify.bell')
+        // 마운트는 ERP 를 부르지 않는다(레이아웃 전역 — 첫 렌더를 막지 않게). 첫 조회 = wire:init → refresh.
+        $c = Volt::test('notify.bell')->assertSet('unread', 0)->call('refresh')
             ->assertSet('unread', 1)              // 10-02 거절 1건만(10-01 확인은 열람 전)
             ->assertSet('open', false)
             ->assertDontSee('바이어 입금 미확인');   // 닫혀 있으면 목록을 그리지 않는다
@@ -4745,7 +4746,7 @@ class BoardTest extends TestCase
             '*' => Http::response(['count' => 0, 'data' => []], 200),
         ]);
 
-        Volt::test('notify.bell')->assertSet('unread', 0)->assertNotDispatched('forward-arrived');
+        Volt::test('notify.bell')->call('refresh')->assertSet('unread', 0)->assertNotDispatched('forward-arrived');
         $this->assertNotNull($sales->refresh()->portal_seen_at);
     }
 
@@ -4759,7 +4760,7 @@ class BoardTest extends TestCase
 
         Http::fake(['*' => Http::response('nope', 401)]);
 
-        Volt::test('notify.bell')->assertSet('loadFailed', true)
+        Volt::test('notify.bell')->call('refresh')->assertSet('loadFailed', true)
             ->call('openPanel')->assertSee(__('nav.bell.unavailable'))
             ->assertDontSee(__('nav.bell.empty_results'));
     }

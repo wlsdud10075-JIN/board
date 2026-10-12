@@ -59,8 +59,16 @@ class PushRequestResults extends Command
                 BoardRequestLines::flatten($env['data']),
                 fn ($l) => BoardRequestLines::isResult($l) && BoardRequestLines::resolvedAfter($l, $cursor->toIso8601String())
             );
-            foreach ($fresh as $line) {
-                $sentTotal += $push->sendToUser($u, $this->payload($line));
+            // 푸시 문구는 **받는 사람의 언어**(users.locale) — 스케줄러는 요청 로캘이 없어 기본값(ko)으로 돈다.
+            //   거절 사유 원문은 ERP 가 준 한글 그대로(전자서명 422 와 같은 구조).
+            $prevLocale = app()->getLocale();
+            app()->setLocale($u->locale ?: $prevLocale);
+            try {
+                foreach ($fresh as $line) {
+                    $sentTotal += $push->sendToUser($u, $this->payload($line));
+                }
+            } finally {
+                app()->setLocale($prevLocale);
             }
 
             $u->forceFill(['push_notified_at' => $started])->save();
