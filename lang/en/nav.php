@@ -61,4 +61,20 @@ return [
     ],
 
     'brand_sub' => 'Purchase · Inspection · Auction',
+
+    'bell' => [
+        'title' => 'Request alerts',
+        'aria' => 'Open request alerts',
+        'results' => 'Results',
+        'in_progress' => 'In progress',
+        'empty_results' => 'No results yet.',
+        'empty_in_progress' => 'No requests in progress.',
+        'unavailable' => 'Could not load request status from ERP — an empty list does not mean "no requests".',
+        'new' => 'New',
+        'resolved_by' => 'by :name',
+        'requested_at' => 'requested :at',
+        'toast_rejected' => '🔔 :count request(s) rejected — open the bell for the reason',
+        'toast_done' => '✅ :count request(s) confirmed',
+        'footer' => 'See the portal Inventory and Sales tabs for details.',
+    ],
 ];

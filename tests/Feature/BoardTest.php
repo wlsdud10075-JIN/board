@@ -4672,6 +4672,111 @@ class BoardTest extends TestCase
             ->assertSee(__('portal.req_chip_unavailable'));
     }
 
+    // ─────────── 상단 종(notify.bell) — 내 요청 결과·진행 중 (2026-10-12) ───────────
+
+    private function bellFixture(): array
+    {
+        return ['count' => 3, 'requests' => [
+            ['batch_id' => 'R1', 'type' => 'purchase_balance', 'status' => 'rejected', 'amount_krw' => 7000000, 'requested_at' => '2026-10-02T09:30:00+09:00',
+                'vehicles' => [['vehicle_number' => '22나2222', 'status' => 'rejected', 'amount_krw' => 7000000,
+                    'resolved_at' => '2026-10-02T10:00:00+09:00', 'resolved_by' => '재무김', 'reject_reason' => '바이어 입금 미확인 — 내일 다시 요청해 주세요']]],
+            ['batch_id' => 'R2', 'type' => 'purchase_deposit', 'status' => 'done', 'amount_krw' => 3000000, 'requested_at' => '2026-10-01T09:00:00+09:00',
+                'vehicles' => [['vehicle_number' => '22나2222', 'status' => 'done', 'amount_krw' => 3000000,
+                    'confirmed_at' => '2026-10-01T10:00:00+09:00']]],   // 구 ERP 모양(resolved_at 없음) — confirmed_at 으로 읽는다
+            ['batch_id' => 'R3', 'type' => 'sale_payment_confirm', 'status' => 'open', 'buyer_name' => 'ABC TRADING', 'amount_krw' => null, 'requested_at' => '2026-10-02T11:00:00+09:00',
+                'vehicles' => [['vehicle_number' => '33다3333', 'status' => 'open', 'amount_krw' => null]]],
+        ]];
+    }
+
+    /**
+     * 미읽음 = 열람 시각 이후 끝난 결과만. 토스트는 직전 폴링 이후 새로 끝난 것만(열람과 별개 축). 거절은 빨간 토스트.
+     * 패널을 열면 사유 원문·처리자·진행 중이 보이고 열람 시각이 now 로 찍혀 배지가 0 이 된다.
+     */
+    public function test_bell_counts_unread_since_seen_and_shows_rejection_reason(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test', 'portal_seen_at' => '2026-10-01 12:00:00']);   // 10-01 확인은 이미 봤다
+        $this->actingAs($sales);
+
+        Http::fake([
+            '*/api/internal/board/requests*' => Http::response($this->bellFixture(), 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        $c = Volt::test('notify.bell')
+            ->assertSet('unread', 1)              // 10-02 거절 1건만(10-01 확인은 열람 전)
+            ->assertSet('open', false)
+            ->assertDontSee('바이어 입금 미확인');   // 닫혀 있으면 목록을 그리지 않는다
+
+        // 폴링 — 직전 폴링이 거절 전이었다고 치면 빨간 토스트가 한 번 뜬다
+        $c->set('pollFrom', '2026-10-02T09:45:00+09:00')->call('refresh')
+            ->assertDispatched('forward-arrived', type: 'rejected')
+            ->assertSet('unread', 1);
+
+        // since= 가 실린다(전체 이력 매번 끌어오지 않게) + status=all(거절 라인은 open 필터에서 빠진다)
+        Http::assertSent(fn ($req) => str_contains($req->url(), '/board/requests')
+            && str_contains($req->url(), 'status=all') && str_contains($req->url(), 'since='));
+
+        $c->call('openPanel')
+            ->assertSet('open', true)
+            ->assertSee('바이어 입금 미확인 — 내일 다시 요청해 주세요')
+            ->assertSee(__('portal.req_chip_rejected'))
+            ->assertSee(__('nav.bell.resolved_by', ['name' => '재무김']))
+            ->assertSee('33다3333')                 // 진행 중
+            ->assertSee('ABC TRADING')
+            ->assertSee(__('nav.bell.new'))
+            ->assertSet('unread', 0);
+
+        $sales->refresh();
+        $this->assertTrue($sales->portal_seen_at->gt(now()->subMinute()), '패널을 열면 열람 시각이 now 로 찍힌다');
+    }
+
+    /** 처음 쓰는 사람은 과거 이력 전부가 미읽음으로 세어지면 안 된다 — 첫 마운트에 now 를 기준점으로 찍는다. */
+    public function test_bell_first_mount_sets_seen_now_and_counts_nothing_old(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test']);   // portal_seen_at null
+        $this->actingAs($sales);
+
+        Http::fake([
+            '*/api/internal/board/requests*' => Http::response($this->bellFixture(), 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        Volt::test('notify.bell')->assertSet('unread', 0)->assertNotDispatched('forward-arrived');
+        $this->assertNotNull($sales->refresh()->portal_seen_at);
+    }
+
+    /** 조회 실패를 감추지 않는다 — 빈 목록이 「요청 없음」으로 읽히면 영업이 다시 눌러 already_open 만 받는다. */
+    public function test_bell_says_so_when_erp_unavailable(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test']);
+        $this->actingAs($sales);
+
+        Http::fake(['*' => Http::response('nope', 401)]);
+
+        Volt::test('notify.bell')->assertSet('loadFailed', true)
+            ->call('openPanel')->assertSee(__('nav.bell.unavailable'))
+            ->assertDontSee(__('nav.bell.empty_results'));
+    }
+
+    /** 종은 포털을 쓰는 역할(영업·관리·super)에만, 그리고 car-erp 연결이 있을 때만 상단바에 뜬다. */
+    public function test_bell_is_rendered_in_header_only_for_portal_roles_with_erp_configured(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        Http::fake(['*' => Http::response(['count' => 0, 'requests' => []], 200)]);
+
+        $this->actingAs($this->mkUser('sales'))->get(route('listings'))->assertOk()->assertSee(__('nav.bell.aria'));
+        $this->actingAs($this->mkUser('inspection'))->get(route('inspection'))->assertOk()->assertDontSee(__('nav.bell.aria'));
+
+        config(['services.car_erp.base_url' => '', 'services.car_erp.read_hmac_secret' => '']);
+        $this->actingAs($this->mkUser('sales'))->get(route('listings'))->assertOk()->assertDontSee(__('nav.bell.aria'));
+    }
+
     /**
      * 거절 씬(2026-10-12) — ERP 가 `rejected` + 사유를 주면 빨간 「거절」 칩 + 사유 원문. 모르는 상태는 원문 그대로.
      * 종전 칩은 done·cancelled 외 전부 「요청중」으로 뭉갰다 → ERP 가 먼저 배포되면 거절이 「요청중」으로 보였을 것.

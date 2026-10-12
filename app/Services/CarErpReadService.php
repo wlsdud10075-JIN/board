@@ -364,9 +364,16 @@ class CarErpReadService
      * GET /requests — 상태 폴링(칩 갱신). 응답 = {count, requests[{batch_id,type,status,buyer_name,requested_at,vehicles[]}]}.
      * 묶음 status = open | partial | done | cancelled (ERP 집계값). **board 가 재계산·완료 coerce 금지**(§11-4 항목 4).
      */
-    public function boardRequests(string $email, string $status = 'open'): array
+    public function boardRequests(string $email, string $status = 'open', ?string $since = null): array
     {
-        return $this->get('/requests', ['salesman_email' => $email, 'status' => $status]);
+        $query = ['salesman_email' => $email, 'status' => $status];
+        // `since=`(ISO8601, updated_at 기준) — 상단 종 폴링(30초)이 영업의 전체 이력을 매번 끌어오지 않게(2026-10-12 ERP 요청).
+        //   ERP 가 아직 안 받으면 무시하고 전량을 준다(HMAC canonical 은 보낸 쿼리 그대로라 서명은 깨지지 않는다).
+        if ($since !== null && $since !== '') {
+            $query['since'] = $since;
+        }
+
+        return $this->get('/requests', $query);
     }
 
     /**

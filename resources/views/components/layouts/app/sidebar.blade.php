@@ -217,9 +217,15 @@
             </button>
             <div class="ml-2 truncate text-[13px] text-gray-700">{{ $breadcrumb }}</div>
 
+            <div class="ml-auto flex items-center gap-2">
+            {{-- 상단 종 — 내 §11 요청 결과(ERP 확인·거절)·진행 중. 포털을 쓰는 역할 + car-erp 연결이 있을 때만(없으면 조회할 것이 없다). --}}
+            @if (($user->isSuper() || $user->isSales() || $user->isManager()) && app(\App\Services\CarErpReadService::class)->configured())
+                <livewire:notify.bell />
+            @endif
+
             {{-- i18n Phase 0 — 언어 전환 (영어 활성 시만 노출) --}}
             @if ($localeEnEnabled)
-                <form method="POST" action="{{ route('locale.update') }}" class="ml-auto flex items-center gap-0.5 rounded-md bg-gray-100 p-0.5">
+                <form method="POST" action="{{ route('locale.update') }}" class="flex items-center gap-0.5 rounded-md bg-gray-100 p-0.5">
                     @csrf
                     @foreach (['ko', 'en'] as $loc)
                         <button type="submit" name="locale" value="{{ $loc }}"
@@ -234,6 +240,7 @@
                     @endforeach
                 </form>
             @endif
+            </div>
         </header>
         <main class="flex-1 overflow-auto bg-gray-50">
             {{ $slot }}
