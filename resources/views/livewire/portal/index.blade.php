@@ -1114,6 +1114,13 @@ new #[Layout('components.layouts.app')] class extends Component {
             'expires_at' => data_get($res, 'data.expires_at'),
             'status' => data_get($res, 'data.status'),
         ];
+        // 발급 성공 = 그 자리에서 「서명 대기」로 심는다(2026-10-12 Jin). 다음 폴링 전까지 버튼이 「✍️ 요청」으로 남으면
+        // URL 패널 옆에서 한 번 더 누르는 순간 방금 만든 링크가 revoke 된다(재요청 버튼은 경고 confirm 을 탄다).
+        $this->signStatus[$key] = [
+            'status' => data_get($res, 'data.status') ?: 'pending',
+            'contract_no' => data_get($res, 'data.contract_no'),
+            'signed_at' => null,
+        ];
         $this->shipNote = null;
     }
 

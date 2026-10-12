@@ -5387,11 +5387,17 @@ class BoardTest extends TestCase
         ]);
         $this->actingAs($this->mkUser('sales'));
 
-        Volt::test('portal.index')->call('setTab', 'shipping')
+        $c = Volt::test('portal.index')->call('setTab', 'shipping')
             ->call('requestSignature', [1], 'B1')
             ->assertHasNoErrors()
             ->assertSee('SC2607-00001')
             ->assertSee('https://heysellcar.com/sign/tok?expires=1&signature=ab');
+
+        // 발급 직후 그 자리에서 「서명 대기」 — 「✍️ 요청」 버튼이 남아 있으면 재클릭이 방금 만든 링크를 revoke 한다(2026-10-12 Jin).
+        $c->assertSee(__('portal.sign_st_pending'))
+            ->assertSee(__('portal.sign_reissue_btn'))
+            ->assertDontSee(__('portal.sign_request_btn'));
+        $this->assertSame('pending', $c->get('signStatus')['B1']['status'] ?? null);
     }
 
     /** §10-2 서명 상태 칩 — signed 폴링 시 묶음 카드에 「서명완료」 녹색 칩 노출. */
