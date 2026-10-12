@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -453,11 +454,28 @@ class CarErpReadService
             //    예전엔 null 로 지워서 board 가 전부 "동일 바이어" 로 뭉뚱그려 안내했다(원인을 잘못 짚게 만듦).
             return [
                 'ok' => false, 'status' => $res->status(), 'body' => null, 'content_type' => null,
-                'reason' => 'http_error', 'message' => Str::limit((string) $res->body(), 300, ''),
+                'reason' => 'http_error', 'message' => $this->failureMessage($res),
             ];
         }
 
         return ['ok' => true, 'status' => $res->status(), 'body' => $res->body(), 'content_type' => $res->header('Content-Type'), 'reason' => null];
+    }
+
+    /**
+     * 실패 응답에서 **사람이 읽을 사유**만 꺼낸다(300자).
+     * acceptJson 이라 car-erp 는 `abort(422,'No buyer: X')` 를 `{"message":"No buyer: X"}` 로,
+     * 서명 컨트롤러는 `{"error":"unprocessable","message":"바이어가 지정된 차량만 …"}` 로 보낸다.
+     * 봉투째 화면에 내보내면 `({"message":"…"})` 가 그대로 뜬다(2026-10-12 점검에서 발견) → `message` 키만.
+     * JSON 이 아니거나 message 가 없으면 본문 원문(사유를 버리지 않는다).
+     */
+    private function failureMessage(Response $res): string
+    {
+        $json = $res->json();
+        $msg = is_array($json) && is_string($json['message'] ?? null) && $json['message'] !== ''
+            ? $json['message']
+            : (string) $res->body();
+
+        return Str::limit($msg, 300, '');
     }
 
     // ── 내부 ──
@@ -498,7 +516,7 @@ class CarErpReadService
             //   버리면 화면이 전부 "동일 바이어" 로 뭉뚱그려져 영업이 엉뚱한 곳을 고친다.
             return [
                 'ok' => false, 'status' => $res->status(), 'data' => null,
-                'reason' => 'http_error', 'message' => Str::limit((string) $res->body(), 300, ''),
+                'reason' => 'http_error', 'message' => $this->failureMessage($res),
             ];
         }
 

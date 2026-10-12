@@ -5387,11 +5387,17 @@ class BoardTest extends TestCase
         ]);
         $this->actingAs($this->mkUser('sales'));
 
-        Volt::test('portal.index')->call('setTab', 'shipping')
+        $c = Volt::test('portal.index')->call('setTab', 'shipping')
             ->call('requestSignature', [1], 'B1')
             ->assertHasNoErrors()
             ->assertSee('SC2607-00001')
             ->assertSee('https://heysellcar.com/sign/tok?expires=1&signature=ab');
+
+        // 발급 직후 그 자리에서 「서명 대기」 — 「✍️ 요청」 버튼이 남아 있으면 재클릭이 방금 만든 링크를 revoke 한다(2026-10-12 Jin).
+        $c->assertSee(__('portal.sign_st_pending'))
+            ->assertSee(__('portal.sign_reissue_btn'))
+            ->assertDontSee(__('portal.sign_request_btn'));
+        $this->assertSame('pending', $c->get('signStatus')['B1']['status'] ?? null);
     }
 
     /** §10-2 서명 상태 칩 — signed 폴링 시 묶음 카드에 「서명완료」 녹색 칩 노출. */
@@ -6763,5 +6769,105 @@ class BoardTest extends TestCase
             ->call('deleteListing')->assertForbidden();
 
         $this->assertNotSoftDeleted('purchase_listings', ['id' => $l->id]);
+    }
+
+    /**
+     * 서명 422 는 **ERP 문구 그대로**(2026-10-12 Jin). ERP 서명 컨트롤러는 lang 문구(한글)를 보내는데
+     * 서류용 영문 매칭(`No buyer`)을 태우면 바이어 없음·판매가 없음이 전부 「동일 바이어·단일 통화」로 오안내됐다(실제 버그).
+     */
+    public function test_portal_signature_422_shows_erp_reason_verbatim(): void
+    {
+        $this->carErpReadConfig();
+        $erpMsg = '바이어가 지정된 차량만 발급할 수 있습니다.';
+        Http::fake([
+            '*/api/internal/board/signing-requests*' => Http::response(['error' => 'unprocessable', 'message' => $erpMsg], 422),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $note = (string) Volt::test('portal.index')->call('requestSignature', [1], null)->get('shipNote');
+
+        $this->assertStringContainsString($erpMsg, $note);
+        $this->assertStringNotContainsString(__('portal.flash_docs_homogeneous_required'), $note);
+        $this->assertStringNotContainsString('{"', $note);   // JSON 봉투 없이 사유만
+    }
+
+    /** 서류 422 의 (:detail) 에 JSON 봉투가 아니라 사유만 — 모르는 사유(`Too many vehicles`)는 원문 그대로. */
+    public function test_portal_docs_422_detail_strips_json_envelope(): void
+    {
+        $this->carErpReadConfig();
+        $this->actingAs($this->mkUser('sales'));
+
+        $seq = Http::sequence()
+            ->push(['message' => 'No buyer: 11가1111'], 422)
+            ->push(['message' => 'Too many vehicles'], 422);
+        Http::fake([
+            '*/api/internal/board/documents/*' => $seq,
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        $note = (string) Volt::test('portal.index')->call('downloadDocs', [10], 'RORO', 'sales_contract')->get('shipNote');
+        $this->assertStringContainsString('(No buyer: 11가1111)', $note);
+        $this->assertStringNotContainsString('{"message"', $note);
+
+        $note = (string) Volt::test('portal.index')->call('downloadDocs', [10], 'RORO', 'sales_contract')->get('shipNote');
+        $this->assertSame(__('portal.flash_docs_declined', ['detail' => 'Too many vehicles']), $note);
+    }
+
+    /**
+     * 완료(done) 묶음은 서명 상태를 묻지 않고 서명 버튼도 안 그린다(2026-10-12 Jin) — 묶음은 영원히 쌓이는데
+     * 묶음당 GET 1회면 throttle(분당 120 공유)에 걸려 조회 전체가 로그 없이 죽는다. 서류 받기 버튼은 그대로.
+     */
+    public function test_portal_skips_sign_poll_and_button_for_done_bundles(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
+                'batch_id' => 'B9', 'ship_status' => 'done', 'bl_status' => 'issued', 'bl_type' => 'original',
+                'shipping_method' => 'RORO', 'buyer' => ['id' => 5, 'name' => 'BuyerZ'],
+                'vehicles' => [['vehicle_id' => 2, 'vehicle_number' => 'CAR002']],
+            ]]], 200),
+            '*/api/internal/board/signing-requests*' => Http::response(['status' => 'pending'], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'shipping')
+            ->assertSee(__('portal.docs_sales_contract'))        // 서류 받기는 남는다
+            ->assertDontSee(__('portal.sign_request_btn'))       // 서명 요청 버튼 없음
+            ->assertDontSee(__('portal.sign_st_pending'));
+
+        $this->assertCount(0, Http::recorded(fn ($req) => str_contains($req->url(), '/signing-requests')));
+    }
+
+    /**
+     * 계획 그룹(sync 전, batch_id 없음)에 차를 담으면 그 set 으로 서명 상태를 묻는다(2026-10-12 Jin).
+     * 안 물으면 이미 링크를 보낸 차에도 「요청」 버튼이 떠서, 다시 누르면 바이어의 미서명 링크가 조용히 무효화된다.
+     */
+    public function test_portal_plan_group_polls_sign_status_when_vehicle_assigned(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 1, 'data' => [
+                ['vehicle_id' => 10, 'vehicle_number' => '11가1111', 'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignees' => []],
+            ]], 200),
+            '*/api/internal/board/signing-requests*' => Http::response(['status' => 'pending', 'contract_no' => 'SC2610-00010'], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('portal.index')->call('setTab', 'shipping')->call('setShipSubtab', 'plan');
+        $this->assertCount(0, Http::recorded(fn ($req) => str_contains($req->url(), '/signing-requests')));   // 빈 그룹 = 안 묻는다
+
+        $key = $c->get('desired')[0]['key'];
+        $c->call('assignVehicle', $key, 10)
+            ->assertSee(__('portal.sign_st_pending'))            // 대기 칩 + 재요청(경고 confirm) — 「요청」 아님
+            ->assertDontSee(__('portal.sign_request_btn'));
+
+        $this->assertSame('pending', $c->get('signStatus')['10']['status'] ?? null);
+        Http::assertSent(fn ($req) => $req->method() === 'GET'
+            && str_contains($req->url(), '/signing-requests')
+            && str_contains($req->url(), 'vehicle_ids=10'));
     }
 }

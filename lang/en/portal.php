@@ -77,6 +77,9 @@ return [
     // 422 = car-erp homogeneity guard (HOMOGENEOUS_TYPES). Shared by sales contract and proforma invoice.
     'flash_docs_homogeneous_required' => 'This document can only be issued for vehicles with the same buyer and a single currency. Check whether the bundle mixes buyers or currencies.',
     'flash_sign_failed' => 'Could not issue the e-signature session. Please try again shortly. (Check the car-erp integration)',
+    // :detail is the car-erp message verbatim — it comes in car-erp's own locale (Korean), not the board user's.
+    'flash_sign_declined' => 'car-erp declined the e-signature request: :detail',
+    'flash_docs_declined' => 'car-erp declined the document request: :detail',
 
     // §10 E-signature request (ERP issues → board only relays the signing URL)
     'sign_request_btn' => 'Request E-Signature',

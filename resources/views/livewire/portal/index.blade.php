@@ -41,6 +41,9 @@ new #[Layout('components.layouts.app')] class extends Component {
     // §10-2 서명 상태 폴링(칩 색) — [batchId(또는 ids) => {status,contract_no,signed_at}]. 진입/새로고침 기준(실시간 push 없음).
     public array $signStatus = [];
 
+    // 서명 상태를 묻는 묶음 단계 = 서명 버튼이 그려지는 단계. done 은 버튼도 폴링도 없음(호출 수 상한, 2026-10-12).
+    private const SIGN_POLL_STATUSES = ['requested', 'in_progress'];
+
     // 미수금 정렬/필터
     public string $recvSort = 'unpaid_krw';   // 기본 = 미수금 많은 순
 
@@ -458,22 +461,20 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->bundles = ($env['ok'] ?? false) ? (array) data_get($env['data'], 'data', []) : [];
 
         // §10-2 각 묶음 전자서명 상태 폴링(칩) — 진입/새로고침 기준. degrade(미설정/403/5xx)면 그 묶음은 칩 없음("요청"만).
+        // ⚠️ **서명 블록이 그려지는 묶음(requested·in_progress)만** 묻는다(2026-10-12 Jin). /bundles 는 전 상태를 주고
+        //    묶음은 영원히 쌓인다 — 운영 실측 heymanerp 영업 1명 묶음 44개 = 탭 한 번에 46 호출(직렬·timeout 20s).
+        //    throttle 은 분당 120·영업 이메일 공유 버킷이라 1분에 2~3번 열면 429 → 칩·묶음 목록이 로그 없이 "조회 불가".
+        //    done 묶음엔 서명 블록 자체를 안 그리므로(상태 모르는 「요청」 버튼 = 미서명 링크 무효화 사고) 폴링도 안 한다.
         $this->signStatus = [];
         foreach ($this->bundles as $b) {
+            if (! in_array($b['ship_status'] ?? $b['status'] ?? '', self::SIGN_POLL_STATUSES, true)) {
+                continue;
+            }
             $vids = collect(data_get($b, 'vehicles', []))->pluck('vehicle_id')->map(fn ($i) => (int) $i)->filter()->values()->all();
             if ($vids === []) {
                 continue;
             }
-            $sres = $svc->signingStatus($email, $vids);
-            $status = ($sres['ok'] ?? false) ? data_get($sres, 'data.status') : null;
-            if ($status && $status !== 'none') {
-                $key = ($b['batch_id'] ?? null) ?: implode('-', $vids);
-                $this->signStatus[$key] = [
-                    'status' => $status,
-                    'contract_no' => data_get($sres, 'data.contract_no'),
-                    'signed_at' => data_get($sres, 'data.signed_at'),
-                ];
-            }
+            $this->pollSignStatus($svc, $email, $vids, ($b['batch_id'] ?? null) ?: implode('-', $vids));
         }
 
         $shipEnv = $svc->shippable($email);
@@ -532,11 +533,52 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->shipNote = null;
     }
 
+    /**
+     * §10-2 서명 상태 한 묶음 조회 → `signStatus[$key]`. none/degrade 면 칩 없음(키 미설정 = "요청" 버튼).
+     * 키 = batch_id(영속 묶음) 또는 차량 id 를 `-` 로 이은 것(계획 그룹, `_sales-docs` 의 `$signKey` 와 같은 식).
+     */
+    private function pollSignStatus(CarErpReadService $svc, string $email, array $vids, string $key): void
+    {
+        $sres = $svc->signingStatus($email, $vids);
+        $status = ($sres['ok'] ?? false) ? data_get($sres, 'data.status') : null;
+        if ($status && $status !== 'none') {
+            $this->signStatus[$key] = [
+                'status' => $status,
+                'contract_no' => data_get($sres, 'data.contract_no'),
+                'signed_at' => data_get($sres, 'data.signed_at'),
+            ];
+        }
+    }
+
+    /**
+     * 계획 그룹(sync 전, batch_id 없음)의 차량 set 이 바뀌면 그 set 으로 서명 상태를 다시 묻는다(2026-10-12 Jin).
+     * 계획 그룹은 /bundles 에 없어 진입 폴링이 못 보고, 새로고침하면 그룹 자체가 사라져 "다시 담는" 순간이 유일한
+     * 조회 시점이다. 안 물으면 이미 링크를 보낸 차에도 「요청」 버튼(재발급 경고 없음)이 떠서, 다시 누르면 ERP
+     * 단일활성 규칙으로 **바이어가 들고 있는 미서명 링크가 조용히 무효화**된다. ERP 상태 조회는 원래 차량 id 기준이라
+     * 묶음 없이도 된다(§10-2). requested 묶음(batch_id 있음)은 진입 폴링이 담당 — 여기선 건드리지 않는다.
+     */
+    private function pollPlanSignStatus(int $i): void
+    {
+        $bd = $this->desired[$i] ?? null;
+        if (! $bd || ! empty($bd['batch_id'])) {
+            return;
+        }
+        $vids = array_values(array_map('intval', $bd['vehicle_ids']));
+        if ($vids === []) {
+            return;
+        }
+        $this->pollSignStatus($this->svc(), $this->salesmanEmail(), $vids, implode('-', $vids));
+    }
+
     /** 차 한 대를 어느 묶음에도 안 든 상태로(=pool) 만들기 위해 모든 desired 묶음에서 제거. */
     private function detach(int $vehicleId): void
     {
         foreach ($this->desired as $i => $bd) {
+            $before = count($bd['vehicle_ids']);
             $this->desired[$i]['vehicle_ids'] = array_values(array_filter($bd['vehicle_ids'], fn ($v) => (int) $v !== $vehicleId));
+            if (count($this->desired[$i]['vehicle_ids']) !== $before) {
+                $this->pollPlanSignStatus($i);   // set 이 줄어든 계획 그룹도 새 set 으로 다시 본다
+            }
         }
     }
 
@@ -547,6 +589,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         foreach ($this->desired as $i => $bd) {
             if ($bd['key'] === $key) {
                 $this->desired[$i]['vehicle_ids'][] = $vehicleId;
+                $this->pollPlanSignStatus($i);
                 // 바이어 미정 묶음이면 배정 차의 바이어/컨사이니 후보로 채택(묶음=1바이어).
                 if (empty($this->desired[$i]['buyer_id'])) {
                     foreach ($this->shippablePool as $car) {
@@ -990,7 +1033,10 @@ new #[Layout('components.layouts.app')] class extends Component {
         return match (true) {
             str_contains($message, 'No buyer') => __('portal.flash_docs_no_buyer', ['detail' => $detail]),
             str_contains($message, 'No sale price') => __('portal.flash_docs_no_sale_price', ['detail' => $detail]),
-            default => __('portal.flash_docs_homogeneous_required'),   // Mixed buyers / Mixed currencies
+            str_contains(strtolower($message), 'mixed') => __('portal.flash_docs_homogeneous_required'),   // Mixed buyers / Mixed currencies
+            // 그 외(`Too many vehicles` 등) = ERP 사유를 **원문 그대로**(2026-10-12 Jin). 모르는 사유를 「동일 바이어」로 바꿔 말하면
+            // 영업이 엉뚱한 곳을 고친다. 사유 언어는 ERP 로케일(한글)이라 board 영어 사용자에게도 한글로 보인다 — Jin 인지.
+            default => __('portal.flash_docs_declined', ['detail' => $detail]),
         };
     }
 
@@ -1038,7 +1084,7 @@ new #[Layout('components.layouts.app')] class extends Component {
      */
     public function requestSignature(array $vehicleIds, ?string $batchId = null)
     {
-        // 조회 전용 — 타인 포털 열람 중엔 쓰기(서명 세션 발급) 차단. 서버 게이트.
+        // super 의 타인 포털 대리실행 허용(2026-08-18 §14-10) — 쓰기 차단 없음, 배너 「OO님 명의」가 유일한 안전장치.
         $ids = array_values(array_map('intval', $vehicleIds));
         if ($ids === []) {
             $this->shipNote = __('portal.flash_select_vehicle_docs');
@@ -1048,10 +1094,13 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $res = $this->svc()->requestSigningSession($this->salesmanEmail(), $ids);
         if (! ($res['ok'] ?? false) || empty(data_get($res, 'data.signed_url'))) {
-            // 422 = 바이어 미지정·판매가 0·혼합 바이어/통화(서류와 **같은 가드**) → 원문으로 갈라 안내.
+            // 422 = 바이어 미지정·판매가 0·혼합 바이어/통화·수출채널 아님·30대 초과. 사유는 **ERP 문구 그대로** 보인다(2026-10-12 Jin).
+            // ⚠️ 서류 422(`No buyer: …` 영문 abort)와 달리 서명 422 는 ERP lang 문구(한글)다 — 2026-10-12 까지 `docBlockedReason()`
+            //    의 영문 매칭을 태워서 **모든 사유가 「동일 바이어·단일 통화」로 오안내**됐다. 패턴 매칭으로 되돌리지 말 것.
             // ⚠️ 서명본은 ERP 에서 하드삭제 가드라 한 번 만들어지면 되돌릴 수 없다 — 사유를 정확히 짚어야 한다.
-            $this->shipNote = ($res['status'] ?? 0) === 422
-                ? $this->docBlockedReason((string) ($res['message'] ?? ''))
+            $detail = trim(strip_tags((string) ($res['message'] ?? '')));
+            $this->shipNote = ($res['status'] ?? 0) === 422 && $detail !== ''
+                ? __('portal.flash_sign_declined', ['detail' => $detail])
                 : __('portal.flash_sign_failed');
 
             return;
@@ -1064,6 +1113,13 @@ new #[Layout('components.layouts.app')] class extends Component {
             'buyer' => data_get($res, 'data.buyer.name'),
             'expires_at' => data_get($res, 'data.expires_at'),
             'status' => data_get($res, 'data.status'),
+        ];
+        // 발급 성공 = 그 자리에서 「서명 대기」로 심는다(2026-10-12 Jin). 다음 폴링 전까지 버튼이 「✍️ 요청」으로 남으면
+        // URL 패널 옆에서 한 번 더 누르는 순간 방금 만든 링크가 revoke 된다(재요청 버튼은 경고 confirm 을 탄다).
+        $this->signStatus[$key] = [
+            'status' => data_get($res, 'data.status') ?: 'pending',
+            'contract_no' => data_get($res, 'data.contract_no'),
+            'signed_at' => null,
         ];
         $this->shipNote = null;
     }
@@ -1375,9 +1431,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'invoice_packing')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_'.$docMethod.'_invoice_packing') }}</button>
                             </div>
                             {{-- 판매계약서·프로포마·서명은 선적 계획에도 있다(Jin 2026-08-18). 여기서도 지우지 않는 이유 =
-                                 **착수(in_progress)·완료된 묶음은 계획 화면에 안 뜬다**(desired = requested 만).
-                                 묶음에서 빼면 그 차들의 계약서·서명을 뽑을 자리가 사라진다. --}}
-                            @include('livewire.portal._sales-docs', ['vIds' => $vIds, 'method' => $method, 'batchId' => $batchId])
+                                 **착수(in_progress) 묶음은 계획 화면에 안 뜬다**(desired = requested 만).
+                                 묶음에서 빼면 그 차들의 계약서·서명을 뽑을 자리가 사라진다.
+                                 단 **완료(done) 묶음엔 서명 버튼을 안 그린다**(2026-10-12 Jin) — 그 묶음은 상태 폴링을 끊었으므로
+                                 상태 모르는 「요청」 버튼을 두면 눌렀을 때 미서명 링크가 조용히 무효화된다. 계약서·프로포마 받기는 그대로. --}}
+                            @include('livewire.portal._sales-docs', ['vIds' => $vIds, 'method' => $method, 'batchId' => $batchId, 'allowSign' => $st !== 'done'])
                             {{-- 변경요청 (in_progress = 관리 착수 → 자동변경 불가, 명시 요청만) --}}
                             @if ($busy)
                                 <div class="mt-2 border-t border-gray-200 pt-2">
