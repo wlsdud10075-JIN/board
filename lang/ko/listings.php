@@ -2,7 +2,7 @@
 
 return [
     // 헤더
-    'heading' => '매입예정 (영업)',
+    'heading' => '매입예정',
     'own_only_note' => '🔒 본인(:name) 리스트만 표시 — 서버/DB 레벨 격리',
 
     // 환율
@@ -49,6 +49,7 @@ return [
         'per_page' => ':count개씩',
         'count_only' => '건수만',
         'count_only_hint' => '지금 탭에 :count건 있습니다. (목록을 보려면 개수를 고르세요)',
+        'owner_all' => '등록자 전체',   // 관리·super 등록자 필터(2026-10-13)
     ],
 
     // 표 헤더

@@ -8,7 +8,7 @@ return [
     ],
 
     'menu' => [
-        'listings' => 'Purchases (Sales)',
+        'listings' => 'Purchases',
         'forwarding' => 'Awaiting forward',
         'verdicts' => 'Buyer Replies',
         'portal' => 'My Finance (Portal)',
