@@ -483,10 +483,6 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 {{ $l->final_price ? __('inspection.final_amount_prefix', ['amount' => number_format($l->final_price)]) : __('inspection.amount_undecided') }}
                                 {{ $l->inspection_note ? '· '.$l->inspection_note : '' }}
                             </div>
-                            {{-- 왜 아직 여기 있나 — 폴러가 남긴 마지막 판정으로 한 줄(매입예정 드로어와 같은 문구, 2026-10-13). --}}
-                            @if ($hint = $l->ssancarHoldHint())
-                                <div class="mt-0.5 text-[11px] text-gray-400">↳ {{ __($hint['key'], $hint['params']) }}</div>
-                            @endif
                         </div>
                         <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span>
                         <span class="text-gray-300">›</span>

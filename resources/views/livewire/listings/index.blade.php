@@ -1275,7 +1275,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <td class="font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).__('common.won_currency') : '—' }}</td>
                             <td class="max-w-[200px] truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">{{ $l->inspection_note ?: '—' }}</td>
                             <td>@if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</td>
-                            <td><span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span></td>
+                            <td>
+                                <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span>
+                                {{-- 현지확인대기 차 — 왜 아직 전달대기로 안 넘어갔나(폴러 마지막 판정). 영업이 목록에서 바로 읽는다(2026-10-13 Jin). --}}
+                                @if ($hold = $l->ssancarHoldHint())
+                                    <div class="mt-1 max-w-[280px] whitespace-normal text-[11px] leading-snug text-gray-400">↳ {{ __($hold['key'], $hold['params']) }}</div>
+                                @endif
+                            </td>
                         </tr>
                     @empty
                         <tr><td colspan="6" class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</td></tr>
@@ -1304,6 +1310,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                     </div>
                     @if ($l->inspection_note)
                         <div class="mt-1 truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">📝 {{ $l->inspection_note }}</div>
+                    @endif
+                    @if ($hold = $l->ssancarHoldHint())
+                        <div class="mt-1 text-[11px] leading-snug text-gray-400">↳ {{ __($hold['key'], $hold['params']) }}</div>
                     @endif
                 </div>
             @empty

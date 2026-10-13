@@ -2433,13 +2433,14 @@ class BoardTest extends TestCase
         $this->assertSame('inspection.hold_photos_only', $hint['key']);
         $this->assertSame(12, $hint['params']['photos']);
 
-        // 현지확인 행(관리) + 매입예정 드로어(본인) 두 곳에 같은 문구
+        // 매입예정 **목록 행**(영업 본인)에 바로 보인다 — 현지확인 화면에는 넣지 않는다(영업이 못 보는 화면, Jin 2026-10-13)
         $expect = __('inspection.hold_photos_only', $hint['params']);
         $this->actingAs($this->mkUser('manager'));
-        Volt::test('inspection.index')->assertSee($expect);
+        Volt::test('inspection.index')->assertDontSee($expect);
         $this->actingAs($kim);
-        Volt::test('listings.index')->call('openEdit', $l->id)->assertSee($expect)
-            ->assertSee(__('listings.drawer.forward_photos_btn'));   // 사진 12장 → 넘기기 버튼
+        Volt::test('listings.index')->assertSee($expect)
+            ->call('openEdit', $l->id)
+            ->assertSee(__('listings.drawer.forward_photos_btn'));   // 드로어: 사진 12장 → 넘기기 버튼
     }
 
     /** 폴러가 한 번도 못 본 채 3일이 지난 draft(엔카 등) = 폴링 제외 — 그 사실을 화면이 말한다. */
