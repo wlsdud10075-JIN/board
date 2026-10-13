@@ -75,6 +75,10 @@ class SsancarMediaService
             'advance' => $inspVideos > 0 || $stockPhotos > 0,
             'has_media' => ($inspVideos + $inspPhotos + $stockPhotos) > 0,   // 연결 표식(에이지아웃 유예)용
             'reason' => $inspVideos > 0 ? 'inspected_video' : ($stockPhotos > 0 ? 'stock_photos' : 'none'),
+            // 소스별 개수 — 폴러가 매물에 저장해 화면이 "왜 안 넘어갔나" 한 줄을 그린다(2026-10-13).
+            'insp_photos' => $inspPhotos,
+            'insp_videos' => $inspVideos,
+            'stock_photos' => $stockPhotos,
         ];
     }
 

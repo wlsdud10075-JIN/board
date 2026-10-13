@@ -354,6 +354,46 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->closeEdit();
     }
 
+    /**
+     * 「사진만으로 전달대기로 넘기기」 조건 (Jin 2026-10-13) — 검차 영상이 안 올라와도 바이어와 바로 얘기하고 싶을 때.
+     * 본인 차(관리·super 는 전체) + 현지확인대기(draft) + 시간잠금 아님 + **보여줄 사진·영상이 하나라도 있을 때**.
+     * 미디어 0 이면 빈 바이어 페이지를 보내게 되므로 버튼 대신 안내만.
+     */
+    public function forwardable(PurchaseListing $l): bool
+    {
+        $u = Auth::user();
+
+        return $l->status === 'draft'
+            && ($l->created_by_user_id === $u->id || $u->isManager() || $u->isSuper())
+            && $this->editable($l)
+            && $l->hasAnyForwardMedia();
+    }
+
+    /**
+     * draft → inspected(전달대기) 수동 전이. 현지확인 「검차완료」와 같은 전이(TRANSITIONS 허용)라 가드를 그대로 탄다.
+     * 감사로그는 모델 옵저버가 status_change 로 남긴다(user_id = 누른 영업). 전달대기 알림톡(B)은 자동 전이와 같은 조건으로 발사.
+     * 넘긴 차는 현지확인 목록과 폴러 대상에서 빠진다 — 전달 화면이 ssancar 미디어를 실시간으로 다시 가져오므로
+     * 나중에 올라온 영상은 바이어 링크 재열람에 그대로 들어간다.
+     */
+    public function forwardWithPhotos(): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        abort_unless($this->forwardable($l), 403);
+
+        $l->status = 'inspected';
+        $l->save();
+
+        $creator = $l->creator;
+        if ($creator && trim((string) $creator->phone) !== '') {
+            app(\App\Services\BizmAlimtalkService::class)->send('board_forward_ready', $creator->phone,
+                ['차량번호' => $l->vehicle_number ?: '(번호미정)'], ['user_id' => $creator->id]);
+        }
+
+        unset($this->listings, $this->tabCounts);
+        session()->flash('ok', __('listings.drawer.forward_photos_flash', ['number' => $l->vehicle_number]));
+        $this->closeEdit();
+    }
+
     public function openEdit(int $id): void
     {
         $l = PurchaseListing::findOrFail($id);   // SalesmanScope: 영업은 본인 것만 로드 가능
@@ -1352,6 +1392,21 @@ new #[Layout('components.layouts.app')] class extends Component {
                         @foreach ($errors->all() as $message)
                             <p>⚠ {{ $message }}</p>
                         @endforeach
+                    </div>
+                @endif
+
+                {{-- 현지확인대기 차 — 왜 아직 안 넘어갔나(폴러 마지막 판정, 현지확인 행과 같은 문구) + 사진만으로 넘기기 (2026-10-13 Jin) --}}
+                @if ($e->status === 'draft' && ($hold = $e->ssancarHoldHint()))
+                    <div class="card-sm mt-4 border-gray-200 bg-gray-50 text-[12px] text-gray-600">
+                        <div>🔎 {{ __($hold['key'], $hold['params']) }}</div>
+                        @if ($this->forwardable($e))
+                            <button type="button" class="btn-outline btn-sm mt-2 w-full justify-center"
+                                wire:click="forwardWithPhotos" wire:confirm="{{ __('listings.drawer.forward_photos_confirm') }}">
+                                📨 {{ __('listings.drawer.forward_photos_btn') }}
+                            </button>
+                        @elseif ($canEdit && ! $e->hasAnyForwardMedia())
+                            <div class="mt-1 text-[11px] text-gray-400">{{ __('listings.drawer.forward_no_media') }}</div>
+                        @endif
                     </div>
                 @endif
 

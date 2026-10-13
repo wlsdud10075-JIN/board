@@ -301,5 +301,9 @@ return [
         'delete' => 'Delete this record',
         'delete_confirm' => 'Delete this purchase record? It disappears from the list and the same vehicle number can be registered again. (Logged to audit)',
         'deleted_flash' => ':number deleted. You can register the same vehicle number again.',
+        'forward_photos_btn' => 'Move to awaiting forward with current photos',
+        'forward_photos_confirm' => 'Moves to awaiting forward using the current photos, without an inspection video. The buyer link will show the current photos; a video uploaded later appears on the same link. The vehicle leaves the inspection list. Proceed?',
+        'forward_photos_flash' => ':number moved to awaiting forward — send it to the buyer from the "Awaiting forward" screen.',
+        'forward_no_media' => 'No photos or videos to forward yet.',
     ],
 ];

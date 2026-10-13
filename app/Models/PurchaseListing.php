@@ -54,6 +54,10 @@ class PurchaseListing extends Model
             'payee_extraction_at' => 'datetime',
             'lock_at' => 'datetime',
             'ssancar_media_seen_at' => 'datetime',
+            'ssancar_checked_at' => 'datetime',
+            'ssancar_insp_photos' => 'integer',
+            'ssancar_insp_videos' => 'integer',
+            'ssancar_stock_photos' => 'integer',
             'car_erp_vehicle_id' => 'integer',
             'car_erp_buyer_id' => 'integer',
             'car_erp_consignee_id' => 'integer',
@@ -280,6 +284,60 @@ class PurchaseListing extends Model
     public static function sourceForOrigin(string $origin): string
     {
         return self::ORIGIN_SOURCE[$origin] ?? 'encar';
+    }
+
+    /**
+     * 현지확인대기(draft)인 차가 **왜 전달대기로 안 넘어갔는지** 한 줄 (jin 2026-10-13).
+     * 현지확인 행과 매입예정 드로어가 같은 이 메서드를 쓴다 — 두 화면이 다르게 말하면 안 된다.
+     * 재료는 폴러가 남긴 마지막 판정(`ssancar_checked_at`·소스별 개수)뿐이다. 화면에서 ssancar 를 직접 묻지 않는다.
+     *
+     * @return array{key:string, params:array}|null lang 키(inspection.hold_*) + 치환값. draft 아니면 null.
+     */
+    public function ssancarHoldHint(): ?array
+    {
+        if ($this->status !== 'draft') {
+            return null;
+        }
+
+        $configured = (string) config('services.ssancar_media.base_url') !== '' && (string) config('services.ssancar_media.api_key') !== '';
+        if (! $configured || ! config('board.ssancar_auto_forward')) {
+            return ['key' => 'inspection.hold_auto_off', 'params' => []];
+        }
+
+        // 폴러 에이지아웃과 같은 식 — 등록 N일 지나도 미디어를 한 번도 못 봤으면 폴링 대상에서 빠진다.
+        $maxAge = (int) config('board.ssancar_poll_max_age_days', 3);
+        $agedOut = $this->ssancar_media_seen_at === null && $this->created_at !== null && $this->created_at->lt(now()->subDays($maxAge));
+        $days = $this->created_at ? (int) $this->created_at->diffInDays(now()) : 0;
+
+        if ($this->ssancar_checked_at === null) {
+            return $agedOut
+                ? ['key' => 'inspection.hold_aged_out', 'params' => ['days' => $days]]
+                : ['key' => 'inspection.hold_pending', 'params' => []];
+        }
+
+        $at = $this->ssancar_checked_at->timezone(config('app.timezone'))->format('m-d H:i');
+        $ip = (int) $this->ssancar_insp_photos;
+        $iv = (int) $this->ssancar_insp_videos;
+        $sp = (int) $this->ssancar_stock_photos;
+
+        if ($ip > 0 && $iv === 0 && $sp === 0) {
+            return ['key' => 'inspection.hold_photos_only', 'params' => ['photos' => $ip, 'at' => $at]];
+        }
+        if ($ip + $iv + $sp === 0) {
+            return $agedOut
+                ? ['key' => 'inspection.hold_aged_out', 'params' => ['days' => $days]]
+                : ['key' => 'inspection.hold_no_media', 'params' => ['at' => $at]];
+        }
+
+        // 전이 조건(검차 영상 or 재고 사진)은 충족했는데 아직 draft — 다음 폴링(2분)에서 넘어간다.
+        return ['key' => 'inspection.hold_advancing', 'params' => ['at' => $at]];
+    }
+
+    /** 바이어에게 보여줄 것이 하나라도 있나 — ssancar 사진·영상 + board 에 올린 검차 사진. 「사진만으로 전달대기」 버튼 조건. */
+    public function hasAnyForwardMedia(): bool
+    {
+        return ((int) $this->ssancar_insp_photos + (int) $this->ssancar_insp_videos + (int) $this->ssancar_stock_photos) > 0
+            || $this->photos()->exists();
     }
 
     public function originLabel(): string
