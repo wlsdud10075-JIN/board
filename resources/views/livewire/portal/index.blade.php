@@ -880,6 +880,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                     // 보낸 금액 — 전송 후 입력칸은 비므로 여기 말고는 "얼마 요청했지?" 를 볼 곳이 없다.
                     // ERP 가 안 주면 null → 칩에 안 그린다(있는 척 금지). 라인·묶음 어느 쪽에 실려도 받는다.
                     'amount' => data_get($line, 'amount_krw') ?? data_get($batch, 'amount_krw'),
+                    // 거절 씬(2026-10-12) — ERP 사용자가 쓴 사유 원문. 없는 ERP(구버전)면 null 로 남는다.
+                    'reason' => data_get($line, 'reject_reason') ?? data_get($batch, 'reject_reason'),
                 ];
             }
         }
@@ -916,6 +918,18 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
 
         $amount = $this->normalizeAmount($this->reqAmount[$vehicleId] ?? null);
+
+        // 매입잔금만 — 금액칸이 비어 있으면 **ERP 미지급 전액**(매도비 포함)으로 보낸다(2026-10-12 Jin).
+        //   board 가 숫자를 만드는 게 아니라 ERP `/inventory` 가 준 `purchase_unpaid`(확정 지급분을 뺀 원장값)를 옮기는 것.
+        //   화면은 누르기 전에 확인창으로 그 숫자를 보여 준다(`_request-purchase-action`). 계약금·대표계약금은 그대로 필수 입력.
+        if ($amount === null && $type === CarErpReadService::REQ_PURCHASE_BALANCE) {
+            $amount = $this->remainingUnpaidFor($vehicleId);
+            if ($amount === null) {
+                $this->reqResult = ['error' => __('portal.req_balance_fill_unavailable')];
+
+                return;
+            }
+        }
         if ($amount === null) {
             $this->reqResult = ['error' => __('portal.req_amount_required')];
 
@@ -925,6 +939,24 @@ new #[Layout('components.layouts.app')] class extends Component {
         if ($this->applyRequest($type, [$vehicleId], null, $amount)) {
             unset($this->reqAmount[$vehicleId]);
         }
+    }
+
+    /**
+     * 그 차의 ERP 미지급(`purchase_unpaid`) — 현재 재고 탭에 실린 행에서만 읽는다(클라이언트 값을 믿지 않는다).
+     * 없거나 0 이하면 null = 전액 요청 불가(사람이 금액을 적어야 한다).
+     */
+    private function remainingUnpaidFor(int $vehicleId): ?int
+    {
+        foreach ($this->invRows as $row) {
+            if ((int) data_get($row, 'vehicle_id') !== $vehicleId) {
+                continue;
+            }
+            $unpaid = data_get($row, 'purchase_unpaid');
+
+            return is_numeric($unpaid) && (float) $unpaid > 0 ? (int) round((float) $unpaid) : null;
+        }
+
+        return null;
     }
 
     /** 화면 입력(콤마·공백 허용) → KRW 정수. 비었거나 0 이하면 null(= 전송 거부). */

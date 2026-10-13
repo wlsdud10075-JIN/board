@@ -53,13 +53,14 @@ new class extends Component
         msg = $event.detail.msg;
         type = $event.detail.type || 'inspect';
         show = true;
-        if (type !== 'synced' && window.__boardBeep) window.__boardBeep();   // 전송완료(synced)는 무음
+        // 전송완료(synced)·요청 확인(done)은 무음. 요청 거절(rejected, 상단 종 notify.bell 발화)은 울린다 — 돈이 안 나간 쪽이 급하다.
+        if (type !== 'synced' && type !== 'done' && window.__boardBeep) window.__boardBeep();
         clearTimeout(_t); _t = setTimeout(() => show = false, 6000);
      ">
     <div x-show="show" x-transition style="display:none"
-         :class="type === 'synced' ? 'bg-green-600' : 'bg-[var(--color-primary)]'"
+         :class="(type === 'synced' || type === 'done') ? 'bg-green-600' : (type === 'rejected' ? 'bg-red-600' : 'bg-[var(--color-primary)]')"
          class="fixed bottom-4 right-4 z-[60] flex cursor-pointer items-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold text-white shadow-lg"
          @click="show = false">
-        <span x-text="type === 'synced' ? '🚀' : '🔔'"></span> <span x-text="msg"></span>
+        <span x-text="type === 'synced' ? '🚀' : (type === 'done' ? '✅' : '🔔')"></span> <span x-text="msg"></span>
     </div>
 </div>

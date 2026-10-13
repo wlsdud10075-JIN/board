@@ -34,6 +34,7 @@ class User extends Authenticatable // implements MustVerifyEmail
         'car_erp_salesman_id',
         'car_erp_salesman_email',
         'respond_agent_email',
+        'portal_seen_at',
     ];
 
     /** board 업무 역할 4종 (영업/현지확인/경매/관리) */
@@ -71,7 +72,15 @@ class User extends Authenticatable // implements MustVerifyEmail
             'password' => 'hashed',
             'is_active' => 'boolean',
             'car_erp_salesman_id' => 'integer',
+            'portal_seen_at' => 'datetime',   // 상단 종(요청 결과) 마지막 열람 시각
+            'push_notified_at' => 'datetime', // 웹푸시 스케줄러 커서(보낸 기준 시각) — 열람 시각과 별개 축
         ];
+    }
+
+    /** 웹푸시 구독(기기별). 발송 = WebPushService, 커서 = push_notified_at. */
+    public function pushSubscriptions(): HasMany
+    {
+        return $this->hasMany(PushSubscription::class);
     }
 
     // ─────────────────────── 권한/역할 헬퍼 ───────────────────────
