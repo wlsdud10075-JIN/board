@@ -764,3 +764,12 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
   - 수신 = `public/sw.js`(push·notificationclick 만, **fetch 핸들러 금지** — Livewire 요청을 가로채면 조용히 옛 응답). 구독 = 종 패널 하단 토글 → `window.__boardPush`(sidebar 레이아웃) → `POST /push/subscribe`(같은 endpoint 는 **현재 사용자로 갱신** — 공용 기기). 권한 요청은 **버튼 제스처에서만**.
   - VAPID = 박스별 `.env` `BOARD_VAPID_*`(`php artisan board:push-vapid-keys`). 키를 바꾸면 기존 구독 전부 무효. 로컬 XAMPP 는 `OPENSSL_CONF=C:\xampp\apache\conf\openssl.cnf` 없이는 EC 키 생성이 죽는다(운영 Ubuntu 무관). 아이폰은 **홈 화면 앱(standalone)** 에서만 PushManager 가 있다.
 - 가드 = `test_bell_*` 4건(BoardTest) · `PushNotifyTest` 8건.
+
+
+### 14-20. 현지확인 = draft 만 · 매입예정 「검차상태」 한 줄 · 사진만으로 전달대기 (2026-10-13 Jin, master `e2cee78`)
+
+- **현지확인 화면은 검차해야 할 차(draft)만** — 검차원은 검차 목록, 관리는 그 목록 선별. 완료 차 토글·탭을 두지 않는다(만들었다가 뺐다: 사진·영상은 ssancar.com 연동으로 들어오니 여기서 다시 볼 이유가 없다). 배정 후보 지역(`pendingRegions`)도 draft 만. 알림톡 digest(§14-… `RegionInspectionNotifier`)는 원래 draft 만이라 화면과 발송 대상이 같은 집합.
+- **「왜 아직 전달대기로 안 넘어갔나」 = `PurchaseListing::ssancarHoldHint()` 단일 출처.** 재료는 폴러(`PollSsancarMedia`)가 전이 여부와 무관하게 매번 저장하는 `ssancar_checked_at`·`ssancar_insp_photos`·`ssancar_insp_videos`·`ssancar_stock_photos`(`pollDecision()` 이 소스별 개수를 돌려준다). 🚫 **화면이 ssancar 를 직접 묻지 않는다**(외부 API 절제 + 느림). 문구 6종 = `inspection.hold_photos_only / hold_no_media / hold_aged_out / hold_pending / hold_advancing / hold_auto_off`. 에이지아웃 판정식은 폴러와 같다(등록 N일 + `ssancar_media_seen_at` null) — 둘이 갈리면 "폴러는 안 보는데 화면은 확인 대기라고 말한다".
+- ⚠️ **표시 위치는 매입예정(`/listings`)만** — 목록 「검차상태」 칸 + 드로어 카드. 현지확인에 넣었다가 뺐다(영업이 못 보는 화면). 목록 표는 `tbl tbl-center`(가운데 정렬 전용 클래스, 다른 표 무영향) 8칸: 차량·출처·최종금액·추가검사사항·**바이어(이름 `buyer_name`)·바이어 회신(수락/회신대기 칩)**·상태·검차상태. 종전엔 「바이어」 칸에 칩이 들어 있었다.
+- **「지금 있는 사진으로 전달대기로 넘기기」**(드로어, `forwardWithPhotos`) = `forwardable()`: draft + 본인(관리·super 전체) + `editable()` + `hasAnyForwardMedia()`(ssancar 사진·영상 + board 검차 사진 중 1건 이상). 전이는 TRANSITIONS 의 `draft→inspected` 그대로(가드 통과), 감사는 옵저버 status_change(누른 영업 명의), 알림톡 B 는 폴러 자동 전이와 같은 조건으로 발사. 🚫 미디어 0 이면 버튼 대신 안내(빈 바이어 페이지 방지). 넘긴 차는 현지확인·폴러 대상에서 빠지지만 **전달 화면이 `mediaFor()` 로 실시간 재조회**하므로 나중 영상은 바이어 링크 재열람에 들어간다.
+- 가드 = `test_inspection_screen_shows_only_draft` · `test_poll_ssancar_media_records_last_decision_and_screens_show_hold_hint` · `test_hold_hint_says_aged_out_for_old_unseen_draft` · `test_owner_can_forward_draft_with_photos_only`.
