@@ -57,7 +57,9 @@ return [
         'source' => '출처',
         'total' => '최종금액',
         'inspection_note' => '추가검사사항',
-        'buyer' => '바이어',
+        'buyer' => '바이어',                 // 바이어 이름(buyer_name)
+        'verdict' => '바이어 회신',          // 수락/거절/회신대기 칩 — 종전엔 「바이어」 칸에 들어 있었다(2026-10-13 Jin 분리)
+        'inspection_state' => '검차상태',    // ssancar.com 폴러 마지막 판정 한 줄(현지확인대기 차만)
         'status' => '상태',
     ],
 

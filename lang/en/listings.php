@@ -58,6 +58,8 @@ return [
         'total' => 'Total',
         'inspection_note' => 'Inspection note',
         'buyer' => 'Buyer',
+        'verdict' => 'Buyer reply',
+        'inspection_state' => 'Inspection',
         'status' => 'Status',
     ],
 
