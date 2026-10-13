@@ -415,7 +415,9 @@ class PurchaseListing extends Model
     public const AUDITED = [
         'source', 'origin', 'status', 'buyer_verdict', 'verdict_channel', 'buyer_name', 'c_no', 'ssancar_ref', 'encar_id',
         'respond_conversation_id',
-        'expected_price', 'final_price', 'car_cost', 'discount_rate', 'sale_discount_amount', 'shipping_usd',
+        'expected_price', 'expected_price_currency', 'final_price', 'car_cost', 'discount_rate', 'sale_discount_amount', 'shipping_usd',
+        // 판매측 금액(셀프검차 드로어·판매가 후보완) — 2026-10-13 추가. 그 전엔 「판매가 누가 넣었나」를 board 가 답할 수 없었다(59오5691).
+        'sale_price', 'offer_currency', 'offer_rate', 'selling_fee', 'transport_fee', 'car_erp_buyer_id',
         'owner_name', 'payee_name', 'payee_bank', 'payee_account',
         'vehicle_number', 'vin', 'car_erp_vehicle_id', 'region', 'inspection_note', 'inspection_memo',
         'encar_url', 'encar_dealer', 'auction_venue', 'lot_number',
@@ -462,6 +464,12 @@ class PurchaseListing extends Model
             if ($listing->wasChanged('status') && $listing->status === 'won') {
                 SyncWonListingToCarErp::dispatch($listing->id)->afterCommit();
             }
+        });
+
+        // 감사 — 등록 시점 초기값. 종전엔 updated 만 기록해 「등록할 때 넣은 판매가·환율·바이어」가 로그에 없었다
+        // (59오5691, 2026-10-13 Jin). 등록 1행 + 채워진 AUDITED 필드 각 1행(∅ → 값), action='create'.
+        static::created(function (PurchaseListing $listing) {
+            BoardAudit::logCreation($listing, Auth::id());
         });
 
         // 감사 — 변경된 AUDITED 필드를 board_audit_logs 에 자동 기록(수정 출처 무관 단일 경로:

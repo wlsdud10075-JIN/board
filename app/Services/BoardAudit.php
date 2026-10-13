@@ -14,6 +14,47 @@ class BoardAudit
     /** 민감 필드(계좌번호 등) — 감사로그엔 값 대신 마스킹만 기록(§6e). */
     private const MASKED = ['payee_account'];
 
+    /**
+     * 등록 시점 기록 — 「등록」 1행(field=created) + 등록 때 이미 채워진 AUDITED 필드 각 1행(∅ → 값).
+     * 수정 기록만으론 등록할 때 넣은 값(판매가·환율·바이어)이 누구 손인지 영영 안 남는다.
+     */
+    public static function logCreation(PurchaseListing $listing, ?int $userId): void
+    {
+        $rows = [[
+            'user_id' => $userId,
+            'purchase_listing_id' => $listing->id,
+            'action' => 'create',
+            'field' => 'created',
+            'old_value' => null,
+            'new_value' => $listing->vehicle_number,
+            'created_at' => now(),
+        ]];
+
+        foreach (PurchaseListing::AUDITED as $field) {
+            $new = $listing->$field;
+            // 비어 있는 칸은 행을 만들지 않는다. 0 도 — 기본값 0(매도비 등)이 매 등록마다 「∅ → 0」으로 찍히면 소음.
+            if ($new === null || $new === '' || $new === false || (is_numeric($new) && (float) $new === 0.0)) {
+                continue;
+            }
+            // 스키마 기본값(회신 none · 차값통화 KRW)은 「넣은 값」이 아니다 — 매 등록마다 찍히면 등록 블록이 안 읽힌다.
+            if (($field === 'buyer_verdict' && $new === 'none') || ($field === 'expected_price_currency' && $new === 'KRW')) {
+                continue;
+            }
+            $masked = in_array($field, self::MASKED, true);
+            $rows[] = [
+                'user_id' => $userId,
+                'purchase_listing_id' => $listing->id,
+                'action' => 'create',
+                'field' => $field,
+                'old_value' => null,
+                'new_value' => $masked ? '***' : (string) $new,
+                'created_at' => now(),
+            ];
+        }
+
+        BoardAuditLog::insert($rows);
+    }
+
     /** @param  ?int  $userId  null = 시스템(연동 Job 등 비로그인) */
     public static function logChanges(PurchaseListing $listing, array $original, array $fields, ?int $userId): void
     {

@@ -24,6 +24,7 @@ class BoardAuditLog extends Model
 
     public function listing(): BelongsTo
     {
-        return $this->belongsTo(PurchaseListing::class, 'purchase_listing_id');
+        // 삭제 로그가 가리키는 건 지워진 차다 — withTrashed 없으면 화면에 `#id` 만 남아 어느 차였는지 모른다.
+        return $this->belongsTo(PurchaseListing::class, 'purchase_listing_id')->withTrashed();
     }
 }
