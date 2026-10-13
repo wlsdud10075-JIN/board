@@ -1260,10 +1260,10 @@ new #[Layout('components.layouts.app')] class extends Component {
         @else
         {{-- 리스트 (데스크톱: 표) --}}
         <div class="hidden overflow-x-auto sm:block">
-            {{-- 가운데 정렬(tbl-center). 칸 = 차량 · 출처 · 금액 · 추가검사사항 · 바이어(이름) · 바이어 회신(칩) · 검차상태(ssancar 폴러 한 줄) · 상태 (Jin 2026-10-13) --}}
+            {{-- 가운데 정렬(tbl-center). 칸 = 차량 · 출처 · 금액 · 추가검사사항 · 바이어(이름) · 바이어 회신(칩) · 상태 · 검차상태(ssancar 폴러 한 줄) (Jin 2026-10-13) --}}
             <table class="tbl tbl-center">
                 <thead>
-                    <tr><th class="w-px whitespace-nowrap">{{ __('listings.table.vehicle') }}</th><th>{{ __('listings.table.source') }}</th><th>{{ __('listings.table.total') }}</th><th>{{ __('listings.table.inspection_note') }}</th><th>{{ __('listings.table.buyer') }}</th><th>{{ __('listings.table.verdict') }}</th><th>{{ __('listings.table.inspection_state') }}</th><th>{{ __('listings.table.status') }}</th></tr>
+                    <tr><th class="w-px whitespace-nowrap">{{ __('listings.table.vehicle') }}</th><th>{{ __('listings.table.source') }}</th><th>{{ __('listings.table.total') }}</th><th>{{ __('listings.table.inspection_note') }}</th><th>{{ __('listings.table.buyer') }}</th><th>{{ __('listings.table.verdict') }}</th><th>{{ __('listings.table.status') }}</th><th>{{ __('listings.table.inspection_state') }}</th></tr>
                 </thead>
                 <tbody>
                     @forelse ($this->listings as $l)
@@ -1277,9 +1277,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <td class="max-w-[200px] truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">{{ $l->inspection_note ?: '—' }}</td>
                             <td class="max-w-[160px] truncate text-gray-700" title="{{ $l->buyer_name }}">{{ $l->buyer_name ?: '—' }}</td>
                             <td>@if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</td>
-                            {{-- 검차상태 — 현지확인대기 차가 왜 아직 전달대기로 안 넘어갔나(ssancar 폴러 마지막 판정). 그 외 상태는 빈 칸. --}}
-                            <td class="max-w-[260px] whitespace-normal text-[11px] leading-snug text-gray-500">@if ($hold = $l->ssancarHoldHint()){{ __($hold['key'], $hold['params']) }}@else<span class="text-gray-300">—</span>@endif</td>
                             <td><span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span></td>
+                            {{-- 검차상태 — 현지확인대기 차가 왜 아직 전달대기로 안 넘어갔나(ssancar 폴러 마지막 판정). 그 외 상태는 빈 칸. 상태 칸 오른쪽(Jin). --}}
+                            <td class="max-w-[260px] whitespace-normal text-[11px] leading-snug text-gray-500">@if ($hold = $l->ssancarHoldHint()){{ __($hold['key'], $hold['params']) }}@else<span class="text-gray-300">—</span>@endif</td>
                         </tr>
                     @empty
                         <tr><td colspan="8" class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</td></tr>
