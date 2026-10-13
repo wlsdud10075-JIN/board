@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Session;
 use Livewire\Volt\Component;
 use Livewire\WithFileUploads;
 
@@ -31,6 +32,26 @@ new #[Layout('components.layouts.app')] class extends Component {
     // ── 검사지역 + 추가검사사항 (금액·통화는 견적·전달 단계로 이동, 2026-07-06) ──
     public string $region = '';
     public string $inspection_note = '';
+
+    /**
+     * 「검차완료 포함」 토글 (Jin 2026-10-13). 기본 = **현지확인대기(draft)만** — 검차가 끝나 전달대기로 넘어간 차가
+     * 계속 남아 있어 heymanboard 실측 14대 중 10대가 끝난 차였다. 켜면 검차완료(inspected)도 보인다(사진 추가 업로드 용).
+     * 회신대기·수락은 토글을 켜도 안 보인다 — 그 단계는 영업 화면 소관. 세션에 기억(새로고침·화면 이동에도 유지).
+     */
+    #[Session]
+    public bool $includeDone = false;
+
+    public function toggleIncludeDone(): void
+    {
+        $this->includeDone = ! $this->includeDone;
+        unset($this->regionGroups, $this->assignmentSummary);
+    }
+
+    /** 목록에 넣는 상태 — 토글이 유일한 분기. 알림톡 digest(RegionInspectionNotifier)는 이와 무관하게 draft 만 본다. */
+    private function listedStatuses(): array
+    {
+        return $this->includeDone ? ['draft', 'inspected'] : ['draft'];
+    }
 
     public function mount(): void
     {
@@ -72,7 +93,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function regionGroups()
     {
         $listings = PurchaseListing::with(['creator', 'photos'])
-            ->whereIn('status', ['draft', 'inspected', 'awaiting_buyer', 'accepted'])
+            ->whereIn('status', $this->listedStatuses())   // 기본 draft 만, 「검차완료 포함」이면 +inspected
             ->whereNotSelfInspection()   // 셀프검차 = 현지확인 대상 아님
             ->latest()
             ->get();
@@ -101,7 +122,8 @@ new #[Layout('components.layouts.app')] class extends Component {
     #[Computed]
     public function pendingRegions()
     {
-        return PurchaseListing::whereIn('status', ['draft', 'awaiting_buyer', 'accepted'])
+        // 배정 후보 = 아직 검차할 차가 있는 지역만(draft). 끝난 차의 지역까지 넣으면 배정표가 실제 일보다 넓어진다.
+        return PurchaseListing::where('status', 'draft')
             ->whereNotSelfInspection()
             ->whereNotNull('region')
             ->distinct()->orderBy('region')->pluck('region');
@@ -429,6 +451,14 @@ new #[Layout('components.layouts.app')] class extends Component {
     @endif
 
     {{-- ─────────── 지역별 차량 ─────────── --}}
+    {{-- 「검차완료 포함」 토글 — 기본은 현지확인대기만. 끝난 차에 사진을 더 올릴 때만 켠다(세션 기억). --}}
+    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <p class="text-xs text-gray-500">{{ $includeDone ? __('inspection.include_done_on_hint') : __('inspection.include_done_off_hint') }}</p>
+        <button type="button" wire:click="toggleIncludeDone"
+            class="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[12px] font-semibold {{ $includeDone ? 'border-teal-600 bg-teal-600 text-white' : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50' }}">
+            <span>{{ $includeDone ? '☑' : '☐' }}</span> {{ __('inspection.include_done_toggle') }}
+        </button>
+    </div>
     @forelse ($this->regionGroups as $region => $items)
         @php
             $assigned = $this->assignmentsByRegion->get($region, collect());
