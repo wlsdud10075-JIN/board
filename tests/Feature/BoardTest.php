@@ -7211,4 +7211,111 @@ class BoardTest extends TestCase
             && str_contains($req->url(), '/signing-requests')
             && str_contains($req->url(), 'vehicle_ids=10'));
     }
+
+    // ─────────────────────── 감사 로그 — 등록 기록 + 판매측 금액 + 화면 필터 (2026-10-13) ───────────────────────
+
+    /** 등록할 때 넣은 값(판매가·환율·바이어)이 누구 손인지 — 종전엔 수정만 기록해 영영 안 남았다(59오5691). */
+    public function test_listing_creation_is_audited_with_initial_values(): void
+    {
+        $sales = $this->mkUser('sales');
+        $this->actingAs($sales);
+        $l = $this->mkListing($sales, ['sale_price' => 5900, 'offer_currency' => 'EUR', 'offer_rate' => 1564]);
+
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'action' => 'create', 'field' => 'created', 'new_value' => $l->vehicle_number, 'user_id' => $sales->id]);
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'action' => 'create', 'field' => 'sale_price', 'user_id' => $sales->id]);
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'action' => 'create', 'field' => 'offer_currency', 'new_value' => 'EUR']);
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'action' => 'create', 'field' => 'car_erp_buyer_id', 'new_value' => '7']);
+        // 비어 있던 칸은 행을 만들지 않는다
+        $this->assertDatabaseMissing('board_audit_logs', ['purchase_listing_id' => $l->id, 'action' => 'create', 'field' => 'owner_name']);
+    }
+
+    public function test_sale_price_edit_is_audited(): void
+    {
+        $sales = $this->mkUser('sales');
+        $this->actingAs($sales);
+        $l = $this->mkListing($sales);
+        $l->update(['sale_price' => 8590, 'offer_currency' => 'USD', 'transport_fee' => 1850]);
+
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'action' => 'field_edit', 'field' => 'sale_price', 'user_id' => $sales->id]);
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'action' => 'field_edit', 'field' => 'offer_currency', 'new_value' => 'USD']);
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'action' => 'field_edit', 'field' => 'transport_fee']);
+    }
+
+    public function test_audit_screen_filters_change_history(): void
+    {
+        $a = $this->mkUser('sales');
+        $a->update(['name' => '조하']);
+        $b = $this->mkUser('sales');
+        $b->update(['name' => '이새롬']);
+        $this->actingAs($a);
+        $la = $this->mkListing($a, ['vehicle_number' => '59오5691']);
+        $la->update(['owner_name' => '수호모터스']);
+        $this->actingAs($b);
+        $lb = $this->mkListing($b, ['vehicle_number' => '11가1111']);
+        $lb->update(['inspection_memo' => '메모B']);
+
+        $super = $this->mkUser('manager', null, 'super');
+
+        // 차량번호 검색 — 버튼(searchNow)으로만 돈다
+        Volt::actingAs($super)->test('audit.index')
+            ->set('search', '59오')->call('searchNow')
+            ->assertSee('59오5691')->assertDontSee('11가1111');
+
+        // 변경자 필터
+        Volt::actingAs($super)->test('audit.index')
+            ->set('userFilter', $b->id)
+            ->assertSee('11가1111')->assertDontSee('59오5691');
+
+        // 항목 필터 — 라벨은 한글, 값은 코드
+        Volt::actingAs($super)->test('audit.index')
+            ->set('fieldFilter', 'owner_name')
+            ->assertSee('수호모터스')->assertDontSee('메모B');
+
+        // 값 검색
+        Volt::actingAs($super)->test('audit.index')
+            ->set('search', '메모B')->call('searchNow')
+            ->assertSee('11가1111')->assertDontSee('59오5691');
+
+        // 날짜 — 내일부터면 0건
+        Volt::actingAs($super)->test('audit.index')
+            ->set('dateFrom', now()->addDay()->toDateString())
+            ->assertSee(__('audit.no_changes'));
+    }
+
+    /** 삭제된 차의 기록도 어느 차였는지 보여야 한다(종전 `#id` 만). */
+    public function test_audit_screen_shows_vehicle_number_of_deleted_listing(): void
+    {
+        $sales = $this->mkUser('sales');
+        $this->actingAs($sales);
+        $l = $this->mkListing($sales, ['vehicle_number' => '77삭7777']);
+        $l->delete();
+
+        Volt::actingAs($this->mkUser('manager', null, 'super'))->test('audit.index')
+            ->set('search', '77삭')->call('searchNow')
+            ->assertSee('77삭7777');
+    }
+
+    public function test_audit_screen_filters_integration_events(): void
+    {
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['vehicle_number' => '59오5691']);
+        BoardAuditLog::query()->delete();   // 같은 화면의 변경이력 표(등록 기록)에 차량번호가 뜨면 전송 표 판정이 흐려진다
+        IntegrationEvent::create(['direction' => 'outbound', 'target' => 'car_erp', 'event_type' => 'purchase_sync', 'purchase_listing_id' => $l->id, 'response_status' => 201, 'request_payload' => []]);
+        IntegrationEvent::create(['direction' => 'outbound', 'target' => 'respond_io', 'event_type' => 'send_offer', 'purchase_listing_id' => null, 'response_status' => 500, 'error' => 'boom-error', 'request_payload' => []]);
+        IntegrationEvent::create(['direction' => 'inbound', 'target' => 'respond_io', 'event_type' => 'verdict_poll', 'purchase_listing_id' => null, 'response_status' => null, 'request_payload' => []]);
+
+        $super = $this->mkUser('manager', null, 'super');
+
+        Volt::actingAs($super)->test('audit.index')
+            ->set('eventResult', 'fail')
+            ->assertSee('boom-error')->assertDontSee('59오5691');   // 셀렉트 옵션에 이벤트명이 있으니 행 고유값(차량번호)으로 판정
+
+        Volt::actingAs($super)->test('audit.index')
+            ->set('eventType', 'purchase_sync')
+            ->assertSee('59오5691')->assertDontSee('boom-error');
+
+        Volt::actingAs($super)->test('audit.index')
+            ->set('eventSearch', '59오')->call('searchEventsNow')
+            ->assertSee('59오5691')->assertDontSee('boom-error');
+    }
 }

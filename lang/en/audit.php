@@ -17,6 +17,18 @@ return [
     'system' => 'System',
     'no_changes' => 'No changes recorded.',
 
+    // Filters (2026-10-13 — same shape as the ERP audit screen)
+    'total' => ':count rows',
+    'search_placeholder' => 'Search vehicle no. · changer · value',
+    'all_changers' => 'All changers',
+    'all_fields' => 'All items',
+    'per_page' => ':count per page',
+    'event_search_placeholder' => 'Search vehicle no. · event · error',
+    'all_events' => 'All events',
+    'result_all' => 'All responses',
+    'result_ok' => 'Success (2xx)',
+    'result_fail' => 'Failed',
+
     // car-erp transmission log table
     'transmission' => 'car-erp transmission',
     'col_direction_target' => 'Direction/Target',
@@ -27,8 +39,23 @@ return [
 
     // Field name display in change history (field code → label)
     'field' => [
+        'created' => 'Registered',
         'source' => 'Source',
+        'origin' => 'Origin',
         'status' => 'Status',
+        'verdict_channel' => 'Verdict channel',
+        'ssancar_ref' => 'ssancar ref',
+        'encar_id' => 'Encar ID',
+        'respond_conversation_id' => 'respond conversation',
+        'expected_price_currency' => 'Car cost currency',
+        'sale_discount_amount' => 'Discount amount',
+        'sale_price' => 'Sale price',
+        'offer_currency' => 'Sale currency',
+        'offer_rate' => 'Exchange rate',
+        'selling_fee' => 'Selling fee',
+        'transport_fee' => 'Transport fee',
+        'buyer_undecided' => 'Buyer undecided',
+        'car_erp_buyer_id' => 'ERP buyer ID',
         'buyer_verdict' => 'Buyer verdict',
         'buyer_name' => 'Buyer',
         'expected_price' => 'Expected price',

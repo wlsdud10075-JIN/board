@@ -17,6 +17,18 @@ return [
     'system' => '시스템',
     'no_changes' => '기록된 변경이 없습니다.',
 
+    // 필터(2026-10-13 — ERP 감사로그 화면과 같은 꼴)
+    'total' => ':count건',
+    'search_placeholder' => '차량번호 · 변경자 · 값 검색',
+    'all_changers' => '변경자 전체',
+    'all_fields' => '항목 전체',
+    'per_page' => ':count건씩',
+    'event_search_placeholder' => '차량번호 · 이벤트 · 오류 검색',
+    'all_events' => '이벤트 전체',
+    'result_all' => '응답 전체',
+    'result_ok' => '성공(2xx)',
+    'result_fail' => '실패',
+
     // car-erp 전송 로그 테이블
     'transmission' => 'car-erp 전송',
     'col_direction_target' => '방향/대상',
@@ -27,8 +39,23 @@ return [
 
     // 변경이력 필드명 한글 표시 (field 코드 → 한글)
     'field' => [
+        'created' => '등록',
         'source' => '출처',
+        'origin' => '유입',
         'status' => '상태',
+        'verdict_channel' => '회신경로',
+        'ssancar_ref' => 'ssancar 참조',
+        'encar_id' => '엔카ID',
+        'respond_conversation_id' => 'respond 대화',
+        'expected_price_currency' => '차값통화',
+        'sale_discount_amount' => '차감액',
+        'sale_price' => '판매가',
+        'offer_currency' => '판매통화',
+        'offer_rate' => '환율',
+        'selling_fee' => '매도비',
+        'transport_fee' => '운임비',
+        'buyer_undecided' => '바이어미정',
+        'car_erp_buyer_id' => 'ERP바이어ID',
         'buyer_verdict' => '바이어회신',
         'buyer_name' => '바이어',
         'expected_price' => '예상가',
