@@ -8,7 +8,6 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
-use Livewire\Attributes\Session;
 use Livewire\Volt\Component;
 use Livewire\WithFileUploads;
 
@@ -34,29 +33,14 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $inspection_note = '';
 
     /**
-     * 「검차완료 포함」 토글 (Jin 2026-10-13). 기본 = **현지확인대기(draft)만** — 검차가 끝나 전달대기로 넘어간 차가
-     * 계속 남아 있어 heymanboard 실측 14대 중 10대가 끝난 차였다. 켜면 검차완료(inspected)도 보인다(사진 추가 업로드 용).
-     * 회신대기·수락은 토글을 켜도 안 보인다 — 그 단계는 영업 화면 소관. 세션에 기억(새로고침·화면 이동에도 유지).
+     * 목록에 넣는 상태 = **현지확인대기(draft)만** (Jin 2026-10-13). 검차가 끝나 전달대기로 넘어간 차가 계속 남아
+     * heymanboard 실측 14대 중 10대가 끝난 차였다. 검차원은 "검차해야 할 차", 관리는 "그 목록을 선별"하는 화면이고
+     * 사진·영상은 ssancar.com 연동으로 들어오므로 완료 차를 여기서 다시 볼 이유가 없다(토글·탭 안 둠).
+     * 알림톡 digest(RegionInspectionNotifier)도 draft 만 본다 — 화면과 발송 대상이 같은 집합.
      */
-    #[Session]
-    public bool $includeDone = false;
-
-    public function toggleIncludeDone(): void
-    {
-        $this->includeDone = ! $this->includeDone;
-        $this->updatedIncludeDone();
-    }
-
-    /** 체크박스(wire:model.live) 변경 훅 — 캐시된 목록·요약을 비운다. */
-    public function updatedIncludeDone(): void
-    {
-        unset($this->regionGroups, $this->assignmentSummary);
-    }
-
-    /** 목록에 넣는 상태 — 토글이 유일한 분기. 알림톡 digest(RegionInspectionNotifier)는 이와 무관하게 draft 만 본다. */
     private function listedStatuses(): array
     {
-        return $this->includeDone ? ['draft', 'inspected'] : ['draft'];
+        return ['draft'];
     }
 
     public function mount(): void
@@ -99,7 +83,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function regionGroups()
     {
         $listings = PurchaseListing::with(['creator', 'photos'])
-            ->whereIn('status', $this->listedStatuses())   // 기본 draft 만, 「검차완료 포함」이면 +inspected
+            ->whereIn('status', $this->listedStatuses())   // draft 만 — 검차 끝난 차는 영업 화면(전달 대기)으로
             ->whereNotSelfInspection()   // 셀프검차 = 현지확인 대상 아님
             ->latest()
             ->get();
@@ -458,14 +442,6 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     {{-- ─────────── 지역별 차량 ─────────── --}}
     {{-- 「검차완료 포함」 토글 — 기본은 현지확인대기만. 끝난 차에 사진을 더 올릴 때만 켠다(세션 기억). --}}
-    {{-- 네이티브 체크박스 — 색 클래스에 의존하지 않는다(새 Tailwind 색은 빌드 전엔 안 나와 켜진 버튼이 흰색으로 사라져 보였다, Jin 2026-10-13). --}}
-    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <p class="text-xs text-gray-500">{{ $includeDone ? __('inspection.include_done_on_hint') : __('inspection.include_done_off_hint') }}</p>
-        <label class="inline-flex cursor-pointer select-none items-center gap-2 rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-gray-700">
-            <input type="checkbox" wire:model.live="includeDone" class="h-4 w-4 rounded border-gray-300">
-            {{ __('inspection.include_done_toggle') }}
-        </label>
-    </div>
     @forelse ($this->regionGroups as $region => $items)
         @php
             $assigned = $this->assignmentsByRegion->get($region, collect());

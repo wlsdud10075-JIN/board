@@ -747,10 +747,11 @@ class BoardTest extends TestCase
     }
 
     /**
-     * 현지확인 화면 기본 = 현지확인대기(draft)만 (Jin 2026-10-13 — 끝난 차가 계속 남아 14대 중 10대가 완료 차였다).
-     * 「검차완료 포함」을 켜면 inspected 가 보이고(사진 추가용), 회신대기·수락은 켜도 안 보인다. 배정 후보 지역도 draft 만.
+     * 현지확인 화면 = 현지확인대기(draft)만 (Jin 2026-10-13). 검차가 끝나 전달대기로 넘어간 차가 계속 남아
+     * 14대 중 10대가 완료 차였다. 완료 차를 보는 토글·탭은 두지 않는다(사진·영상은 ssancar.com 연동으로 들어온다).
+     * 배정 후보 지역도 draft 만.
      */
-    public function test_inspection_screen_shows_only_draft_unless_include_done_toggled(): void
+    public function test_inspection_screen_shows_only_draft(): void
     {
         $kim = $this->mkUser('sales');
         $this->mkListing($kim, ['vehicle_number' => '11가1111', 'region' => '경기 수원시']);                       // draft
@@ -758,20 +759,12 @@ class BoardTest extends TestCase
         $this->mkListing($kim, ['vehicle_number' => '33다3333', 'region' => '대구광역시', 'status' => 'awaiting_buyer']);
 
         $this->actingAs($this->mkUser('manager'));   // canAssign → 지역필터 없음
-        $c = Volt::test('inspection.index')
-            ->assertSet('includeDone', false)
+        Volt::test('inspection.index')
             ->assertSee('11가1111')
             ->assertDontSee('22나2222')
             ->assertDontSee('33다3333')
-            ->assertDontSee('부산광역시')           // 목록·배정 후보 어디에도 끝난 차의 지역이 없다
-            ->assertSee(__('inspection.include_done_toggle'));
-
-        $c->set('includeDone', true)   // 체크박스(wire:model.live) 경로 — updatedIncludeDone 이 목록 캐시를 비운다
-            ->assertSet('includeDone', true)
-            ->assertSee('11가1111')
-            ->assertSee('22나2222')
-            ->assertDontSee('33다3333')            // 회신대기는 토글을 켜도 영업 화면 소관
-            ->assertSee(__('inspection.include_done_on_hint'));
+            ->assertDontSee('부산광역시')            // 목록·배정 후보 어디에도 끝난 차의 지역이 없다
+            ->assertDontSee('대구광역시');
     }
 
     /** 셀프검차 차량이 현지확인 화면에 뜨면 이 기능이 건너뛰려던 그 화면에 되돌아온 것이다. */
