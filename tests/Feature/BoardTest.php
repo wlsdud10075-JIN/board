@@ -766,7 +766,7 @@ class BoardTest extends TestCase
             ->assertDontSee('부산광역시')           // 목록·배정 후보 어디에도 끝난 차의 지역이 없다
             ->assertSee(__('inspection.include_done_toggle'));
 
-        $c->call('toggleIncludeDone')
+        $c->set('includeDone', true)   // 체크박스(wire:model.live) 경로 — updatedIncludeDone 이 목록 캐시를 비운다
             ->assertSet('includeDone', true)
             ->assertSee('11가1111')
             ->assertSee('22나2222')

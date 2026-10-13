@@ -44,6 +44,12 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function toggleIncludeDone(): void
     {
         $this->includeDone = ! $this->includeDone;
+        $this->updatedIncludeDone();
+    }
+
+    /** 체크박스(wire:model.live) 변경 훅 — 캐시된 목록·요약을 비운다. */
+    public function updatedIncludeDone(): void
+    {
         unset($this->regionGroups, $this->assignmentSummary);
     }
 
@@ -452,12 +458,13 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     {{-- ─────────── 지역별 차량 ─────────── --}}
     {{-- 「검차완료 포함」 토글 — 기본은 현지확인대기만. 끝난 차에 사진을 더 올릴 때만 켠다(세션 기억). --}}
+    {{-- 네이티브 체크박스 — 색 클래스에 의존하지 않는다(새 Tailwind 색은 빌드 전엔 안 나와 켜진 버튼이 흰색으로 사라져 보였다, Jin 2026-10-13). --}}
     <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
         <p class="text-xs text-gray-500">{{ $includeDone ? __('inspection.include_done_on_hint') : __('inspection.include_done_off_hint') }}</p>
-        <button type="button" wire:click="toggleIncludeDone"
-            class="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[12px] font-semibold {{ $includeDone ? 'border-teal-600 bg-teal-600 text-white' : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50' }}">
-            <span>{{ $includeDone ? '☑' : '☐' }}</span> {{ __('inspection.include_done_toggle') }}
-        </button>
+        <label class="inline-flex cursor-pointer select-none items-center gap-2 rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-gray-700">
+            <input type="checkbox" wire:model.live="includeDone" class="h-4 w-4 rounded border-gray-300">
+            {{ __('inspection.include_done_toggle') }}
+        </label>
     </div>
     @forelse ($this->regionGroups as $region => $items)
         @php
