@@ -53,8 +53,14 @@ class PollSsancarMedia extends Command
             // inspected 사진만(영상 대기) 케이스도 여기서 연결로 잡혀 3일 지나도 계속 폴링.
             if ($d['has_media'] && $listing->ssancar_media_seen_at === null) {
                 $listing->ssancar_media_seen_at = now();
-                $listing->save();
             }
+            // 마지막 판정 결과 — 전이 여부와 무관하게 매번 남긴다. 현지확인 행·매입예정 드로어가 이걸로
+            // "사진 N장·영상 없음 / 없음" 한 줄을 그린다(화면이 ssancar 를 직접 묻지 않게, 2026-10-13).
+            $listing->ssancar_checked_at = now();
+            $listing->ssancar_insp_photos = $d['insp_photos'];
+            $listing->ssancar_insp_videos = $d['insp_videos'];
+            $listing->ssancar_stock_photos = $d['stock_photos'];
+            $listing->save();
 
             if (! $d['advance']) {
                 continue;   // inspected 사진만(영상 대기) 또는 미디어 없음 → draft 유지

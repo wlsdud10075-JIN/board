@@ -746,6 +746,27 @@ class BoardTest extends TestCase
         Bus::assertDispatched(SyncWonListingToCarErp::class);
     }
 
+    /**
+     * 현지확인 화면 = 현지확인대기(draft)만 (Jin 2026-10-13). 검차가 끝나 전달대기로 넘어간 차가 계속 남아
+     * 14대 중 10대가 완료 차였다. 완료 차를 보는 토글·탭은 두지 않는다(사진·영상은 ssancar.com 연동으로 들어온다).
+     * 배정 후보 지역도 draft 만.
+     */
+    public function test_inspection_screen_shows_only_draft(): void
+    {
+        $kim = $this->mkUser('sales');
+        $this->mkListing($kim, ['vehicle_number' => '11가1111', 'region' => '경기 수원시']);                       // draft
+        $this->mkListing($kim, ['vehicle_number' => '22나2222', 'region' => '부산광역시', 'status' => 'inspected']);
+        $this->mkListing($kim, ['vehicle_number' => '33다3333', 'region' => '대구광역시', 'status' => 'awaiting_buyer']);
+
+        $this->actingAs($this->mkUser('manager'));   // canAssign → 지역필터 없음
+        Volt::test('inspection.index')
+            ->assertSee('11가1111')
+            ->assertDontSee('22나2222')
+            ->assertDontSee('33다3333')
+            ->assertDontSee('부산광역시')            // 목록·배정 후보 어디에도 끝난 차의 지역이 없다
+            ->assertDontSee('대구광역시');
+    }
+
     /** 셀프검차 차량이 현지확인 화면에 뜨면 이 기능이 건너뛰려던 그 화면에 되돌아온 것이다. */
     public function test_self_inspection_listing_hidden_from_inspection_screen(): void
     {
@@ -2388,6 +2409,88 @@ class BoardTest extends TestCase
         $l->refresh();
         $this->assertSame('draft', $l->status);              // 영상 대기 → draft 유지
         $this->assertNotNull($l->ssancar_media_seen_at);     // 연결 표식(에이지아웃 유예)
+    }
+
+    /**
+     * 폴러는 전이 여부와 무관하게 **마지막 판정**(확인 시각·소스별 개수)을 매물에 남긴다 (2026-10-13).
+     * 현지확인 행·매입예정 드로어가 이걸로 "사진 N장·영상 없음" 한 줄을 그린다(화면이 ssancar 를 직접 묻지 않는다).
+     */
+    public function test_poll_ssancar_media_records_last_decision_and_screens_show_hold_hint(): void
+    {
+        $this->ssancarMediaConfig();
+        Http::fake(['*api_car_media.php*' => Http::response($this->ssancarResp(0, 12, 0), 200)]);
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['vehicle_number' => '11가1111', 'region' => '경기 수원시', 'status' => 'draft']);
+
+        $this->artisan('board:poll-ssancar-media')->assertExitCode(0);
+
+        $l->refresh();
+        $this->assertSame('draft', $l->status);
+        $this->assertNotNull($l->ssancar_checked_at);
+        $this->assertSame([12, 0, 0], [$l->ssancar_insp_photos, $l->ssancar_insp_videos, $l->ssancar_stock_photos]);
+
+        $hint = $l->ssancarHoldHint();
+        $this->assertSame('inspection.hold_photos_only', $hint['key']);
+        $this->assertSame(12, $hint['params']['photos']);
+
+        // 매입예정 **목록 행**(영업 본인)에 바로 보인다 — 현지확인 화면에는 넣지 않는다(영업이 못 보는 화면, Jin 2026-10-13)
+        $expect = __('inspection.hold_photos_only', $hint['params']);
+        $this->actingAs($this->mkUser('manager'));
+        Volt::test('inspection.index')->assertDontSee($expect);
+        $this->actingAs($kim);
+        Volt::test('listings.index')->assertSee($expect)
+            ->call('openEdit', $l->id)
+            ->assertSee(__('listings.drawer.forward_photos_btn'));   // 드로어: 사진 12장 → 넘기기 버튼
+    }
+
+    /** 폴러가 한 번도 못 본 채 3일이 지난 draft(엔카 등) = 폴링 제외 — 그 사실을 화면이 말한다. */
+    public function test_hold_hint_says_aged_out_for_old_unseen_draft(): void
+    {
+        $this->ssancarMediaConfig();
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft']);
+        $l->forceFill(['created_at' => now()->subDays(28)])->save();
+
+        $hint = $l->fresh()->ssancarHoldHint();
+        $this->assertSame('inspection.hold_aged_out', $hint['key']);
+        $this->assertSame(28, $hint['params']['days']);
+
+        $this->ssancarMediaConfig(false);   // 자동 전이 꺼진 박스
+        $this->assertSame('inspection.hold_auto_off', $l->fresh()->ssancarHoldHint()['key']);
+    }
+
+    /**
+     * 「지금 있는 사진으로 전달대기」 — 본인 draft + 미디어 있을 때만. 전이는 TRANSITIONS 그대로(draft→inspected),
+     * 감사로그는 옵저버가 누른 영업 명의로. 미디어 0 이면 버튼 없음 + 403.
+     */
+    public function test_owner_can_forward_draft_with_photos_only(): void
+    {
+        $this->ssancarMediaConfig();
+        $kim = $this->mkUser('sales');
+        $withPhotos = $this->mkListing($kim, ['vehicle_number' => '11가1111', 'status' => 'draft']);
+        $withPhotos->forceFill(['ssancar_checked_at' => now(), 'ssancar_insp_photos' => 12, 'ssancar_insp_videos' => 0, 'ssancar_stock_photos' => 0])->save();
+        $noMedia = $this->mkListing($kim, ['vehicle_number' => '22나2222', 'status' => 'draft']);
+        $noMedia->forceFill(['ssancar_checked_at' => now(), 'ssancar_insp_photos' => 0, 'ssancar_insp_videos' => 0, 'ssancar_stock_photos' => 0])->save();
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')->call('openEdit', $noMedia->id)
+            ->assertDontSee(__('listings.drawer.forward_photos_btn'))
+            ->assertSee(__('listings.drawer.forward_no_media'))
+            ->call('forwardWithPhotos')->assertForbidden();
+        $this->assertSame('draft', $noMedia->fresh()->status);
+
+        Volt::test('listings.index')->call('openEdit', $withPhotos->id)
+            ->call('forwardWithPhotos')->assertHasNoErrors();
+        $this->assertSame('inspected', $withPhotos->fresh()->status);
+        $this->assertDatabaseHas('board_audit_logs', [
+            'purchase_listing_id' => $withPhotos->id, 'user_id' => $kim->id, 'action' => 'status_change', 'new_value' => 'inspected',
+        ]);
+
+        // 남의 차는 안 된다(SalesmanScope 가 로드부터 막는다 → findOrFail 이 터진다)
+        $this->actingAs($this->mkUser('sales'));
+        $other = $this->mkListing($kim, ['vehicle_number' => '33다3333', 'status' => 'draft']);
+        $other->forceFill(['ssancar_insp_photos' => 3])->save();
+        $this->expectException(ModelNotFoundException::class);
+        Volt::test('listings.index')->call('openEdit', $other->id);
     }
 
     public function test_poll_ssancar_media_keeps_draft_when_no_media(): void

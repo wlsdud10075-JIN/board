@@ -116,6 +116,13 @@ return [
     'complete_button_selected' => '— 선택됨 ✓',
     'complete_hint' => '사진·금액 입력 후 검차완료를 선택하고 저장하세요. 바이어 전달은 영업이 "전달 대기" 화면에서 합니다.',
     'already_inspected' => '검차완료됨. 영업의 "전달 대기" 목록에 있습니다. (금액·사진은 계속 수정 가능)',
+    // 현지확인대기 차가 왜 아직 안 넘어갔나 — 폴러 마지막 판정(PurchaseListing::ssancarHoldHint). 현지확인 행·매입예정 드로어 공용 (2026-10-13)
+    'hold_photos_only' => 'ssancar.com 사진 :photos장 · 검차 영상 없음 — 영상이 올라오면 자동으로 전달대기 (확인 :at)',
+    'hold_no_media' => 'ssancar.com 에 사진·영상 없음 (마지막 확인 :at)',
+    'hold_aged_out' => 'ssancar.com 에서 못 찾음 — 등록 :days일 경과로 자동 확인 중단. 직접 검차·업로드 필요',
+    'hold_pending' => 'ssancar.com 확인 대기 (2분 주기)',
+    'hold_advancing' => 'ssancar.com 미디어 확인됨 — 다음 확인에서 자동으로 전달대기 (확인 :at)',
+    'hold_auto_off' => '자동 전달대기 꺼짐 — 검차완료는 수동',
     'already_forwarded_simple' => '이미 바이어에게 전달됨(회신대기 이후). 영업 화면에서 처리됩니다.',
     'forwarded_manual' => '바이어에게 전달했습니다 (수동 회신 — 바이어 회신 화면에서 처리).',
     'forwarded_auto' => '바이어에게 전달했습니다 (자동 회신대기 — respond.io 회신 시 자동 처리).',

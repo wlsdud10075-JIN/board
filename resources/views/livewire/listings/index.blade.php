@@ -354,6 +354,46 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->closeEdit();
     }
 
+    /**
+     * 「사진만으로 전달대기로 넘기기」 조건 (Jin 2026-10-13) — 검차 영상이 안 올라와도 바이어와 바로 얘기하고 싶을 때.
+     * 본인 차(관리·super 는 전체) + 현지확인대기(draft) + 시간잠금 아님 + **보여줄 사진·영상이 하나라도 있을 때**.
+     * 미디어 0 이면 빈 바이어 페이지를 보내게 되므로 버튼 대신 안내만.
+     */
+    public function forwardable(PurchaseListing $l): bool
+    {
+        $u = Auth::user();
+
+        return $l->status === 'draft'
+            && ($l->created_by_user_id === $u->id || $u->isManager() || $u->isSuper())
+            && $this->editable($l)
+            && $l->hasAnyForwardMedia();
+    }
+
+    /**
+     * draft → inspected(전달대기) 수동 전이. 현지확인 「검차완료」와 같은 전이(TRANSITIONS 허용)라 가드를 그대로 탄다.
+     * 감사로그는 모델 옵저버가 status_change 로 남긴다(user_id = 누른 영업). 전달대기 알림톡(B)은 자동 전이와 같은 조건으로 발사.
+     * 넘긴 차는 현지확인 목록과 폴러 대상에서 빠진다 — 전달 화면이 ssancar 미디어를 실시간으로 다시 가져오므로
+     * 나중에 올라온 영상은 바이어 링크 재열람에 그대로 들어간다.
+     */
+    public function forwardWithPhotos(): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        abort_unless($this->forwardable($l), 403);
+
+        $l->status = 'inspected';
+        $l->save();
+
+        $creator = $l->creator;
+        if ($creator && trim((string) $creator->phone) !== '') {
+            app(\App\Services\BizmAlimtalkService::class)->send('board_forward_ready', $creator->phone,
+                ['차량번호' => $l->vehicle_number ?: '(번호미정)'], ['user_id' => $creator->id]);
+        }
+
+        unset($this->listings, $this->tabCounts);
+        session()->flash('ok', __('listings.drawer.forward_photos_flash', ['number' => $l->vehicle_number]));
+        $this->closeEdit();
+    }
+
     public function openEdit(int $id): void
     {
         $l = PurchaseListing::findOrFail($id);   // SalesmanScope: 영업은 본인 것만 로드 가능
@@ -1220,9 +1260,10 @@ new #[Layout('components.layouts.app')] class extends Component {
         @else
         {{-- 리스트 (데스크톱: 표) --}}
         <div class="hidden overflow-x-auto sm:block">
-            <table class="tbl">
+            {{-- 가운데 정렬(tbl-center). 칸 = 차량 · 출처 · 금액 · 추가검사사항 · 바이어(이름) · 바이어 회신(칩) · 상태 · 검차상태(ssancar 폴러 한 줄) (Jin 2026-10-13) --}}
+            <table class="tbl tbl-center">
                 <thead>
-                    <tr><th class="w-px whitespace-nowrap">{{ __('listings.table.vehicle') }}</th><th>{{ __('listings.table.source') }}</th><th>{{ __('listings.table.total') }}</th><th>{{ __('listings.table.inspection_note') }}</th><th>{{ __('listings.table.buyer') }}</th><th>{{ __('listings.table.status') }}</th></tr>
+                    <tr><th class="w-px whitespace-nowrap">{{ __('listings.table.vehicle') }}</th><th>{{ __('listings.table.source') }}</th><th>{{ __('listings.table.total') }}</th><th>{{ __('listings.table.inspection_note') }}</th><th>{{ __('listings.table.buyer') }}</th><th>{{ __('listings.table.verdict') }}</th><th>{{ __('listings.table.status') }}</th><th>{{ __('listings.table.inspection_state') }}</th></tr>
                 </thead>
                 <tbody>
                     @forelse ($this->listings as $l)
@@ -1234,11 +1275,14 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <td><span class="badge {{ $l->originBadge() }}">{{ $l->originLabel() }}</span></td>
                             <td class="font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).__('common.won_currency') : '—' }}</td>
                             <td class="max-w-[200px] truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">{{ $l->inspection_note ?: '—' }}</td>
+                            <td class="max-w-[160px] truncate text-gray-700" title="{{ $l->buyer_name }}">{{ $l->buyer_name ?: '—' }}</td>
                             <td>@if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</td>
                             <td><span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span></td>
+                            {{-- 검차상태 — 현지확인대기 차가 왜 아직 전달대기로 안 넘어갔나(ssancar 폴러 마지막 판정). 그 외 상태는 빈 칸. 상태 칸 오른쪽(Jin). --}}
+                            <td class="max-w-[260px] whitespace-normal text-[11px] leading-snug text-gray-500">@if ($hold = $l->ssancarHoldHint()){{ __($hold['key'], $hold['params']) }}@else<span class="text-gray-300">—</span>@endif</td>
                         </tr>
                     @empty
-                        <tr><td colspan="6" class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</td></tr>
+                        <tr><td colspan="8" class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -1259,11 +1303,15 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <div class="flex flex-wrap items-center gap-1">
                             <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span>
                             @if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@endif
+                            @if ($l->buyer_name)<span class="truncate text-xs text-gray-600">🧑 {{ $l->buyer_name }}</span>@endif
                         </div>
                         <span class="shrink-0 text-sm font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).__('common.won_currency') : '—' }}</span>
                     </div>
                     @if ($l->inspection_note)
                         <div class="mt-1 truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">📝 {{ $l->inspection_note }}</div>
+                    @endif
+                    @if ($hold = $l->ssancarHoldHint())
+                        <div class="mt-1 text-[11px] leading-snug text-gray-400">↳ {{ __($hold['key'], $hold['params']) }}</div>
                     @endif
                 </div>
             @empty
@@ -1352,6 +1400,21 @@ new #[Layout('components.layouts.app')] class extends Component {
                         @foreach ($errors->all() as $message)
                             <p>⚠ {{ $message }}</p>
                         @endforeach
+                    </div>
+                @endif
+
+                {{-- 현지확인대기 차 — 왜 아직 안 넘어갔나(폴러 마지막 판정, 현지확인 행과 같은 문구) + 사진만으로 넘기기 (2026-10-13 Jin) --}}
+                @if ($e->status === 'draft' && ($hold = $e->ssancarHoldHint()))
+                    <div class="card-sm mt-4 border-gray-200 bg-gray-50 text-[12px] text-gray-600">
+                        <div>🔎 {{ __($hold['key'], $hold['params']) }}</div>
+                        @if ($this->forwardable($e))
+                            <button type="button" class="btn-outline btn-sm mt-2 w-full justify-center"
+                                wire:click="forwardWithPhotos" wire:confirm="{{ __('listings.drawer.forward_photos_confirm') }}">
+                                📨 {{ __('listings.drawer.forward_photos_btn') }}
+                            </button>
+                        @elseif ($canEdit && ! $e->hasAnyForwardMedia())
+                            <div class="mt-1 text-[11px] text-gray-400">{{ __('listings.drawer.forward_no_media') }}</div>
+                        @endif
                     </div>
                 @endif
 

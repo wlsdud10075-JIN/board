@@ -32,6 +32,17 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $region = '';
     public string $inspection_note = '';
 
+    /**
+     * 목록에 넣는 상태 = **현지확인대기(draft)만** (Jin 2026-10-13). 검차가 끝나 전달대기로 넘어간 차가 계속 남아
+     * heymanboard 실측 14대 중 10대가 끝난 차였다. 검차원은 "검차해야 할 차", 관리는 "그 목록을 선별"하는 화면이고
+     * 사진·영상은 ssancar.com 연동으로 들어오므로 완료 차를 여기서 다시 볼 이유가 없다(토글·탭 안 둠).
+     * 알림톡 digest(RegionInspectionNotifier)도 draft 만 본다 — 화면과 발송 대상이 같은 집합.
+     */
+    private function listedStatuses(): array
+    {
+        return ['draft'];
+    }
+
     public function mount(): void
     {
         $this->assignDate = now()->toDateString();
@@ -72,7 +83,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function regionGroups()
     {
         $listings = PurchaseListing::with(['creator', 'photos'])
-            ->whereIn('status', ['draft', 'inspected', 'awaiting_buyer', 'accepted'])
+            ->whereIn('status', $this->listedStatuses())   // draft 만 — 검차 끝난 차는 영업 화면(전달 대기)으로
             ->whereNotSelfInspection()   // 셀프검차 = 현지확인 대상 아님
             ->latest()
             ->get();
@@ -101,7 +112,8 @@ new #[Layout('components.layouts.app')] class extends Component {
     #[Computed]
     public function pendingRegions()
     {
-        return PurchaseListing::whereIn('status', ['draft', 'awaiting_buyer', 'accepted'])
+        // 배정 후보 = 아직 검차할 차가 있는 지역만(draft). 끝난 차의 지역까지 넣으면 배정표가 실제 일보다 넓어진다.
+        return PurchaseListing::where('status', 'draft')
             ->whereNotSelfInspection()
             ->whereNotNull('region')
             ->distinct()->orderBy('region')->pluck('region');
@@ -429,6 +441,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     @endif
 
     {{-- ─────────── 지역별 차량 ─────────── --}}
+    {{-- 「검차완료 포함」 토글 — 기본은 현지확인대기만. 끝난 차에 사진을 더 올릴 때만 켠다(세션 기억). --}}
     @forelse ($this->regionGroups as $region => $items)
         @php
             $assigned = $this->assignmentsByRegion->get($region, collect());

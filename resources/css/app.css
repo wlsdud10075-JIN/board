@@ -151,6 +151,8 @@ input, textarea, select { color: #1f2937; background-color: #ffffff; }
 .tbl th { text-align:left; font-size:11px; color:#6b7280; font-weight:700; text-transform:uppercase; padding:9px 10px; border-bottom:1px solid #e5e7eb; }
 .tbl td { padding:11px 10px; border-bottom:1px solid #f1f5f9; vertical-align:middle; }
 .tbl tr:last-child td { border-bottom:0; }
+/* 가운데 정렬 표 — 매입예정 목록(Jin 2026-10-13). 칸이 많고 칩·숫자 위주라 중앙이 읽기 쉽다. */
+.tbl-center th, .tbl-center td { text-align:center; }
 
 /* ── 사이드바 (car-erp 정렬) ── */
 .app-sidebar { background-color:var(--color-sidebar-bg); transition:width .22s ease; }
