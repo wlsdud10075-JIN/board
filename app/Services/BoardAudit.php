@@ -36,6 +36,10 @@ class BoardAudit
             if ($new === null || $new === '' || $new === false || (is_numeric($new) && (float) $new === 0.0)) {
                 continue;
             }
+            // 스키마 기본값(회신 none · 차값통화 KRW)은 「넣은 값」이 아니다 — 매 등록마다 찍히면 등록 블록이 안 읽힌다.
+            if (($field === 'buyer_verdict' && $new === 'none') || ($field === 'expected_price_currency' && $new === 'KRW')) {
+                continue;
+            }
             $masked = in_array($field, self::MASKED, true);
             $rows[] = [
                 'user_id' => $userId,
