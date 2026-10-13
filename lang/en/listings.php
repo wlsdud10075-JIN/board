@@ -2,7 +2,7 @@
 
 return [
     // Header
-    'heading' => 'Purchases (Sales)',
+    'heading' => 'Purchases',
     'own_only_note' => '🔒 Showing only your (:name) list — server/DB-level isolation',
 
     // Exchange rate
@@ -49,6 +49,7 @@ return [
         'per_page' => ':count per page',
         'count_only' => 'Count only',
         'count_only_hint' => ':count listing(s) in this tab. (Pick a page size to see them)',
+        'owner_all' => 'All registrants',
     ],
 
     // Table headers

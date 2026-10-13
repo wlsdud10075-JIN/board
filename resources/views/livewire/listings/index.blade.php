@@ -37,6 +37,45 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public const PER_PAGE_OPTIONS = [self::PER_PAGE_COUNT_ONLY, 10, 20, 30, 50, 100];
 
+    /**
+     * 등록자(영업) 필터 — **관리·super 만**(Jin 2026-10-13 「인원별로도」). 0 = 전체.
+     * 영업은 SalesmanScope 가 본인 것만 주므로 이 값이 와도 무의미(URL 로 들어와도 무시).
+     * 목록·탭 건수가 **같은 조건**(tabQuery)을 보게 해 숫자가 어긋나지 않는다.
+     */
+    #[Url]
+    public int $owner = 0;
+
+    public function updatedOwner(): void
+    {
+        if ($this->owner !== 0 && ! $this->owners->contains('id', $this->owner)) {
+            $this->owner = 0;
+        }
+        unset($this->listings, $this->tabCounts);
+        $this->resetPage();
+    }
+
+    /** 필터 후보 = 매입예정을 등록한 적 있는 사용자(이름순). 관리·super 가 아니면 빈 목록. */
+    #[Computed]
+    public function owners()
+    {
+        if (! Auth::user()->canSeeAll()) {
+            return collect();
+        }
+
+        return \App\Models\User::whereIn('id', PurchaseListing::query()->select('created_by_user_id')->distinct())
+            ->orderBy('name')->get(['id', 'name']);
+    }
+
+    /** 실제로 적용할 등록자 id — 권한 없음·목록 밖이면 null(필터 없음). */
+    private function ownerFilter(): ?int
+    {
+        if ($this->owner === 0 || ! Auth::user()->canSeeAll() || ! $this->owners->contains('id', $this->owner)) {
+            return null;
+        }
+
+        return $this->owner;
+    }
+
     public function setTab(string $tab): void
     {
         $this->tab = ($tab === 'all' || array_key_exists($tab, PurchaseListing::TAB_STATUSES)) ? $tab : 'all';
@@ -208,9 +247,11 @@ new #[Layout('components.layouts.app')] class extends Component {
     private function tabQuery()
     {
         $statuses = PurchaseListing::TAB_STATUSES[$this->tab] ?? null;
+        $owner = $this->ownerFilter();
 
         return PurchaseListing::query()
-            ->when($statuses !== null, fn ($q) => $q->whereIn('status', $statuses));
+            ->when($statuses !== null, fn ($q) => $q->whereIn('status', $statuses))
+            ->when($owner !== null, fn ($q) => $q->where('created_by_user_id', $owner));
     }
 
     #[Computed]
@@ -243,7 +284,9 @@ new #[Layout('components.layouts.app')] class extends Component {
     #[Computed]
     public function tabCounts(): array
     {
+        $owner = $this->ownerFilter();
         $byStatus = PurchaseListing::query()
+            ->when($owner !== null, fn ($q) => $q->where('created_by_user_id', $owner))   // 목록과 같은 모수
             ->selectRaw('status, count(*) as c')
             ->groupBy('status')
             ->pluck('c', 'status');
@@ -1121,12 +1164,23 @@ new #[Layout('components.layouts.app')] class extends Component {
                     </button>
                 @endforeach
             </div>
-            <select wire:model.live="perPage" class="input-filter shrink-0 self-end sm:self-auto">
-                @foreach ([10, 20, 30, 50, 100] as $n)
-                    <option value="{{ $n }}">{{ __('listings.list.per_page', ['count' => $n]) }}</option>
-                @endforeach
-                <option value="0">{{ __('listings.list.count_only') }}</option>
-            </select>
+            <div class="flex shrink-0 items-center gap-1.5 self-end sm:self-auto">
+                {{-- 등록자 필터 — 관리·super 만(영업은 본인 것만 보이므로 의미 없음). 2026-10-13 Jin --}}
+                @if ($this->owners->isNotEmpty())
+                    <select wire:model.live="owner" class="input-filter shrink-0">
+                        <option value="0">{{ __('listings.list.owner_all') }}</option>
+                        @foreach ($this->owners as $o)
+                            <option value="{{ $o->id }}">{{ $o->name }}</option>
+                        @endforeach
+                    </select>
+                @endif
+                <select wire:model.live="perPage" class="input-filter shrink-0">
+                    @foreach ([10, 20, 30, 50, 100] as $n)
+                        <option value="{{ $n }}">{{ __('listings.list.per_page', ['count' => $n]) }}</option>
+                    @endforeach
+                    <option value="0">{{ __('listings.list.count_only') }}</option>
+                </select>
+            </div>
         </div>
 
         {{-- 추가 폼 --}}

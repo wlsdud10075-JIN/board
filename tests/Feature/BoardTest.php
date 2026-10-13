@@ -370,6 +370,39 @@ class BoardTest extends TestCase
         $this->assertSame(30, $c->get('perPage'));
     }
 
+    /**
+     * 등록자 필터 — 관리·super 만(Jin 2026-10-13 「인원별로도」). 목록과 탭 건수가 같은 모수. 영업은 셀렉트 자체가 없고
+     * URL 로 `?owner=` 가 들어와도 무시된다(SalesmanScope 가 본인 것만 준다).
+     */
+    public function test_manager_can_filter_listings_by_registrant(): void
+    {
+        $kim = $this->mkUser('sales');
+        $lee = $this->mkUser('sales');
+        $this->mkListing($kim, ['vehicle_number' => '11가1111', 'status' => 'draft']);
+        $this->mkListing($kim, ['vehicle_number' => '22나2222', 'status' => 'inspected']);
+        $this->mkListing($lee, ['vehicle_number' => '33다3333', 'status' => 'draft']);
+
+        $this->actingAs($this->mkUser('manager'));
+        $c = Volt::test('listings.index')
+            ->assertSee(__('listings.list.owner_all'))
+            ->assertSee('11가1111')->assertSee('33다3333');
+        $this->assertSame(3, $c->get('tabCounts')['all']);
+
+        $c->set('owner', $lee->id)
+            ->assertSee('33다3333')->assertDontSee('11가1111')->assertDontSee('22나2222');
+        $this->assertSame(1, $c->get('tabCounts')['all']);   // 탭 건수도 같은 필터
+
+        $c->set('owner', 999999);                              // 목록 밖 → 전체로 되돌림
+        $this->assertSame(0, $c->get('owner'));
+
+        // 영업 — 셀렉트 없음, owner 무시(본인 것만)
+        $this->actingAs($kim);
+        $c2 = Volt::test('listings.index')->set('owner', $lee->id)
+            ->assertDontSee(__('listings.list.owner_all'))
+            ->assertSee('11가1111')->assertDontSee('33다3333');
+        $this->assertSame(2, $c2->get('tabCounts')['all']);
+    }
+
     /** 「건수만」 = 행을 아예 안 불러온다(총계만). 빈 목록의 「없습니다」와 다른 문구로 말한다. */
     public function test_count_only_mode_renders_total_without_rows(): void
     {

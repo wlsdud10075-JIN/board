@@ -8,7 +8,7 @@ return [
     ],
 
     'menu' => [
-        'listings' => '매입예정 (영업)',
+        'listings' => '매입예정',
         'forwarding' => '전달 대기',
         'verdicts' => '바이어 회신',
         'portal' => '내 정산·미수 (포털)',
