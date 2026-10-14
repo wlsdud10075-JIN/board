@@ -1525,7 +1525,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <p class="mb-2 text-[12px] text-amber-700">⚠️ {{ __('portal.plan_no_buyer_cars', ['count' => $noBuyerCount]) }}</p>
                     @endif
 
-                    {{-- 동기화 = 상단 고정바(스크롤해도 위에 붙어 항상 보임) --}}
+                    {{-- 선적요청 버튼(syncBundles — 실무자에게 「동기화」는 생소해 2026-10-14 Jin 지시로 문구만 변경, 동작 동일) = 상단 고정바(스크롤해도 위에 붙어 항상 보임) --}}
                     <div class="sticky top-0 z-10 mb-3 rounded-lg border border-gray-200 bg-white px-3 py-2.5 shadow-md">
                         <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
                             <button wire:click="syncBundles" wire:loading.attr="disabled" wire:target="syncBundles" class="btn-primary">🔄 {{ __('portal.plan_sync_btn') }}</button>
