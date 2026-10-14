@@ -7388,11 +7388,11 @@ class BoardTest extends TestCase
         $this->assertTrue($super->fresh()->is_active);
     }
 
-    /** 🚨 관리 role 이 업무관리자 계정을 저장만 해도 등급이 user 로 내려가면 안 된다(기존 등급 보존). */
-    public function test_manager_role_editing_work_manager_preserves_tier(): void
+    /** 🚨 비-super 액터(업무관리자)가 업무관리자 계정을 저장만 해도 등급이 user 로 내려가면 안 된다(기존 등급 보존). */
+    public function test_non_super_editing_work_manager_preserves_tier(): void
     {
         $wm = $this->mkUser('sales', 'wm@board.test', 'manager');
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));   // 관리 role 은 이제 업무관리자 계정을 못 연다 → 같은 등급으로
 
         Volt::test('users.index')
             ->call('openEdit', $wm->id)
@@ -7435,5 +7435,30 @@ class BoardTest extends TestCase
             ->assertSee(__('nav.menu.audit'))
             ->assertDontSee(route('admin.settings'))
             ->assertSee(__('nav.perm.manager'));
+    }
+
+    /** 🚨 관리 role(아래 등급)은 업무관리자 계정을 못 건드린다 — 비밀번호 교체로 그 계정을 넘겨받아 감사로그를 여는 경로 차단. */
+    public function test_manager_role_cannot_touch_work_manager_account(): void
+    {
+        $wm = $this->mkUser('sales', 'wm3@board.test', 'manager');
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('users.index')
+            ->call('openEdit', $wm->id)
+            ->assertSet('editingId', null)       // 드로어가 안 열린다
+            ->set('editingId', $wm->id)          // 직접 밀어넣어도
+            ->set('name', '탈취')->set('email', 'wm3@board.test')->set('role', 'sales')
+            ->set('password', 'hacked123')
+            ->call('save')
+            ->call('toggleActive', $wm->id);
+
+        $this->assertSame('sales', $wm->fresh()->name);
+        $this->assertTrue($wm->fresh()->is_active);
+        $this->assertTrue(Hash::check('password', $wm->fresh()->password));
+        $this->assertSame('manager', $wm->fresh()->permission);
+
+        // 업무관리자끼리는 서로 수정 가능(같은 등급), super 는 당연히 가능
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
+        Volt::test('users.index')->call('openEdit', $wm->id)->assertSet('editingId', $wm->id);
     }
 }

@@ -44,9 +44,19 @@ new #[Layout('components.layouts.app')] class extends Component {
         return (bool) Auth::user()?->isSuper();
     }
 
-    private function targetIsProtected(?User $target): bool
+    /**
+     * 위 등급 계정은 아래 등급이 못 건드린다 — super 는 super 만, 업무관리자는 super·업무관리자만.
+     * 아니면 관리 role 이 업무관리자 비밀번호를 바꿔 그 계정으로 감사로그를 연다(한 단계 아래의 같은 탈취 경로).
+     */
+    public function targetIsProtected(?User $target): bool
     {
-        return $target !== null && $target->isSuper() && ! $this->actorIsSuper();
+        if ($target === null) {
+            return false;
+        }
+        $actor = Auth::user();
+
+        return ($target->isSuper() && ! $actor->isSuper())
+            || ($target->isWorkManager() && ! $actor->hasFullAccess());
     }
 
     public function openCreate(): void
@@ -229,7 +239,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <td>
                                 <div class="flex gap-2">
                                     {{-- 시스템관리자 계정은 시스템관리자만 손댄다 (서버 가드는 openEdit/save/toggleActive) --}}
-                                    @if ($u->isSuper() && ! $this->actorIsSuper())
+                                    @if ($this->targetIsProtected($u))
                                         <span class="text-xs text-gray-400">{{ __('users.super_row_locked') }}</span>
                                     @else
                                         <button class="btn-outline btn-sm" wire:click="openEdit({{ $u->id }})">✏️ {{ __('common.edit') }}</button>

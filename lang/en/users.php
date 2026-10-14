@@ -21,7 +21,7 @@ return [
     'status_inactive' => 'Inactive',
     'action_deactivate' => 'Deactivate',
     'action_activate' => 'Activate',
-    'super_row_locked' => 'System admin only',
+    'super_row_locked' => 'Higher tier only',
 
     // Form
     'label_name' => 'Name',
@@ -55,5 +55,5 @@ return [
     'saved' => 'Saved.',
     'err_cannot_deactivate_self' => 'You cannot deactivate your own account.',
     'err_cannot_remove_own_super' => 'You cannot remove your own system admin permission.',
-    'err_super_target_forbidden' => 'Only a system admin can edit a system admin account.',
+    'err_super_target_forbidden' => 'Higher-tier accounts (system admin, operations manager) can only be edited by the same tier or above.',
 ];

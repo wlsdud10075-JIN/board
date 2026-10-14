@@ -21,7 +21,7 @@ return [
     'status_inactive' => '비활성',
     'action_deactivate' => '비활성화',
     'action_activate' => '활성화',
-    'super_row_locked' => '시스템관리자 전용',
+    'super_row_locked' => '상위 등급 전용',
 
     // 폼
     'label_name' => '이름',
@@ -55,5 +55,5 @@ return [
     'saved' => '저장되었습니다.',
     'err_cannot_deactivate_self' => '본인 계정은 비활성화할 수 없습니다.',
     'err_cannot_remove_own_super' => '본인의 시스템관리자 권한은 해제할 수 없습니다.',
-    'err_super_target_forbidden' => '시스템관리자 계정은 시스템관리자만 수정할 수 있습니다.',
+    'err_super_target_forbidden' => '상위 등급(시스템관리자·업무관리자) 계정은 같은 등급 이상만 수정할 수 있습니다.',
 ];
