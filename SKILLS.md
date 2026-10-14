@@ -785,6 +785,8 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
 
 ### 14-22. 업무관리자 등급 (permission=manager, 2026-10-14 Jin — car-erp 미러)
 
+> ✅ **두 박스 배포 완료 2026-10-14**(master `4744fdb` — heymanboard·ssancarboard job success, db:backup ✓ 1323.9 KB / 53.7 KB, 마이그 `2026_10_14_000001` 두 박스 DONE → `enum('super','manager','user')` 실측). 배포 직후 업무관리자 계정 0명(heymanboard super 1·user 13 / ssancarboard super 1·user 19) — 지정은 Jin 이 `/users` 에서.
+
 - **왜**: 감사로그를 볼 사람이 super(=Jin)뿐이라 「누가 넣었나」를 매번 Jin 이 조회해 줘야 했다. ERP 처럼 **super > 업무관리자 > user** 3단으로 넓힌다. 업무관리자 = role 무관 전체 화면 + `/audit` + `/users`(super 계정 제외). super 만 남긴 것 = 기능설정 · 등급 지정(super·업무관리자 둘 다) · 포털 타인 명의 대리실행 · `/manage` 삭제/재전송.
 - **판정 두 개를 섞지 말 것**: `hasFullAccess()`(super ∪ 업무관리자) 는 **바이패스**(EnsureRole·SalesmanScope·사이드바 `$can`·뱃지·종/푸시 수신·대시보드 redirect·검차 배정·사진만 전달). `isSuper()` 는 **super 전용 기능**에만. 🚨 `EnsureSuper` 를 넓히면 기능설정까지 열린다 → `/audit` 는 별도 `full-access` 미들웨어.
 - 🚨 **`/users` 저장식 함정** — 종전 `permission = is_super ? super : user` 는 관리 role 이 업무관리자 계정을 **저장만 해도 user 로 내렸다**(등급 재계산). 비-super 액터는 **대상의 기존 등급을 보존**한다(`is_work_manager = $target?->isWorkManager()`), 신규는 user. 두 체크박스가 다 켜지면 super 우선. 가드 = `test_non_super_editing_work_manager_preserves_tier`.
