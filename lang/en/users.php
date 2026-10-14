@@ -46,7 +46,9 @@ return [
     'ph_password_keep' => 'Leave blank to keep current',
     'ph_password_new' => '6+ characters',
     'super_checkbox' => 'System admin',
-    'super_checkbox_desc' => '(full access + user management)',
+    'super_checkbox_desc' => '(full access + user management + settings)',
+    'work_manager_checkbox' => 'Operations manager',
+    'work_manager_checkbox_desc' => '(all screens regardless of role + audit log. No settings or permission grants)',
     'active_checkbox' => 'Active account (login allowed)',
 
     // flash / validation messages

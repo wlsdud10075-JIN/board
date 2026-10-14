@@ -46,7 +46,9 @@ return [
     'ph_password_keep' => '비워두면 기존 유지',
     'ph_password_new' => '6자 이상',
     'super_checkbox' => '시스템관리자',
-    'super_checkbox_desc' => '(전체 접근 + 사용자관리)',
+    'super_checkbox_desc' => '(전체 접근 + 사용자관리 + 기능설정)',
+    'work_manager_checkbox' => '업무관리자',
+    'work_manager_checkbox_desc' => '(역할 무관 전체 화면 + 감사로그. 기능설정·권한 지정은 제외)',
     'active_checkbox' => '활성 계정 (로그인 허용)',
 
     // flash / 검증 메시지

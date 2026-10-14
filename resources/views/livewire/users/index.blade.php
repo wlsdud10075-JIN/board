@@ -16,6 +16,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $region = '';          // 검차원 담당 지역(고정 로스터) — 지역 검차 알림톡 수신 기준
     public string $role = 'sales';
     public bool $is_super = false;
+    public bool $is_work_manager = false;   // 업무관리자 등급(permission=manager) — super 만 지정, 둘 다 체크면 super 우선
     public bool $is_active = true;
     public ?string $car_erp_salesman_id = null;
     public string $car_erp_salesman_email = '';   // 연동 B 영업 매칭 오버라이드(car-erp 이메일이 로그인과 다를 때)
@@ -50,7 +51,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function openCreate(): void
     {
-        $this->reset(['editingId', 'name', 'email', 'phone', 'region', 'password', 'is_super', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email']);
+        $this->reset(['editingId', 'name', 'email', 'phone', 'region', 'password', 'is_super', 'is_work_manager', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email']);
         $this->role = 'sales';
         $this->is_active = true;
         $this->showForm = true;
@@ -72,6 +73,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->region = $u->region ?? '';
         $this->role = $u->role;
         $this->is_super = $u->isSuper();
+        $this->is_work_manager = $u->isWorkManager();
         $this->is_active = $u->is_active;
         $this->car_erp_salesman_id = $u->car_erp_salesman_id !== null ? (string) $u->car_erp_salesman_id : null;
         $this->car_erp_salesman_email = $u->car_erp_salesman_email ?? '';
@@ -83,7 +85,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function close(): void
     {
-        $this->reset(['showForm', 'editingId', 'name', 'email', 'phone', 'region', 'password', 'is_super', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email']);
+        $this->reset(['showForm', 'editingId', 'name', 'email', 'phone', 'region', 'password', 'is_super', 'is_work_manager', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email']);
         $this->role = 'sales';
         $this->is_active = true;
     }
@@ -115,7 +117,10 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 return;
             }
+            // 등급은 super 만 바꾼다. 🚨 재계산하면 관리 role 이 업무관리자 계정을 저장만 해도 user 로 조용히 내려간다
+            //    → 기존 등급을 그대로 보존(신규는 user).
             $this->is_super = false;
+            $this->is_work_manager = $target?->isWorkManager() ?? false;
         }
 
         // 본인 계정 보호 — 자기 권한을 내려 스스로 잠기는 것 방지
@@ -138,7 +143,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'phone' => $this->phone ?: null,
             'region' => $this->role === 'inspection' ? ($this->region ?: null) : null,   // 지역은 검차원만
             'role' => $this->role,
-            'permission' => $this->is_super ? 'super' : 'user',
+            'permission' => $this->is_super ? 'super' : ($this->is_work_manager ? 'manager' : 'user'),
             'is_active' => $this->is_active,
             'car_erp_salesman_id' => ($this->car_erp_salesman_id === null || $this->car_erp_salesman_id === '') ? null : (int) $this->car_erp_salesman_id,
             'car_erp_salesman_email' => $this->car_erp_salesman_email ?: null,
@@ -210,7 +215,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             </td>
                             <td class="text-gray-600">{{ $u->email }}</td>
                             <td>
-                                @if ($u->isSuper())<span class="badge badge-red">{{ __('nav.perm.super') }}</span> @endif
+                                @if ($u->isSuper())<span class="badge badge-red">{{ __('nav.perm.super') }}</span> @elseif ($u->isWorkManager())<span class="badge badge-amber">{{ __('nav.perm.manager') }}</span> @endif
                                 <span class="badge {{ $u->isManager() ? 'badge-purple' : 'badge-blue' }}">{{ $this->roleLabel($u->role) }}</span>
                             </td>
                             <td class="text-gray-500">{{ $u->car_erp_salesman_email ?? ($u->car_erp_salesman_id ? '#'.$u->car_erp_salesman_id : '—') }}</td>
@@ -301,6 +306,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <input type="checkbox" wire:model="is_super"> <b>{{ __('users.super_checkbox') }}</b> {{ __('users.super_checkbox_desc') }}
                     </label>
                     @error('is_super') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    {{-- 업무관리자 등급(2026-10-14 Jin) — 지정도 super 만. 둘 다 체크면 super 로 저장된다. --}}
+                    <label class="mt-2 flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" wire:model="is_work_manager"> <b>{{ __('users.work_manager_checkbox') }}</b> {{ __('users.work_manager_checkbox_desc') }}
+                    </label>
                 @endif
 
                 <label class="mt-2 flex items-center gap-2 text-sm text-gray-700">

@@ -38,7 +38,8 @@ board 와 car-erp 는 형제 디렉터리 + **별도 DB**다. artisan/tinker 실
 ## 권한 시스템 (car-erp 미러 — permission 2단 + role)
 
 **permission** (`users.permission`):
-- `super` 시스템관리자 — role 무관 전체 접근 + **기능설정** + **감사로그** + 사용자관리 중 **super 지정·super 계정 수정**. car-erp super 대응.
+- `super` 시스템관리자 — role 무관 전체 접근 + **기능설정** + **감사로그** + 사용자관리 중 **등급(super·업무관리자) 지정·super 계정 수정** + 포털 타인 명의 대리실행 + 관리자 페이지 삭제·재전송. car-erp super 대응.
+- `manager` **업무관리자**(2026-10-14 Jin, car-erp 의 manager 등급 미러) — role 무관 전체 화면 + **감사로그** + 사용자관리(super 계정 제외, 등급 변경 불가). **기능설정·등급 지정·포털 대리실행·관리자 페이지 삭제/재전송은 못 한다**(Jin 결정: 대리실행은 영업 명의로 ERP 알림톡까지 나가는 쓰기, 지정은 ERP 와 같이 super 만). 판정 = `User::isWorkManager()`, super 와 묶은 바이패스 = `User::hasFullAccess()`(role 가드·영업 격리·사이드바·푸시 수신). ⚠️ `isManager()` 는 **role=관리** 라 별개 — 이름이 비슷해 헷갈린다. 컬럼이 ENUM 이라 마이그 `2026_10_14_000001` 로 값을 넓혔다.
 - `user` 일반 — `role` 기반 접근.
 
 **role** (`users.role`): `sales`(영업) / `inspection`(현지확인) / `auction`(경매) / `manager`(관리). 라벨은 `User::ROLE_LABELS`.
@@ -46,8 +47,9 @@ board 와 car-erp 는 형제 디렉터리 + **별도 DB**다. artisan/tinker 실
 **미들웨어**:
 | alias | 클래스 | 규칙 |
 |---|---|---|
-| `role:a,b` | `EnsureRole` | super 는 무조건 통과(바이패스) / 아니면 role∈{a,b} / 비활성(is_active=false) 차단 |
-| `super` | `EnsureSuper` | super 전용 (관리 role 도 차단). `/audit`·`/admin/settings` 보호 |
+| `role:a,b` | `EnsureRole` | super·업무관리자(`hasFullAccess`)는 무조건 통과(바이패스) / 아니면 role∈{a,b} / 비활성(is_active=false) 차단 |
+| `full-access` | `EnsureFullAccess` | super 또는 업무관리자. `/audit` 보호 |
+| `super` | `EnsureSuper` | super 전용 (업무관리자·관리 role 도 차단). `/admin/settings` 보호 |
 
 **라우트 / 화면 접근**:
 | URL | 라우트명 | 접근 |
@@ -60,8 +62,8 @@ board 와 car-erp 는 형제 디렉터리 + **별도 DB**다. artisan/tinker 실
 | `/portal` | portal | 영업 / 관리 / super — car-erp 읽기 미러(재고·미수·판매·정산·선적요청·서류·§11 신호) |
 | `/manage` | manage | 관리 / super |
 | `/users` | users | 관리 / super (2026-08-04 Jin) — 단 **super 지정·super 계정 수정/비활성화는 super 만**(화면 내 가드). 관리자는 자기 role 변경도 불가(자기잠금 방지) |
-| `/audit` | audit | **super 전용** — 감사로그(변경이력 board_audit_logs + car-erp 전송 integration_events) |
-| `/dashboard` | dashboard | 로그인 후 role(또는 super)별 홈으로 redirect |
+| `/audit` | audit | **super + 업무관리자** — 감사로그(변경이력 board_audit_logs + car-erp 전송 integration_events) |
+| `/dashboard` | dashboard | 로그인 후 role 별 홈으로 redirect(super·업무관리자는 `/manage`) |
 
 **로그인**: 이메일 + 비밀번호(`Auth::attempt(['email'=>...])`). 비활성 계정은 로그인돼도 업무화면 403.
 

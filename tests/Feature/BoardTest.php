@@ -3066,7 +3066,7 @@ class BoardTest extends TestCase
             ->assertSet('fStatus', '');
     }
 
-    public function test_audit_log_page_is_super_only(): void
+    public function test_audit_log_page_is_closed_to_manager_role(): void
     {
         $this->actingAs($this->mkUser('manager'))->get('/audit')->assertForbidden();
         $this->actingAs($this->mkUser('manager', null, 'super'))->get('/audit')->assertOk();
@@ -7317,5 +7317,123 @@ class BoardTest extends TestCase
         Volt::actingAs($super)->test('audit.index')
             ->set('eventSearch', '59오')->call('searchEventsNow')
             ->assertSee('59오5691')->assertDontSee('boom-error');
+    }
+
+    // ─────────────────────── 업무관리자 등급 (permission=manager, 2026-10-14 Jin) ───────────────────────
+
+    /** 업무관리자 = role 무관 전체 화면 + 감사로그. 기능설정은 super 만. */
+    public function test_work_manager_accesses_all_views_and_audit_but_not_settings(): void
+    {
+        $wm = $this->mkUser('inspection', null, 'manager');   // 역할은 현지확인이지만 등급이 업무관리자
+        $this->actingAs($wm);
+
+        foreach (['/listings', '/forwarding', '/verdicts', '/portal', '/inspection', '/auction', '/manage', '/users', '/audit'] as $path) {
+            $this->get($path)->assertOk();
+        }
+        $this->get('/admin/settings')->assertForbidden();
+        $this->get('/dashboard')->assertRedirect(route('manage'));
+    }
+
+    /** 영업 role 에 업무관리자 등급을 얹으면 본인 격리가 풀려 전체를 본다(메뉴가 전체인데 목록만 본인 것이면 어긋난다). */
+    public function test_work_manager_with_sales_role_sees_all_listings(): void
+    {
+        $other = $this->mkUser('sales');
+        $this->mkListing($other, ['vehicle_number' => '33전3333']);
+
+        $wm = $this->mkUser('sales', null, 'manager');
+        $this->actingAs($wm);
+
+        $this->assertSame(1, PurchaseListing::count());
+        Volt::test('listings.index')->assertSee('33전3333');
+    }
+
+    /** 포털 타인 명의 대리실행은 super 만 — 업무관리자도 막힌다(Jin 2026-10-14 결정 1). */
+    public function test_work_manager_cannot_impersonate_in_portal(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 0], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $other = $this->mkUser('sales');
+        $other->update(['car_erp_salesman_email' => 'other@ce.test']);
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
+
+        Volt::test('portal.index')
+            ->call('viewUser', $other->id)
+            ->assertSet('viewUserId', null)
+            ->assertDontSee('사용자별 조회');
+
+        Http::assertNotSent(fn ($req) => str_contains($req->url(), 'salesman_email=other%40ce.test'));
+    }
+
+    /** 등급 지정은 super 만(결정 2) — 업무관리자가 프로퍼티를 밀어넣어도 user 로 저장된다. super 계정도 못 건드린다. */
+    public function test_work_manager_cannot_grant_permissions_or_touch_super(): void
+    {
+        $super = $this->mkUser('sales', 'boss2@board.test', 'super');
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
+
+        Volt::test('users.index')
+            ->call('openCreate')
+            ->set('name', '승격시도')->set('email', 'esc2@board.test')->set('role', 'sales')
+            ->set('is_super', true)->set('is_work_manager', true)
+            ->set('password', 'secret123')
+            ->call('save')->assertHasNoErrors();
+        $this->assertSame('user', User::where('email', 'esc2@board.test')->value('permission'));
+
+        Volt::test('users.index')
+            ->call('openEdit', $super->id)
+            ->assertSet('editingId', null)
+            ->call('toggleActive', $super->id);
+        $this->assertTrue($super->fresh()->is_active);
+    }
+
+    /** 🚨 관리 role 이 업무관리자 계정을 저장만 해도 등급이 user 로 내려가면 안 된다(기존 등급 보존). */
+    public function test_manager_role_editing_work_manager_preserves_tier(): void
+    {
+        $wm = $this->mkUser('sales', 'wm@board.test', 'manager');
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('users.index')
+            ->call('openEdit', $wm->id)
+            ->set('phone', '010-0000-0000')
+            ->call('save')->assertHasNoErrors();
+
+        $this->assertSame('manager', $wm->fresh()->permission);
+    }
+
+    public function test_super_grants_work_manager_tier(): void
+    {
+        $this->actingAs($this->mkUser('manager', null, 'super'));
+
+        Volt::test('users.index')
+            ->call('openCreate')
+            ->set('name', '업무관리')->set('email', 'wm2@board.test')->set('role', 'inspection')
+            ->set('is_work_manager', true)
+            ->set('password', 'secret123')
+            ->call('save')->assertHasNoErrors();
+
+        $u = User::where('email', 'wm2@board.test')->firstOrFail();
+        $this->assertSame('manager', $u->permission);
+        $this->assertTrue($u->isWorkManager());
+        $this->assertFalse($u->isSuper());
+        $this->assertTrue($u->hasFullAccess());
+
+        // 둘 다 체크면 super 우선
+        Volt::test('users.index')
+            ->call('openEdit', $u->id)->set('is_super', true)->set('is_work_manager', true)
+            ->call('save')->assertHasNoErrors();
+        $this->assertSame('super', $u->fresh()->permission);
+    }
+
+    /** 사이드바 — 업무관리자는 감사로그 메뉴를 보고 기능설정 메뉴는 못 본다. 등급 라벨은 「업무관리자」. */
+    public function test_sidebar_shows_audit_but_not_settings_to_work_manager(): void
+    {
+        $this->actingAs($this->mkUser('inspection', null, 'manager'));
+
+        $this->get('/inspection')->assertOk()
+            ->assertSee(__('nav.menu.audit'))
+            ->assertDontSee(route('admin.settings'))
+            ->assertSee(__('nav.perm.manager'));
     }
 }

@@ -782,3 +782,12 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
 - `BoardAuditLog::listing()`·`IntegrationEvent::listing()` 은 **`withTrashed()`** — 없으면 삭제된 차가 `#id` 로만 떠서 어느 차였는지 모른다. 전송 표도 차량번호를 그린다.
 - 가드 = `test_listing_creation_is_audited_with_initial_values` · `test_sale_price_edit_is_audited` · `test_audit_screen_filters_change_history` · `test_audit_screen_shows_vehicle_number_of_deleted_listing` · `test_audit_screen_filters_integration_events`.
 - ℹ️ 운영 heymanboard #72(59오5691) 는 기록을 **손으로 채워 넣었다**(2026-10-13 Jin 지시, user_id=5 조하, action=create). 시각은 **코드 경로로 판정**: 등록 폼(`/listings`)엔 판매가·바이어 칸이 없고 `/auction` 드로어 저장(`conclude`)이 `sale_price·offer_currency·offer_rate·transport_fee·car_erp_buyer_id` 를 한 번에 쓴다 → 「등록·출처·유입·상태·회신·회신경로」= 등록시각 `2026-09-04 15:24:18`, 「판매가·판매통화·환율·운임비·ERP바이어ID」= 구매확정 저장시각 `15:36:31`(감사행 347 `car_cost` 와 같은 초). 그 외 기존 매물은 백필하지 않았다 — 지금 값이 그때 값이라는 보장이 없다.
+
+### 14-22. 업무관리자 등급 (permission=manager, 2026-10-14 Jin — car-erp 미러)
+
+- **왜**: 감사로그를 볼 사람이 super(=Jin)뿐이라 「누가 넣었나」를 매번 Jin 이 조회해 줘야 했다. ERP 처럼 **super > 업무관리자 > user** 3단으로 넓힌다. 업무관리자 = role 무관 전체 화면 + `/audit` + `/users`(super 계정 제외). super 만 남긴 것 = 기능설정 · 등급 지정(super·업무관리자 둘 다) · 포털 타인 명의 대리실행 · `/manage` 삭제/재전송.
+- **판정 두 개를 섞지 말 것**: `hasFullAccess()`(super ∪ 업무관리자) 는 **바이패스**(EnsureRole·SalesmanScope·사이드바 `$can`·뱃지·종/푸시 수신·대시보드 redirect·검차 배정·사진만 전달). `isSuper()` 는 **super 전용 기능**에만. 🚨 `EnsureSuper` 를 넓히면 기능설정까지 열린다 → `/audit` 는 별도 `full-access` 미들웨어.
+- 🚨 **`/users` 저장식 함정** — 종전 `permission = is_super ? super : user` 는 관리 role 이 업무관리자 계정을 **저장만 해도 user 로 내렸다**(등급 재계산). 비-super 액터는 **대상의 기존 등급을 보존**한다(`is_work_manager = $target?->isWorkManager()`), 신규는 user. 두 체크박스가 다 켜지면 super 우선. 가드 = `test_manager_role_editing_work_manager_preserves_tier`.
+- `permission` 은 **ENUM** 이라 값 추가 = 마이그(`->enum([...])->change()`, MySQL `MODIFY`/sqlite 테이블 재생성 둘 다 통과). down 은 manager 를 user 로 내린 뒤 좁힌다.
+- ⚠️ 영업 role 에 업무관리자를 얹으면 **본인 격리가 풀린다**(SalesmanScope 바이패스) — 의도된 동작(메뉴가 전체인데 목록만 본인 것이면 어긋남). 포털은 그대로 **본인 ERP 매핑**으로만 조회(대리실행 불가).
+- 가드 = `test_work_manager_accesses_all_views_and_audit_but_not_settings` · `test_work_manager_with_sales_role_sees_all_listings` · `test_work_manager_cannot_impersonate_in_portal` · `test_work_manager_cannot_grant_permissions_or_touch_super` · `test_super_grants_work_manager_tier` · `test_sidebar_shows_audit_but_not_settings_to_work_manager`. 기존 관리 role 테스트는 전부 그대로 통과(등급이 `isManager()` 로 새지 않았다는 확인).

@@ -36,7 +36,7 @@ class PushRequestResults extends Command
         }
 
         $users = User::query()->where('is_active', true)->whereHas('pushSubscriptions')->get()
-            ->filter(fn (User $u) => $u->isSuper() || $u->isSales() || $u->isManager());
+            ->filter(fn (User $u) => $u->hasFullAccess() || $u->isSales() || $u->isManager());   // 사이드바 종 노출 조건과 동일하게
 
         $sentTotal = 0;
         foreach ($users as $u) {
