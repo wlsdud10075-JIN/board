@@ -6852,6 +6852,44 @@ class BoardTest extends TestCase
     }
 
     /** 진행 중 정산이 하나도 없으면 섹션 자체를 그리지 않는다(빈 상자가 남으면 "뭔가 못 받았나"로 읽힌다). */
+    /**
+     * 요약 차량별 표(차량번호·[마진율]·건당금액, Jin 2026-10-14) — 마진율 열은 **ERP 가 `margin_rate` 키를 실어 줄 때만** 그린다.
+     * 지금 ERP 는 마진 raw 를 의도적으로 빼고 준다(대표 승인 사안) → 키가 없으면 열 자체가 없어야 하고,
+     * 키가 오면 ERP `formatMarginRate` 와 같은 서식(소수 1자리 %, null = —)으로 그린다.
+     */
+    public function test_settlement_vehicle_table_shows_margin_rate_only_when_erp_sends_it(): void
+    {
+        $this->carErpReadConfig();
+        // ⚠️ Http::fake 를 두 번 걸면 먼저 등록한 스텁이 이긴다 → 플래그 하나로 응답을 바꾼다.
+        $withMargin = false;
+        Http::fake(function ($req) use (&$withMargin) {
+            if (! str_contains($req->url(), '/api/internal/board/settlements')) {
+                return Http::response(['count' => 0, 'data' => []], 200);
+            }
+            $rows = [
+                ['vehicle_number' => '11가1111', 'status' => 'confirmed', 'actual_payout' => 700000, 'confirmed_at' => '2026-08-20', 'paid_at' => null],
+                ['vehicle_number' => '22나2222', 'status' => 'confirmed', 'actual_payout' => -50000, 'confirmed_at' => '2026-08-21', 'paid_at' => null],
+            ];
+            if ($withMargin) {
+                $rows[0]['margin_rate'] = 0.1234;
+                $rows[1]['margin_rate'] = null;
+            }
+
+            return Http::response(['count' => 2, 'data' => $rows], 200);
+        });
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'finance')
+            ->assertSee(__('portal.settle_col_vehicle'))->assertSee(__('portal.settle_col_payout'))
+            ->assertSee('11가1111')->assertSee('700,000')->assertSee('-50,000')
+            ->assertDontSee(__('portal.settle_col_margin_rate'));   // 키 없음 → 열 없음
+
+        // ERP 가 margin_rate 를 실어 주는 날 — 열이 자동으로 나타난다(board 배포 불필요)
+        $withMargin = true;
+        Volt::test('portal.index')->call('setTab', 'finance')
+            ->assertSee(__('portal.settle_col_margin_rate'))->assertSee('12.3%')->assertSee('—');
+    }
+
     public function test_in_progress_section_hidden_when_nothing_pending(): void
     {
         $this->carErpReadConfig();

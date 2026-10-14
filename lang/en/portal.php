@@ -125,6 +125,11 @@ return [
     'settle_batch_paid_on' => 'paid :date',
     'settle_batch_net' => 'Batch payout',
     'settle_adjustment' => 'Adjustment',
+    // Per-vehicle table (mirror of ERP payout card). Margin-rate column appears only when ERP sends margin_rate.
+    'settle_col_vehicle' => 'Vehicle no.',
+    'settle_col_margin_rate' => 'Margin rate',
+    'settle_col_date' => 'Date',
+    'settle_col_payout' => 'Payout',
     'settle_month_total' => 'Received this month',
 
     // In-progress settlements (not received yet) — confirmed and pending are never merged.

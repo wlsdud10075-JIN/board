@@ -15,21 +15,11 @@
                     <span class="shrink-0 text-[11px] text-gray-400">{{ __('portal.settle_batch_paid_on', ['date' => $paidOn]) }}</span>
                 @endif
             </div>
-            @foreach ((array) data_get($b, 'settlements', []) as $s)
-                <div class="flex items-center justify-between gap-2 border-t border-gray-100 py-1">
-                    <span class="text-gray-700">{{ data_get($s, 'vehicle_number') ?: '—' }}</span>
-                    <b class="shrink-0 text-gray-800">{{ number_format((float) (data_get($s, 'actual_payout') ?? 0)) }}</b>
-                </div>
-            @endforeach
-            @foreach ((array) data_get($b, 'adjustments', []) as $a)
-                {{-- 조정 = 부호 있는 정수(환수 −/특별지급 +). 사유는 ERP 가 준다 — 없으면 「조정」으로만.
-                     음수를 검정으로 찍으면 실무자가 못 알아챈다(색·부호 유지). --}}
-                @php $amt = (float) (data_get($a, 'amount') ?? 0); @endphp
-                <div class="flex items-start justify-between gap-2 border-t border-gray-100 py-1">
-                    <span class="text-gray-600">{{ data_get($a, 'reason') ?: __('portal.settle_adjustment') }}</span>
-                    <b class="shrink-0 {{ $amt < 0 ? 'text-rose-600' : 'text-emerald-700' }}">{{ $amt > 0 ? '+' : '' }}{{ number_format($amt) }}</b>
-                </div>
-            @endforeach
+            {{-- 차량별 표(차량번호·[마진율]·건당금액, 가운데 정렬) + 조정 행 — ERP 「차량별 보기」 미러(Jin 2026-10-14).
+                 조정은 같은 표 안에 사유 colspan 으로 — 금액 열이 한 줄로 맞아야 눈으로 더할 수 있다. --}}
+            <div class="overflow-x-auto">
+                @include('livewire.portal._settle-vehicle-table', ['rows' => (array) data_get($b, 'settlements', []), 'dateKey' => null, 'extra' => (array) data_get($b, 'adjustments', [])])
+            </div>
             <div class="mt-1 flex items-center justify-between border-t border-gray-300 pt-1 font-semibold text-gray-800">
                 <span>{{ __('portal.settle_batch_net') }}</span>
                 <span>{{ number_format((float) (data_get($b, 'net_payout') ?? 0)) }}</span>
@@ -37,15 +27,12 @@
         </div>
     @endforeach
 
-    @foreach ($loose as $s)
-        <div class="flex items-center justify-between gap-2 border-b border-gray-100 py-1 last:border-0">
-            <span class="text-gray-700">{{ data_get($s, 'vehicle_number') ?: '—' }}</span>
-            <span class="flex shrink-0 items-center gap-2">
-                <span class="text-[11px] text-gray-400">{{ data_get($s, 'paid_at') }}</span>
-                <b class="text-gray-800">{{ number_format((float) (data_get($s, 'actual_payout') ?? 0)) }}</b>
-            </span>
+    @if ($loose !== [])
+        {{-- 배치 밖 지급(기본 형태) — 같은 차량별 표, 날짜 열 = 지급일 --}}
+        <div class="overflow-x-auto">
+            @include('livewire.portal._settle-vehicle-table', ['rows' => $loose, 'dateKey' => 'paid_at', 'extra' => []])
         </div>
-    @endforeach
+    @endif
 
     <div class="flex items-center justify-between border-t-2 border-gray-300 pt-1 font-bold text-gray-800">
         <span>{{ __('portal.settle_month_total') }}</span>
