@@ -25,6 +25,8 @@ return [
     ],
     'reload' => 'Refresh',
     'reload_title' => 'Refresh',
+    'reload_loading' => 'Refreshing…',
+    'reload_done' => 'Refreshed ✓',
 
     // Shipping request success banner
     'ship_done_title' => 'Shipping request received!',

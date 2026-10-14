@@ -5824,6 +5824,19 @@ class BoardTest extends TestCase
             ->assertDontSee('전자서명 요청');   // signed 면 요청 버튼 대신 재요청
     }
 
+    /** 갱신 버튼 — 눌리는지·반영됐는지 글자로만 알린다(Jin 2026-10-14). reload 가 끝나면 「갱신됨 ✓」 전환 이벤트를 쏜다. */
+    public function test_portal_reload_signals_done_without_extra_space(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake(['*' => Http::response(['count' => 0, 'data' => []], 200)]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')
+            ->assertSee(__('portal.reload'))->assertSee(__('portal.reload_loading'))->assertSee(__('portal.reload_done'))   // 세 상태가 같은 버튼 안에
+            ->call('reload')
+            ->assertDispatched('portal-reloaded');
+    }
+
     public function test_portal_finance_abbreviates_amounts(): void
     {
         $this->carErpReadConfig();

@@ -278,6 +278,8 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function reload(): void
     {
         $this->load();
+        // 버튼 글자가 「갱신 중…」→「갱신됨 ✓」→「갱신」으로 돌아가게(Jin 2026-10-14 — 눌린 건지 반영된 건지 보이게, 공간은 안 쓰기).
+        $this->dispatch('portal-reloaded');
     }
 
     private function svc(): CarErpReadService
@@ -1235,7 +1237,16 @@ new #[Layout('components.layouts.app')] class extends Component {
             <button wire:click="setTab('{{ $key }}')"
                 class="rounded-md border px-3 py-1.5 text-[13px] font-semibold {{ $tab === $key ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">{{ $label }}</button>
         @endforeach
-        <button wire:click="reload" class="ml-auto rounded-md border border-gray-300 bg-white px-3 py-1.5 text-[13px] text-blue-600" title="{{ __('portal.reload_title') }}">↻ {{ __('portal.reload') }}</button>
+        {{-- 갱신 버튼 — 글자만 바뀐다: 「↻ 갱신」 → (ERP 재호출 중, 비활성) 「⟳ 갱신 중…」 → 2초 「갱신됨 ✓」 → 「↻ 갱신」.
+             시각 표시는 공간을 먹어 안 쓴다(Jin 2026-10-14). 요약 탭은 ERP 호출 5개라 2~5초 걸리고, 비활성화가 분당 120 공유 한도도 지킨다. --}}
+        <button wire:click="reload" wire:loading.attr="disabled" wire:target="reload"
+            x-data="{ done: false, t: null }"
+            x-on:portal-reloaded.window="done = true; clearTimeout(t); t = setTimeout(() => done = false, 2000)"
+            class="ml-auto rounded-md border border-gray-300 bg-white px-3 py-1.5 text-[13px] text-blue-600 disabled:opacity-60"
+            title="{{ __('portal.reload_title') }}">
+            <span wire:loading.remove wire:target="reload"><span x-show="!done">↻ {{ __('portal.reload') }}</span><span x-show="done" x-cloak class="text-emerald-600">{{ __('portal.reload_done') }}</span></span>
+            <span wire:loading wire:target="reload" class="text-gray-500"><span class="inline-block animate-spin">⟳</span> {{ __('portal.reload_loading') }}</span>
+        </button>
     </div>
 
     {{-- 동기화 결과 — 생성/갱신/취소/처리중 건수 (크게, 확실하게) --}}
