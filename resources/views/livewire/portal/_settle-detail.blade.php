@@ -15,10 +15,10 @@
                     <span class="shrink-0 text-[11px] text-gray-400">{{ __('portal.settle_batch_paid_on', ['date' => $paidOn]) }}</span>
                 @endif
             </div>
-            {{-- 차량별 표(차량번호·[마진율]·건당금액, 가운데 정렬) + 조정 행 — ERP 「차량별 보기」 미러(Jin 2026-10-14).
+            {{-- 차량별 표(차량번호·마진율·건당금액 3열, 가운데 정렬) + 조정 행 — ERP 「차량별 보기」 미러(Jin 2026-10-14).
                  조정은 같은 표 안에 사유 colspan 으로 — 금액 열이 한 줄로 맞아야 눈으로 더할 수 있다. --}}
             <div class="overflow-x-auto">
-                @include('livewire.portal._settle-vehicle-table', ['rows' => (array) data_get($b, 'settlements', []), 'dateKey' => null, 'extra' => (array) data_get($b, 'adjustments', [])])
+                @include('livewire.portal._settle-vehicle-table', ['rows' => (array) data_get($b, 'settlements', []), 'extra' => (array) data_get($b, 'adjustments', [])])
             </div>
             <div class="mt-1 flex items-center justify-between border-t border-gray-300 pt-1 font-semibold text-gray-800">
                 <span>{{ __('portal.settle_batch_net') }}</span>
@@ -28,9 +28,9 @@
     @endforeach
 
     @if ($loose !== [])
-        {{-- 배치 밖 지급(기본 형태) — 같은 차량별 표, 날짜 열 = 지급일 --}}
+        {{-- 배치 밖 지급(기본 형태) — 같은 차량별 표 --}}
         <div class="overflow-x-auto">
-            @include('livewire.portal._settle-vehicle-table', ['rows' => $loose, 'dateKey' => 'paid_at', 'extra' => []])
+            @include('livewire.portal._settle-vehicle-table', ['rows' => $loose, 'extra' => []])
         </div>
     @endif
 

@@ -27,9 +27,9 @@
                         </span>
                         <b class="shrink-0 text-gray-800">{{ number_format((float) data_get($inProgress, 'sum.'.$st, 0)) }}</b>
                     </div>
-                    {{-- 차량별 표(차량번호·[마진율]·확정일·건당금액, 가운데 정렬) — ERP 「차량별 보기」 미러(Jin 2026-10-14) --}}
+                    {{-- 차량별 표(차량번호·마진율·건당금액 3열, 가운데 정렬) — ERP 「차량별 보기」 미러(Jin 2026-10-14) --}}
                     <div class="overflow-x-auto">
-                        @include('livewire.portal._settle-vehicle-table', ['rows' => $list, 'dateKey' => 'confirmed_at', 'extra' => []])
+                        @include('livewire.portal._settle-vehicle-table', ['rows' => $list, 'extra' => []])
                     </div>
                     @if (Lang::has($hintKey))
                         <p class="mt-1 text-[11px] text-gray-400">{{ __($hintKey) }}</p>

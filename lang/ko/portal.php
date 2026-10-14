@@ -128,10 +128,9 @@ return [
     'settle_batch_net' => '배치 수령액',
     'settle_adjustment' => '조정',
     'settle_month_total' => '이 달 수령액',
-    // 차량별 표(ERP 「차량별 보기」 미러, Jin 2026-10-14) — 마진율 열은 ERP 가 margin_rate 를 실어 줄 때만 보인다.
+    // 차량별 표(ERP 「차량별 보기」 미러, Jin 2026-10-14) — 열 3개 고정. 마진율은 ERP margin_rate 가 오기 전엔 —.
     'settle_col_vehicle' => '차량번호',
     'settle_col_margin_rate' => '마진율',
-    'settle_col_date' => '일자',
     'settle_col_payout' => '건당금액',
 
     // 진행 중 정산(아직 안 받은 것) — 확정/확정 전을 **합치지 않는다**(pending 은 금액이 아직 움직인다).
