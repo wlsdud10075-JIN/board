@@ -412,8 +412,8 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
 > 변경요청). 🚨 단 `/sync` 는 선언형이라 **requested 묶음은 desired 에 그대로 남겨 payload 로 보낸다**(빼면 ERP 가 자동 취소). 그래서 `detach`·
 > `assignVehicle`·`setBundleField`·`removeBundle` 이 batch_id 있는 묶음을 **서버에서** 건너뛴다(화면에 없어도 호출은 올 수 있다). pool 차가 있는
 > 바이어는 requested 묶음이 있어도 새 묶음을 시드한다(종전 「기존 묶음에 추가」 경로 폐지 — 추가하려면 선적묶음에서 취소 후 재묶음 또는 변경요청).
-> ⚠️ ERP `sync` 는 requested 차를 **변경 여부 안 보고** `requested_at=now()` 갱신 + 알람 재발사 + `updated` 로 센다 — 선적요청 한 번에 기존 요청 전부가
-> 「갱신 N」으로 뜨고 ERP 관리에 알람이 다시 간다(기존 동작, Jin 보고 2026-10-14). 가드 = `test_portal_shipping_v2_sync_sends_full_desired`(불변식),
+> ⚠️ ERP `sync` 는 종전엔 requested 차를 **변경 여부 안 보고** `requested_at=now()` 갱신 + 알람 재발사 + `updated` 로 셌다(선적요청 한 번에 기존 요청 전부
+> 「갱신 N」 + 관리 알람 재발사) → **car-erp `60a5a3e` 로 변경 없는 행은 no-op**(2026-10-14 저녁 배포, Jin 지시). 가드 = `test_portal_shipping_v2_sync_sends_full_desired`(불변식),
 > `test_portal_plan_seeds_new_bundle_for_buyer_who_already_has_requested_bundle`.
 
 **미완납 차도 미리 묶어두는 화면**이 됐다. 목적 = 돈 들어오기 전에 **서류를 미리 준비**(진행은 입금 후).
