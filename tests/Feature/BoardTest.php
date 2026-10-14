@@ -5584,21 +5584,44 @@ class BoardTest extends TestCase
             && $req->hasHeader('X-Board-Signature'));
     }
 
+    /** 바이어 헤더 합계 = 그 바이어 통화의 네이티브 미수 합(미납률 × 총판매가). 원화 합은 안 그린다(2026-10-14 Jin). */
     public function test_portal_receivables_groups_by_buyer_with_sum(): void
     {
         $this->carErpReadConfig();
         Http::fake([
             '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 0], 200),
             '*/api/internal/board/receivables*' => Http::response(['count' => 2, 'data' => [
-                ['vehicle_number' => '11가1', 'buyer' => 'BuyerA', 'currency' => 'USD', 'exchange_rate' => 1300, 'unpaid_krw' => 1000],
-                ['vehicle_number' => '22나2', 'buyer' => 'BuyerA', 'currency' => 'USD', 'exchange_rate' => 1300, 'unpaid_krw' => 2000],
+                ['vehicle_number' => '11가1', 'buyer' => 'BuyerA', 'currency' => 'USD', 'exchange_rate' => 1300, 'unpaid_krw' => 1300000, 'sale_total' => 2000, 'unpaid_ratio' => 0.5],
+                ['vehicle_number' => '22나2', 'buyer' => 'BuyerA', 'currency' => 'USD', 'exchange_rate' => 1300, 'unpaid_krw' => 2600000, 'sale_total' => 8000, 'unpaid_ratio' => 0.25],
             ]], 200),
             '*' => Http::response(['count' => 0, 'data' => []], 200),
         ]);
         $this->actingAs($this->mkUser('sales'));
 
         Volt::test('portal.index')->call('setTab', 'receivables')
-            ->assertSee('BuyerA')->assertSee('11가1')->assertSee('3,000원');   // 바이어 그룹 + 합계
+            ->assertSee('BuyerA')->assertSee('11가1')
+            ->assertSee('USD 3,000')            // 1,000 + 2,000 USD — 바이어 통화 합계
+            ->assertDontSee('3,900,000원');     // 원화 합(1,300,000+2,600,000)은 헤더에 안 그린다
+    }
+
+    /** 바이어 통화가 섞이면 통화마다 한 덩이. 미납률 없는 차(판매가 미입력)는 합계에서 빠지고 건수로 알린다. */
+    public function test_portal_receivables_header_sums_per_currency_and_flags_excluded(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 0], 200),
+            '*/api/internal/board/receivables*' => Http::response(['count' => 3, 'data' => [
+                ['vehicle_number' => 'U1', 'buyer' => 'Mixed', 'currency' => 'USD', 'exchange_rate' => 1300, 'unpaid_krw' => 1300000, 'sale_total' => 1000, 'unpaid_ratio' => 1.0],
+                ['vehicle_number' => 'E1', 'buyer' => 'Mixed', 'currency' => 'EUR', 'exchange_rate' => 1500, 'unpaid_krw' => 750000, 'sale_total' => 1000, 'unpaid_ratio' => 0.5],
+                ['vehicle_number' => 'N1', 'buyer' => 'Mixed', 'currency' => 'USD', 'exchange_rate' => null, 'unpaid_krw' => null, 'sale_total' => 500, 'unpaid_ratio' => null],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'receivables')
+            ->assertSee('USD 1,000 · EUR 500')
+            ->assertSee(__('portal.recv_native_excluded', ['count' => 1]));
     }
 
     public function test_carerp_by_buyer_signed_scoped(): void

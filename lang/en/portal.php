@@ -229,6 +229,7 @@ return [
     'fx_rate_label' => 'FX rate',
     'recv_unpaid_pct' => ':pct% unpaid',
     'recv_fx_excluded' => ':count no FX',
+    'recv_native_excluded' => ':count excluded from total',
     'col_vehicle' => 'Vehicle',
     'col_currency' => 'Currency',
     'col_exchange_rate' => 'FX rate',

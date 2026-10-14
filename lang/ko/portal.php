@@ -232,6 +232,7 @@ return [
     'fx_rate_label' => '환율',
     'recv_unpaid_pct' => '미납 :pct%',
     'recv_fx_excluded' => ':count대 환율미입력',
+    'recv_native_excluded' => ':count대 합계 제외',
     'col_vehicle' => '차량',
     'col_currency' => '통화',
     'col_exchange_rate' => '환율',
