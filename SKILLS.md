@@ -406,6 +406,16 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
 
 ### 14-8. 선적 계획 — 후보 확대 + 포워딩사 + 컨테이너 운임비 (2026-08-12, car-erp master `94a59c3`)
 
+> 🔁 **2026-10-14 Jin — 계획 화면 = 아직 안 묶인 차만.** 「ERP 에서 묶었으면 그건 선적묶음에서 보여야 하고, 계획에선 안 묶은 차만 묶게 해야지.
+> ERP 에서 묶었는데 board 에서 안 보냈다고 선택돼 있으면 불편해서 누가 쓰나.」 종전엔 requested 묶음이 계획에 체크된 채로 떠서(heymanboard 무사백
+> 35대) 「체크 = 지금 보낼 차」로 읽혔다. 바뀐 규칙: **계획 = 새 묶음(batch_id null)만 그리고 편집**, requested 묶음은 「내 선적묶음」 전용(확인·취소·
+> 변경요청). 🚨 단 `/sync` 는 선언형이라 **requested 묶음은 desired 에 그대로 남겨 payload 로 보낸다**(빼면 ERP 가 자동 취소). 그래서 `detach`·
+> `assignVehicle`·`setBundleField`·`removeBundle` 이 batch_id 있는 묶음을 **서버에서** 건너뛴다(화면에 없어도 호출은 올 수 있다). pool 차가 있는
+> 바이어는 requested 묶음이 있어도 새 묶음을 시드한다(종전 「기존 묶음에 추가」 경로 폐지 — 추가하려면 선적묶음에서 취소 후 재묶음 또는 변경요청).
+> ⚠️ ERP `sync` 는 requested 차를 **변경 여부 안 보고** `requested_at=now()` 갱신 + 알람 재발사 + `updated` 로 센다 — 선적요청 한 번에 기존 요청 전부가
+> 「갱신 N」으로 뜨고 ERP 관리에 알람이 다시 간다(기존 동작, Jin 보고 2026-10-14). 가드 = `test_portal_shipping_v2_sync_sends_full_desired`(불변식),
+> `test_portal_plan_seeds_new_bundle_for_buyer_who_already_has_requested_bundle`.
+
 **미완납 차도 미리 묶어두는 화면**이 됐다. 목적 = 돈 들어오기 전에 **서류를 미리 준비**(진행은 입금 후).
 후보 조건 = `sale_price>0` + export + **반입지·B/L 없음** + open 묶음 아님(구 조건 = `판매완료` = 완납).
 
