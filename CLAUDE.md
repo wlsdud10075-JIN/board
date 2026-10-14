@@ -310,4 +310,5 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
   - ⚠️ **리터럴 타입** = `sales_contract`·`invoice`(method 접두 금지 — 붙이면 화이트리스트 밖 이름이라 403). 선적 4종만 `roro_`/`container_` 접두.
   - ⚠️ 서류 **버튼 이름은 car-erp `vehicle.shipdoc.*` 그대로** 쓴다(Jin 2026-08-01). board 에서 새로 지으면 "ERP엔 그런 서류 없다" 가 된다 — 이름 핀 테스트가 지킨다.
   - 남은 확인(car-erp 제기) = **ERP 로그인 계정 없이 salesmen 명부에만 있는 영업**도 board 로 여권 든 서류를 받게 된다. 실재 여부는 운영 DB 2개 대조 필요(쿼리는 인계문서에).
+- **선적 계획 묶인 차 미완납 칩 — ERP `/bundles` 차량 행에 미수 4필드 동봉 요청**(2026-10-14 Jin 승인, car-erp 세션 통보): board 는 dev `cf1cebc` 로 필드 없는 행에 칩을 안 그려 거짓 「환율 미입력」을 없앴고(상세 = `SKILLS.md §14-8`), ERP 가 `currency`·`unpaid_krw`·`unpaid_ratio`·`fully_paid` 를 실어 주면 묶인 차에도 정확한 미완납 칩이 자동으로 붙는다. 배포 순서 무관. 남음 = ERP 구현·배포 뒤 heymanboard 무사백 계획 화면에서 칩 확인.
 - (저우선) TimeGate **관리자 전역 해제 UI**(현재 등록잠금만; 편집은 이미 우회) · 퇴사자 계정 양쪽 동시정지 절차 **문서화**.

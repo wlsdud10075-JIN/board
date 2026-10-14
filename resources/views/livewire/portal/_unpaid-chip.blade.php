@@ -12,7 +12,7 @@
        ERP 가 `/bundles` 차량 행에도 같은 필드를 실어 주면(car-erp 세션 요청 2026-10-14) 그때부터 자동으로 칩이 붙는다.
 --}}
 @php
-    $hasUnpaid = is_array($row) ? array_key_exists('unpaid_krw', $row) : isset($row->unpaid_krw);
+    $hasUnpaid = is_array($row) ? array_key_exists('unpaid_krw', $row) : (is_object($row) && property_exists($row, 'unpaid_krw'));   // isset 은 null 을 「없음」으로 뭉갠다
     $up = data_get($row, 'unpaid_krw');
     $fxUnknown = $hasUnpaid && $up === null;
     $paid = (bool) data_get($row, 'fully_paid');

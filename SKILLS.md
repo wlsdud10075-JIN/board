@@ -415,6 +415,14 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
 - 🚨 **`unpaid_krw = null` 은 완납이 아니다** — 환율 미입력이라 **판정 불가**라는 뜻이고 ERP 도 그때
   `fully_paid=false` 를 준다. **0 으로 바꿔 그리면 가짜 완납**(cash_audit 계열 사고). 칩 = 「환율 미입력」 별도 표시.
   가드 = `test_portal_plan_marks_unpaid_and_never_fakes_paid_without_fx`.
+- 🚨 **필드 없음 ≠ null**(2026-10-14 heymanboard 무사백 실사고) — 이미 묶인 차는 ERP 가 `/shippable` 에서 빼므로
+  **`/bundles` 의 `vehicles[]` 행으로만** 오고, 그 행엔 미수 필드가 **아예 없다**(portalMeta+번호+status 만). 칩이 그걸
+  null 로 읽어 **요청됨 묶음 35대 전부에 「환율 미입력」**이 붙었다(환율은 전부 있었음) → 체크된 차 = 환율 미입력처럼
+  보여 「자동 선택 버그」로 신고됐다. 수정 = `_unpaid-chip` 이 `array_key_exists` 로 **없으면 칩 없음**(isset ❌ — null 을
+  없음으로 뭉갠다) + 행 맵은 묶음 행으로 **덮어쓰지 않고 합친다**(`index.blade.php` `$vrowMap`). ERP 에 `/bundles` 차량 행에도
+  `/shippable` 과 같은 4필드(`currency`·`unpaid_krw`·`unpaid_ratio`·`fully_paid`) 동봉을 요청(car-erp 세션 2026-10-14) —
+  실리는 순간 칩이 자동으로 붙고, 그 전까지 묶인 차는 **칩 없음**(틀린 칩보다 낫다). 가드 =
+  `test_portal_plan_bundle_vehicle_without_unpaid_fields_shows_no_fx_badge`.
 - **운임비는 CONTAINER 에서만**(Jin). RORO 로 보내면 ERP 가 **조용히 버린다(에러 아님)** → board 가 먼저 뺀다.
   방식을 되돌려도 값은 `desired` 에 남긴다(다시 CONTAINER 로 바꾸면 살아나게).
 - **1/N 은 합계가 안 맞을 수 있다** — 몫 = 총액 ÷ 대수(내림), 나머지는 최소 `vehicle_id` 한 대. **이미 값이 있는
