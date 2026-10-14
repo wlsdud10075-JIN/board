@@ -1508,7 +1508,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                         $vnoMap = [];
                         $vrowMap = [];
                         foreach ($shippablePool as $vv) { $vnoMap[(int) data_get($vv, 'vehicle_id')] = data_get($vv, 'vehicle_number'); $vrowMap[(int) data_get($vv, 'vehicle_id')] = $vv; }
-                        foreach ($bundles as $bb) { foreach ((array) data_get($bb, 'vehicles', []) as $vv) { $vrowMap[(int) data_get($vv, 'vehicle_id')] = $vv; $vnoMap[(int) data_get($vv, 'vehicle_id')] = data_get($vv, 'vehicle_number'); } }
+                        // 묶음 차량 행은 **덮어쓰지 않고 합친다** — /bundles 행엔 미수 필드가 없어 덮어쓰면 shippable 이 준 판정이 사라진다(2026-10-14).
+                        foreach ($bundles as $bb) { foreach ((array) data_get($bb, 'vehicles', []) as $vv) { $vid = (int) data_get($vv, 'vehicle_id'); $vrowMap[$vid] = ($vrowMap[$vid] ?? []) + (array) $vv; $vnoMap[$vid] = data_get($vv, 'vehicle_number'); } }
                         // 바이어 목록 = desired 바이어 ∪ shippable 바이어
                         $buyerNames = [];
                         foreach ($desired as $bd) { if ($bd['buyer_id']) { $buyerNames[(int) $bd['buyer_id']] = $bd['buyer_name']; } }

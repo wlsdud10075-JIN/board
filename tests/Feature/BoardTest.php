@@ -5965,6 +5965,41 @@ class BoardTest extends TestCase
         Http::assertNotSent(fn ($r) => str_contains($r->url(), '/shipping-requests/sync'));
     }
 
+    /**
+     * 🚨 heymanboard 무사백 실사고(2026-10-14) — 「요청됨」 묶음에 든 차 35대 전부에 「환율 미입력」이 붙었다(환율은 전부 있었다).
+     * 묶인 차는 `/bundles` 차량 행으로만 오고 그 행엔 미수 필드가 **아예 없다**(ERP 가 `/shippable` 에서 묶인 차를 뺀다).
+     * 필드 없음 ≠ null — 모르는 것은 그리지 않는다. ERP 가 필드를 실어 주면(null 포함) 그때는 판정한다.
+     */
+    public function test_portal_plan_bundle_vehicle_without_unpaid_fields_shows_no_fx_badge(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
+                'batch_id' => 'B1', 'ship_status' => 'requested', 'bl_status' => 'none', 'bl_type' => null, 'shipping_method' => 'RORO',
+                'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignees' => [],
+                'vehicles' => [
+                    ['vehicle_id' => 10, 'vehicle_number' => 'BUNDLED1', 'status' => 'requested'],                                           // 미수 필드 없음 → 칩 없음
+                    ['vehicle_id' => 11, 'vehicle_number' => 'BUNDLED2', 'status' => 'requested', 'unpaid_krw' => null, 'fully_paid' => false],   // ERP 가 실어 준 null → 환율 미입력
+                    ['vehicle_id' => 12, 'vehicle_number' => 'BUNDLED3', 'status' => 'requested', 'unpaid_krw' => 500, 'unpaid_ratio' => 0.3, 'fully_paid' => false],
+                ],
+                'unpaid_total_krw' => 500, 'fx_missing_count' => 1, 'fully_paid' => false, 'unpaid_ratio' => 0.3,
+            ]]], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $html = Volt::test('portal.index')->call('setTab', 'shipping')->call('setShipSubtab', 'plan')->html();
+        $this->assertStringContainsString('BUNDLED1', $html);
+        $this->assertStringContainsString('BUNDLED2', $html);
+        $this->assertStringContainsString('BUNDLED3', $html);
+        // Livewire 가 @if 자리에 <!--[if BLOCK]--> 주석을 끼운다 → 라벨과 % 사이는 정규식으로.
+        $this->assertMatchesRegularExpression('/'.preg_quote(__('portal.plan_unpaid'), '/').'(\s|<!--.*?-->)*30%/u', $html);
+
+        // 「환율 미입력」은 ERP 가 null 을 실어 준 BUNDLED2 한 대에만 — 필드 없는 BUNDLED1 에는 안 붙는다.
+        $this->assertSame(1, substr_count($html, __('portal.plan_fx_missing_hint')));
+    }
+
     /** v2 「선적 계획」 — shippable pool 의 새 차를 새 묶음에 담고(빈 묶음=그 차 바이어 채택) 동기화. */
     public function test_portal_shipping_v2_plan_pool_assign_and_sync(): void
     {
