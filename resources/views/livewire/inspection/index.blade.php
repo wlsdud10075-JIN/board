@@ -51,7 +51,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** 관리/시스템관리자만 인원 배정 가능. 현지확인 담당자는 본인 배정만 열람. */
     public function canAssign(): bool
     {
-        return Auth::user()->isManager() || Auth::user()->isSuper();
+        return Auth::user()->isManager() || Auth::user()->hasFullAccess();
     }
 
     /** 배정 대상 = 활성 현지확인(inspection) 계정. */

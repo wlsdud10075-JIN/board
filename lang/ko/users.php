@@ -21,7 +21,7 @@ return [
     'status_inactive' => '비활성',
     'action_deactivate' => '비활성화',
     'action_activate' => '활성화',
-    'super_row_locked' => '시스템관리자 전용',
+    'super_row_locked' => '상위 등급 전용',
 
     // 폼
     'label_name' => '이름',
@@ -46,12 +46,14 @@ return [
     'ph_password_keep' => '비워두면 기존 유지',
     'ph_password_new' => '6자 이상',
     'super_checkbox' => '시스템관리자',
-    'super_checkbox_desc' => '(전체 접근 + 사용자관리)',
+    'super_checkbox_desc' => '(전체 접근 + 사용자관리 + 기능설정)',
+    'work_manager_checkbox' => '업무관리자',
+    'work_manager_checkbox_desc' => '(역할 무관 전체 화면 + 감사로그. 기능설정·권한 지정은 제외)',
     'active_checkbox' => '활성 계정 (로그인 허용)',
 
     // flash / 검증 메시지
     'saved' => '저장되었습니다.',
     'err_cannot_deactivate_self' => '본인 계정은 비활성화할 수 없습니다.',
     'err_cannot_remove_own_super' => '본인의 시스템관리자 권한은 해제할 수 없습니다.',
-    'err_super_target_forbidden' => '시스템관리자 계정은 시스템관리자만 수정할 수 있습니다.',
+    'err_super_target_forbidden' => '상위 등급(시스템관리자·업무관리자) 계정은 같은 등급 이상만 수정할 수 있습니다.',
 ];

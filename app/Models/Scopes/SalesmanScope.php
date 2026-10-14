@@ -19,8 +19,8 @@ class SalesmanScope implements Scope
     {
         $user = Auth::user();
 
-        // 영업 role 만 본인격리. 시스템관리자(super)는 예외(전체 노출).
-        if ($user && $user->role === 'sales' && ! $user->isSuper()) {
+        // 영업 role 만 본인격리. 시스템관리자(super)·업무관리자는 예외(전체 노출) — 메뉴는 전체인데 목록만 본인 것이면 어긋난다.
+        if ($user && $user->role === 'sales' && ! $user->hasFullAccess()) {
             $builder->where($model->getTable().'.created_by_user_id', $user->id);
         }
     }

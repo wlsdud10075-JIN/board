@@ -407,7 +407,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $u = Auth::user();
 
         return $l->status === 'draft'
-            && ($l->created_by_user_id === $u->id || $u->isManager() || $u->isSuper())
+            && ($l->created_by_user_id === $u->id || $u->isManager() || $u->hasFullAccess())
             && $this->editable($l)
             && $l->hasAnyForwardMedia();
     }

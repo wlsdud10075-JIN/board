@@ -18,6 +18,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'role' => EnsureRole::class,
             'super' => EnsureSuper::class,
+            'full-access' => \App\Http\Middleware\EnsureFullAccess::class,   // super 또는 업무관리자
         ]);
 
         // i18n Phase 0 — 모든 web 요청에서 사용자 언어 적용

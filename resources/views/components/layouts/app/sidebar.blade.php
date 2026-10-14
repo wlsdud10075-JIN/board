@@ -6,7 +6,7 @@
 <body class="min-h-screen bg-gray-50">
 @php
     $user = auth()->user();
-    $permLabel = $user->isSuper() ? __('nav.perm.super') : $user->roleLabel();
+    $permLabel = $user->isSuper() ? __('nav.perm.super') : ($user->isWorkManager() ? __('nav.perm.manager') : $user->roleLabel());
     $workGuideUrl = config('board.work_guide_url') ?: '';
 
     // 브랜드 텍스트 — 기능설정(sidebar_brand)과 동일 출처. 로그인 화면과 한 곳에서 같이 변경.
@@ -18,7 +18,7 @@
 
     // 승격 대기 뱃지 (영업=본인 담당 / 관리·super=전체)
     $pendingPromo = 0;
-    if ($user->isSuper() || $user->isSales() || $user->isManager()) {
+    if ($user->hasFullAccess() || $user->isSales() || $user->isManager()) {
         $pq = \App\Models\PromotionRequest::where('status', 'pending');
         if (! $user->canSeeAll()) {
             $pq->where('assigned_email', $user->respondAgentEmail());
@@ -28,7 +28,7 @@
 
     // 전달 대기 뱃지 — 검차완료(inspected) 차 수. SalesmanScope 가 영업은 본인 것만 자동집계.
     $pendingForward = 0;
-    if ($user->isSuper() || $user->isSales() || $user->isManager()) {
+    if ($user->hasFullAccess() || $user->isSales() || $user->isManager()) {
         $pendingForward = \App\Models\PurchaseListing::where('status', 'inspected')->count();
     }
 
@@ -51,7 +51,7 @@
         default => '',
     };
 
-    $can = fn ($roles) => $user->isSuper() || in_array($user->role, (array) $roles, true);
+    $can = fn ($roles) => $user->hasFullAccess() || in_array($user->role, (array) $roles, true);   // super·업무관리자 = role 바이패스
     $menuGroups = [
         // 업무 흐름 순서대로 (등록 → 검차 → 전달 → 회신 → 구매확정 → 포털). 영업은 본인 역할 항목만 보여 순서 유지.
         ['key' => 'work', 'label' => __('nav.group.work'), 'items' => [
@@ -67,7 +67,7 @@
         ]],
         ['key' => 'system', 'label' => __('nav.group.system'), 'items' => [
             ['label' => __('nav.menu.users'), 'href' => route('users'), 'icon' => 'user-group', 'active' => request()->routeIs('users'), 'show' => $can(['manager'])],
-            ['label' => __('nav.menu.audit'), 'href' => route('audit'), 'icon' => 'document', 'active' => request()->routeIs('audit'), 'show' => $user->isSuper()],
+            ['label' => __('nav.menu.audit'), 'href' => route('audit'), 'icon' => 'document', 'active' => request()->routeIs('audit'), 'show' => $user->hasFullAccess()],
             ['label' => __('nav.menu.settings'), 'href' => route('admin.settings'), 'icon' => 'cog', 'active' => request()->routeIs('admin.settings'), 'show' => $user->isSuper()],
         ]],
     ];
@@ -219,7 +219,7 @@
 
             <div class="ml-auto flex items-center gap-2">
             {{-- 상단 종 — 내 §11 요청 결과(ERP 확인·거절)·진행 중. 포털을 쓰는 역할 + car-erp 연결이 있을 때만(없으면 조회할 것이 없다). --}}
-            @if (($user->isSuper() || $user->isSales() || $user->isManager()) && app(\App\Services\CarErpReadService::class)->configured())
+            @if (($user->hasFullAccess() || $user->isSales() || $user->isManager()) && app(\App\Services\CarErpReadService::class)->configured())
                 <livewire:notify.bell />
             @endif
 
@@ -249,7 +249,7 @@
 </div>
 
 {{-- 전달 대기 인앱 알림 (영업·관리만) — 검차완료 새 도착 시 소리+토스트 --}}
-@if ($user->isSuper() || $user->isSales() || $user->isManager())
+@if ($user->hasFullAccess() || $user->isSales() || $user->isManager())
     <livewire:notify.poll />
     <script>
         (function () {

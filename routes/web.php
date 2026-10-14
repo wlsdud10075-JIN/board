@@ -25,7 +25,7 @@ Route::middleware(['auth'])->group(function () {
     // 로그인 후 role 별 홈으로 분기
     Route::get('dashboard', function () {
         $user = auth()->user();
-        if ($user->isSuper()) {
+        if ($user->hasFullAccess()) {   // super·업무관리자는 역할 무관 관리자 페이지로
             return redirect()->route('manage');
         }
 
@@ -51,7 +51,7 @@ Route::middleware(['auth'])->group(function () {
     Volt::route('manage', 'manage.index')->middleware('role:manager')->name('manage');
     // 사용자관리는 관리 role 도 사용 (2026-08-04 Jin). 단 super 지정·super 계정 편집은 super 만 — 가드는 users.index 에.
     Volt::route('users', 'users.index')->middleware('role:manager')->name('users');
-    Volt::route('audit', 'audit.index')->middleware('super')->name('audit');
+    Volt::route('audit', 'audit.index')->middleware('full-access')->name('audit');   // super + 업무관리자 (2026-10-14 Jin)
     Volt::route('admin/settings', 'admin.settings')->middleware('super')->name('admin.settings');
 
     // 사진 같은출처 스트리밍 (모바일 다중 공유 fetch 의 CORS 우회) — 스코프는 컨트롤러에서

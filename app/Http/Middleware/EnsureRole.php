@@ -20,8 +20,8 @@ class EnsureRole
             abort(403);
         }
 
-        // 시스템관리자(super)는 role 무관 전체 통과 (car-erp super 대응)
-        if ($user->isSuper()) {
+        // 시스템관리자(super)·업무관리자(manager 등급)는 role 무관 전체 통과 (car-erp super/업무관리자 대응)
+        if ($user->hasFullAccess()) {
             return $next($request);
         }
 

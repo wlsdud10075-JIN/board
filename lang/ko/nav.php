@@ -46,6 +46,7 @@ return [
 
     'perm' => [
         'super' => '시스템관리자',
+        'manager' => '업무관리자',
     ],
 
     'lang' => [

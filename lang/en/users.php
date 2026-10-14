@@ -21,7 +21,7 @@ return [
     'status_inactive' => 'Inactive',
     'action_deactivate' => 'Deactivate',
     'action_activate' => 'Activate',
-    'super_row_locked' => 'System admin only',
+    'super_row_locked' => 'Higher tier only',
 
     // Form
     'label_name' => 'Name',
@@ -46,12 +46,14 @@ return [
     'ph_password_keep' => 'Leave blank to keep current',
     'ph_password_new' => '6+ characters',
     'super_checkbox' => 'System admin',
-    'super_checkbox_desc' => '(full access + user management)',
+    'super_checkbox_desc' => '(full access + user management + settings)',
+    'work_manager_checkbox' => 'Operations manager',
+    'work_manager_checkbox_desc' => '(all screens regardless of role + audit log. No settings or permission grants)',
     'active_checkbox' => 'Active account (login allowed)',
 
     // flash / validation messages
     'saved' => 'Saved.',
     'err_cannot_deactivate_self' => 'You cannot deactivate your own account.',
     'err_cannot_remove_own_super' => 'You cannot remove your own system admin permission.',
-    'err_super_target_forbidden' => 'Only a system admin can edit a system admin account.',
+    'err_super_target_forbidden' => 'Higher-tier accounts (system admin, operations manager) can only be edited by the same tier or above.',
 ];
