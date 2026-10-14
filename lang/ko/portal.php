@@ -25,6 +25,8 @@ return [
     ],
     'reload' => '갱신',
     'reload_title' => '새로고침',
+    'reload_loading' => '갱신 중…',
+    'reload_done' => '갱신됨 ✓',
 
     // 선적요청 성공 배너
     'ship_done_title' => '선적요청 접수 완료!',
