@@ -27,15 +27,10 @@
                         </span>
                         <b class="shrink-0 text-gray-800">{{ number_format((float) data_get($inProgress, 'sum.'.$st, 0)) }}</b>
                     </div>
-                    @foreach ($list as $s)
-                        <div class="flex items-center justify-between gap-2 border-t border-gray-100 py-1">
-                            <span class="text-gray-700">{{ data_get($s, 'vehicle_number') ?: '—' }}</span>
-                            <span class="flex shrink-0 items-center gap-2">
-                                <span class="text-[11px] text-gray-400">{{ data_get($s, 'confirmed_at') }}</span>
-                                <b class="text-gray-800">{{ number_format((float) (data_get($s, 'actual_payout') ?? 0)) }}</b>
-                            </span>
-                        </div>
-                    @endforeach
+                    {{-- 차량별 표(차량번호·마진율·건당금액 3열, 가운데 정렬) — ERP 「차량별 보기」 미러(Jin 2026-10-14) --}}
+                    <div class="overflow-x-auto">
+                        @include('livewire.portal._settle-vehicle-table', ['rows' => $list, 'extra' => []])
+                    </div>
                     @if (Lang::has($hintKey))
                         <p class="mt-1 text-[11px] text-gray-400">{{ __($hintKey) }}</p>
                     @endif

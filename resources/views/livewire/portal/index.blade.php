@@ -453,7 +453,11 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     /**
      * 선적 로딩 — /bundles(영속 묶음) + /shippable(새 차) → 편집상태(desired) 시드.
-     * desired = **requested(미착수) 묶음만** 편집 가능(in_progress/done/issued=잠금). 반환 = /bundles degrade 봉투.
+     * desired = requested(미착수) 묶음 + 새 묶음(batch_id null). in_progress/done/issued 는 안 담는다(잠금).
+     * ⚠️ **requested 묶음은 payload 유지용으로만 담는다**(2026-10-14 Jin — 「ERP 에서 묶었으면 선적묶음에서 보여야지, 계획에서
+     *    선택돼 있으면 누가 쓰나」). 계획 화면엔 **새 묶음만** 그리고, requested 묶음은 화면·편집 모두 불가(`/sync` 가 선언형이라
+     *    payload 에서 빼면 ERP 가 자동 취소하므로 **그대로 실어 보내야** 한다). 취소·변경요청은 「내 선적묶음」에서.
+     * 반환 = /bundles degrade 봉투.
      */
     private function loadShipping(string $email, CarErpReadService $svc): array
     {
@@ -499,8 +503,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                 'vehicle_ids' => collect(data_get($b, 'vehicles', []))->pluck('vehicle_id')->map(fn ($i) => (int) $i)->values()->all(),
             ])->values()->all();
 
-        // 바이어별 펼침 UI 용 — shippable 만 있고 아직 묶음 없는 바이어는 빈 묶음 1개 시드(차 안 담으면 sync 에서 제외).
-        $seeded = collect($this->desired)->pluck('buyer_id')->filter()->map(fn ($i) => (int) $i)->all();
+        // 바이어별 펼침 UI 용 — pool 차가 있는 바이어마다 **새 묶음**(batch_id null) 1개 시드(차 안 담으면 sync 에서 제외).
+        // ⚠️ requested 묶음이 있는 바이어도 시드한다(2026-10-14) — 요청된 묶음은 계획 화면에 안 그리므로 새 차를 담을 그릇이 따로 있어야 한다.
+        //    (종전엔 requested 묶음이 있으면 건너뛰어 그 묶음에 차를 추가하게 했다 — 그 경로는 폐지.)
+        $seeded = [];
         foreach (collect($this->shippablePool)->groupBy(fn ($v) => (int) data_get($v, 'buyer.id')) as $bid => $cars) {
             $bid = (int) $bid;
             if ($bid === 0 || in_array($bid, $seeded, true)) {
@@ -570,10 +576,13 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->pollSignStatus($this->svc(), $this->salesmanEmail(), $vids, implode('-', $vids));
     }
 
-    /** 차 한 대를 어느 묶음에도 안 든 상태로(=pool) 만들기 위해 모든 desired 묶음에서 제거. */
+    /** 차 한 대를 어느 묶음에도 안 든 상태로(=pool) 만들기 위해 **새 묶음**에서 제거. requested 묶음은 불변(아래 참조). */
     private function detach(int $vehicleId): void
     {
         foreach ($this->desired as $i => $bd) {
+            if (! empty($bd['batch_id'])) {
+                continue;   // 🚨 requested 묶음에서 차를 빼면 다음 선적요청에서 ERP 가 그 차를 자동 취소한다 — 화면에 없어도 호출은 올 수 있다
+            }
             $before = count($bd['vehicle_ids']);
             $this->desired[$i]['vehicle_ids'] = array_values(array_filter($bd['vehicle_ids'], fn ($v) => (int) $v !== $vehicleId));
             if (count($this->desired[$i]['vehicle_ids']) !== $before) {
@@ -587,7 +596,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $this->detach($vehicleId);
         foreach ($this->desired as $i => $bd) {
-            if ($bd['key'] === $key) {
+            if ($bd['key'] === $key && empty($bd['batch_id'])) {   // 새 묶음에만 담는다(requested 묶음 추가는 ERP 변경요청으로)
                 $this->desired[$i]['vehicle_ids'][] = $vehicleId;
                 $this->pollPlanSignStatus($i);
                 // 바이어 미정 묶음이면 배정 차의 바이어/컨사이니 후보로 채택(묶음=1바이어).
@@ -653,7 +662,8 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function removeBundle(string $key): void
     {
-        $this->desired = array_values(array_filter($this->desired, fn ($b) => $b['key'] !== $key));
+        // requested 묶음은 여기서 못 지운다(= payload 에서 빠져 전체 자동 취소). 취소는 「내 선적묶음」 cancelBundle 로.
+        $this->desired = array_values(array_filter($this->desired, fn ($b) => $b['key'] !== $key || ! empty($b['batch_id'])));
     }
 
     public function setBundleField(string $key, string $field, $value): void
@@ -667,7 +677,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             $value = ($digits !== '' && (int) $digits > 0) ? (int) $digits : null;
         }
         foreach ($this->desired as $i => $bd) {
-            if ($bd['key'] === $key) {
+            if ($bd['key'] === $key && empty($bd['batch_id'])) {   // requested 묶음 속성은 ERP 가 관리(변경요청)
                 $this->desired[$i][$field] = $value ?: null;
 
                 return;
@@ -1463,7 +1473,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <button wire:click="downloadDocs({{ json_encode($vIds) }}, '{{ $method ?: 'RORO' }}', 'invoice_packing')" class="btn-ghost btn-sm">📄 {{ __('portal.docs_'.$docMethod.'_invoice_packing') }}</button>
                             </div>
                             {{-- 판매계약서·프로포마·서명은 선적 계획에도 있다(Jin 2026-08-18). 여기서도 지우지 않는 이유 =
-                                 **착수(in_progress) 묶음은 계획 화면에 안 뜬다**(desired = requested 만).
+                                 **요청된 묶음은 계획 화면에 안 뜬다**(2026-10-14 — 계획 = 새 묶음만, 요청된 건 전부 여기서 본다).
                                  묶음에서 빼면 그 차들의 계약서·서명을 뽑을 자리가 사라진다.
                                  단 **완료(done) 묶음엔 서명 버튼을 안 그린다**(2026-10-12 Jin) — 그 묶음은 상태 폴링을 끊었으므로
                                  상태 모르는 「요청」 버튼을 두면 눌렀을 때 미서명 링크가 조용히 무효화된다. 계약서·프로포마 받기는 그대로. --}}
@@ -1508,15 +1518,19 @@ new #[Layout('components.layouts.app')] class extends Component {
                         $vnoMap = [];
                         $vrowMap = [];
                         foreach ($shippablePool as $vv) { $vnoMap[(int) data_get($vv, 'vehicle_id')] = data_get($vv, 'vehicle_number'); $vrowMap[(int) data_get($vv, 'vehicle_id')] = $vv; }
-                        foreach ($bundles as $bb) { foreach ((array) data_get($bb, 'vehicles', []) as $vv) { $vrowMap[(int) data_get($vv, 'vehicle_id')] = $vv; $vnoMap[(int) data_get($vv, 'vehicle_id')] = data_get($vv, 'vehicle_number'); } }
-                        // 바이어 목록 = desired 바이어 ∪ shippable 바이어
+                        // 묶음 차량 행은 **덮어쓰지 않고 합친다** — /bundles 행엔 미수 필드가 없어 덮어쓰면 shippable 이 준 판정이 사라진다(2026-10-14).
+                        foreach ($bundles as $bb) { foreach ((array) data_get($bb, 'vehicles', []) as $vv) { $vid = (int) data_get($vv, 'vehicle_id'); $vrowMap[$vid] = ($vrowMap[$vid] ?? []) + (array) $vv; $vnoMap[$vid] = data_get($vv, 'vehicle_number'); } }
+                        // 계획 화면 = **새 묶음(batch_id null)만**(2026-10-14 Jin). requested 묶음은 「내 선적묶음」 서브탭 전용 —
+                        //   desired 에는 남아 payload 로 그대로 나간다(선언형 sync 자동취소 방지). 화면에서만 뺀다.
+                        $newBundles = collect($desired)->filter(fn ($b) => empty($b['batch_id']));
+                        // 바이어 목록 = 새 묶음 바이어 ∪ shippable 바이어(requested 묶음만 있는 바이어는 빈 그룹이 되므로 제외)
                         $buyerNames = [];
-                        foreach ($desired as $bd) { if ($bd['buyer_id']) { $buyerNames[(int) $bd['buyer_id']] = $bd['buyer_name']; } }
+                        foreach ($newBundles as $bd) { if ($bd['buyer_id']) { $buyerNames[(int) $bd['buyer_id']] = $bd['buyer_name']; } }
                         foreach ($shippablePool as $vv) { $bid = (int) data_get($vv, 'buyer.id'); if ($bid) { $buyerNames[$bid] = data_get($vv, 'buyer.name'); } }
                         // 바이어별 미배정(shippable) 차 + 바이어별 묶음
                         $assignedAll = collect($desired)->flatMap(fn ($b) => $b['vehicle_ids'])->map(fn ($i) => (int) $i)->all();
                         $poolByBuyer = collect($shippablePool)->reject(fn ($v) => in_array((int) data_get($v, 'vehicle_id'), $assignedAll, true))->groupBy(fn ($v) => (int) data_get($v, 'buyer.id'));
-                        $bundlesByBuyer = collect($desired)->groupBy(fn ($b) => (int) ($b['buyer_id'] ?? 0));
+                        $bundlesByBuyer = $newBundles->groupBy(fn ($b) => (int) ($b['buyer_id'] ?? 0));
                         // 바이어 없는 후보는 묶을 그릇이 없어 화면에서 통째로 빠진다(묶음=바이어별).
                         // 후보가 미완납까지 넓어지면서 생길 수 있는 경우라, 조용히 사라지게 두지 않고 대수를 밝힌다.
                         $noBuyerCount = collect($shippablePool)->filter(fn ($v) => ! (int) data_get($v, 'buyer.id'))->count();

@@ -5705,7 +5705,10 @@ class BoardTest extends TestCase
             ->assertSee('BuyerDone')->assertSee('CARDONE');
     }
 
-    /** v2 「선적 계획」 동기화 — desired(requested 묶음에서 차 제거) 전체를 /sync 로 전송. */
+    /**
+     * v2 「선적 계획」 선적요청 — desired **전체**를 /sync 로 전송(선언형). requested 묶음은 **화면에 없고 편집도 안 되지만
+     * payload 엔 그대로 실린다**(2026-10-14 Jin — 요청된 묶음은 「내 선적묶음」 전용). 빠지면 ERP 가 자동 취소하므로 이게 핵심 불변식.
+     */
     public function test_portal_shipping_v2_sync_sends_full_desired(): void
     {
         $this->carErpReadConfig();
@@ -5721,14 +5724,48 @@ class BoardTest extends TestCase
         ]);
         $this->actingAs($this->mkUser('sales'));
 
-        // desired 는 requested 묶음(차 2대)으로 시드 → 한 대 빼고 동기화 → vehicle_ids=[1] 전체 전송
-        Volt::test('portal.index')->call('setTab', 'shipping')
-            ->call('unassignVehicle', 2)
+        // requested 묶음(차 2대) → 계획 화면엔 안 보이고, 빼기·속성 변경·삭제가 전부 무시된 채 그대로 전송된다
+        $c = Volt::test('portal.index')->call('setTab', 'shipping')->call('setShipSubtab', 'plan')
+            ->assertDontSee('CAR001')->assertDontSee('CAR002')->assertDontSee('BuyerZ');
+        $key = $c->get('desired')[0]['key'];
+        $c->call('unassignVehicle', 2)
+            ->call('setBundleField', $key, 'shipping_method', 'CONTAINER')
+            ->call('removeBundle', $key)
             ->call('syncBundles')->assertHasNoErrors();
 
         Http::assertSent(fn ($r) => str_contains($r->url(), '/api/internal/board/shipping-requests/sync')
             && str_contains($r->body(), '"buyer_id":5')
-            && str_contains($r->body(), '"vehicle_ids":[1]'));   // 뺀 차(2) 제외, 전체 desired
+            && str_contains($r->body(), '"shipping_method":"RORO"')
+            && str_contains($r->body(), '"vehicle_ids":[1,2]'));   // requested 묶음 불변
+    }
+
+    /** 2026-10-14 Jin — requested 묶음이 있는 바이어도 새 차는 **새 묶음**으로 담는다(기존 묶음에 추가하는 경로 폐지). 전송 = 기존 그대로 + 새 묶음. */
+    public function test_portal_plan_seeds_new_bundle_for_buyer_who_already_has_requested_bundle(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
+                'batch_id' => 'B1', 'ship_status' => 'requested', 'shipping_method' => 'RORO', 'bl_type' => null,
+                'buyer' => ['id' => 5, 'name' => 'BuyerZ'], 'consignee' => ['id' => 9], 'consignees' => [],
+                'vehicles' => [['vehicle_id' => 1, 'vehicle_number' => 'CAR001']],
+            ]]], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 1, 'data' => [
+                ['vehicle_id' => 10, 'vehicle_number' => 'NEW010', 'buyer' => ['id' => 5, 'name' => 'BuyerZ'], 'consignees' => []],
+            ]], 200),
+            '*/api/internal/board/shipping-requests/sync*' => Http::response(['created' => [10], 'updated' => [1], 'cancelled' => [], 'skipped' => [], 'locked' => []], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('portal.index')->call('setTab', 'shipping')->call('setShipSubtab', 'plan')
+            ->assertSee('BuyerZ')->assertSee('NEW010')->assertDontSee('CAR001');   // 새 차만, 요청된 차는 없다
+        $new = collect($c->get('desired'))->first(fn ($b) => empty($b['batch_id']));
+        $this->assertNotNull($new, 'requested 묶음이 있는 바이어에도 새 묶음이 시드돼야 한다');
+        $c->call('assignVehicle', $new['key'], 10)->call('syncBundles')->assertHasNoErrors();
+
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/shipping-requests/sync')
+            && str_contains($r->body(), '"vehicle_ids":[1]')      // 기존 requested 그대로
+            && str_contains($r->body(), '"vehicle_ids":[10]'));   // 새 묶음
     }
 
     /** §10 「전자서명 요청」 — 묶음 버튼 → signed_url 발급받아 화면에 노출(바이어 전달용). */
@@ -5963,6 +6000,43 @@ class BoardTest extends TestCase
 
         // 절대 sync 전송 안 됨 — degrade 시 전체취소 방지.
         Http::assertNotSent(fn ($r) => str_contains($r->url(), '/shipping-requests/sync'));
+    }
+
+    /**
+     * 🚨 heymanboard 무사백 실사고(2026-10-14) — 「요청됨」 묶음에 든 차 35대 전부에 「환율 미입력」이 붙었다(환율은 전부 있었다).
+     * 묶인 차는 `/bundles` 차량 행으로만 오고 그 행엔 미수 필드가 **아예 없다**(ERP 가 `/shippable` 에서 묶인 차를 뺀다).
+     * 필드 없음 ≠ null — 모르는 것은 그리지 않는다. ERP 가 필드를 실어 주면(null 포함) 그때는 판정한다.
+     */
+    public function test_portal_plan_bundle_vehicle_without_unpaid_fields_shows_no_fx_badge(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
+                'batch_id' => 'B1', 'ship_status' => 'requested', 'bl_status' => 'none', 'bl_type' => null, 'shipping_method' => 'RORO',
+                'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignees' => [],
+                'vehicles' => [['vehicle_id' => 99, 'vehicle_number' => 'BUNDLED0', 'status' => 'requested']],   // 요청된 차 — 계획 화면엔 안 뜬다(2026-10-14)
+                'unpaid_total_krw' => 0, 'fx_missing_count' => 1, 'fully_paid' => false, 'unpaid_ratio' => null,
+            ]]], 200),
+            // 칩 3케이스는 pool(아직 안 묶인 차) 행으로 — 필드 없음 / null / 값
+            '*/api/internal/board/shippable*' => Http::response(['count' => 3, 'data' => [
+                ['vehicle_id' => 10, 'vehicle_number' => 'BUNDLED1', 'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignees' => []],                                           // 미수 필드 없음 → 칩 없음
+                ['vehicle_id' => 11, 'vehicle_number' => 'BUNDLED2', 'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignees' => [], 'unpaid_krw' => null, 'fully_paid' => false],   // null → 환율 미입력
+                ['vehicle_id' => 12, 'vehicle_number' => 'BUNDLED3', 'buyer' => ['id' => 2, 'name' => 'BuyerX'], 'consignees' => [], 'unpaid_krw' => 500, 'unpaid_ratio' => 0.3, 'fully_paid' => false],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $html = Volt::test('portal.index')->call('setTab', 'shipping')->call('setShipSubtab', 'plan')->html();
+        $this->assertStringNotContainsString('BUNDLED0', $html);   // 요청된 차는 「내 선적묶음」에만
+        $this->assertStringContainsString('BUNDLED1', $html);
+        $this->assertStringContainsString('BUNDLED2', $html);
+        $this->assertStringContainsString('BUNDLED3', $html);
+        // Livewire 가 @if 자리에 <!--[if BLOCK]--> 주석을 끼운다 → 라벨과 % 사이는 정규식으로.
+        $this->assertMatchesRegularExpression('/'.preg_quote(__('portal.plan_unpaid'), '/').'(\s|<!--.*?-->)*30%/u', $html);
+
+        // 「환율 미입력」은 ERP 가 null 을 실어 준 BUNDLED2 한 대에만 — 필드 없는 BUNDLED1 에는 안 붙는다.
+        $this->assertSame(1, substr_count($html, __('portal.plan_fx_missing_hint')));
     }
 
     /** v2 「선적 계획」 — shippable pool 의 새 차를 새 묶음에 담고(빈 묶음=그 차 바이어 채택) 동기화. */
@@ -6817,6 +6891,47 @@ class BoardTest extends TestCase
     }
 
     /** 진행 중 정산이 하나도 없으면 섹션 자체를 그리지 않는다(빈 상자가 남으면 "뭔가 못 받았나"로 읽힌다). */
+    /**
+     * 요약 차량별 표 = **차량번호·마진율·건당금액 3열 고정**(Jin 2026-10-14 — 일자 등 다른 열 금지).
+     * 마진율은 ERP `margin_rate` 가 오기 전엔 —, 오면 ERP `formatMarginRate` 와 같은 서식(소수 1자리 %)으로 채운다.
+     */
+    public function test_settlement_vehicle_table_has_three_columns_and_fills_margin_rate_when_erp_sends_it(): void
+    {
+        $this->carErpReadConfig();
+        // ⚠️ Http::fake 를 두 번 걸면 먼저 등록한 스텁이 이긴다 → 플래그 하나로 응답을 바꾼다.
+        $withMargin = false;
+        Http::fake(function ($req) use (&$withMargin) {
+            if (! str_contains($req->url(), '/api/internal/board/settlements')) {
+                return Http::response(['count' => 0, 'data' => []], 200);
+            }
+            $rows = [
+                ['vehicle_number' => '11가1111', 'status' => 'confirmed', 'actual_payout' => 700000, 'confirmed_at' => '2026-08-20', 'paid_at' => null],
+                ['vehicle_number' => '22나2222', 'status' => 'confirmed', 'actual_payout' => -50000, 'confirmed_at' => '2026-08-21', 'paid_at' => null],
+            ];
+            if ($withMargin) {
+                $rows[0]['margin_rate'] = 0.1234;
+                $rows[1]['margin_rate'] = null;
+            }
+
+            return Http::response(['count' => 2, 'data' => $rows], 200);
+        });
+        $this->actingAs($this->mkUser('sales'));
+
+        $html = Volt::test('portal.index')->call('setTab', 'finance')
+            ->assertSee(__('portal.settle_col_vehicle'))->assertSee(__('portal.settle_col_margin_rate'))->assertSee(__('portal.settle_col_payout'))
+            ->assertSee('11가1111')->assertSee('700,000')->assertSee('-50,000')
+            ->assertDontSee('12.3%')
+            ->html();
+        // 월별 실적 표(5열)와 섞이지 않게 차량별 표의 thead 만 잘라 센다.
+        preg_match('/settle-tbl.*?<\/thead>/su', $html, $thead);
+        $this->assertSame(3, substr_count($thead[0] ?? '', '<th>'), '차량별 표는 열 3개 고정(일자 등 추가 금지)');
+        $this->assertStringNotContainsString('2026-08-20', $html);   // 확정일은 열이 아니다
+
+        // ERP 가 margin_rate 를 실어 주는 날 — — 가 값으로 바뀐다(board 배포 불필요)
+        $withMargin = true;
+        Volt::test('portal.index')->call('setTab', 'finance')->assertSee('12.3%');
+    }
+
     public function test_in_progress_section_hidden_when_nothing_pending(): void
     {
         $this->carErpReadConfig();
