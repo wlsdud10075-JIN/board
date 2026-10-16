@@ -18,7 +18,7 @@
     <div class="section-title-sm mt-4">{{ __('listings.resync.title') }}
         <span class="text-[11px] font-normal text-gray-400">{{ __('listings.resync.hint') }}</span>
     </div>
-    <div class="mt-1 grid grid-cols-3 gap-2">
+    <div class="mt-1 grid grid-cols-4 gap-2">
         <div>
             <label class="label-base">{{ __('listings.resync.sale_price') }}</label>
             <input type="text" inputmode="decimal" wire:model="e_sale_price" class="input-base text-right text-[12px]">
@@ -35,6 +35,11 @@
         <div>
             <label class="label-base">{{ __('listings.resync.rate') }}</label>
             <input type="text" inputmode="numeric" wire:model="e_sale_rate" class="input-base text-right text-[12px]">
+        </div>
+        <div>
+            {{-- 운임비(판매통화 기준) — ERP fill-if-empty(`PurchaseSyncController::fillEmptyFields` transport_fee). 단독 전송 가능. --}}
+            <label class="label-base">{{ __('listings.resync.transport_fee') }}</label>
+            <input type="text" inputmode="decimal" wire:model="e_transport_fee" class="input-base text-right text-[12px]">
         </div>
     </div>
     @error('e_sale_price') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror

@@ -155,10 +155,13 @@ class PurchaseListing extends Model
      */
     public function offerAmount(?int $krwPerUsd = null, ?int $krwPerEur = null): ?array
     {
-        if ($this->final_price === null) {
+        // 🚨 통화를 **고르지 않은 차는 null** — 종전 `?: 'USD'` 폴백이 「아무도 안 적은 판매가」를 USD 로 지어내
+        //    ERP 로 보냈다(2026-10-16 heymanboard 17두0923: 8,700,000 ÷ 1,324 = 6,571 USD, 전수 12대가 ERP 에서 수기 정정됨).
+        //    Jin: 기본 통화 없음 — 사람이 고른 통화만 쓴다. 미선택 = 견적 없음(판매 필드 비워 보냄).
+        if ($this->final_price === null || ! $this->offer_currency) {
             return null;
         }
-        $cur = $this->offer_currency ?: 'USD';
+        $cur = $this->offer_currency;
         if ($cur === 'KRW') {
             return ['currency' => 'KRW', 'amount' => $this->final_price, 'rate' => 1];
         }
@@ -177,13 +180,13 @@ class PurchaseListing extends Model
      */
     public function offerDisplay(?int $krwPerUsd = null, ?int $krwPerEur = null): ?string
     {
+        // 통화 미확정(offer_currency 없음) → 저장된 최종금액을 원화로 그대로 표시(파생 없음). KRW 도 원화 표시.
+        if ($this->final_price !== null && (! $this->offer_currency || $this->offer_currency === 'KRW')) {
+            return number_format($this->final_price).__('common.won_currency');
+        }
         $offer = $this->offerAmount($krwPerUsd, $krwPerEur);
         if ($offer === null) {
             return null;
-        }
-        // 통화 미확정(offer_currency 없음) 또는 KRW → 원화 표시(전달 전 기본과 일치)
-        if (! $this->offer_currency || $offer['currency'] === 'KRW') {
-            return number_format($this->final_price).__('common.won_currency');
         }
 
         return (Money::SYMBOLS[$offer['currency']] ?? '').number_format($offer['amount']);

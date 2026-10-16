@@ -54,6 +54,8 @@ return [
     'forward_section' => 'Forward to buyer',
     'buyer_placeholder' => 'Buyer name (optional)',
     'attr_buyer_name' => 'buyer name',
+    'err_currency_required' => 'Choose a quote currency — this amount goes to the buyer, so it needs a currency. Pick KRW for won.',
+    'currency_unset' => 'currency not chosen',
     'forward_button' => 'Mark as sent',
     'forward_hint' => 'Tap once you have sent the photos to the buyer. (Auto channel also sends photos + total) → moves to "Buyer Reply".',
     'flash_forwarded' => 'Forwarded :vehicle to the buyer. (Handle accept/reject on the Buyer Reply screen.)',

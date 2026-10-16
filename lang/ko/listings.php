@@ -208,6 +208,7 @@ return [
 
     'attach' => [
         'add_label' => '차량 첨부파일',
+        'dup_skipped' => '같은 이름의 파일이 이미 있어 :count건은 건너뛰었습니다 (:names).',
         'add_hint' => '(사진·서류·엑셀 등 · 최대 :max건 · 낙찰 시 car-erp 자동등록)',
         'dropzone' => '📎 파일 선택 (여러 개 가능 · 실행파일 제외 모두)',
         'uploading' => '업로드 중…',
@@ -226,10 +227,13 @@ return [
     // 편집 드로어
     'resync' => [
         'title' => '💰 금액 다시 보내기',
-        'hint' => '금액만 바뀝니다 · 사진은 아래에서',
+        'hint' => '저장하면 바뀐 금액이 함께 ERP 로 갑니다 · 이 버튼은 금액만 즉시 보내기',
         'sale_price' => '판매가',
         'currency' => '통화',
         'rate' => '환율',
+        'transport_fee' => '운임비',
+        'auto_sent' => '바뀐 금액(:fields)과 첨부 :count건을 ERP 로 전송 요청했습니다.',
+        'changed_field' => ['sale_price' => '판매가', 'offer_currency' => '통화', 'offer_rate' => '환율', 'transport_fee' => '운임비'],
         'btn' => '금액만 ERP 로 보내기',
         'not_synced_yet' => '아직 ERP 로 전송되지 않은 차량입니다. 구매확정 후에 사용할 수 있습니다.',
         'currency_required' => '통화를 선택하세요 — 통화가 없으면 ERP 가 판매가를 넣지 않습니다.',
@@ -273,6 +277,7 @@ return [
         'help' => '사진만 추가됩니다 · 금액은 그대로 · 최대 :max건',
         'not_synced_yet' => '아직 ERP 로 보내지 않은 차량입니다 — 사진은 「경매/구매」 화면에서 올려 주세요.',
         'none_selected' => '추가할 파일을 먼저 선택하세요.',
+        'auto_sent' => '새 첨부 :count건을 ERP 로 전송 요청했습니다.',
         'queued' => ':count건 전송 요청했습니다 — ERP 반영 결과가 오면 여기에 표시됩니다 (몇 초).',
         'sent' => ':count건 전송했습니다.',
         'ok' => 'ERP 차량 첨부에 :added건 붙었습니다.',

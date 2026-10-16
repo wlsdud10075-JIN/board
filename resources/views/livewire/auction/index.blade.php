@@ -390,7 +390,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->shipping_usd = $l->shipping_usd !== null ? (string) $l->shipping_usd : null;
         // 셀프검차는 통화를 **미선택으로 시작**한다(2026-08-10 Jin). KRW 를 미리 골라두면 USD 판매가를 적고
         // 통화를 안 눌러도 그대로 통과해 ERP 에 **1/환율 금액**으로 박힌다(8,590 USD → 8,590원, 실측 확인).
-        $this->quoteCurrency = $l->offer_currency ?: ($l->isSelfInspection() ? '' : 'KRW');
+        // 2026-10-16 Jin — **전 출처** 미선택으로 시작(기본 통화 없음). 종전엔 셀프검차만 '' 이고 나머지는 KRW 표시값이라
+        //    저장되지 않았고, Job 이 null 통화를 USD 로 지어냈다(17두0923). 비-셀프는 안 골라도 확정은 막지 않는다(판매 필드 비워 전송).
+        $this->quoteCurrency = $l->offer_currency ?: '';
         // 🚫 매도비 자동 채움 폐지(2026-09-11 Jin — 2026-08-10 의 "미리 채워 입력을 줄인다" 를 뒤집는다).
         //    매도비가 없는 거래에도 440,000 이 붙어 나갔고, 영업은 그 숫자를 본 적도 없었다.
         //    **적은 것만 간다** — 비워 두면 ERP 매도비는 0 이다.
@@ -401,7 +403,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         // ERP 에 exchange_rate=1 로 박힌다(통화 락을 통과한 뒤 생기는 두 번째 구멍). 빈 칸이어야 락이 잡는다.
         $this->offer_rate = $l->offer_rate !== null
             ? (string) $l->offer_rate
-            : ($l->isSelfInspection() ? null : (string) $this->rateFor($this->quoteCurrency));
+            : ((! $l->isSelfInspection() && $this->quoteCurrency !== '') ? (string) $this->rateFor($this->quoteCurrency) : null);
         $this->buyerUndecided = (bool) $l->buyer_undecided;
         $this->buyerId = $l->car_erp_buyer_id;
         $this->consigneeId = $l->car_erp_consignee_id;
@@ -460,7 +462,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->sale_discount_amount = ($this->sale_discount === null || $this->sale_discount === '') ? null : (int) $this->sale_discount;
 
         // 견적통화는 **바뀐 경우에만** 재스냅 — 안 그러면 EUR 딜의 확정환율이 저장할 때마다 오늘 환율로 덮인다(/forwarding 동일).
-        if ($this->quoteCurrency !== ($l->offer_currency ?: 'KRW')) {
+        // 첫 선택(KRW 포함)도 변경이다 — 미선택('')은 건드리지 않는다(2026-10-16).
+        if ($this->quoteCurrency !== '' && $this->quoteCurrency !== ($l->offer_currency ?? '')) {
             $l->offer_currency = $this->quoteCurrency;
             $l->offer_rate = $this->rateFor($this->quoteCurrency);
         }

@@ -461,6 +461,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->e_sale_price = $l->sale_price !== null ? (string) $l->sale_price : null;
         $this->e_sale_currency = $l->offer_currency ?: null;
         $this->e_sale_rate = $l->offer_rate ? (string) $l->offer_rate : null;
+        $this->e_transport_fee = $l->transport_fee !== null ? (string) (0 + $l->transport_fee) : null;
         $this->resyncResult = null;
         $this->attachResult = null;   // 앞 차의 결과 카드가 다음 차 드로어에 남으면 안 된다
         $this->syncSince = null;
@@ -478,6 +479,9 @@ new #[Layout('components.layouts.app')] class extends Component {
     public ?string $e_sale_currency = null;
 
     public ?string $e_sale_rate = null;
+
+    /** 운임비(판매통화 기준) — ERP 가 fill-if-empty 로 받는다(2026-10-16 Jin: 칸이 없어 ERP 에서 손으로 넣고 있었다). */
+    public ?string $e_transport_fee = null;
 
     /** 마지막 재전송 결과 — car-erp 응답의 fields_filled/fields_skipped. 200 만 보고 "반영됨"이라 하지 않는다. */
     public ?array $resyncResult = null;
@@ -512,6 +516,25 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
 
+        if ($this->applyResendAmounts($l) === null) {
+            return;   // 검증 에러는 applyResendAmounts 가 붙였다
+        }
+        if ($l->isDirty()) {
+            $l->save();   // 옵저버가 감사기록
+        }
+
+        $this->syncSince = $this->lastSyncEventId($l->id);
+        SyncWonListingToCarErp::dispatch($l->id, resync: true);
+        $this->resyncResult = $this->latestSyncFields($l->id, $this->syncSince);
+    }
+
+    /**
+     * 「금액 다시 보내기」 칸(판매가·통화·환율·운임비)을 모델에 적용한다 — 버튼과 「저장」이 **같은 규칙**을 쓴다(2026-10-16 Jin).
+     * 저장하지 않는다(호출자가 save). 반환 = 바뀐 컬럼 목록(빈 배열 = 보낼 금액 변경 없음) / null = 검증 실패(에러 붙임).
+     * ⚠️ 환율이 없으면 car-erp 가 판매가를 **통째로 보류**한다 → 판매가가 있으면 통화·(KRW 외)환율을 세트로 요구한다.
+     */
+    private function applyResendAmounts(PurchaseListing $l): ?array
+    {
         $price = $this->e_sale_price !== null && $this->e_sale_price !== ''
             ? (float) preg_replace('/[^0-9.]/', '', $this->e_sale_price) : null;
         $rate = $this->e_sale_rate !== null && $this->e_sale_rate !== ''
@@ -522,23 +545,26 @@ new #[Layout('components.layouts.app')] class extends Component {
             if (! $currency) {
                 $this->addError('e_sale_currency', __('listings.resync.currency_required'));
 
-                return;
+                return null;
             }
             // KRW 는 환율 1. 그 외는 반드시 받는다 — 비우면 ERP 가 판매가를 통째로 안 넣는다.
             if ($currency !== 'KRW' && ! $rate) {
                 $this->addError('e_sale_rate', __('listings.resync.rate_required'));
 
-                return;
+                return null;
             }
             $l->sale_price = $price;
             $l->offer_currency = $currency;
             $l->offer_rate = $currency === 'KRW' ? 1 : $rate;
-            $l->save();   // 옵저버가 감사기록
+        }
+        // 운임비 — 판매가 없이 단독으로도 보낸다(Job 이 컬럼을 그대로 실고, ERP 는 비어 있을 때만 채운다).
+        $transport = $this->e_transport_fee !== null && $this->e_transport_fee !== ''
+            ? (float) preg_replace('/[^0-9.]/', '', $this->e_transport_fee) : null;
+        if ($transport !== null && $transport > 0) {
+            $l->transport_fee = $transport;
         }
 
-        $this->syncSince = $this->lastSyncEventId($l->id);
-        SyncWonListingToCarErp::dispatch($l->id, resync: true);
-        $this->resyncResult = $this->latestSyncFields($l->id, $this->syncSince);
+        return array_values(array_intersect(array_keys($l->getDirty()), ['sale_price', 'offer_currency', 'offer_rate', 'transport_fee']));
     }
 
     /**
@@ -578,13 +604,20 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
 
         // ⚠️ 저장이 **먼저**, 전송이 나중 (§14-13 재발방지) — 순서가 바뀌면 방금 올린 파일이 payload 에서 빠진다.
-        $this->storeSalesFiles($l, $files);
+        $stored = $this->storeSalesFiles($l, $files);
         $this->reset(['eSalesFiles']);
+
+        if ($stored['stored'] === 0) {
+            // 전부 같은 이름이라 건너뜀 — 보낼 게 없다(ERP 는 경로 기준이라 다시 보내면 중복이 붙는다).
+            $this->addError('eSalesFiles', __('listings.attach.dup_skipped', ['count' => count($stored['skipped']), 'names' => implode(', ', $stored['skipped'])]));
+
+            return;
+        }
 
         $this->syncSince = $this->lastSyncEventId($l->id);
         SyncWonListingToCarErp::dispatch($l->id, resync: true, attachmentsOnly: true);
 
-        $this->attachResult = $this->latestSyncFields($l->id, $this->syncSince) + ['sent' => count($files)];
+        $this->attachResult = $this->latestSyncFields($l->id, $this->syncSince) + ['sent' => $stored['stored'], 'skipped' => $stored['skipped']];
         unset($this->editing);   // 첨부 목록 새로고침
     }
 
@@ -645,7 +678,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'eSalesFiles', 'e_sale_price', 'e_sale_currency', 'e_sale_rate', 'resyncResult', 'attachResult', 'syncSince']);
+        $this->reset(['editingId', 'e_transport_fee', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'eSalesFiles', 'e_sale_price', 'e_sale_currency', 'e_sale_rate', 'resyncResult', 'attachResult', 'syncSince']);
         unset($this->editing);
     }
 
@@ -687,6 +720,16 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
 
+        // 「금액 다시 보내기」 칸도 저장에 함께 적용(2026-10-16 Jin — 버튼을 따로 안 눌러도 바뀐 금액은 ERP 로 가야 한다).
+        //    ERP 에 있는 차(미연동·재고매입 제외)만. 넷이 다 비었거나 안 바뀌었으면 금액은 보내지 않는다.
+        $amountChanged = [];
+        if ($l->car_erp_vehicle_id && ! $l->buyer_undecided) {
+            $amountChanged = $this->applyResendAmounts($l);
+            if ($amountChanged === null) {
+                return;   // 통화·환율 세트 검증 실패 — 에러가 칸에 붙어 있다
+            }
+        }
+
         $l->region = $this->e_region ?: null;
         $l->c_no = $this->e_c_no ?: null;
         $l->respond_contact_id = $this->e_respond_contact_id ?: null;
@@ -709,10 +752,26 @@ new #[Layout('components.layouts.app')] class extends Component {
             $l->lot_number = $this->e_lot_number ?: null;
         }
         $l->save();
-        $this->storeSalesFiles($l, $this->eSalesFiles);
+        $stored = $this->storeSalesFiles($l, $this->eSalesFiles);
+
+        // 2026-10-16 Jin — 「저장」만 눌러도 바뀐 금액·새 사진이 ERP 로 가야 한다(별도 버튼을 안 누르면 안 가서 두 번 올리게 됐다).
+        //    금액이 하나라도 바뀌었으면 **금액+첨부 재전송**(ERP 는 빈 칸만 채운다), 금액 변경 없이 사진만 새로 있으면 **첨부 전용**(금액 불변).
+        //    둘 다 없으면 보내지 않는다. ERP 에 없는 차(미연동)는 보내지 않는다(낙찰 때 같이 간다).
+        $flash = __('listings.drawer.updated_flash', ['number' => $l->vehicle_number]);
+        if ($l->car_erp_vehicle_id && $amountChanged !== []) {
+            SyncWonListingToCarErp::dispatch($l->id, resync: true);
+            $labels = array_map(fn ($f) => __('listings.resync.changed_field.'.$f), $amountChanged);
+            $flash .= ' '.__('listings.resync.auto_sent', ['fields' => implode('·', $labels), 'count' => $stored['stored']]);
+        } elseif ($l->car_erp_vehicle_id && $stored['stored'] > 0) {
+            SyncWonListingToCarErp::dispatch($l->id, resync: true, attachmentsOnly: true);
+            $flash .= ' '.__('listings.attach_add.auto_sent', ['count' => $stored['stored']]);
+        }
+        if ($stored['skipped'] !== []) {
+            $flash .= ' '.__('listings.attach.dup_skipped', ['count' => count($stored['skipped']), 'names' => implode(', ', $stored['skipped'])]);
+        }
 
         unset($this->listings, $this->tabCounts);
-        session()->flash('ok', __('listings.drawer.updated_flash', ['number' => $l->vehicle_number]));
+        session()->flash('ok', $flash);
         $this->closeEdit();
     }
 
@@ -1013,18 +1072,37 @@ new #[Layout('components.layouts.app')] class extends Component {
         return true;
     }
 
-    /** 첨부 저장 — 이미지=사진(sales_photo)/그 외=서류(sales_document) 자동분류. 서류는 바이어 전송 금지(§28). */
-    private function storeSalesFiles(PurchaseListing $l, array $files): void
+    /**
+     * 첨부 저장 — 이미지=사진(sales_photo)/그 외=서류(sales_document) 자동분류. 서류는 바이어 전송 금지(§28).
+     *
+     * ⚠️ **같은 이름의 파일이 이미 붙어 있으면 건너뛴다**(2026-10-16 Jin — 같은 5장을 두 번 올려 ERP 에 10장이 붙었다.
+     *    ERP 는 경로 기준 중복제거라 board 가 두 번 저장하면 두 번 붙는다). 판정은 원본 파일명만(크기 컬럼 없음) — 다른 사진이
+     *    같은 이름이면 걸린다는 한계가 있어, 건너뛴 이름을 화면에 알린다.
+     *
+     * @return array{stored:int, skipped:list<string>}
+     */
+    private function storeSalesFiles(PurchaseListing $l, array $files): array
     {
         $files = array_values(array_filter($files));
         if (empty($files)) {
-            return;
+            return ['stored' => 0, 'skipped' => []];
         }
 
         $disk = config('board.photo_disk');
         $sort = (int) $l->salesAttachments()->max('sort');
+        $existing = $l->salesAttachments()->pluck('original_name')->map(fn ($n) => mb_strtolower((string) $n))->flip()->all();
+        $stored = 0;
+        $skipped = [];
 
         foreach ($files as $f) {
+            $name = $f->getClientOriginalName();
+            if (isset($existing[mb_strtolower($name)])) {
+                $skipped[] = $name;
+
+                continue;
+            }
+            $existing[mb_strtolower($name)] = true;
+            $stored++;
             $isImage = str_starts_with((string) $f->getMimeType(), 'image/');
             $prefix = $isImage ? config('board.sales_photo_prefix') : config('board.sales_document_prefix');
             $path = $f->store($prefix.'/'.$l->id, $disk);
@@ -1037,6 +1115,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                 'share_to_buyer' => false,   // 영업 첨부는 바이어 자동전송 안 함(§28)
             ]);
         }
+
+        return ['stored' => $stored, 'skipped' => $skipped];
     }
 
     /** 저장 전 선택파일 빼기 — 추가폼. */

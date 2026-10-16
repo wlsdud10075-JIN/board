@@ -54,6 +54,8 @@ return [
     'forward_section' => '바이어 전달',
     'buyer_placeholder' => '바이어명 (선택)',
     'attr_buyer_name' => '바이어명',
+    'err_currency_required' => '견적 통화를 선택하세요 — 바이어에게 나가는 금액이라 통화가 있어야 합니다. 원화면 KRW 를 고르세요.',
+    'currency_unset' => '통화 미선택',
     'forward_button' => '전달 완료',
     'forward_hint' => '바이어에게 보냈으면 누르세요. (자동채널 연결 시 사진+최종금액도 함께 발송) → "바이어 회신" 화면으로.',
     'flash_forwarded' => ':vehicle 를 바이어에게 전달했습니다. (바이어 회신 화면에서 수락/거절 처리)',

@@ -72,7 +72,8 @@ class BuyerViewController extends Controller
     /** breakdown → [Car, Shipping, Total] 통화기호 포함 문자열(바이어페이지 표시와 동일 규칙). */
     private function quoteStrings(?array $b): array
     {
-        $sym = ['KRW' => '₩', 'USD' => '$', 'EUR' => '€'][$b['currency'] ?? 'USD'] ?? '';
+        // 통화 미선택(견적 없음)이면 기호도 없다 — 종전 USD 폴백은 「$—」 를 그렸다(2026-10-16 기본 통화 폐지).
+        $sym = ['KRW' => '₩', 'USD' => '$', 'EUR' => '€'][$b['currency'] ?? ''] ?? '';
         $fmt = fn ($n) => $n === null ? '—' : $sym.number_format($n);
 
         return [$fmt($b['car'] ?? null), $fmt($b['shipping'] ?? null), $fmt($b['total'] ?? null)];
