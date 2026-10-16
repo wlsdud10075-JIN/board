@@ -516,6 +516,25 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
 
+        if ($this->applyResendAmounts($l) === null) {
+            return;   // 검증 에러는 applyResendAmounts 가 붙였다
+        }
+        if ($l->isDirty()) {
+            $l->save();   // 옵저버가 감사기록
+        }
+
+        $this->syncSince = $this->lastSyncEventId($l->id);
+        SyncWonListingToCarErp::dispatch($l->id, resync: true);
+        $this->resyncResult = $this->latestSyncFields($l->id, $this->syncSince);
+    }
+
+    /**
+     * 「금액 다시 보내기」 칸(판매가·통화·환율·운임비)을 모델에 적용한다 — 버튼과 「저장」이 **같은 규칙**을 쓴다(2026-10-16 Jin).
+     * 저장하지 않는다(호출자가 save). 반환 = 바뀐 컬럼 목록(빈 배열 = 보낼 금액 변경 없음) / null = 검증 실패(에러 붙임).
+     * ⚠️ 환율이 없으면 car-erp 가 판매가를 **통째로 보류**한다 → 판매가가 있으면 통화·(KRW 외)환율을 세트로 요구한다.
+     */
+    private function applyResendAmounts(PurchaseListing $l): ?array
+    {
         $price = $this->e_sale_price !== null && $this->e_sale_price !== ''
             ? (float) preg_replace('/[^0-9.]/', '', $this->e_sale_price) : null;
         $rate = $this->e_sale_rate !== null && $this->e_sale_rate !== ''
@@ -526,13 +545,13 @@ new #[Layout('components.layouts.app')] class extends Component {
             if (! $currency) {
                 $this->addError('e_sale_currency', __('listings.resync.currency_required'));
 
-                return;
+                return null;
             }
             // KRW 는 환율 1. 그 외는 반드시 받는다 — 비우면 ERP 가 판매가를 통째로 안 넣는다.
             if ($currency !== 'KRW' && ! $rate) {
                 $this->addError('e_sale_rate', __('listings.resync.rate_required'));
 
-                return;
+                return null;
             }
             $l->sale_price = $price;
             $l->offer_currency = $currency;
@@ -544,13 +563,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         if ($transport !== null && $transport > 0) {
             $l->transport_fee = $transport;
         }
-        if ($l->isDirty()) {
-            $l->save();   // 옵저버가 감사기록
-        }
 
-        $this->syncSince = $this->lastSyncEventId($l->id);
-        SyncWonListingToCarErp::dispatch($l->id, resync: true);
-        $this->resyncResult = $this->latestSyncFields($l->id, $this->syncSince);
+        return array_values(array_intersect(array_keys($l->getDirty()), ['sale_price', 'offer_currency', 'offer_rate', 'transport_fee']));
     }
 
     /**
@@ -706,6 +720,16 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
 
+        // 「금액 다시 보내기」 칸도 저장에 함께 적용(2026-10-16 Jin — 버튼을 따로 안 눌러도 바뀐 금액은 ERP 로 가야 한다).
+        //    ERP 에 있는 차(미연동·재고매입 제외)만. 넷이 다 비었거나 안 바뀌었으면 금액은 보내지 않는다.
+        $amountChanged = [];
+        if ($l->car_erp_vehicle_id && ! $l->buyer_undecided) {
+            $amountChanged = $this->applyResendAmounts($l);
+            if ($amountChanged === null) {
+                return;   // 통화·환율 세트 검증 실패 — 에러가 칸에 붙어 있다
+            }
+        }
+
         $l->region = $this->e_region ?: null;
         $l->c_no = $this->e_c_no ?: null;
         $l->respond_contact_id = $this->e_respond_contact_id ?: null;
@@ -730,10 +754,15 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->save();
         $stored = $this->storeSalesFiles($l, $this->eSalesFiles);
 
-        // 2026-10-16 Jin — 「저장」만 눌러도 새 사진이 ERP 로 가야 한다(별도 버튼을 안 누르면 안 가서 두 번 올리게 됐다).
-        //    첨부 전용 재전송(attachmentsOnly) — 금액은 건드리지 않는다. ERP 에 없는 차(미연동)는 보내지 않는다(낙찰 때 같이 간다).
+        // 2026-10-16 Jin — 「저장」만 눌러도 바뀐 금액·새 사진이 ERP 로 가야 한다(별도 버튼을 안 누르면 안 가서 두 번 올리게 됐다).
+        //    금액이 하나라도 바뀌었으면 **금액+첨부 재전송**(ERP 는 빈 칸만 채운다), 금액 변경 없이 사진만 새로 있으면 **첨부 전용**(금액 불변).
+        //    둘 다 없으면 보내지 않는다. ERP 에 없는 차(미연동)는 보내지 않는다(낙찰 때 같이 간다).
         $flash = __('listings.drawer.updated_flash', ['number' => $l->vehicle_number]);
-        if ($stored['stored'] > 0 && $l->car_erp_vehicle_id) {
+        if ($l->car_erp_vehicle_id && $amountChanged !== []) {
+            SyncWonListingToCarErp::dispatch($l->id, resync: true);
+            $labels = array_map(fn ($f) => __('listings.resync.changed_field.'.$f), $amountChanged);
+            $flash .= ' '.__('listings.resync.auto_sent', ['fields' => implode('·', $labels), 'count' => $stored['stored']]);
+        } elseif ($l->car_erp_vehicle_id && $stored['stored'] > 0) {
             SyncWonListingToCarErp::dispatch($l->id, resync: true, attachmentsOnly: true);
             $flash .= ' '.__('listings.attach_add.auto_sent', ['count' => $stored['stored']]);
         }

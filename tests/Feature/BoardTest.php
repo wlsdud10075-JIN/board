@@ -3996,6 +3996,42 @@ class BoardTest extends TestCase
         Http::assertSent(fn ($req) => ($b = json_decode($req->body(), true)) && (float) $b['transport_fee'] === 1800.0 && (float) $b['sale_price'] === 5700.0);
     }
 
+    /** 「저장」 — 금액 칸이 하나라도 바뀌면 금액+첨부 재전송, 금액은 그대로인데 사진만 새로 있으면 첨부 전용, 둘 다 없으면 안 보낸다(2026-10-16 Jin). */
+    public function test_listings_drawer_save_sends_changed_amounts_without_separate_button(): void
+    {
+        Storage::fake('public');
+        config(['board.photo_disk' => 'public']);
+        Bus::fake();
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'synced', 'car_erp_vehicle_id' => 385, 'car_cost' => 8700000, 'sale_price' => null, 'offer_currency' => null, 'offer_rate' => null, 'transport_fee' => null]);
+        $this->actingAs($sales);
+
+        // 아무것도 안 바꾸고 저장 → 전송 없음
+        Volt::test('listings.index')->call('openEdit', $l->id)->call('update')->assertHasNoErrors();
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+
+        // 판매가만 적고 통화 없이 저장 → 세트 검증 에러(버튼과 같은 규칙), 전송 없음
+        Volt::test('listings.index')->call('openEdit', $l->id)->set('e_sale_price', '5700')->call('update')->assertHasErrors('e_sale_currency');
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+
+        // 판매가·통화·환율 + 운임비 + 사진 1장 → 금액+첨부 재전송(attachmentsOnly 아님)
+        Volt::test('listings.index')->call('openEdit', $l->id)
+            ->set('e_sale_price', '5700')->set('e_sale_currency', 'EUR')->set('e_sale_rate', '1487')->set('e_transport_fee', '1800')
+            ->set('eSalesFiles', [UploadedFile::fake()->image('p1.jpg')])
+            ->call('update')->assertHasNoErrors();
+        $l->refresh();
+        $this->assertSame([5700.0, 'EUR', 1487, 1800.0], [(float) $l->sale_price, $l->offer_currency, (int) $l->offer_rate, (float) $l->transport_fee]);
+        Bus::assertDispatched(SyncWonListingToCarErp::class, fn ($job) => $job->listingId === $l->id && $job->resync && ! $job->attachmentsOnly);
+
+        // 금액 그대로(프리필 값) + 사진만 새로 → 첨부 전용
+        Bus::fake();
+        Volt::test('listings.index')->call('openEdit', $l->id)
+            ->set('eSalesFiles', [UploadedFile::fake()->image('p2.jpg')])
+            ->call('update')->assertHasNoErrors();
+        Bus::assertDispatched(SyncWonListingToCarErp::class, fn ($job) => $job->attachmentsOnly);
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class, fn ($job) => ! $job->attachmentsOnly);
+    }
+
     /**
      * 매입예정 드로어 「저장」 — 새 사진이 있고 ERP 연동 차면 **첨부 전용 재전송을 자동으로** 보낸다(별도 버튼 불필요, 2026-10-16 Jin).
      * 같은 이름의 파일은 건너뛰고 알린다(같은 5장을 두 번 올려 ERP 에 10장이 붙었다).

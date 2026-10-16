@@ -227,11 +227,13 @@ return [
     // Edit drawer
     'resync' => [
         'title' => '💰 Resend the amount',
-        'hint' => 'Amounts only · photos are below',
+        'hint' => 'Saving also sends changed amounts to ERP · this button sends amounts right away',
         'sale_price' => 'Sale price',
         'currency' => 'Currency',
         'rate' => 'FX rate',
         'transport_fee' => 'Freight',
+        'auto_sent' => 'Changed amounts (:fields) and :count attachment(s) sent to ERP.',
+        'changed_field' => ['sale_price' => 'sale price', 'offer_currency' => 'currency', 'offer_rate' => 'rate', 'transport_fee' => 'freight'],
         'btn' => 'Send amount only',
         'not_synced_yet' => 'This vehicle has not been sent to ERP yet. Available after purchase confirmation.',
         'currency_required' => 'Select a currency — without it ERP will not store the sale price.',
