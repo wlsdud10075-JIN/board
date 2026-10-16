@@ -2108,7 +2108,7 @@ class BoardTest extends TestCase
             ->assertDontSee($theirs->vehicle_number)   // 타 영업 격리(SalesmanScope)
             ->call('openDetail', $mine->id)
             ->set('buyer_name', '드라간')
-            ->call('forward')
+            ->set('quoteCurrency', 'KRW')->call('forward')
             ->assertHasNoErrors()
             ->assertSet('detailId', null);             // 전달 후 드로어 닫힘
 
@@ -2129,7 +2129,7 @@ class BoardTest extends TestCase
         // respond.io 미사용 — 바이어명 미입력해도 전달 완료(에러 없음)
         Volt::test('forwarding.index')
             ->call('openDetail', $l->id)
-            ->call('forward')
+            ->set('quoteCurrency', 'KRW')->call('forward')
             ->assertHasNoErrors();
 
         $this->assertSame('awaiting_buyer', $l->fresh()->status);
@@ -2212,7 +2212,7 @@ class BoardTest extends TestCase
         Volt::test('forwarding.index')
             ->call('openDetail', $l->id)
             ->set('e_discount_rate', '20')   // 입력 변경 = 자동 저장
-            ->call('forward')
+            ->set('quoteCurrency', 'KRW')->call('forward')
             ->assertHasNoErrors();
 
         $l->refresh();
@@ -3664,7 +3664,7 @@ class BoardTest extends TestCase
         $this->actingAs($sales);
 
         Volt::test('forwarding.index')
-            ->call('openDetail', $l->id)->set('buyer_name', 'D')->call('forward')->assertHasNoErrors();
+            ->call('openDetail', $l->id)->set('buyer_name', 'D')->set('quoteCurrency', 'KRW')->call('forward')->assertHasNoErrors();
 
         $l->refresh();
         $this->assertSame('awaiting_buyer', $l->status);
@@ -3679,7 +3679,7 @@ class BoardTest extends TestCase
         $this->actingAs($sales);
 
         Volt::test('forwarding.index')
-            ->call('openDetail', $l->id)->set('buyer_name', 'D')->call('forward')->assertHasNoErrors();
+            ->call('openDetail', $l->id)->set('buyer_name', 'D')->set('quoteCurrency', 'KRW')->call('forward')->assertHasNoErrors();
 
         $this->assertSame('manual', $l->fresh()->verdict_channel);   // 자동 불가 → 수동
     }
@@ -3694,7 +3694,7 @@ class BoardTest extends TestCase
 
         // 2번째 자동 차 전달 시도 → (가) 보류 + 알림
         $c = Volt::test('forwarding.index')
-            ->call('openDetail', $b->id)->set('buyer_name', 'D')->call('forward');
+            ->call('openDetail', $b->id)->set('buyer_name', 'D')->set('quoteCurrency', 'KRW')->call('forward');
         $c->assertSet('conflictVehicle', $a->vehicle_number);
         $this->assertSame('inspected', $b->fresh()->status);   // 전달 보류
 
@@ -3815,7 +3815,7 @@ class BoardTest extends TestCase
         $this->actingAs($sales);
 
         Volt::test('forwarding.index')
-            ->call('openDetail', $l->id)->set('buyer_name', 'D')->call('forward')->assertHasNoErrors();
+            ->call('openDetail', $l->id)->set('buyer_name', 'D')->set('quoteCurrency', 'KRW')->call('forward')->assertHasNoErrors();
 
         Bus::assertDispatched(SendOfferToBuyer::class, fn ($j) => $j->listingId === $l->id);
     }
@@ -3898,6 +3898,139 @@ class BoardTest extends TestCase
         $this->assertSame('USD', $l->offer_currency);
         $this->assertSame(1380, $l->offer_rate);          // 통화 변경 → 라이브(폴백) 환율 스냅샷
         $this->assertSame(16063200, $l->final_price);      // totalKrw 재스냅샷(매도비 제외, Model A)
+    }
+
+    /**
+     * 🚨 heymanboard 17두0923(2026-10-16) — 통화를 아무도 안 고른 엔카 차가 `/manage` 로 won 되자 Job 이
+     * `offerAmount()` 의 USD 폴백으로 **판매가 6,571 USD · 1,324 를 지어내** 보냈고(8,700,000 ÷ 1,324), ERP 가 그대로 저장했다.
+     * 전수 12대가 ERP 에서 사람이 고쳤다. 규칙(Jin): 기본 통화 없음 — 안 고른 차는 판매 3종·운임비를 **비워** 보낸다.
+     */
+    public function test_sync_job_sends_empty_sale_fields_when_currency_not_chosen(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'hs']);
+        Http::fake(['*' => Http::response(['vehicle_id' => 385, 'attachments_added' => 0, 'attachments_failed' => 0], 201)]);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'source' => 'encar', 'origin' => 'encar', 'status' => 'won', 'buyer_verdict' => 'none',
+            'car_cost' => 8700000, 'final_price' => 8700000, 'shipping_usd' => 1000,
+            'offer_currency' => null, 'offer_rate' => null, 'sale_price' => null,
+        ]);
+
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        Http::assertSent(function ($req) {
+            $b = json_decode($req->body(), true);
+
+            return $b['sale_price'] === null && $b['sale_currency'] === null
+                && $b['sale_exchange_rate'] === null && $b['transport_fee'] === null
+                && (int) $b['purchase_price_krw'] === 8700000;   // 매입측은 그대로
+        });
+        $this->assertNull($l->fresh()->offerAmount(1324, 1500));   // 모델도 USD 로 지어내지 않는다
+    }
+
+    /** 통화를 고른 차는 종전처럼 파생한다(정상 흐름 회귀 방지) — KRW 첫 선택도 저장돼 KRW 로 나간다. */
+    public function test_sync_job_still_derives_when_currency_chosen(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'hs']);
+        Http::fake(['*' => Http::response(['vehicle_id' => 1], 201)]);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'source' => 'encar', 'origin' => 'encar', 'status' => 'won', 'buyer_verdict' => 'accepted',
+            'car_cost' => 8700000, 'final_price' => 8700000, 'offer_currency' => 'KRW', 'offer_rate' => 1,
+        ]);
+
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        Http::assertSent(fn ($req) => ($b = json_decode($req->body(), true))
+            && $b['sale_currency'] === 'KRW' && (int) $b['sale_exchange_rate'] === 1 && (float) $b['sale_price'] === 8700000.0);
+    }
+
+    /** 전달 화면 — 통화는 기본값 없이 미선택으로 시작하고, 안 고르면 전달이 막힌다. KRW 첫 선택도 저장된다. */
+    public function test_forwarding_requires_explicit_currency_and_persists_first_pick(): void
+    {
+        Bus::fake();
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'inspected', 'car_cost' => 10000000, 'final_price' => 10000000, 'offer_currency' => null]);
+        $this->actingAs($sales);
+
+        $c = Volt::test('forwarding.index')->call('openDetail', $l->id)
+            ->assertSet('quoteCurrency', '')               // 기본 통화 없음
+            ->assertSee(__('forwarding.currency_unset'));
+        $this->assertNull($c->instance()->quoteData());    // 통화 없으면 견적 카드도 없다(원화로 가정해 그리지 않음)
+
+        $c->call('forward')->assertHasErrors('quoteCurrency');
+        $this->assertSame('inspected', $l->fresh()->status);
+
+        $c->call('pickQuoteCurrency', 'KRW')->call('forward')->assertHasNoErrors();
+        $l->refresh();
+        $this->assertSame('awaiting_buyer', $l->status);
+        $this->assertSame('KRW', $l->offer_currency);   // 종전엔 KRW 가 '기본 표시값' 이라 저장되지 않았다
+        $this->assertSame(1, (int) $l->offer_rate);
+    }
+
+    /** 구매확정 드로어 — 비-셀프 출처도 미선택으로 시작하고, 안 골라도 확정은 막지 않는다(판매 필드는 비워 전송). */
+    public function test_auction_drawer_starts_with_no_currency_for_all_origins(): void
+    {
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['source' => 'encar', 'origin' => 'encar', 'status' => 'accepted', 'buyer_verdict' => 'accepted', 'offer_currency' => null]);
+        $this->actingAs($sales);
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->assertSet('quoteCurrency', '')
+            ->assertSet('offer_rate', null);
+    }
+
+    /** 매입예정 드로어 「금액 다시 보내기」 — 운임비 칸(ERP fill-if-empty). 판매가 없이 운임비만도 보낸다. */
+    public function test_listings_drawer_resend_carries_transport_fee(): void
+    {
+        $sales = $this->mkUser('sales');
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'hs']);
+        Http::fake(['*' => Http::response(['vehicle_id' => 385, 'fields_filled' => ['transport_fee'], 'fields_skipped' => []], 200)]);
+        $l = $this->mkListing($sales, ['status' => 'synced', 'car_erp_vehicle_id' => 385, 'car_cost' => 8700000, 'offer_currency' => 'EUR', 'offer_rate' => 1487, 'sale_price' => 5700]);
+        $this->actingAs($sales);
+
+        Volt::test('listings.index')->call('openEdit', $l->id)
+            ->assertSee(__('listings.resync.transport_fee'))
+            ->set('e_transport_fee', '1,800')
+            ->call('resendToErp')->assertHasNoErrors();
+
+        $this->assertSame(1800.0, (float) $l->fresh()->transport_fee);
+        Http::assertSent(fn ($req) => ($b = json_decode($req->body(), true)) && (float) $b['transport_fee'] === 1800.0 && (float) $b['sale_price'] === 5700.0);
+    }
+
+    /**
+     * 매입예정 드로어 「저장」 — 새 사진이 있고 ERP 연동 차면 **첨부 전용 재전송을 자동으로** 보낸다(별도 버튼 불필요, 2026-10-16 Jin).
+     * 같은 이름의 파일은 건너뛰고 알린다(같은 5장을 두 번 올려 ERP 에 10장이 붙었다).
+     */
+    public function test_listings_drawer_save_sends_new_attachments_and_skips_duplicates(): void
+    {
+        Storage::fake('public');
+        config(['board.photo_disk' => 'public']);
+        Bus::fake();
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'synced', 'car_erp_vehicle_id' => 385, 'car_cost' => 8700000]);
+        $this->actingAs($sales);
+        $before = $l->salesAttachments()->count();   // 픽스처가 첨부를 심어 둘 수 있어 상대 개수로 본다
+
+        Volt::test('listings.index')->call('openEdit', $l->id)
+            ->set('eSalesFiles', [UploadedFile::fake()->image('a.jpg'), UploadedFile::fake()->image('b.jpg')])
+            ->call('update')->assertHasNoErrors();
+
+        $this->assertSame($before + 2, $l->salesAttachments()->count());
+        Bus::assertDispatched(SyncWonListingToCarErp::class, fn ($job) => $job->listingId === $l->id && $job->resync && $job->attachmentsOnly);
+
+        // 같은 이름 다시 올리면 저장도, 전송도 없다 — 「사진 추가」 버튼 경로는 건너뛴 이름을 에러로 알린다
+        Bus::fake();
+        Volt::test('listings.index')->call('openEdit', $l->id)
+            ->set('eSalesFiles', [UploadedFile::fake()->image('a.jpg')])
+            ->call('addAttachments')->assertHasErrors('eSalesFiles');
+        $this->assertSame($before + 2, $l->salesAttachments()->count());
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+
+        // 「저장」 경로도 같은 이름은 건너뛴다(전송 없음)
+        Volt::test('listings.index')->call('openEdit', $l->id)
+            ->set('eSalesFiles', [UploadedFile::fake()->image('b.jpg')])
+            ->call('update')->assertHasNoErrors();
+        $this->assertSame($before + 2, $l->salesAttachments()->count());
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
     }
 
     public function test_forwarding_quote_card_amounts_are_consistent(): void
@@ -3984,7 +4117,7 @@ class BoardTest extends TestCase
 
         Volt::test('forwarding.index')
             ->call('openDetail', $l->id)
-            ->call('forward')
+            ->set('quoteCurrency', 'KRW')->call('forward')
             ->assertHasNoErrors();
 
         $this->assertSame('awaiting_buyer', $l->fresh()->status);

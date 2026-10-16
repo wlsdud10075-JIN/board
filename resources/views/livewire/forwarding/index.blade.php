@@ -97,8 +97,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->buyer_name = $l->buyer_name ?? '';
         $this->forceManual = false;
         $this->conflictVehicle = null;
-        // 이미 통화 정한 딜(예: EUR 바이어)은 그 통화로 표시, 안 정했으면 KRW. 표시만 — 저장 ❌.
-        $this->quoteCurrency = $l->offer_currency ?: 'KRW';
+        // 이미 통화 정한 딜(예: EUR 바이어)은 그 통화로 표시, 안 정했으면 **미선택**(2026-10-16 Jin — 기본 통화 없음).
+        // 종전 'KRW' 기본은 저장되지 않는 표시값이어서 offer_currency 가 null 로 남고, Job 이 그걸 USD 로 지어냈다.
+        $this->quoteCurrency = $l->offer_currency ?: '';
         // 금액 수정칸 채우기(재견적·조정용)
         $this->e_car_cost = $l->car_cost !== null ? (string) $l->car_cost : null;
         $this->e_discount_rate = $l->discount_rate !== null ? (string) $l->discount_rate : null;
@@ -154,7 +155,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->sale_discount_amount = ($this->e_sale_discount === null || $this->e_sale_discount === '') ? null : (int) $this->e_sale_discount;
         $l->shipping_usd = $this->e_shipping_usd ?: null;
         // 견적통화 변경 시에만 offer_currency/offer_rate 재스냅(불변이면 보존 = EUR 딜 안전).
-        if ($this->quoteCurrency !== ($l->offer_currency ?: 'KRW')) {
+        // ⚠️ 첫 선택(KRW 포함)도 변경이다 — 비교 기준을 '' 로 두지 않으면 KRW 첫 선택이 저장되지 않는다(2026-10-16).
+        if ($this->quoteCurrency !== '' && $this->quoteCurrency !== ($l->offer_currency ?? '')) {
             $l->offer_currency = $this->quoteCurrency;
             $l->offer_rate = match ($this->quoteCurrency) {
                 'USD' => $this->usdRate(),
@@ -226,6 +228,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
 
         $cur = $this->quoteCurrency;
+        if ($cur === '') {
+            return null;   // 통화 미선택 → 카드 없음(원화로 가정해 그리지 않는다)
+        }
         $rate = max(1, match ($cur) { 'USD' => $this->usdRate(), 'EUR' => $this->eurRate(), default => 1 });
         $total = (int) round($w['total'] / $rate);
         $car = (int) round($w['car'] / $rate);
@@ -304,6 +309,13 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function forward(): void
     {
         $this->validate(['buyer_name' => 'nullable|string|max:100'], attributes: ['buyer_name' => __('forwarding.attr_buyer_name')]);
+
+        // 바이어에게 금액이 나가는 유일한 자리 — 통화는 사람이 골라야 한다(2026-10-16 Jin, 기본 통화 없음). KRW 도 선택이다.
+        if ($this->quoteCurrency === '') {
+            $this->addError('quoteCurrency', __('forwarding.err_currency_required'));
+
+            return;
+        }
 
         // 미적용 금액/통화 입력을 먼저 커밋(전달=명시 액션) → 바이어에게 화면에 보인 값이 나감.
         if ($this->amountDirty) {
@@ -487,8 +499,12 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <p class="mt-1 text-[11px] text-gray-400">{{ __('forwarding.applied_note') }}</p>
                 @endif
 
-                {{-- 견적 통화 + 카드 미리보기 (바이어에게 보낼 값). 선택=미리보기만, [적용]에서 offer_currency 확정. --}}
-                <div class="section-title-sm">{{ __('forwarding.quote_section') }}</div>
+                {{-- 견적 통화 + 카드 미리보기 (바이어에게 보낼 값). 선택=미리보기만, [적용]에서 offer_currency 확정.
+                     기본 선택 없음(2026-10-16 Jin) — 아무 버튼도 켜져 있지 않으면 아직 안 고른 것. 전달 시 필수. --}}
+                <div class="section-title-sm">{{ __('forwarding.quote_section') }}
+                    @if ($quoteCurrency === '')<span class="ml-1 text-[11px] font-semibold text-amber-600">{{ __('forwarding.currency_unset') }}</span>@endif
+                </div>
+                @error('quoteCurrency') <p class="mb-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 <div class="inline-flex overflow-hidden rounded-md border border-gray-300 text-xs">
                     @foreach (['KRW' => '₩', 'USD' => '$', 'EUR' => '€'] as $cur => $sym)
                         <button type="button" wire:click="pickQuoteCurrency('{{ $cur }}')"

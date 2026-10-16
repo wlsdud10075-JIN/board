@@ -19,7 +19,7 @@ use Illuminate\Queue\SerializesModels;
  * 트리거: 현지확인 "바이어 전달" 시 dispatch(afterCommit).
  * 가드: respond_contact_id 있어야 + respond.io 설정돼야(안전밸브 미설정 no-op).
  * 개인정보(§28): share_to_buyer=true 사진만 전송(외관만, 서류/번호판 제외).
- * 금액: 현지확인에서 확정한 offer_currency(USD/EUR/KRW)로 환산해 전송(미설정 시 USD 폴백).
+ * 금액: 현지확인에서 확정한 offer_currency(USD/EUR/KRW)로 환산해 전송. 통화 미선택이면 금액 없이 사진만(2026-10-16 — USD 폴백 폐지).
  */
 class SendOfferToBuyer implements ShouldQueue
 {

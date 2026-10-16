@@ -114,6 +114,10 @@ class SyncWonListingToCarErp implements ShouldQueue
             $saleCurrency = $l->offer_currency ?: 'KRW';
             $saleRate = (int) ($l->offer_rate ?: 1);
         } else {
+            // 🚨 `offerAmount()` 는 통화를 **고른 차만** 준다(2026-10-16) — 안 고른 차는 null → 아래 파생식도 null →
+            //    판매 3종을 **비워 보낸다**(ERP 판매탭 빈 채 생성 → 영업이 드로어에서 채우면 fill-if-empty 가 받는다).
+            //    종전엔 USD 폴백으로 판매가를 지어내 보냈고, ERP 는 한 번 받은 값을 board 가 못 고치게 돼 있어
+            //    전수 12대를 ERP 에서 사람이 고쳐야 했다(17두0923 외).
             $offer = $l->offerAmount($usdR, $eurR);         // 판매 통화/환율(현지확인 확정)
             $saleCurrency = $offer['currency'] ?? null;
             $saleRate = $offer['rate'] ?? null;

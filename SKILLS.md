@@ -814,3 +814,30 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
 - `permission` 은 **ENUM** 이라 값 추가 = 마이그(`->enum([...])->change()`, MySQL `MODIFY`/sqlite 테이블 재생성 둘 다 통과). down 은 manager 를 user 로 내린 뒤 좁힌다.
 - ⚠️ 영업 role 에 업무관리자를 얹으면 **본인 격리가 풀린다**(SalesmanScope 바이패스) — 의도된 동작(메뉴가 전체인데 목록만 본인 것이면 어긋남). 포털은 그대로 **본인 ERP 매핑**으로만 조회(대리실행 불가).
 - 가드 = `test_work_manager_accesses_all_views_and_audit_but_not_settings` · `test_work_manager_with_sales_role_sees_all_listings` · `test_work_manager_cannot_impersonate_in_portal` · `test_work_manager_cannot_grant_permissions_or_touch_super` · `test_super_grants_work_manager_tier` · `test_sidebar_shows_audit_but_not_settings_to_work_manager`. 기존 관리 role 테스트는 전부 그대로 통과(등급이 `isManager()` 로 새지 않았다는 확인).
+
+
+### 14-23. 판매가를 지어내지 않는다 — 기본 통화 없음 (2026-10-16 Jin, heymanboard 17두0923 전수 조사)
+
+**사고**: 조하 님이 엔카 차를 등록(판매 필드 없음) → 시스템관리자 계정이 `/manage` 에서 draft→won → 자동 전송이 **판매가 6,571 USD · 환율 1,324 를 지어내** 보냄
+(= 차값 8,700,000 ÷ 당일 USD 환율). ERP 는 그대로 저장. 5분 뒤 조하 님이 드로어에서 5,700 EUR · 1,487 을 보냈지만 ERP 는 `already_set` 으로 통화·환율까지 전부 무시.
+Jin 이 ERP 에서 수기 정정. **전수 조사 = heymanboard 74대 중 12대**(엔카·싼카체킹 전부)가 같은 식으로 지어낸 값이 들어가 ERP 에서 사람이 고쳤다. 셀프검차는 적은 값
+그대로라 전부 정상. ssancarboard 는 won/synced 0건.
+
+- **원인 두 겹**: ① `PurchaseListing::offerAmount()` 가 `offer_currency ?: 'USD'` 폴백 + 환율 없으면 당일 스냅샷 → Job 이 `final_price ÷ 환율` 로 판매가 파생.
+  `/forwarding`·`/auction` 은 통화 기본 표시값 'KRW' 를 **저장하지 않아**(바뀐 경우에만 저장) 정상 흐름에서도 `offer_currency` 가 null 로 남는 차가 많았다 → USD 로 지어냄.
+  ② ERP 는 한 번 받은 판매가를 board 가 못 고친다(fill-if-empty, 원장 원칙). 그래서 지어낸 값이 들어가면 board 에서 되돌릴 길이 없다.
+- **규칙(Jin)**: 🚫 **기본 통화 없음.** 통화는 사람이 고른 것만 쓴다. `offerAmount()` 는 `offer_currency` 없으면 **null**(파생 없음) → Job 은 판매 3종·운임비를 **비워 보낸다**
+  → ERP 판매탭이 빈 채 생기고, 나중에 드로어에서 보낸 값을 fill-if-empty 가 받는다(정정 불가 문제도 같이 해소).
+  - `/forwarding`: `quoteCurrency` 미선택('')으로 시작, 토글 아무것도 안 켜짐 + 「통화 미선택」 라벨. 통화 없으면 견적 카드도 안 그린다(원화로 가정하지 않음).
+    **전달(forward) 시 통화 필수**(`forwarding.err_currency_required`) — 바이어에게 금액이 나가는 유일한 자리. KRW 도 선택이다. 첫 선택(KRW 포함)이 저장되도록 비교 기준을 `''` 로.
+  - `/auction` 드로어: **전 출처** 미선택 시작(종전 셀프검차만). 비-셀프는 안 골라도 확정을 막지 않는다(Jin — 원화 거래도 있어 애매) → 판매 필드 비워 전송.
+  - `offerDisplay()` 는 통화 미확정이면 저장된 `final_price` 를 원화로 그대로(파생 아님). `offerBreakdown()` null → 바이어 공개 페이지 「가격 협의중」. `SendOfferToBuyer` 는 금액 없이 사진만.
+- **매입예정 드로어 「금액 다시 보내기」에 운임비 칸** — ERP `fillEmptyFields` 가 `transport_fee` 를 받는다(비어 있을 때만). 판매가 없이 운임비만도 보낸다. 매도비는 ERP 가 재전송에서 안 받는다(§14-18).
+- **「저장」이 새 사진을 보낸다** — 종전엔 `update()` 가 파일을 저장만 하고 「📷 사진·서류 추가」 버튼만 전송해, 저장 후 다시 올려 **ERP 에 10장**이 붙었다.
+  이제 ERP 연동 차에 새 첨부가 있으면 `attachmentsOnly` 재전송을 자동 발사(금액 불변). 미연동 차는 안 보낸다(낙찰 때 같이 간다).
+- **같은 이름 파일은 건너뛴다**(`storeSalesFiles` → `{stored, skipped}`): ERP 는 경로 기준 중복제거라 board 가 두 번 저장하면 두 번 붙는다. 판정은 **원본 파일명만**(크기 컬럼 없음) —
+  다른 사진이 같은 이름이면 걸린다는 한계. 건너뛴 이름은 플래시/에러로 알린다.
+- ⚠️ 보류(Jin): `/manage` override 로 판매 필드 빈 채 won 보낼 때 경고/차단 — 원화 거래 등 애매해 안 함. ERP 가 「board 자동 전송 값은 board 재전송이 덮어쓰게」 허용하는 안도 미결.
+- 미해결 데이터: **244보9276** = ERP 통화 EUR 인데 환율 1334(USD 환율 그대로) — 원화 환산 오류 가능, Jin 확인 필요. 17두0923 첫 5장 사진이 ERP 에서 사라진 경위(ERP 사진 삭제는 감사기록 없음).
+- 가드 = `test_sync_job_sends_empty_sale_fields_when_currency_not_chosen`(17두0923) · `test_sync_job_still_derives_when_currency_chosen` · `test_forwarding_requires_explicit_currency_and_persists_first_pick`
+  · `test_auction_drawer_starts_with_no_currency_for_all_origins` · `test_listings_drawer_resend_carries_transport_fee` · `test_listings_drawer_save_sends_new_attachments_and_skips_duplicates`.
