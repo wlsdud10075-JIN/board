@@ -63,7 +63,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public int $invTotal = 0;
 
-    /** shipped_out 만 누적된다 → 끊어 받는다. 나머지 3분류는 유한(영업당 20~50대)이라 전량. */
+    /** 출고완료·거래완료만 누적된다 → 끊어 받는다(INV_PAGED). 나머지 3분류는 유한(영업당 20~50대)이라 전량. */
     public const INV_PAGE = 30;
 
     public int $invLimit = self::INV_PAGE;
@@ -94,7 +94,15 @@ new #[Layout('components.layouts.app')] class extends Component {
     private const TABS = ['finance', 'receivables', 'inventory', 'sales', 'settlements', 'shipping'];
 
     /** 재고 4분류 — ERP `erp/inventory` 와 **같은 이름·같은 정의**. board 가 새로 만들지 않는다. */
-    private const INV_CATEGORIES = ['awaiting_payment', 'general', 'pre_ship', 'shipped_out'];
+    private const INV_CATEGORIES = ['awaiting_payment', 'general', 'pre_ship', 'shipped_out', 'completed'];
+
+    /**
+     * 거래완료(completed) 분리(2026-10-20 Jin B안) — 출고완료가 거래완료 252/256대(heymanerp)로 덮여 움직이는 차가 묻혔다.
+     * 정의는 ERP 가 갖는다: completed = 거래완료 AND 운항중 아님 / shipped_out = 출고일 있음 AND completed 아님
+     * (= 거래완료여도 **배 위면 출고완료에 남는다**). 둘 다 누적·ERP 가 잘라 주는 목록이라 board 에서 거르면 [더 보기]가 어긋난다.
+     * ⚠️ ERP 가 completed 를 모르면 422 → 탭이 degrade 배너로 뜬다. 배포 순서 = ERP 먼저.
+     */
+    public const INV_PAGED = ['shipped_out', 'completed'];
 
     /**
      * 월별 집계 — 날짜 있는 리스트(판매/정산/매입)에서 YYYY-MM 별 집계.
@@ -388,7 +396,7 @@ new #[Layout('components.layouts.app')] class extends Component {
      */
     private function loadInventory(string $email, CarErpReadService $svc): array
     {
-        $paged = $this->invCategory === 'shipped_out';
+        $paged = in_array($this->invCategory, self::INV_PAGED, true);
         $env = $svc->inventory($email, $this->invCategory, $this->invSearch, $paged ? $this->invLimit : null);
 
         $rows = ($env['ok'] ?? false) ? (array) data_get($env['data'], 'data', []) : [];
@@ -417,7 +425,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function hasMoreInventory(): bool
     {
-        return $this->invCategory === 'shipped_out' && count($this->invRows) < $this->invTotal;
+        return in_array($this->invCategory, self::INV_PAGED, true) && count($this->invRows) < $this->invTotal;
     }
 
     /** §12 운항 필터 토글 — wire:model 이 아니라 메서드다(updated() 가 안 잡아 재조회가 조용히 빠진다). */
@@ -2035,7 +2043,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             @endif
 
             <div class="mb-2 flex flex-wrap items-center gap-1.5">
-                @foreach (['awaiting_payment', 'general', 'pre_ship', 'shipped_out'] as $c)
+                @foreach (['awaiting_payment', 'general', 'pre_ship', 'shipped_out', 'completed'] as $c)
                     <button type="button" wire:click="setInvCategory('{{ $c }}')"
                         class="rounded-md border px-3 py-1.5 text-[13px] font-semibold {{ $invCategory === $c ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">{{ __('portal.inv_cat_'.$c) }}</button>
                 @endforeach
@@ -2045,7 +2053,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             <p class="mb-3 text-[11px] text-gray-400">{{ __('portal.inv_hint_'.$invCategory) }}</p>
 
             @php
-                $shipped = $invCategory === 'shipped_out';
+                $shipped = in_array($invCategory, $this::INV_PAGED, true);
                 $dateLabel = $shipped ? __('portal.col_warehouse_out') : __('portal.col_warehouse_in');
                 $dateKey = $shipped ? 'warehouse_out_date' : 'warehouse_in_date';
             @endphp

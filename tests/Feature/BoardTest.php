@@ -5308,6 +5308,30 @@ class BoardTest extends TestCase
         $this->assertSame(['11가0009', '11가0059', '11가0061'], array_column($c->get('invRows'), 'vehicle_number'));
     }
 
+    /**
+     * 거래완료 탭(2026-10-20 Jin B안) — 출고완료가 거래완료로 덮여 움직이는 차가 묻혔다. 정의는 ERP 가 갖고(category=completed),
+     * board 는 출고완료와 똑같이 잘라 받는다(누적 집합). 출고일 칸·운항 칩도 출고완료와 같다.
+     */
+    public function test_completed_tab_is_its_own_paged_erp_category(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'inv@ce.test']);
+        $this->actingAs($sales);
+        Http::fake(['*' => Http::response(['count' => 1, 'total' => 47, 'data' => [
+            ['vehicle_id' => 9, 'vehicle_number' => '12가3456', 'progress_status' => '거래완료', 'warehouse_out_date' => '2026-09-20', 'warehouse_in_date' => '2026-08-01'],
+        ]], 200)]);
+
+        $c = Volt::test('portal.index')->call('setTab', 'inventory')->call('setInvCategory', 'completed');
+        $c->assertSet('invCategory', 'completed')
+            ->assertSee(__('portal.inv_cat_completed'))
+            ->assertSee(__('portal.inv_hint_completed'))
+            ->assertSee(__('portal.col_warehouse_out'))
+            ->assertSee('2026-09-20');
+        Http::assertSent(fn ($req) => str_contains($req->url(), 'category=completed') && str_contains($req->url(), 'limit=30'));
+        $this->assertTrue($c->instance()->hasMoreInventory());
+    }
+
     /** 출고완료만 영원히 누적된다 → 탭을 열었다고 전량을 부르면 안 된다. */
     public function test_shipped_out_is_paged_but_stock_is_not(): void
     {
