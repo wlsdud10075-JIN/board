@@ -290,6 +290,8 @@ return [
     'inv_more' => 'Load more (:shown/:total)',
     'col_progress' => 'Progress',
     'col_location' => 'Location',
+    'col_warehouse_in' => 'Warehouse in',
+    'col_warehouse_out' => 'Warehouse out',
     'hide_done_sales' => 'Hide completed deals',
     'buyer_search_ph' => 'Search buyer',
     'buyer_search_empty' => 'No buyer matches your search.',
