@@ -290,6 +290,8 @@ return [
     'inv_more' => '더 보기 (:shown/:total)',
     'col_progress' => '진행상태',
     'col_location' => '보관위치',
+    'col_warehouse_in' => '입고일',
+    'col_warehouse_out' => '출고일',
     'hide_done_sales' => '거래완료 숨기기',
     'buyer_search_ph' => '바이어 검색',
     'buyer_search_empty' => '검색과 일치하는 바이어가 없습니다.',

@@ -148,7 +148,8 @@ input, textarea, select { color: #1f2937; background-color: #ffffff; }
 
 /* ── 테이블 ── */
 .tbl { width:100%; border-collapse:collapse; font-size:13px; }
-.tbl th { text-align:left; font-size:11px; color:#6b7280; font-weight:700; text-transform:uppercase; padding:9px 10px; border-bottom:1px solid #e5e7eb; }
+.tbl th { text-align:left; font-size:11px; color:#6b7280; font-weight:700; text-transform:uppercase; padding:9px 10px; border-bottom:1px solid #e5e7eb; word-break:keep-all; }
+/* th word-break:keep-all — 열 데이터가 전부 「—」면 열 폭이 한 글자가 돼 한글 헤더(보관위치)가 글자마다 세로로 끊겼다(2026-10-20). 공백에서는 여전히 줄바꿈된다. */
 .tbl td { padding:11px 10px; border-bottom:1px solid #f1f5f9; vertical-align:middle; }
 .tbl tr:last-child td { border-bottom:0; }
 /* 가운데 정렬 표 — 매입예정 목록(Jin 2026-10-13). 칸이 많고 칩·숫자 위주라 중앙이 읽기 쉽다. */

@@ -7030,6 +7030,50 @@ class BoardTest extends TestCase
         }
     }
 
+    /**
+     * 뷰·앱 코드가 리터럴로 부르는 모든 lang 키는 ko·en 양쪽 파일에 있어야 한다.
+     * 재고 탭 「입고일/출고일」 헤더가 2026-08-09 부터 두 달 넘게 `portal.col_warehouse_in` 원문으로 떠 있었다 —
+     * 키가 양쪽 다 없으면 fallback 도 못 받아 키 이름이 그대로 화면에 찍힌다. 접두만 쓰는 동적 키(`inv_cat_`.$c)는 제외.
+     */
+    public function test_every_literal_lang_key_used_in_code_exists_in_both_locales(): void
+    {
+        $files = array_merge(
+            iterator_to_array(new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(resource_path('views')))),
+            iterator_to_array(new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(app_path()))),
+        );
+        $used = [];
+        foreach ($files as $file) {
+            if (! $file->isFile() || ! in_array($file->getExtension(), ['php'], true)) {
+                continue;
+            }
+            preg_match_all("/__\(\s*'([a-z_]+)\.([a-z0-9_]+)'/", (string) file_get_contents($file->getPathname()), $m);
+            foreach ($m[1] as $i => $group) {
+                $key = $m[2][$i];
+                if (str_ends_with($key, '_')) {
+                    continue; // 동적 접두 — 뒤에 변수가 붙는다
+                }
+                $used[$group.'.'.$key] = true;
+            }
+        }
+        $this->assertNotEmpty($used);
+
+        $missing = [];
+        foreach (array_keys($used) as $full) {
+            [$group] = explode('.', $full, 2);
+            foreach (['ko', 'en'] as $locale) {
+                if (! is_file(lang_path("{$locale}/{$group}.php"))) {
+                    continue 2; // 그 그룹 파일 자체가 없으면(예: Laravel 기본 auth 키) 이 테스트의 대상이 아니다
+                }
+                if ((string) __($full, [], $locale) === $full) {
+                    $missing[] = "{$locale}: {$full}";
+                }
+            }
+        }
+        $this->assertSame([], $missing, '화면에 키 이름이 그대로 찍힌다:
+'.implode('
+', $missing));
+    }
+
     // ── 요약 탭 「진행 중 정산」 — 아직 안 받은 것 (2026-08-31) ──
 
     /**
