@@ -315,4 +315,5 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
   - ⚠️ **리터럴 타입** = `sales_contract`·`invoice`(method 접두 금지 — 붙이면 화이트리스트 밖 이름이라 403). 선적 4종만 `roro_`/`container_` 접두.
   - ⚠️ 서류 **버튼 이름은 car-erp `vehicle.shipdoc.*` 그대로** 쓴다(Jin 2026-08-01). board 에서 새로 지으면 "ERP엔 그런 서류 없다" 가 된다 — 이름 핀 테스트가 지킨다.
   - 남은 확인(car-erp 제기) = **ERP 로그인 계정 없이 salesmen 명부에만 있는 영업**도 board 로 여권 든 서류를 받게 된다. 실재 여부는 운영 DB 2개 대조 필요(쿼리는 인계문서에).
+- **§11 요청(계약금·매입잔금) 취소 X 버튼**: 🅿️ **보류**(2026-10-20 Jin). 기술 장벽 없음 — ERP `POST /requests/{batch_id}/cancel` 이 이미 살아 있고(car-erp `routes/api.php:77`, open 라인만 cancelled + 종 알람 resolve) board 는 `chipMap` 에 `batch_id` 한 칸 + X·확인 모달이면 된다(반나절). 보류 이유 = **이미 나간 알림톡은 못 거둔다**(ERP cancel 은 취소 알림톡을 안 보냄) → 취소는 받은 사람에게 **직접 말하는 것**으로 운영. 재개하려면 ERP 취소 알림톡 여부부터 결정. 당초 안 만든 경위 = `meetings/handoff-carerp-board-requests.md:90`(§11-3 선택 구현·§11-4 여섯 항목 밖).
 - (저우선) TimeGate **관리자 전역 해제 UI**(현재 등록잠금만; 편집은 이미 우회) · 퇴사자 계정 양쪽 동시정지 절차 **문서화**.
