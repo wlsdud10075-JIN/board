@@ -2056,21 +2056,23 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 $unpaid = data_get($row, 'purchase_unpaid');
                             @endphp
                             <tr wire:key="inv-{{ data_get($row, 'vehicle_id') }}">
-                                <td class="whitespace-nowrap font-semibold text-gray-700">
-                                    {{ data_get($row, 'vehicle_number') ?: '—' }}
+                                {{-- PC 폭 맞춤(2026-10-20 Jin): 칸마다 nowrap 을 걸면 칩 3개·VIN 메타·버튼 줄이 한 줄로 굳어 표가 화면을
+                                     넘치고, 칩 없는 행은 그 폭만큼 비어 보인다. 원자값(차량번호·칩·날짜·금액)만 nowrap, 나머지는 접히게. --}}
+                                <td class="font-semibold text-gray-700">
+                                    <span class="whitespace-nowrap">{{ data_get($row, 'vehicle_number') ?: '—' }}</span>
                                     @include('livewire.portal._vehicle-meta')
                                 </td>
-                                <td class="whitespace-nowrap">
+                                <td>
                                     @include('livewire.portal._progress-badge', ['status' => data_get($row, 'progress_status')])
                                     {{-- 재고에는 운항 필터가 없다(ERP 미제공) — 칩만. 출고 전 3분류는 대개 null 이라 안 보인다. --}}
                                     @include('livewire.portal._sailing-chip', ['sailingDetail' => true])
                                 </td>
-                                <td class="whitespace-nowrap text-gray-700">{{ $loc ?: '—' }}@if ($note)<span class="ml-1 text-[11px] text-gray-400">{{ $note }}</span>@endif</td>
+                                <td class="text-gray-700">{{ $loc ?: '—' }}@if ($note)<span class="ml-1 text-[11px] text-gray-400">{{ $note }}</span>@endif</td>
                                 <td class="whitespace-nowrap text-gray-700">{{ data_get($row, $dateKey) ?: '—' }}</td>
-                                <td class="whitespace-nowrap text-gray-700">{{ data_get($row, 'buyer') ?: '—' }}</td>
+                                <td class="text-gray-700">{{ data_get($row, 'buyer') ?: '—' }}</td>
                                 <td class="whitespace-nowrap text-gray-700">{{ is_numeric($p = data_get($row, 'purchase_price')) ? number_format((float) $p) : '—' }}</td>
                                 <td class="whitespace-nowrap {{ is_numeric($unpaid) && (float) $unpaid > 0 ? 'font-semibold text-red-600' : 'text-gray-400' }}">{{ is_numeric($unpaid) ? number_format((float) $unpaid) : '—' }}</td>
-                                <td class="whitespace-nowrap text-right">@include('livewire.portal._request-purchase-action')</td>
+                                <td class="min-w-[15rem] text-right">@include('livewire.portal._request-purchase-action')</td>
                             </tr>
                         @empty
                             <tr><td colspan="8" class="py-8 text-center text-gray-400">{{ __('portal.inv_empty') }}</td></tr>
