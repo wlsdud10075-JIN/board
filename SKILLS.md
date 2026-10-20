@@ -271,6 +271,10 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 - **재고 4분류** = `awaiting_payment`(지급대기) · `general`(일반재고) · `pre_ship`(선적전) · `shipped_out`(출고완료). car-erp `erp/inventory` 와 **같은 이름·같은 정의**(board 가 분류를 발명하지 않는다). 엔드포인트 = `GET /api/internal/board/inventory?category=…`.
   - **기본 탭 = 지급대기** — [입금요청] 대상이 그 집합이기 때문(§11-16 참조).
   - **`shipped_out` 만 영원히 누적** → 기본 30건 + `[더 보기]`(limit 증가, offset 아님 — 중복·누락 없이 다시 받음). 나머지 3분류는 유한(영업당 20~50대)이라 전량.
+  - **5번째 탭 `completed`(거래완료)**(2026-10-20 배포, board `78264d0` ↔ car-erp `a142073e`, Jin B안) — 출고완료가 거래완료로 덮여(heymanerp 252/256) 움직이는 차가 묻혔다. **정의는 ERP 가 갖는다**: completed = 거래완료 AND 운항중 아님 AND 매입취소 아님(출고일 무관) / `shipped_out` = 출고일 있음 AND completed 아님. ⇒ **배 위에 있는 차는 거래완료여도 출고완료에 남는다**(운항중이 한 탭에 모이게 — Jin). 둘 다 누적 목록이라 `INV_PAGED` 로 같이 잘라 받는다.
+    - 🚫 board 에서 거르지 말 것 — ERP 가 30건씩 잘라 주는 목록이라 받은 뒤 걸러 내면 [더 보기]가 어긋난다. 분류를 바꾸려면 ERP `scope` 를 고친다.
+    - 🚦 배포 순서 = **ERP → board 바로 연달아**. ERP 만 나가면 도착한 거래완료 차가 출고완료에서 빠지는데 받아 줄 탭이 아직 없다(heymanerp ~240대). 반대로 board 만 나가면 거래완료 탭이 422(조회 불가).
+    - ERP 「재고관리」 화면에는 이 탭이 **없다**(Jin 미요청) — 「ERP 와 같은 이름·같은 정의」 원칙의 의도된 예외.
   - **검색은 ERP 로 넘긴다**(`search=`) — 최근 30건만 받아놓고 board 에서 거르면 옛날 차를 영영 못 찾는다.
     - 훑는 칸 **8가지**(2026-08-12 기준) = 차량번호 · 브랜드 · 차종 · 차대번호 · 수출신고번호 · 선박명 · 컨테이너번호 · **바이어명**.
       ⚠️ board placeholder 를 **실제보다 좁게 쓰지 말 것** — 오래 "차량번호·차대번호·선박명"이라 써놔서
@@ -295,8 +299,11 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
   - 바이어 혼합은 **ERP 422 `buyer_mismatch` 가 진짜 보증**이다. board UI(바이어 블록 안에서만 체크)는 실수 방지용 — `toggleReqVehicle` 은 공개 Livewire 액션이라 조작된 호출로는 섞을 수 있다.
 - ⚠️ **"board 화면 필터"는 트래픽을 못 줄인다** — ERP 가 이미 전량을 조회·전송한 뒤 감추는 것뿐이다. **실제로 줄이려면 ERP 쿼리 파라미터**로 보내야 한다. 예: 판매내역 「거래완료 숨기기」는 `exclude_status=거래완료` 로 나가고, ERP 가 `whereNotIn` 으로 거른다. `progress_status_cache` 는 **인덱스가 있는 캐시 컬럼**이라 이 필터가 실제로 행을 줄인다(뱃지 표시 비용도 행당 문자열 하나, 추가 쿼리 0).
 - **진행상태 뱃지 = `progress_status_cache` 그대로**(판매중·판매완료·거래완료·매입중·매입완료·통관중·말소완료…). **추리거나 재명명 금지**(Jin 2026-08-09) — 갈리면 "ERP엔 있는데 board엔 없다"가 된다(§11-13 서류 이름과 같은 사고).
+  - EN 화면만 **ERP 영문판의 이름**(car-erp `lang/en/domain.php` progress·sailing — Completed·Cleared·In transit·Due to arrive)으로 바꿔 보인다(2026-10-20). board 가 영문을 짓지 않는다 — 이름은 ERP 와 같고 번역만 탄다. 키·비교는 한글 원문(§14-24).
 - **칩 조회 실패를 감추지 말 것** — `GET /requests` 가 죽으면 칩이 전부 사라져 "아무것도 요청 안 함"과 똑같이 읽힌다. 탭마다 "상태 조회 불가" 한 줄(`req_chip_unavailable`). 버튼도 같은 원칙 — `vehicle_id` 없는 행은 **버튼을 없애지 말고 비활성 + 사유**.
 - **성능**: 칩은 `chipMap` 으로 **렌더당 1회**만 훑는다(행×묶음×차량 → 1회). 읽기 API 응답은 **정렬이 없다(=id 순)** → `latestFirst()` 로 최신 우선(날짜 desc, 빈 날짜는 맨 뒤).
+- **같은 차·같은 type 에 묶음이 여럿이면 칩 = `requested_at` 이 가장 늦은 묶음**(2026-10-20, heymanboard 34루7841). ⚠️ `/requests` 는 **최신 id 먼저**(`orderByDesc('id')`) 오는데 `chipMap` 이 덮어쓰기라 **가장 오래된 묶음이 이겨** 재요청 「확인됨」 대신 옛 「거절」이 떴다. 응답 순서에 기대지 말고 시각으로 고른다(시각 없으면 먼저 온 것 유지). 가드 = `test_portal_chip_picks_latest_batch_per_type_not_erp_order`.
+- **거절 칩은 접는다** — 「계약금 거절 ⓘ」 한 줄, 누르면 「거절 사유 · 요청 금액」 펼침(PC 는 title 툴팁). 사유 원문 줄을 항상 그리면 행이 두세 줄로 커진다(Jin A안). 요청중·확인됨 칩은 종전대로 금액을 칩에 붙인다.
 
 ### 14-3. 로컬 e2e — board ↔ car-erp 연결 (매번 헷갈리는 지점)
 
@@ -843,3 +850,18 @@ Jin 이 ERP 에서 수기 정정. **전수 조사 = heymanboard 74대 중 12대*
 - 미해결 데이터: **244보9276** = ERP 통화 EUR 인데 환율 1334(USD 환율 그대로) — 원화 환산 오류 가능, Jin 확인 필요. 17두0923 첫 5장 사진이 ERP 에서 사라진 경위(ERP 사진 삭제는 감사기록 없음).
 - 가드 = `test_sync_job_sends_empty_sale_fields_when_currency_not_chosen`(17두0923) · `test_sync_job_still_derives_when_currency_chosen` · `test_forwarding_requires_explicit_currency_and_persists_first_pick`
   · `test_auction_drawer_starts_with_no_currency_for_all_origins` · `test_listings_drawer_resend_carries_transport_fee` · `test_listings_drawer_save_sends_new_attachments_and_skips_duplicates`.
+
+### 14-24. KO/EN 전환 — 무엇을 바꾸고 무엇을 안 바꾸나 (2026-10-20 Jin, master `78264d0`)
+
+**계기**: EN 으로 바꿔도 차량번호가 30나3333 그대로였다. 전수 조사(뷰에서 `__()` 를 안 거친 한글 검색)에서 같은 종류가 더 나왔다.
+
+- **차량번호 = `App\Support\Plate::show()`** — EN 이면 30나3333 → **30NA3333**. 변환표는 car-erp `DocValue::romanizePlate`(수출서류 영문차량번호)와 **같은 32자 + 배** — 서류와 화면이 다른 번호를 보이면 안 된다.
+  - 🔑 **표시 전용.** 저장값·검색·연동 B 매칭키·입력칸(`wire:model`)은 한글 그대로. `romanize()` 결과를 저장하거나 비교에 쓰면 같은 차가 두 번호가 된다.
+  - 번호판 모양(`숫자2~3 + 한글1 + 숫자4`)만 바꾼다 — 「서울12가3456」을 글자 단위로 바꾸면 「SEO울12GA3456」 반쪽 표기가 된다.
+  - 새 화면에서 차량번호를 그릴 때 **반드시 감싼다**(목록·드로어 제목·플래시·`wire:confirm`·종 패널·포털 표). 가드 = `test_vehicle_number_shows_romanized_on_english_screen`.
+  - 바이어 견적 카드(`forwarding` `vehicleRoman`, 375 REO 1924)는 카드 표기라 별개. 바이어 공개 페이지는 무변.
+- **ERP 가 준 한글 값** — 진행상태·운항 라벨은 lang 맵(`portal.progress.*`·`portal.sailing_label.*`, 키 = 한글 원문)으로, **모르는 값은 원문**. 브랜드·차종·보관위치·바이어명·메모는 **데이터라 번역하지 않는다**.
+- **원화 기호 = `Money::symbol()`**(ko 원 / en KRW). `['KRW' => '원']` 리터럴 맵을 뷰에 다시 쓰지 말 것.
+- **JS 알림창 문구도 lang** — `alert(@js(__('…')))`. 스크립트 안 한글은 lang 검사 테스트에 안 잡힌다.
+- **감사 로그 전송 표 = `App\Support\IntegrationEventView`** — 방향·대상·이벤트·응답·요약을 lang(`audit.ev.*`)으로. 숫자 응답 코드·원래 키는 **툴팁에만**. 이벤트별 응답 문구(`resp_by.purchase_sync.201` = 새로 등록 / 200 = 이미 있어 보강) → 없으면 계열별(성공·인증 실패·거절·상대 서버 오류). 계좌 추출(ollama)은 HTTP 가 아니라 결과 상태로 말한다. 새 이벤트를 추가하면 `audit.ev.event.*` 에 이름을 같이 넣는다(안 넣어도 원문으로 뜬다 — 깨지지는 않음). 가드 = `test_audit_transmission_rows_are_plain_language_in_both_locales`.
+- 하드코딩 한글 찾는 법: blade 주석(`{{-- --}}`·`/* */`·`<!-- -->`)과 `__('…')` 를 걷어 낸 뒤 한글이 남는 줄. 남는 정상 예외 = 기능설정 `Setting` 설명(DB 메모)·번호판 변환표·ERP 쿼리 값(`['거래완료']`)·뱃지 비교용 한글 키.
