@@ -21,6 +21,7 @@ use App\Services\RegionInspectionNotifier;
 use App\Services\RespondIoService;
 use App\Services\VerdictService;
 use App\Support\ListingLink;
+use App\Support\Plate;
 use App\Support\Region;
 use App\Support\TimeGate;
 use App\Support\UploadGuard;
@@ -6813,6 +6814,64 @@ class BoardTest extends TestCase
             ->assertSee('Feature Settings', false)
             ->assertSee('Audit Log', false)
             ->assertDontSee('감사 로그', false);
+    }
+
+    /** 번호판 로마자(2026-10-20 Jin) — car-erp DocValue::romanizePlate 와 같은 표. 번호판 모양이 아니면 원문. */
+    public function test_plate_romanizes_only_plate_shaped_numbers(): void
+    {
+        $this->assertSame('30NA3333', Plate::romanize('30나3333'));
+        $this->assertSame('123GEO4567', Plate::romanize('123거4567'));
+        $this->assertSame('62HEO1234', Plate::romanize('62허1234'));
+        $this->assertSame('서울12가3456', Plate::romanize('서울12가3456'));   // 지역명 붙은 옛 번호판은 그대로
+        $this->assertNull(Plate::romanize(null));
+    }
+
+    /** EN 화면에서 차량번호가 로마자로, KO 는 한글 그대로 — 저장값은 한글 유지(표시 전용). */
+    public function test_vehicle_number_shows_romanized_on_english_screen(): void
+    {
+        $this->enableEnglish();
+        $u = $this->mkUser('manager', null, 'super');
+        $l = $this->mkListing($u, ['vehicle_number' => '30나3333']);
+
+        $this->actingAs($u)->get('/manage')->assertSee('30나3333')->assertDontSee('30NA3333');
+
+        $u->update(['locale' => 'en']);
+        $this->actingAs($u->fresh())->get('/manage')->assertSee('30NA3333')->assertDontSee('30나3333');
+        $this->assertSame('30나3333', $l->fresh()->vehicle_number);
+    }
+
+    /**
+     * 감사 로그 전송 표 — 방향/대상·이벤트·응답·내용이 사람 말(2026-10-20 Jin). 숫자 코드·키 이름이 본문에 안 나오고,
+     * EN 으로 바꾸면 같은 칸이 영어가 된다.
+     */
+    public function test_audit_transmission_rows_are_plain_language_in_both_locales(): void
+    {
+        $this->enableEnglish();
+        $u = $this->mkUser('manager', null, 'super');
+        $l = $this->mkListing($u, ['vehicle_number' => '34루7841']);
+        IntegrationEvent::create(['direction' => 'outbound', 'target' => 'car_erp', 'event_type' => 'purchase_sync', 'purchase_listing_id' => $l->id,
+            'response_status' => 201, 'response_body' => '{"vehicle_id":395,"attachments_added":5,"attachments_failed":0}',
+            'request_payload' => ['vehicle_number' => '34루7841', 'source' => 'encar', 'final_price' => 8500000, 'attachments' => [['a' => 1], ['a' => 2]]]]);
+        IntegrationEvent::create(['direction' => 'outbound', 'target' => 'car_erp', 'event_type' => 'purchase_sync', 'purchase_listing_id' => $l->id,
+            'response_status' => 422, 'response_body' => '{"message":"Validation failed","errors":{"final_price":["required"]}}', 'error' => 'HTTP 422',
+            'request_payload' => []]);
+        IntegrationEvent::create(['direction' => 'outbound', 'target' => 'ollama', 'event_type' => 'payee_extract', 'purchase_listing_id' => $l->id,
+            'request_payload' => ['status' => 'done', 'candidates' => 2, 'photo_errors' => 0]]);
+
+        $ko = $this->actingAs($u)->get('/audit')->assertOk();
+        foreach (['보냄 →', 'car-erp (ERP)', '매입 차량 ERP 등록', 'ERP 에 새로 등록됨', 'ERP 차량 #395', '첨부 5장 추가',
+            'ERP 가 거절 (필수값·형식)', '확인 실패 항목: 최종금액', '사진에서 계좌 읽기', '계좌 후보 찾음', '계좌 후보 2건', '보낸·받은 내용 보기', '2건'] as $t) {
+            $ko->assertSee($t, false);
+        }
+        $ko->assertDontSee('integration_events')->assertDontSee('>201<', false)->assertDontSee('>payload<', false);
+
+        $u->update(['locale' => 'en']);
+        $en = $this->actingAs($u->fresh())->get('/audit')->assertOk();
+        foreach (['Sent →', 'Register purchase in ERP', 'Created in ERP', 'ERP vehicle #395', 'Rejected by ERP (required/format)',
+            'Read bank account from photos', 'Account candidates found', '34RU7841'] as $t) {
+            $en->assertSee($t, false);
+        }
+        $en->assertDontSee('매입 차량 ERP 등록');
     }
 
     public function test_english_is_gated_by_feature_toggle(): void

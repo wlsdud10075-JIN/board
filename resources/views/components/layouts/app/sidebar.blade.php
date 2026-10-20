@@ -212,7 +212,7 @@
     {{-- 메인 --}}
     <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
         <header class="flex h-11 items-center border-b border-gray-200 bg-white px-3 shrink-0">
-            <button type="button" @click="toggle()" class="flex h-8 w-8 items-center justify-center rounded text-gray-600 transition hover:bg-gray-100" aria-label="메뉴">
+            <button type="button" @click="toggle()" class="flex h-8 w-8 items-center justify-center rounded text-gray-600 transition hover:bg-gray-100" aria-label="{{ __('nav.menu_toggle') }}">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">{!! $icons['menu'] !!}</svg>
             </button>
             <div class="ml-2 truncate text-[13px] text-gray-700">{{ $breadcrumb }}</div>

@@ -228,7 +228,7 @@ new class extends Component
                     <div wire:key="bell-r-{{ md5($r['key']) }}" class="border-b border-gray-50 px-3 py-2 {{ $r['new'] ? ($isRejected ? 'bg-red-50/60' : 'bg-green-50/60') : '' }}">
                         <div class="flex items-center justify-between gap-2">
                             <span class="min-w-0 truncate text-[13px] font-semibold text-gray-800">
-                                {{ $r['vehicle_number'] ?: '—' }}
+                                {{ \App\Support\Plate::show($r['vehicle_number']) ?: '—' }}
                                 <span class="ml-1 font-normal text-gray-500">{{ $this->typeLabel($r['type']) }}</span>
                                 @if (is_numeric($r['amount']))<span class="ml-1 font-normal tabular-nums text-gray-600">{{ number_format((float) $r['amount']) }}</span>@endif
                             </span>
@@ -253,7 +253,7 @@ new class extends Component
                     <div wire:key="bell-p-{{ md5($p['key']) }}" class="border-b border-gray-50 px-3 py-2">
                         <div class="flex items-center justify-between gap-2">
                             <span class="min-w-0 truncate text-[13px] font-semibold text-gray-800">
-                                {{ $p['vehicle_number'] ?: '—' }}
+                                {{ \App\Support\Plate::show($p['vehicle_number']) ?: '—' }}
                                 <span class="ml-1 font-normal text-gray-500">{{ $this->typeLabel($p['type']) }}</span>
                                 @if (is_numeric($p['amount']))<span class="ml-1 font-normal tabular-nums text-gray-600">{{ number_format((float) $p['amount']) }}</span>@endif
                             </span>

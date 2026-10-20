@@ -340,7 +340,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $this->reset(['detailId', 'buyer_name', 'forceManual', 'conflictVehicle']);
         unset($this->items, $this->detail);
-        session()->flash('ok', __('forwarding.flash_forwarded', ['vehicle' => $l->vehicle_number]));
+        session()->flash('ok', __('forwarding.flash_forwarded', ['vehicle' => \App\Support\Plate::show($l->vehicle_number)]));
     }
 
     /** 충돌 시: 이 차를 수동 채널로 전달(자동 1대 제한 우회). */
@@ -377,7 +377,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @forelse ($this->items as $l)
                         <tr class="cursor-pointer hover:bg-gray-50" wire:click="openDetail({{ $l->id }})">
                             <td class="whitespace-nowrap align-middle">
-                                <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
+                                <div class="font-semibold text-gray-800">{{ \App\Support\Plate::show($l->vehicle_number) }}</div>
                                 <div class="text-xs text-gray-400">{{ $l->owner_name ?: '—' }}</div>
                                 <div class="mt-1 flex gap-1">
                                     <span class="badge badge-green">{{ __('forwarding.badge_inspected') }}</span>
@@ -406,7 +406,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <div class="card-tight cursor-pointer" wire:click="openDetail({{ $l->id }})">
                     <div class="flex items-start justify-between gap-2">
                         <div class="min-w-0">
-                            <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
+                            <div class="font-semibold text-gray-800">{{ \App\Support\Plate::show($l->vehicle_number) }}</div>
                             <div class="text-xs text-gray-400">{{ $l->owner_name ?: '—' }}</div>
                             <div class="mt-1 flex gap-1">
                                 <span class="badge badge-green">{{ __('forwarding.badge_inspected') }}</span>
@@ -439,7 +439,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="fixed inset-0 z-40 bg-black/40" wire:click="closeDetail"></div>
         <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[440px]">
             <div class="flex items-center justify-between border-b border-gray-200 px-5 py-4">
-                <h3 class="font-bold text-gray-800">{{ $d->vehicle_number }} · {{ __('common.detail') }}</h3>
+                <h3 class="font-bold text-gray-800">{{ \App\Support\Plate::show($d->vehicle_number) }} · {{ __('common.detail') }}</h3>
                 <button class="text-gray-400 hover:text-gray-600" wire:click="closeDetail">✕</button>
             </div>
 
@@ -671,10 +671,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                     await navigator.share({ files });
                     return;
                 }
-                alert('이 브라우저는 다중 사진 공유를 지원하지 않습니다. 사진을 길게 눌러 하나씩 공유해 주세요.');
+                alert(@js(__('forwarding.js_share_unsupported')));
             } catch (e) {
                 if (e && e.name === 'AbortError') return;   // 사용자가 공유 취소
-                alert('공유에 실패했습니다. 사진을 길게 눌러 하나씩 공유해 주세요.');
+                alert(@js(__('forwarding.js_share_failed')));
             }
         };
 
@@ -684,7 +684,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 await navigator.clipboard.writeText(url);
                 return true;
             } catch (e) {
-                prompt('바이어 링크 — 길게 눌러 복사하세요:', url);
+                prompt(@js(__('forwarding.js_copy_buyer_link')), url);
                 return false;
             }
         };
@@ -702,9 +702,9 @@ new #[Layout('components.layouts.app')] class extends Component {
             }
             try {
                 await navigator.clipboard.writeText(url);
-                alert('영상 링크가 복사되었습니다. 카톡 등에 붙여넣어 보내세요.');
+                alert(@js(__('forwarding.js_video_copied')));
             } catch (e) {
-                prompt('영상 링크 — 길게 눌러 복사하세요:', url);
+                prompt(@js(__('forwarding.js_copy_video_link')), url);
             }
         };
     </script>

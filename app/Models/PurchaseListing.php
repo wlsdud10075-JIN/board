@@ -189,7 +189,7 @@ class PurchaseListing extends Model
             return null;
         }
 
-        return (Money::SYMBOLS[$offer['currency']] ?? '').number_format($offer['amount']);
+        return Money::display($offer['amount'], $offer['currency']);
     }
 
     /**

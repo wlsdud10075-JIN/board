@@ -1445,7 +1445,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <div class="mt-2 flex flex-wrap gap-1.5">
                             @foreach ($bvehicles as $v)
                                 <span class="rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-[12px] font-semibold text-gray-700">
-                                    {{ data_get($v, 'vehicle_number') }}@include('livewire.portal._vehicle-meta', ['row' => $v])
+                                    {{ \App\Support\Plate::show(data_get($v, 'vehicle_number')) }}@include('livewire.portal._vehicle-meta', ['row' => $v])
                                 </span>
                             @endforeach
                         </div>
@@ -1515,7 +1515,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                         @php $vid = (int) data_get($v, 'vehicle_id'); @endphp
                                         <div class="mt-1 flex items-center gap-2" wire:key="chg-{{ $vid }}">
                                             <span class="shrink-0 text-[12px] font-semibold text-gray-700">
-                                                {{ data_get($v, 'vehicle_number') }}@include('livewire.portal._vehicle-meta', ['row' => $v])
+                                                {{ \App\Support\Plate::show(data_get($v, 'vehicle_number')) }}@include('livewire.portal._vehicle-meta', ['row' => $v])
                                             </span>
                                             <input wire:model="changeNote.{{ $vid }}" class="input-base flex-1 text-[12px]" placeholder="{{ __('portal.change_request_ph') }}">
                                             <button wire:click="requestChange({{ $vid }})" class="btn-ghost btn-sm shrink-0">{{ __('portal.change_request_btn') }}</button>
@@ -1605,7 +1605,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                                     wire:click="{{ $on ? 'unassignVehicle('.$vid.')' : "assignVehicle('".$bd['key']."', ".$vid.')' }}"
                                                     class="inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] font-semibold {{ $on ? 'border-violet-400 bg-violet-100 text-gray-800' : 'border-gray-300 bg-white text-gray-600' }}">
                                                     <input type="checkbox" @checked($on) class="pointer-events-none">
-                                                    {{ $vnoMap[$vid] ?? '#'.$vid }}
+                                                    {{ \App\Support\Plate::show($vnoMap[$vid] ?? null) ?? '#'.$vid }}
                                                     @isset($vrowMap[$vid])@include('livewire.portal._vehicle-meta', ['row' => $vrowMap[$vid], 'metaWrap' => 'span'])@endisset
                                                     @isset($vrowMap[$vid])@include('livewire.portal._unpaid-chip', ['row' => $vrowMap[$vid]])@endisset
                                                 </label>
@@ -1794,7 +1794,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                                 @else
                                                     @php $val = data_get($row, $k); @endphp
                                                     <td class="whitespace-nowrap {{ $val === null ? 'text-amber-600' : 'text-gray-700' }}">
-                                                        {{ $val === null ? '—' : $val }}
+                                                        {{ $val === null ? '—' : ($k === 'vehicle_number' ? \App\Support\Plate::show($val) : $val) }}
                                                         @if ($k === 'vehicle_number')@include('livewire.portal._vehicle-meta')@endif
                                                     </td>
                                                 @endif
@@ -1816,7 +1816,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <div class="rounded-md border border-gray-100 bg-gray-50 px-2.5 py-2">
                                     <div class="flex items-center justify-between gap-2">
                                         <div class="min-w-0">
-                                            <div class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') ?: '—' }}</div>
+                                            <div class="font-semibold text-gray-700">{{ \App\Support\Plate::show(data_get($row, 'vehicle_number')) ?: '—' }}</div>
                                             @include('livewire.portal._vehicle-meta')
                                             <div class="text-[11px] text-gray-400">{{ __('portal.fx_rate_label') }} {{ data_get($row, 'exchange_rate') ?? '—' }}</div>
                                         </div>
@@ -1925,7 +1925,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                                 @endif
                                             </td>
                                             <td class="font-semibold text-gray-700">
-                                                {{ data_get($row, 'vehicle_number') }}
+                                                {{ \App\Support\Plate::show(data_get($row, 'vehicle_number')) }}
                                                 @include('livewire.portal._vehicle-meta')
                                             </td>
                                             <td class="whitespace-nowrap">
@@ -1958,7 +1958,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                         @endif
                                         <div class="min-w-0">
                                             <div class="flex flex-wrap items-center gap-1.5">
-                                                <span class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') }}</span>
+                                                <span class="font-semibold text-gray-700">{{ \App\Support\Plate::show(data_get($row, 'vehicle_number')) }}</span>
                                                 @include('livewire.portal._vehicle-meta', ['metaWrap' => 'span'])
                                                 @include('livewire.portal._progress-badge', ['status' => data_get($row, 'progress_status')])
                                                 {{-- 모바일은 호버 title 이 없다 → 선박·ETA 를 펼친다. --}}
@@ -2077,7 +2077,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 {{-- PC 폭 맞춤(2026-10-20 Jin): 칸마다 nowrap 을 걸면 칩 3개·VIN 메타·버튼 줄이 한 줄로 굳어 표가 화면을
                                      넘치고, 칩 없는 행은 그 폭만큼 비어 보인다. 원자값(차량번호·칩·날짜·금액)만 nowrap, 나머지는 접히게. --}}
                                 <td class="font-semibold text-gray-700">
-                                    <span class="whitespace-nowrap">{{ data_get($row, 'vehicle_number') ?: '—' }}</span>
+                                    <span class="whitespace-nowrap">{{ \App\Support\Plate::show(data_get($row, 'vehicle_number')) ?: '—' }}</span>
                                     @include('livewire.portal._vehicle-meta')
                                 </td>
                                 <td>
@@ -2108,7 +2108,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <div class="card-tight" wire:key="invm-{{ data_get($row, 'vehicle_id') }}">
                         <div class="flex flex-wrap items-center justify-between gap-2">
                             <span class="min-w-0">
-                                <span class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') ?: '—' }}</span>
+                                <span class="font-semibold text-gray-700">{{ \App\Support\Plate::show(data_get($row, 'vehicle_number')) ?: '—' }}</span>
                                 @include('livewire.portal._vehicle-meta')
                             </span>
                             <span class="flex flex-wrap items-center gap-1.5">

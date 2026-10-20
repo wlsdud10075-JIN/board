@@ -433,7 +433,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
 
         unset($this->listings, $this->tabCounts);
-        session()->flash('ok', __('listings.drawer.forward_photos_flash', ['number' => $l->vehicle_number]));
+        session()->flash('ok', __('listings.drawer.forward_photos_flash', ['number' => \App\Support\Plate::show($l->vehicle_number)]));
         $this->closeEdit();
     }
 
@@ -757,7 +757,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         // 2026-10-16 Jin — 「저장」만 눌러도 바뀐 금액·새 사진이 ERP 로 가야 한다(별도 버튼을 안 누르면 안 가서 두 번 올리게 됐다).
         //    금액이 하나라도 바뀌었으면 **금액+첨부 재전송**(ERP 는 빈 칸만 채운다), 금액 변경 없이 사진만 새로 있으면 **첨부 전용**(금액 불변).
         //    둘 다 없으면 보내지 않는다. ERP 에 없는 차(미연동)는 보내지 않는다(낙찰 때 같이 간다).
-        $flash = __('listings.drawer.updated_flash', ['number' => $l->vehicle_number]);
+        $flash = __('listings.drawer.updated_flash', ['number' => \App\Support\Plate::show($l->vehicle_number)]);
         if ($l->car_erp_vehicle_id && $amountChanged !== []) {
             SyncWonListingToCarErp::dispatch($l->id, resync: true);
             $labels = array_map(fn ($f) => __('listings.resync.changed_field.'.$f), $amountChanged);
@@ -1037,7 +1037,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         // 셀프검차매입은 저장 즉시 경매/구매 탭에서 마무리한다 — 화면까지 데려다 준다.
         if ($selfInspection) {
-            session()->flash('ok', __('listings.add_form.saved_self_flash', ['number' => $listing->vehicle_number]));
+            session()->flash('ok', __('listings.add_form.saved_self_flash', ['number' => \App\Support\Plate::show($listing->vehicle_number)]));
             $this->redirect(route('auction'), navigate: true);
 
             return;
@@ -1315,16 +1315,16 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <div class="flex gap-2">
                         <input class="input-base flex-1" wire:model="expected_price" inputmode="numeric" placeholder="{{ __('listings.links.price_ph') }}">
                         <div class="inline-flex shrink-0 overflow-hidden rounded-md border border-gray-300">
-                            @foreach (['KRW' => '원', 'USD' => '$', 'EUR' => '€'] as $cur => $sym)
+                            @foreach (['KRW', 'USD', 'EUR'] as $cur)
                                 {{-- 추출된 통화만 활성 — 엔카=원화만, ssancar=3통화. 링크 전(빈 priceOptions)엔 전부 허용. --}}
                                 @php $curOff = ! empty($priceOptions) && ! isset($priceOptions[$cur]); @endphp
                                 <button type="button" wire:click="pickCurrency('{{ $cur }}')" @disabled($curOff)
-                                    class="px-2.5 py-1.5 text-[13px] font-semibold {{ $expected_price_currency === $cur ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }} {{ $curOff ? 'cursor-not-allowed opacity-40' : '' }}">{{ $sym }}</button>
+                                    class="px-2.5 py-1.5 text-[13px] font-semibold {{ $expected_price_currency === $cur ? 'bg-[var(--color-primary)] text-white' : 'bg-white text-gray-600' }} {{ $curOff ? 'cursor-not-allowed opacity-40' : '' }}">{{ \App\Support\Money::symbol($cur) }}</button>
                             @endforeach
                         </div>
                     </div>
                     @if ($priceOptions)
-                        <p class="mt-1 text-[11px] text-gray-500">{{ __('listings.links.price_options_prefix') }}@foreach ($priceOptions as $cur => $amt)<span class="mr-2 whitespace-nowrap">{{ ['KRW' => '원', 'USD' => '$', 'EUR' => '€'][$cur] ?? $cur }} {{ number_format($amt) }}</span>@endforeach{{ __('listings.links.price_options_suffix') }}</p>
+                        <p class="mt-1 text-[11px] text-gray-500">{{ __('listings.links.price_options_prefix') }}@foreach ($priceOptions as $cur => $amt)<span class="mr-2 whitespace-nowrap">{{ \App\Support\Money::symbol($cur) }} {{ number_format($amt) }}</span>@endforeach{{ __('listings.links.price_options_suffix') }}</p>
                     @else
                         <p class="mt-1 text-[11px] text-gray-400">{{ __('listings.links.price_help') }}</p>
                     @endif
@@ -1403,7 +1403,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @forelse ($this->listings as $l)
                         <tr class="cursor-pointer hover:bg-gray-50" wire:click="openEdit({{ $l->id }})">
                             <td class="w-px whitespace-nowrap">
-                                <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
+                                <div class="font-semibold text-gray-800">{{ \App\Support\Plate::show($l->vehicle_number) }}</div>
                                 <div class="text-xs text-gray-400">VIN ·{{ \Illuminate\Support\Str::limit($l->vin, 10, '') }}</div>
                             </td>
                             <td><span class="badge {{ $l->originBadge() }}">{{ $l->originLabel() }}</span></td>
@@ -1428,7 +1428,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <div class="card-tight cursor-pointer" wire:click="openEdit({{ $l->id }})">
                     <div class="flex items-start justify-between gap-2">
                         <div class="min-w-0">
-                            <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
+                            <div class="font-semibold text-gray-800">{{ \App\Support\Plate::show($l->vehicle_number) }}</div>
                             <div class="text-xs text-gray-400">VIN ·{{ \Illuminate\Support\Str::limit($l->vin, 12, '') }}</div>
                         </div>
                         <span class="badge {{ $l->originBadge() }} shrink-0">{{ $l->originLabel() }}</span>
@@ -1463,12 +1463,12 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="fixed inset-0 z-40 bg-black/40" wire:click="closeEdit"></div>
         <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[440px]">
             <div class="flex items-center justify-between border-b border-gray-200 px-5 py-4">
-                <h3 class="font-bold text-gray-800">{{ __('listings.drawer.title', ['number' => $e->vehicle_number]) }}</h3>
+                <h3 class="font-bold text-gray-800">{{ __('listings.drawer.title', ['number' => \App\Support\Plate::show($e->vehicle_number)]) }}</h3>
                 <button class="text-gray-400 hover:text-gray-600" wire:click="closeEdit">✕</button>
             </div>
             <div class="px-5 py-4">
                 <div class="card-sm mb-3 bg-gray-50 text-xs text-gray-500">
-                    {{ __('listings.add_form.vehicle_number') }} <b>{{ $e->vehicle_number }}</b> · VIN <b>{{ $e->vin }}</b>
+                    {{ __('listings.add_form.vehicle_number') }} <b>{{ \App\Support\Plate::show($e->vehicle_number) }}</b> · VIN <b>{{ $e->vin }}</b>
                     · <span class="badge {{ $e->originBadge() }}">{{ $e->originLabel() }}</span>
                     <span class="text-gray-400">({{ $e->isAuction() ? __('listings.drawer.method_auction') : __('listings.drawer.method_encar') }})</span><br>
                     <span class="text-gray-400">{{ __('listings.drawer.summary_locked') }}</span>

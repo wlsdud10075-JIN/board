@@ -305,6 +305,14 @@ return [
     'sailing_filter_label' => 'Sailing',
     'sailing_all' => 'All',
     'sailing_in_transit' => '🚢 In transit',
-    'sailing_arrived' => '⚓ ETA passed',
+    'sailing_arrived' => '⚓ Due to arrive',
     'sailing_totals_unfiltered' => 'The sailing filter applies to the vehicle rows only — buyer totals still cover everything.',
+
+    // ERP progress / sailing labels (2026-10-20) — key = the ERP's Korean value. Values match car-erp lang/en/domain.php (board does not coin its own).
+    'progress' => [
+        '매입중' => 'Purchasing', '매입완료' => 'Purchased', '말소완료' => 'Deregistered', '판매중' => 'Selling', '판매완료' => 'Sold',
+        '선적중' => 'Loading', '선적완료' => 'Loaded', '통관중' => 'Clearing', '통관완료' => 'Cleared', '거래완료' => 'Completed',
+        '수출통관중' => 'Clearing', '수출통관완료' => 'Cleared',
+    ],
+    'sailing_label' => ['운항중' => 'In transit', '도착예정' => 'Due to arrive'],
 ];

@@ -491,7 +491,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         // 가드는 Job 안에도 있고(won + car_erp_vehicle_id null) car-erp 는 vehicle_number 로 멱등이라 중복 없음.
         if ($l->status === 'won' && $l->car_erp_vehicle_id === null && $this->hasSyncableAmount($l)) {
             SyncWonListingToCarErp::dispatch($l->id);
-            session()->flash('ok', __('auction.flash_resent', ['no' => $l->vehicle_number]));
+            session()->flash('ok', __('auction.flash_resent', ['no' => \App\Support\Plate::show($l->vehicle_number)]));
 
             return;
         }
@@ -656,7 +656,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account',
             'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts', 'salesFiles']);
         unset($this->listings, $this->detail);
-        session()->flash('ok', __('auction.flash_processed', ['no' => $l->vehicle_number, 'label' => $l->statusLabel()]));
+        session()->flash('ok', __('auction.flash_processed', ['no' => \App\Support\Plate::show($l->vehicle_number), 'label' => $l->statusLabel()]));
     }
 }; ?>
 
@@ -688,7 +688,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <tbody>
                     @forelse ($this->listings as $l)
                         <tr class="cursor-pointer hover:bg-gray-50" wire:click="openDetail({{ $l->id }})">
-                            <td class="font-semibold text-gray-800">{{ $l->vehicle_number }}</td>
+                            <td class="font-semibold text-gray-800">{{ \App\Support\Plate::show($l->vehicle_number) }}</td>
                             <td><span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }}">{{ $l->isAuction() ? __('domain.source.auction') : __('domain.source.encar') }}</span></td>
                             <td class="text-gray-600">{{ $l->creator->name }}</td>
                             <td class="font-semibold text-[var(--color-primary-text)]">{{ $l->offerDisplay() ?? '—' }}</td>
@@ -713,7 +713,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <div class="card-tight cursor-pointer" wire:click="openDetail({{ $l->id }})">
                     <div class="flex items-start justify-between gap-2">
                         <div class="min-w-0">
-                            <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
+                            <div class="font-semibold text-gray-800">{{ \App\Support\Plate::show($l->vehicle_number) }}</div>
                             <div class="text-xs text-gray-400">{{ __('auction.salesman_label') }} {{ $l->creator->name }}</div>
                         </div>
                         <span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }} shrink-0">{{ $l->isAuction() ? __('domain.source.auction') : __('domain.source.encar') }}</span>
@@ -740,7 +740,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="fixed inset-0 z-40 bg-black/40" wire:click="closeDetail"></div>
         <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[440px]">
             <div class="flex items-center justify-between border-b border-gray-200 px-5 py-4">
-                <h3 class="font-bold text-gray-800">{{ $d->vehicle_number }} · {{ __('common.detail') }}
+                <h3 class="font-bold text-gray-800">{{ \App\Support\Plate::show($d->vehicle_number) }} · {{ __('common.detail') }}
                     <span class="badge {{ $d->statusBadge() }} ml-1">{{ $d->statusLabel() }}</span>
                 </h3>
                 <button class="text-gray-400 hover:text-gray-600" wire:click="closeDetail">✕</button>
@@ -771,7 +771,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <div class="grid grid-cols-2 gap-2">
                             <div>
                                 {{-- 차값·매도비는 **항상 원화** — 견적통화 토글의 영향을 받지 않는다(2026-08-10 Jin). --}}
-                                <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.car_cost') }} <span class="text-gray-400">({{ $d->isSelfInspection() ? __('common.won_currency') : (\App\Support\Money::SYMBOLS[$costCur] ?? '원') }})</span></label>
+                                <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.car_cost') }} <span class="text-gray-400">({{ $d->isSelfInspection() ? __('common.won_currency') : \App\Support\Money::symbol($costCur) }})</span></label>
                                 <input type="number" min="0" class="input-base" wire:model="car_cost" placeholder="{{ __('auction.car_cost_ph') }}">
                                 @error('car_cost') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
                             </div>
