@@ -5115,6 +5115,51 @@ class BoardTest extends TestCase
     }
 
     /**
+     * 같은 차·같은 type 에 묶음이 여럿이면 칩은 **가장 늦게 요청한 묶음**이다(거절 → 재요청 → 확인됨).
+     * ERP 는 최신 id 먼저 내려주는데 종전 chipMap 은 뒤에 온 것으로 덮어써 **가장 오래된 묶음이 이겼다** —
+     * heymanboard 34루7841(2026-10-20)이 재요청 「확인됨」 대신 옛 「거절 · 8,500,000 + 사유」를 보였다.
+     * 거절 칩은 사유·금액을 칩 안에 펼치지 않는다(누르면 펼침) — 행 높이가 두 줄 넘게 커지던 것.
+     */
+    public function test_portal_chip_picks_latest_batch_per_type_not_erp_order(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test']);
+        $this->actingAs($sales);
+
+        Http::fake([
+            '*/api/internal/board/inventory*' => Http::response(['count' => 1, 'total' => 1, 'data' => [
+                ['vehicle_id' => 5, 'vehicle_number' => '34루7841', 'purchase_price' => 10000000, 'purchase_unpaid' => 0],
+            ]], 200),
+            // ERP 실제 순서 = 최신 id 먼저: 재요청(확인됨) → 옛 잔금(거절) → 옛 계약금(거절, 재요청 없음)
+            '*/api/internal/board/requests*' => Http::response(['count' => 3, 'requests' => [
+                ['batch_id' => 'B110', 'type' => 'purchase_balance', 'status' => 'done', 'amount_krw' => 8500000, 'requested_at' => '2026-10-20T14:14:35+09:00',
+                    'vehicles' => [['vehicle_number' => '34루7841', 'status' => 'done', 'amount_krw' => 8500000]]],
+                ['batch_id' => 'B109', 'type' => 'purchase_balance', 'status' => 'rejected', 'amount_krw' => 8500000, 'requested_at' => '2026-10-20T14:06:46+09:00',
+                    'vehicles' => [['vehicle_number' => '34루7841', 'status' => 'rejected', 'amount_krw' => 8500000, 'reject_reason' => '담당자 요청으로 잔금거절요청']]],
+                ['batch_id' => 'B108', 'type' => 'purchase_deposit', 'status' => 'rejected', 'amount_krw' => 500000, 'requested_at' => '2026-10-20T14:05:04+09:00',
+                    'vehicles' => [['vehicle_number' => '34루7841', 'status' => 'rejected', 'amount_krw' => 500000, 'reject_reason' => '담당자 요청으로 거절승인']]],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        $c = Volt::test('portal.index')->call('setTab', 'inventory');
+        $chips = $c->instance()->chipMap();
+        $this->assertSame('done', $chips['purchase_balance']['34루7841']['status']);        // 재요청이 이겼다
+        $this->assertSame('rejected', $chips['purchase_deposit']['34루7841']['status']);   // 재요청 없는 거절은 그대로
+
+        // Livewire 가 @if 사이에 <!--[if BLOCK]--> 마커를 끼우므로 마커를 걷어낸 텍스트로 비교한다.
+        $text = preg_replace('/<!--\[if (?:END)?BLOCK\]><!\[endif\]-->/', '', $c->html());
+        $this->assertStringContainsString(__('portal.req_balance_btn').' '.__('portal.req_chip_done').' · 8,500,000', $text);
+        $this->assertStringNotContainsString('잔금거절요청', $text);                        // 덮인 옛 거절 사유는 안 그린다
+        $this->assertStringContainsString(__('portal.req_deposit_btn').' '.__('portal.req_chip_rejected'), $text);
+        $this->assertStringContainsString('담당자 요청으로 거절승인', $text);              // 펼침 영역에는 있다(x-show 로 접힘)
+        // 거절 칩 자체에는 금액이 안 붙는다(펼침 안에만)
+        $this->assertStringNotContainsString(__('portal.req_chip_rejected').' · 500,000', $text);
+        $this->assertStringContainsString(__('portal.req_reject_amount', ['amount' => '500,000']), $text);
+    }
+
+    /**
      * [매입잔금] 빈 금액칸 = ERP 미지급 전액(매도비 포함, 2026-10-12 Jin). board 가 계산한 숫자가 아니라
      * `/inventory` 의 `purchase_unpaid` 를 그대로 싣는다. 계약금·대표계약금은 그대로 필수 입력.
      */

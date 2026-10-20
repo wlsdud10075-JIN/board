@@ -874,15 +874,25 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
 
         $map = [];
+        $seenAt = [];
         foreach ((array) data_get($env['data'], 'requests', []) as $batch) {
             $type = (string) data_get($batch, 'type');
             $lines = (array) data_get($batch, 'vehicles', []);
             $done = collect($lines)->where('status', 'done')->count();
+            $requestedAt = (string) data_get($batch, 'requested_at');
             foreach ($lines as $line) {
                 $no = (string) data_get($line, 'vehicle_number');
                 if ($no === '') {
                     continue;
                 }
+                // 같은 차·같은 type 묶음이 여럿이면(거절 → 재요청, 확인됨 → 재요청) **가장 늦게 요청한 묶음**이 칩이다.
+                // ⚠️ ERP 는 최신 id 먼저 내려준다(`orderByDesc('id')`) — 덮어쓰기만 하면 가장 오래된 묶음이 이겨
+                //    heymanboard 34루7841 이 재요청 「확인됨」 대신 옛 「거절」을 보였다(2026-10-20). 순서에 기대지 말고 시각으로 고른다.
+                //    requested_at 이 없으면(구 ERP) 먼저 온 것(=최신)을 유지한다.
+                if (isset($map[$type][$no]) && ($requestedAt === '' || $requestedAt <= ($seenAt[$type][$no] ?? ''))) {
+                    continue;
+                }
+                $seenAt[$type][$no] = $requestedAt;
                 $map[$type][$no] = [
                     'type' => $type,
                     'status' => (string) data_get($line, 'status'),

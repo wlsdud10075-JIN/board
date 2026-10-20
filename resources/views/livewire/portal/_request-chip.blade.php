@@ -24,10 +24,21 @@
         $reason = trim((string) ($chip['reason'] ?? ''));
     @endphp
     {{-- $chipLabel(선택) = 어느 신호인지. 매입은 계약금·잔금 칩이 같은 행에 나란히 붙어 구분이 없으면 못 읽는다. --}}
+    @if ($chip['status'] === 'rejected')
+        {{-- 거절(2026-10-20 Jin A안) — 칩은 「계약금 거절」 한 줄만. 금액·사유는 칩을 누르면 펼친다(PC 는 호버 툴팁도).
+             종전엔 사유 원문을 전체 폭 줄로 항상 그려 행이 두 줄 넘게 커졌다. 재요청하면 chipMap 이 최신 묶음을 고르므로 이 칩은 자연히 바뀐다. --}}
+        @php
+            $rejDetail = trim(($reason !== '' ? __('portal.req_reject_reason', ['reason' => $reason]) : '')
+                .(is_numeric($chip['amount'] ?? null) ? ' · '.__('portal.req_reject_amount', ['amount' => number_format((float) $chip['amount'])]) : ''));
+        @endphp
+        <span x-data="{ o: false }" class="contents">
+            <button type="button" @click="o = !o" @if ($rejDetail !== '') title="{{ $rejDetail }}" @endif
+                class="badge {{ $cls }} whitespace-nowrap cursor-pointer" :aria-expanded="o">@if (! empty($chipLabel)){{ $chipLabel }} @endif{{ $label }}@if ($rejDetail !== '') <span class="ml-0.5 opacity-70">ⓘ</span>@endif</button>
+            @if ($rejDetail !== '')
+                <span x-show="o" x-cloak class="block w-full text-left text-[11px] text-red-600">{{ $rejDetail }}</span>
+            @endif
+        </span>
+    @else
     <span class="badge {{ $cls }} whitespace-nowrap">@if (! empty($chipLabel)){{ $chipLabel }} @endif{{ $label }}@if (is_numeric($chip['amount'] ?? null)) · {{ number_format((float) $chip['amount']) }}@endif@if (($chip['total'] ?? 1) > 1) · {{ __('portal.req_chip_progress', ['done' => $chip['done'], 'total' => $chip['total']]) }}@endif</span>
-    {{-- 거절 사유는 ERP 사용자가 쓴 문장 그대로(한글, board 로캘 무관 — 전자서명 422 와 같은 구조). 줄을 바꿔 전부 보여준다 —
-         칩 안에 잘라 넣으면 모바일(툴팁 없음)에서 사유를 끝까지 못 읽는다. --}}
-    @if ($chip['status'] === 'rejected' && $reason !== '')
-        <span class="block w-full text-left text-[11px] text-red-600">{{ __('portal.req_reject_reason', ['reason' => $reason]) }}</span>
     @endif
 @endif
