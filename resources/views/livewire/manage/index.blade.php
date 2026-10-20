@@ -225,7 +225,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->allowManagerOverride = true;
         $l->save();
 
-        session()->flash('ok', __('manage.saved', ['vehicle' => $l->vehicle_number]));
+        session()->flash('ok', __('manage.saved', ['vehicle' => \App\Support\Plate::show($l->vehicle_number)]));
         $this->closeEdit();
     }
 
@@ -269,7 +269,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         // 전송이 실패하면 그 상태로 남아 **차가 /auction 목록에 되살아났다**. 이제 Job 이 resync 를 받는다.
         SyncWonListingToCarErp::dispatch($l->id, resync: true);
 
-        session()->flash('ok', __('manage.resynced', ['vehicle' => $l->vehicle_number]));
+        session()->flash('ok', __('manage.resynced', ['vehicle' => \App\Support\Plate::show($l->vehicle_number)]));
         $this->closeEdit();
     }
 }; ?>
@@ -327,7 +327,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <tbody>
                     @forelse ($this->listings as $l)
                         <tr>
-                            <td class="font-semibold text-gray-800">{{ $l->vehicle_number }}</td>
+                            <td class="font-semibold text-gray-800">{{ \App\Support\Plate::show($l->vehicle_number) }}</td>
                             <td><span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }}">{{ $l->isAuction() ? __('manage.source_auction') : __('manage.source_encar') }}</span></td>
                             <td class="text-gray-600">{{ $l->creator->name }}</td>
                             <td class="text-gray-700">{{ $l->expected_price ? number_format($l->expected_price) : '—' }}</td>
@@ -349,7 +349,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <div class="card-tight">
                     <div class="flex items-start justify-between gap-2">
                         <div class="min-w-0">
-                            <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
+                            <div class="font-semibold text-gray-800">{{ \App\Support\Plate::show($l->vehicle_number) }}</div>
                             <div class="text-xs text-gray-400">{{ __('manage.card_sales') }} {{ $l->creator->name }}</div>
                         </div>
                         <span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }} shrink-0">{{ $l->isAuction() ? __('manage.source_auction') : __('manage.source_encar') }}</span>
@@ -379,7 +379,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="fixed inset-0 z-40 bg-black/40" wire:click="closeEdit"></div>
         <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[440px]">
             <div class="flex items-center justify-between border-b border-gray-200 px-5 py-4">
-                <h3 class="font-bold text-gray-800">{{ $e->vehicle_number }} · {{ __('manage.edit_suffix') }}</h3>
+                <h3 class="font-bold text-gray-800">{{ \App\Support\Plate::show($e->vehicle_number) }} · {{ __('manage.edit_suffix') }}</h3>
                 <button class="text-gray-400 hover:text-gray-600" wire:click="closeEdit">✕</button>
             </div>
             <div class="px-5 py-4">
@@ -392,7 +392,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @error('vin') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 @else
                     <div class="card-sm bg-gray-50 text-xs text-gray-500">
-                        {{ __('manage.identity_vehicle') }} <b>{{ $e->vehicle_number }}</b> · {{ __('manage.identity_vin') }} <b>{{ $e->vin }}</b><br>
+                        {{ __('manage.identity_vehicle') }} <b>{{ \App\Support\Plate::show($e->vehicle_number) }}</b> · {{ __('manage.identity_vin') }} <b>{{ $e->vin }}</b><br>
                         <span class="text-gray-400">{{ __('manage.identity_locked_html') }}</span>
                     </div>
                 @endif
@@ -425,7 +425,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @error('region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 <div class="mt-3 grid grid-cols-3 gap-2">
-                    <div><label class="label-base">{{ __('manage.car_cost') }} ({{ \App\Support\Money::SYMBOLS[$costCurrency] ?? '원' }})</label><input class="input-base" wire:model="car_cost" inputmode="numeric"></div>
+                    <div><label class="label-base">{{ __('manage.car_cost') }} ({{ \App\Support\Money::symbol($costCurrency) }})</label><input class="input-base" wire:model="car_cost" inputmode="numeric"></div>
                     <div><label class="label-base">{{ __('manage.discount_rate') }}</label><input class="input-base" wire:model="discount_rate" inputmode="decimal"></div>
                     <div><label class="label-base">{{ __('manage.shipping_usd') }}</label>
                         <select class="input-base" wire:model="shipping_usd">

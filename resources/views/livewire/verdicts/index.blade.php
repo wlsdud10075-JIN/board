@@ -87,8 +87,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->reset('detailId');
         unset($this->groups, $this->detail);
         session()->flash('ok', $ok
-            ? __('verdicts.flash_requoted', ['vehicle' => $l->vehicle_number])
-            : __('verdicts.flash_already', ['vehicle' => $l->vehicle_number]));
+            ? __('verdicts.flash_requoted', ['vehicle' => \App\Support\Plate::show($l->vehicle_number)])
+            : __('verdicts.flash_already', ['vehicle' => \App\Support\Plate::show($l->vehicle_number)]));
     }
 
     /** 차 1대에 verdict 적용. SalesmanScope(본인 것만=IDOR 차단) + VerdictService(race-safe 적용). */
@@ -102,12 +102,12 @@ new #[Layout('components.layouts.app')] class extends Component {
         unset($this->groups, $this->detail);
         session()->flash('ok', $ok
             ? __('verdicts.flash_processed', [
-                'vehicle' => $l->vehicle_number,
+                'vehicle' => \App\Support\Plate::show($l->vehicle_number),
                 'verdict' => $verdict === 'accepted'
                     ? __('verdicts.flash_accepted_note')
                     : __('verdicts.flash_rejected_note'),
             ])
-            : __('verdicts.flash_already', ['vehicle' => $l->vehicle_number]));
+            : __('verdicts.flash_already', ['vehicle' => \App\Support\Plate::show($l->vehicle_number)]));
     }
 }; ?>
 
@@ -144,7 +144,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                         @foreach ($items as $l)
                             <tr class="cursor-pointer hover:bg-gray-50" wire:click="openDetail({{ $l->id }})">
                                 <td class="whitespace-nowrap align-middle">
-                                    <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
+                                    <div class="font-semibold text-gray-800">{{ \App\Support\Plate::show($l->vehicle_number) }}</div>
                                     <div class="text-xs text-gray-400">{{ $l->owner_name ?: __('verdicts.owner_empty') }}</div>
                                 </td>
                                 <td class="align-middle"><span class="badge {{ $l->originBadge() }}">{{ $l->originLabel() }}</span></td>
@@ -163,7 +163,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <div class="card-tight cursor-pointer" wire:click="openDetail({{ $l->id }})">
                         <div class="flex items-start justify-between gap-2">
                             <div class="min-w-0">
-                                <div class="font-semibold text-gray-800">{{ $l->vehicle_number }}</div>
+                                <div class="font-semibold text-gray-800">{{ \App\Support\Plate::show($l->vehicle_number) }}</div>
                                 <div class="text-xs text-gray-400">{{ $l->owner_name ?: __('verdicts.owner_empty') }}</div>
                             </div>
                             <div class="shrink-0 text-right">
@@ -189,7 +189,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="fixed inset-0 z-40 bg-black/40" wire:click="closeDetail"></div>
         <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[440px]">
             <div class="flex items-center justify-between border-b border-gray-200 px-5 py-4">
-                <h3 class="font-bold text-gray-800">{{ $d->vehicle_number }} · {{ __('common.detail') }}</h3>
+                <h3 class="font-bold text-gray-800">{{ \App\Support\Plate::show($d->vehicle_number) }} · {{ __('common.detail') }}</h3>
                 <button class="text-gray-400 hover:text-gray-600" wire:click="closeDetail">✕</button>
             </div>
 
@@ -235,13 +235,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                 {{-- 회신 (사진 확인 후 결정) --}}
                 <div class="section-title-sm">{{ __('verdicts.th_process') }}</div>
                 <button class="btn-green w-full justify-center" wire:click="accept({{ $d->id }})"
-                        wire:confirm="{{ __('verdicts.confirm_accept', ['vehicle' => $d->vehicle_number]) }}">{{ __('verdicts.accept') }}</button>
+                        wire:confirm="{{ __('verdicts.confirm_accept', ['vehicle' => \App\Support\Plate::show($d->vehicle_number)]) }}">{{ __('verdicts.accept') }}</button>
                 {{-- 바이어가 안 산다고 하면: 재견적(전달대기로 복귀) 또는 거절(딜 종료) 중 선택 --}}
                 <div class="mt-2 flex gap-2">
                     <button class="btn-outline flex-1 justify-center" wire:click="requote({{ $d->id }})"
-                            wire:confirm="{{ __('verdicts.confirm_requote', ['vehicle' => $d->vehicle_number]) }}">{{ __('verdicts.requote') }}</button>
+                            wire:confirm="{{ __('verdicts.confirm_requote', ['vehicle' => \App\Support\Plate::show($d->vehicle_number)]) }}">{{ __('verdicts.requote') }}</button>
                     <button class="btn-red flex-1 justify-center" wire:click="reject({{ $d->id }})"
-                            wire:confirm="{{ __('verdicts.confirm_reject', ['vehicle' => $d->vehicle_number]) }}">{{ __('verdicts.reject_final') }}</button>
+                            wire:confirm="{{ __('verdicts.confirm_reject', ['vehicle' => \App\Support\Plate::show($d->vehicle_number)]) }}">{{ __('verdicts.reject_final') }}</button>
                 </div>
                 <p class="mt-1 text-xs text-gray-400">{{ __('verdicts.requote_hint') }}</p>
             </div>

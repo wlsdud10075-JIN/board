@@ -24,7 +24,15 @@ class Money
         };
     }
 
-    /** 차값 표시 — 통화 기호 포함(KRW=…원 / USD=$… / EUR=€…). */
+    /** 통화 기호 — 원화만 언어를 탄다(ko 「원」 / en 「KRW」, 2026-10-20 — EN 화면에 「원」이 남던 것). $·€ 는 공통. */
+    public static function symbol(?string $currency): string
+    {
+        $cur = $currency ?: 'KRW';
+
+        return $cur === 'KRW' ? __('common.won_currency') : (self::SYMBOLS[$cur] ?? $cur);
+    }
+
+    /** 차값 표시 — 통화 기호 포함(KRW=…원·… KRW / USD=$… / EUR=€…). */
     public static function display($amount, ?string $currency): string
     {
         if ($amount === null || $amount === '') {
@@ -32,8 +40,10 @@ class Money
         }
         $cur = $currency ?: 'KRW';
 
-        return $cur === 'KRW'
-            ? number_format($amount).'원'
-            : (self::SYMBOLS[$cur] ?? '').number_format($amount);
+        if ($cur !== 'KRW') {
+            return (self::SYMBOLS[$cur] ?? '').number_format($amount);
+        }
+
+        return app()->getLocale() === 'en' ? number_format($amount).' KRW' : number_format($amount).'원';
     }
 }

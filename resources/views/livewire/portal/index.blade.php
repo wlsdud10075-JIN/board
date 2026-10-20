@@ -63,7 +63,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public int $invTotal = 0;
 
-    /** shipped_out 만 누적된다 → 끊어 받는다. 나머지 3분류는 유한(영업당 20~50대)이라 전량. */
+    /** 출고완료·거래완료만 누적된다 → 끊어 받는다(INV_PAGED). 나머지 3분류는 유한(영업당 20~50대)이라 전량. */
     public const INV_PAGE = 30;
 
     public int $invLimit = self::INV_PAGE;
@@ -94,7 +94,15 @@ new #[Layout('components.layouts.app')] class extends Component {
     private const TABS = ['finance', 'receivables', 'inventory', 'sales', 'settlements', 'shipping'];
 
     /** 재고 4분류 — ERP `erp/inventory` 와 **같은 이름·같은 정의**. board 가 새로 만들지 않는다. */
-    private const INV_CATEGORIES = ['awaiting_payment', 'general', 'pre_ship', 'shipped_out'];
+    private const INV_CATEGORIES = ['awaiting_payment', 'general', 'pre_ship', 'shipped_out', 'completed'];
+
+    /**
+     * 거래완료(completed) 분리(2026-10-20 Jin B안) — 출고완료가 거래완료 252/256대(heymanerp)로 덮여 움직이는 차가 묻혔다.
+     * 정의는 ERP 가 갖는다: completed = 거래완료 AND 운항중 아님 / shipped_out = 출고일 있음 AND completed 아님
+     * (= 거래완료여도 **배 위면 출고완료에 남는다**). 둘 다 누적·ERP 가 잘라 주는 목록이라 board 에서 거르면 [더 보기]가 어긋난다.
+     * ⚠️ ERP 가 completed 를 모르면 422 → 탭이 degrade 배너로 뜬다. 배포 순서 = ERP 먼저.
+     */
+    public const INV_PAGED = ['shipped_out', 'completed'];
 
     /**
      * 월별 집계 — 날짜 있는 리스트(판매/정산/매입)에서 YYYY-MM 별 집계.
@@ -388,7 +396,7 @@ new #[Layout('components.layouts.app')] class extends Component {
      */
     private function loadInventory(string $email, CarErpReadService $svc): array
     {
-        $paged = $this->invCategory === 'shipped_out';
+        $paged = in_array($this->invCategory, self::INV_PAGED, true);
         $env = $svc->inventory($email, $this->invCategory, $this->invSearch, $paged ? $this->invLimit : null);
 
         $rows = ($env['ok'] ?? false) ? (array) data_get($env['data'], 'data', []) : [];
@@ -417,7 +425,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function hasMoreInventory(): bool
     {
-        return $this->invCategory === 'shipped_out' && count($this->invRows) < $this->invTotal;
+        return in_array($this->invCategory, self::INV_PAGED, true) && count($this->invRows) < $this->invTotal;
     }
 
     /** §12 운항 필터 토글 — wire:model 이 아니라 메서드다(updated() 가 안 잡아 재조회가 조용히 빠진다). */
@@ -1437,7 +1445,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <div class="mt-2 flex flex-wrap gap-1.5">
                             @foreach ($bvehicles as $v)
                                 <span class="rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-[12px] font-semibold text-gray-700">
-                                    {{ data_get($v, 'vehicle_number') }}@include('livewire.portal._vehicle-meta', ['row' => $v])
+                                    {{ \App\Support\Plate::show(data_get($v, 'vehicle_number')) }}@include('livewire.portal._vehicle-meta', ['row' => $v])
                                 </span>
                             @endforeach
                         </div>
@@ -1507,7 +1515,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                         @php $vid = (int) data_get($v, 'vehicle_id'); @endphp
                                         <div class="mt-1 flex items-center gap-2" wire:key="chg-{{ $vid }}">
                                             <span class="shrink-0 text-[12px] font-semibold text-gray-700">
-                                                {{ data_get($v, 'vehicle_number') }}@include('livewire.portal._vehicle-meta', ['row' => $v])
+                                                {{ \App\Support\Plate::show(data_get($v, 'vehicle_number')) }}@include('livewire.portal._vehicle-meta', ['row' => $v])
                                             </span>
                                             <input wire:model="changeNote.{{ $vid }}" class="input-base flex-1 text-[12px]" placeholder="{{ __('portal.change_request_ph') }}">
                                             <button wire:click="requestChange({{ $vid }})" class="btn-ghost btn-sm shrink-0">{{ __('portal.change_request_btn') }}</button>
@@ -1597,7 +1605,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                                     wire:click="{{ $on ? 'unassignVehicle('.$vid.')' : "assignVehicle('".$bd['key']."', ".$vid.')' }}"
                                                     class="inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] font-semibold {{ $on ? 'border-violet-400 bg-violet-100 text-gray-800' : 'border-gray-300 bg-white text-gray-600' }}">
                                                     <input type="checkbox" @checked($on) class="pointer-events-none">
-                                                    {{ $vnoMap[$vid] ?? '#'.$vid }}
+                                                    {{ \App\Support\Plate::show($vnoMap[$vid] ?? null) ?? '#'.$vid }}
                                                     @isset($vrowMap[$vid])@include('livewire.portal._vehicle-meta', ['row' => $vrowMap[$vid], 'metaWrap' => 'span'])@endisset
                                                     @isset($vrowMap[$vid])@include('livewire.portal._unpaid-chip', ['row' => $vrowMap[$vid]])@endisset
                                                 </label>
@@ -1786,7 +1794,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                                 @else
                                                     @php $val = data_get($row, $k); @endphp
                                                     <td class="whitespace-nowrap {{ $val === null ? 'text-amber-600' : 'text-gray-700' }}">
-                                                        {{ $val === null ? '—' : $val }}
+                                                        {{ $val === null ? '—' : ($k === 'vehicle_number' ? \App\Support\Plate::show($val) : $val) }}
                                                         @if ($k === 'vehicle_number')@include('livewire.portal._vehicle-meta')@endif
                                                     </td>
                                                 @endif
@@ -1808,7 +1816,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <div class="rounded-md border border-gray-100 bg-gray-50 px-2.5 py-2">
                                     <div class="flex items-center justify-between gap-2">
                                         <div class="min-w-0">
-                                            <div class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') ?: '—' }}</div>
+                                            <div class="font-semibold text-gray-700">{{ \App\Support\Plate::show(data_get($row, 'vehicle_number')) ?: '—' }}</div>
                                             @include('livewire.portal._vehicle-meta')
                                             <div class="text-[11px] text-gray-400">{{ __('portal.fx_rate_label') }} {{ data_get($row, 'exchange_rate') ?? '—' }}</div>
                                         </div>
@@ -1917,7 +1925,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                                 @endif
                                             </td>
                                             <td class="font-semibold text-gray-700">
-                                                {{ data_get($row, 'vehicle_number') }}
+                                                {{ \App\Support\Plate::show(data_get($row, 'vehicle_number')) }}
                                                 @include('livewire.portal._vehicle-meta')
                                             </td>
                                             <td class="whitespace-nowrap">
@@ -1950,7 +1958,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                         @endif
                                         <div class="min-w-0">
                                             <div class="flex flex-wrap items-center gap-1.5">
-                                                <span class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') }}</span>
+                                                <span class="font-semibold text-gray-700">{{ \App\Support\Plate::show(data_get($row, 'vehicle_number')) }}</span>
                                                 @include('livewire.portal._vehicle-meta', ['metaWrap' => 'span'])
                                                 @include('livewire.portal._progress-badge', ['status' => data_get($row, 'progress_status')])
                                                 {{-- 모바일은 호버 title 이 없다 → 선박·ETA 를 펼친다. --}}
@@ -2035,7 +2043,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             @endif
 
             <div class="mb-2 flex flex-wrap items-center gap-1.5">
-                @foreach (['awaiting_payment', 'general', 'pre_ship', 'shipped_out'] as $c)
+                @foreach (['awaiting_payment', 'general', 'pre_ship', 'shipped_out', 'completed'] as $c)
                     <button type="button" wire:click="setInvCategory('{{ $c }}')"
                         class="rounded-md border px-3 py-1.5 text-[13px] font-semibold {{ $invCategory === $c ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">{{ __('portal.inv_cat_'.$c) }}</button>
                 @endforeach
@@ -2045,7 +2053,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             <p class="mb-3 text-[11px] text-gray-400">{{ __('portal.inv_hint_'.$invCategory) }}</p>
 
             @php
-                $shipped = $invCategory === 'shipped_out';
+                $shipped = in_array($invCategory, $this::INV_PAGED, true);
                 $dateLabel = $shipped ? __('portal.col_warehouse_out') : __('portal.col_warehouse_in');
                 $dateKey = $shipped ? 'warehouse_out_date' : 'warehouse_in_date';
             @endphp
@@ -2069,7 +2077,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 {{-- PC 폭 맞춤(2026-10-20 Jin): 칸마다 nowrap 을 걸면 칩 3개·VIN 메타·버튼 줄이 한 줄로 굳어 표가 화면을
                                      넘치고, 칩 없는 행은 그 폭만큼 비어 보인다. 원자값(차량번호·칩·날짜·금액)만 nowrap, 나머지는 접히게. --}}
                                 <td class="font-semibold text-gray-700">
-                                    <span class="whitespace-nowrap">{{ data_get($row, 'vehicle_number') ?: '—' }}</span>
+                                    <span class="whitespace-nowrap">{{ \App\Support\Plate::show(data_get($row, 'vehicle_number')) ?: '—' }}</span>
                                     @include('livewire.portal._vehicle-meta')
                                 </td>
                                 <td>
@@ -2100,7 +2108,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <div class="card-tight" wire:key="invm-{{ data_get($row, 'vehicle_id') }}">
                         <div class="flex flex-wrap items-center justify-between gap-2">
                             <span class="min-w-0">
-                                <span class="font-semibold text-gray-700">{{ data_get($row, 'vehicle_number') ?: '—' }}</span>
+                                <span class="font-semibold text-gray-700">{{ \App\Support\Plate::show(data_get($row, 'vehicle_number')) ?: '—' }}</span>
                                 @include('livewire.portal._vehicle-meta')
                             </span>
                             <span class="flex flex-wrap items-center gap-1.5">

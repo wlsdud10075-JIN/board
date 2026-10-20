@@ -25,7 +25,7 @@
                 $rate = data_get($s, 'margin_rate');
             @endphp
             <tr>
-                <td class="whitespace-nowrap font-semibold text-gray-700">{{ data_get($s, 'vehicle_number') ?: '—' }}</td>
+                <td class="whitespace-nowrap font-semibold text-gray-700">{{ \App\Support\Plate::show(data_get($s, 'vehicle_number')) ?: '—' }}</td>
                 <td class="whitespace-nowrap font-mono {{ is_numeric($rate) && (float) $rate < 0 ? 'text-rose-600' : 'text-gray-700' }}">{{ is_numeric($rate) ? number_format((float) $rate * 100, 1).'%' : '—' }}</td>
                 <td class="whitespace-nowrap font-mono font-semibold {{ $amt < 0 ? 'text-rose-600' : 'text-gray-800' }}">{{ number_format($amt) }}</td>
             </tr>

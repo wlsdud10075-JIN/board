@@ -67,4 +67,11 @@ return [
     'conflict_title' => 'This buyer already has an auto awaiting-reply vehicle (:vehicle).',
     'conflict_desc' => 'Auto replies are handled one vehicle per buyer at a time. You can forward this one manually.',
     'conflict_manual' => 'Forward manually',
+
+    // Share / copy browser dialogs (2026-10-20 — the Korean was hard-coded in JS and showed on the EN screen too)
+    'js_share_unsupported' => 'This browser cannot share several photos at once. Long-press each photo to share it one by one.',
+    'js_share_failed' => 'Sharing failed. Long-press each photo to share it one by one.',
+    'js_copy_buyer_link' => 'Buyer link — long-press to copy:',
+    'js_video_copied' => 'Video link copied. Paste it into KakaoTalk or another messenger.',
+    'js_copy_video_link' => 'Video link — long-press to copy:',
 ];

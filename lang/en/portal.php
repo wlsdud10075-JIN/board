@@ -282,10 +282,12 @@ return [
     'inv_cat_general' => 'General stock',
     'inv_cat_pre_ship' => 'Pre-shipment stock',
     'inv_cat_shipped_out' => 'Shipped out',
+    'inv_cat_completed' => 'Deal closed',
     'inv_hint_awaiting_payment' => 'Vehicles with an outstanding purchase balance — these are the payment-request targets. They move into stock once paid.',
     'inv_hint_general' => 'Speculative purchases with no buyer yet (fully paid, not yet shipped out)',
     'inv_hint_pre_ship' => 'Sold vehicles, not yet shipped out',
-    'inv_hint_shipped_out' => 'Vehicles with a warehouse-out date, newest first. This set keeps growing, so only the latest 30 load first. Vessel names are searchable too, so you can pull up everything loaded on one ship.',
+    'inv_hint_shipped_out' => 'Shipped-out vehicles whose deal is still open or that are at sea right now, newest first. Vehicles in transit stay here even once the deal is closed. Vessel names are searchable too, so you can pull up everything loaded on one ship.',
+    'inv_hint_completed' => 'Closed deals that are not in transit, newest first. This set keeps growing, so only the latest 30 load first.',
     'inv_search_ph' => 'Search vehicle no. / VIN / vessel / buyer',
     'inv_empty' => 'No matching vehicles.',
     'inv_more' => 'Load more (:shown/:total)',
@@ -303,6 +305,14 @@ return [
     'sailing_filter_label' => 'Sailing',
     'sailing_all' => 'All',
     'sailing_in_transit' => '🚢 In transit',
-    'sailing_arrived' => '⚓ ETA passed',
+    'sailing_arrived' => '⚓ Due to arrive',
     'sailing_totals_unfiltered' => 'The sailing filter applies to the vehicle rows only — buyer totals still cover everything.',
+
+    // ERP progress / sailing labels (2026-10-20) — key = the ERP's Korean value. Values match car-erp lang/en/domain.php (board does not coin its own).
+    'progress' => [
+        '매입중' => 'Purchasing', '매입완료' => 'Purchased', '말소완료' => 'Deregistered', '판매중' => 'Selling', '판매완료' => 'Sold',
+        '선적중' => 'Loading', '선적완료' => 'Loaded', '통관중' => 'Clearing', '통관완료' => 'Cleared', '거래완료' => 'Completed',
+        '수출통관중' => 'Clearing', '수출통관완료' => 'Cleared',
+    ],
+    'sailing_label' => ['운항중' => 'In transit', '도착예정' => 'Due to arrive'],
 ];

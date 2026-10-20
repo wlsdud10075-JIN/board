@@ -86,4 +86,5 @@ return [
         'push_title_rejected' => '🔔 Request rejected',
         'push_title_done' => '✅ Request confirmed',
     ],
+    'menu_toggle' => 'Menu',
 ];

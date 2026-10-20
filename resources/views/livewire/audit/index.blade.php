@@ -248,7 +248,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <td class="whitespace-nowrap text-gray-400">{{ $log->created_at?->format('Y-m-d H:i') }}</td>
                             <td class="text-gray-700">{{ $log->user?->name ?? __('audit.system') }}</td>
                             <td class="text-gray-600">
-                                {{ $log->listing?->vehicle_number ?? '#'.$log->purchase_listing_id }}
+                                {{ \App\Support\Plate::show($log->listing?->vehicle_number) ?? '#'.$log->purchase_listing_id }}
                                 @if ($log->listing?->trashed())<span class="badge badge-gray">{{ __('audit.field.deleted') }}</span>@endif
                             </td>
                             <td>
@@ -269,7 +269,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     {{-- car-erp 전송 로그 --}}
     <div class="card mt-4">
         <div class="mb-3 flex flex-wrap items-baseline gap-2">
-            <h2 class="font-bold text-gray-800">{{ __('audit.transmission') }} <span class="text-gray-400">· integration_events</span></h2>
+            <h2 class="font-bold text-gray-800">{{ __('audit.transmission') }}</h2>
             <span class="text-xs text-gray-400">{{ __('audit.total', ['count' => number_format($this->events->total())]) }}</span>
         </div>
 
@@ -279,7 +279,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             <button type="button" wire:click="searchEventsNow" class="btn-primary btn-sm">{{ __('common.search') }}</button>
             <select wire:model.live="eventType" class="input-filter">
                 <option value="">{{ __('audit.all_events') }}</option>
-                @foreach ($this->eventTypes as $t)<option value="{{ $t }}">{{ $t }}</option>@endforeach
+                @foreach ($this->eventTypes as $t)<option value="{{ $t }}">{{ \App\Support\IntegrationEventView::event($t) }}</option>@endforeach
             </select>
             <select wire:model.live="eventResult" class="input-filter">
                 <option value="">{{ __('audit.result_all') }}</option>
@@ -304,25 +304,38 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @forelse ($this->events as $ev)
                         <tr>
                             <td class="whitespace-nowrap text-gray-400">{{ $ev->created_at?->format('Y-m-d H:i') }}</td>
-                            <td class="text-gray-600">{{ $ev->direction }} / {{ $ev->target }}</td>
-                            <td class="text-gray-700">{{ $ev->event_type }}</td>
+                            {{-- 사람 말 표시(2026-10-20 Jin) — 원래 값(outbound/car_erp·purchase_sync·201)은 툴팁으로만. --}}
+                            <td class="text-gray-600" title="{{ $ev->direction }} / {{ $ev->target }}">{{ \App\Support\IntegrationEventView::direction($ev->direction) }} {{ \App\Support\IntegrationEventView::target($ev->target) }}</td>
+                            <td class="text-gray-700" title="{{ $ev->event_type }}">{{ \App\Support\IntegrationEventView::event($ev->event_type) }}</td>
                             <td class="text-gray-600">
                                 @if ($ev->listing)
-                                    {{ $ev->listing->vehicle_number }} <span class="text-xs text-gray-400">#{{ $ev->purchase_listing_id }}</span>
+                                    {{ \App\Support\Plate::show($ev->listing->vehicle_number) }} <span class="text-xs text-gray-400">#{{ $ev->purchase_listing_id }}</span>
                                 @else
                                     {{ $ev->purchase_listing_id ? '#'.$ev->purchase_listing_id : '—' }}
                                 @endif
                             </td>
                             <td>
-                                @php $ok = $ev->response_status >= 200 && $ev->response_status < 300; @endphp
-                                <span class="badge {{ $ok ? 'badge-green' : 'badge-red' }}">{{ $ev->response_status ?? '—' }}</span>
-                                @if ($ev->error)<span class="text-xs text-red-600">{{ \Illuminate\Support\Str::limit($ev->error, 40) }}</span>@endif
+                                @php [$respLabel, $ok] = \App\Support\IntegrationEventView::response($ev); @endphp
+                                <span class="badge whitespace-nowrap {{ $ok === true ? 'badge-green' : ($ok === false ? 'badge-red' : 'badge-gray') }}"
+                                      @if ($ev->response_status !== null) title="{{ __('audit.ev.code', ['code' => $ev->response_status]) }}" @endif>{{ $respLabel }}</span>
                             </td>
                             <td>
-                                <details>
-                                    <summary class="cursor-pointer text-xs text-gray-400">payload</summary>
-                                    <pre class="mt-1 max-w-[420px] overflow-x-auto rounded bg-gray-50 p-2 text-[11px] text-gray-600">{{ json_encode($ev->request_payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) }}</pre>
-                                </details>
+                                @php $sum = \App\Support\IntegrationEventView::summary($ev); $rawRows = \App\Support\IntegrationEventView::payloadRows($ev); @endphp
+                                @if ($sum)<div class="text-[12px] text-gray-700">{{ implode(' · ', $sum) }}</div>@endif
+                                {{-- 오류 원문은 응답 문구·요약과 겹치지 않을 때만(「HTTP 422」·회신 결과 코드는 이미 말로 나왔다). --}}
+                                @if ($ev->error && ! preg_match('/^HTTP \d+$/', $ev->error) && $ev->error !== $ev->response_body)
+                                    <div class="text-[11px] text-red-600">{{ \Illuminate\Support\Str::limit($ev->error, 80) }}</div>
+                                @endif
+                                @if ($rawRows)
+                                    <details>
+                                        <summary class="cursor-pointer text-xs text-gray-400">{{ __('audit.ev.raw') }}</summary>
+                                        <dl class="mt-1 grid max-w-[460px] grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 rounded bg-gray-50 p-2 text-[11px]">
+                                            @foreach ($rawRows as [$k, $v])
+                                                <dt class="whitespace-nowrap text-gray-400">{{ $k }}</dt><dd class="break-all text-gray-700">{{ $v }}</dd>
+                                            @endforeach
+                                        </dl>
+                                    </details>
+                                @endif
                             </td>
                         </tr>
                     @empty

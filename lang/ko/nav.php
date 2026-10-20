@@ -88,4 +88,5 @@ return [
         'push_title_rejected' => '🔔 요청 거절',
         'push_title_done' => '✅ 요청 확인',
     ],
+    'menu_toggle' => '메뉴',
 ];

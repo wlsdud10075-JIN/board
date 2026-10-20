@@ -15,7 +15,7 @@
                     @endif
                     @forelse ($reqResult['skipped'] as $s)
                         @php
-                            $who = data_get($s, 'vehicle_number') ?: ('#'.data_get($s, 'vehicle_id'));
+                            $who = \App\Support\Plate::show(data_get($s, 'vehicle_number')) ?: ('#'.data_get($s, 'vehicle_id'));
                             $why = data_get($s, 'reason') === 'forbidden' ? __('portal.req_reason_forbidden') : __('portal.req_reason_already_open');
                         @endphp
                         <div class="text-gray-500">{{ __('portal.req_result_skipped') }} · {{ $who }} ({{ $why }})</div>

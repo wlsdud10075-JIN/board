@@ -475,7 +475,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <div class="flex cursor-pointer items-center gap-3 rounded-lg border border-gray-200 px-3 py-2.5 hover:bg-gray-50" wire:click="openDrawer({{ $l->id }})">
                         <div class="min-w-0 flex-1">
                             <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                <span class="font-semibold text-gray-800">{{ $l->vehicle_number }}</span>
+                                <span class="font-semibold text-gray-800">{{ \App\Support\Plate::show($l->vehicle_number) }}</span>
                                 <span class="badge {{ $l->isAuction() ? 'badge-auction' : 'badge-encar' }}">{{ $l->isAuction() ? __('domain.source.auction') : __('domain.source.encar') }}</span>
                                 <span class="text-xs text-gray-400">{{ $l->creator->name }}</span>
                             </div>
@@ -500,7 +500,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="fixed inset-0 z-40 bg-black/40" wire:click="closeDrawer"></div>
         <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[460px]">
             <div class="flex items-center justify-between border-b border-gray-200 px-5 py-4">
-                <h3 class="font-bold text-gray-800">{{ $e->vehicle_number }} · {{ __('inspection.drawer_title') }} <span class="text-xs text-gray-400">({{ $e->isAuction() ? __('domain.source.auction') : __('domain.source.encar') }})</span></h3>
+                <h3 class="font-bold text-gray-800">{{ \App\Support\Plate::show($e->vehicle_number) }} · {{ __('inspection.drawer_title') }} <span class="text-xs text-gray-400">({{ $e->isAuction() ? __('domain.source.auction') : __('domain.source.encar') }})</span></h3>
                 <button class="text-gray-400 hover:text-gray-600" wire:click="closeDrawer">✕</button>
             </div>
 
