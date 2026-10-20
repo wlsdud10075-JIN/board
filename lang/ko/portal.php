@@ -70,6 +70,7 @@ return [
     'req_chip_cancelled' => '취소됨',
     'req_chip_rejected' => '거절',
     'req_reject_reason' => '거절 사유: :reason',
+    'req_reject_amount' => '요청 금액 :amount',
     // 매입잔금 — 금액칸이 비어 있으면 ERP 미지급 전액(매도비 포함)으로 보낸다. 누르기 전에 숫자를 보여 준다(2026-10-12 Jin).
     'req_balance_fill_confirm' => '금액을 비워 두셨습니다. 남은 잔금 전액 :amount원(매도비 포함, ERP 미지급 기준)으로 매입잔금을 요청합니다.',
     'req_balance_fill_deposit_hint' => "\n⚠️ 계약금 :amount원 요청이 아직 확인 전입니다 — ERP 미지급에 반영되지 않았을 수 있으니 필요하면 금액을 직접 입력하세요.",

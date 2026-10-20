@@ -69,6 +69,7 @@ return [
     'req_chip_cancelled' => 'Cancelled',
     'req_chip_rejected' => 'Rejected',
     'req_reject_reason' => 'Reason: :reason',
+    'req_reject_amount' => 'Requested :amount',
     'req_balance_fill_confirm' => 'Amount left blank. The balance request will be sent for the full remaining amount :amount KRW (incl. selling fee, per ERP unpaid).',
     'req_balance_fill_deposit_hint' => "\n⚠️ A deposit request of :amount KRW is still unconfirmed — it may not be reflected in ERP unpaid yet. Enter the amount yourself if needed.",
     'req_balance_fill_unavailable' => 'ERP did not provide the unpaid amount for this vehicle — enter the amount yourself.',
