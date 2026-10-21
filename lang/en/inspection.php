@@ -71,6 +71,7 @@ return [
     // Inspection note
     'note_section' => 'Inspection note',
     'note_placeholder' => 'e.g. warranty missing, tire replacement recommended',
+    'request_section' => 'Sales inspection request',
 
     // Pricing
     'pricing_section' => 'Pricing',

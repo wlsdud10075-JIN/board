@@ -70,6 +70,7 @@ return [
     'buyer_name' => '바이어명',
     'inspection_memo' => '메모 (차상태)',
     'inspection_note' => '추가검사사항',
+    'inspection_request' => '검차 요청사항 (영업)',
     'encar_url' => '엔카 매물 URL',
     'encar_dealer' => '엔카 딜러',
     'auction_venue' => '경매장',

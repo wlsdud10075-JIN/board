@@ -38,6 +38,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $buyer_verdict = 'none';
     public string $buyer_name = '';
     public string $inspection_memo = '';
+    public string $inspection_request = '';   // 영업 → 검차원 요청(2026-10-21). inspection_note(검차 결과)와 별개
     public string $inspection_note = '';
     public string $payee_name = '';
     public string $payee_bank = '';
@@ -51,7 +52,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     private const EDIT_FIELDS = [
         'vehicle_number', 'vin', 'owner_name', 'c_no', 'source', 'origin', 'region',
         'expected_price', 'car_cost', 'discount_rate', 'shipping_usd', 'final_price',
-        'status', 'buyer_verdict', 'buyer_name', 'inspection_memo', 'inspection_note',
+        'status', 'buyer_verdict', 'buyer_name', 'inspection_memo', 'inspection_note', 'inspection_request',
         'payee_name', 'payee_bank', 'payee_account',
         'encar_url', 'encar_dealer', 'auction_venue', 'lot_number',
     ];
@@ -141,6 +142,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->buyer_name = $l->buyer_name ?? '';
         $this->inspection_memo = $l->inspection_memo ?? '';
         $this->inspection_note = $l->inspection_note ?? '';
+        $this->inspection_request = $l->inspection_request ?? '';
         $this->payee_name = $l->payee_name ?? '';
         $this->payee_bank = $l->payee_bank ?? '';
         $this->payee_account = $l->payee_account ?? '';
@@ -178,6 +180,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'buyer_name' => 'nullable|string|max:100',
             'inspection_memo' => 'nullable|string|max:500',
             'inspection_note' => 'nullable|string|max:255',
+            'inspection_request' => 'nullable|string|max:255',
             'payee_name' => 'nullable|string|max:60',
             'payee_bank' => 'nullable|string|max:40',
             'payee_account' => 'nullable|string|max:40',
@@ -209,6 +212,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->buyer_name = $this->buyer_name ?: null;
         $l->inspection_memo = $this->inspection_memo ?: null;
         $l->inspection_note = $this->inspection_note ?: null;
+        $l->inspection_request = $this->inspection_request ?: null;
         $l->payee_name = $this->payee_name ?: null;
         $l->payee_bank = $this->payee_bank ?: null;
         $l->payee_account = $this->payee_account ?: null;
@@ -463,6 +467,10 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 <label class="label-base mt-3">{{ __('manage.buyer_name') }}</label>
                 <input class="input-base" wire:model="buyer_name">
+
+                <label class="label-base mt-3">{{ __('manage.inspection_request') }}</label>
+                <input class="input-base" wire:model="inspection_request">
+                @error('inspection_request') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 <label class="label-base mt-3">{{ __('manage.inspection_memo') }}</label>
                 <input class="input-base" wire:model="inspection_memo">

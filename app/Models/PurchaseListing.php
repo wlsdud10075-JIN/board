@@ -31,7 +31,7 @@ class PurchaseListing extends Model
         'buyer_name', 'payee_name', 'payee_bank', 'payee_account',
         'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account',
         'payee_suggestions', 'payee_extraction_status', 'payee_extraction_at',
-        'inspection_memo', 'inspection_note', 'lock_at', 'car_erp_vehicle_id',
+        'inspection_memo', 'inspection_note', 'inspection_request', 'lock_at', 'car_erp_vehicle_id',
         'car_erp_buyer_id', 'car_erp_consignee_id', 'buyer_undecided',
     ];
 
@@ -422,7 +422,7 @@ class PurchaseListing extends Model
         // 판매측 금액(셀프검차 드로어·판매가 후보완) — 2026-10-13 추가. 그 전엔 「판매가 누가 넣었나」를 board 가 답할 수 없었다(59오5691).
         'sale_price', 'offer_currency', 'offer_rate', 'selling_fee', 'transport_fee', 'car_erp_buyer_id',
         'owner_name', 'payee_name', 'payee_bank', 'payee_account',
-        'vehicle_number', 'vin', 'car_erp_vehicle_id', 'region', 'inspection_note', 'inspection_memo',
+        'vehicle_number', 'vin', 'car_erp_vehicle_id', 'region', 'inspection_note', 'inspection_request', 'inspection_memo',
         'encar_url', 'encar_dealer', 'auction_venue', 'lot_number',
         // 재고매입 = 바이어 없이 ERP 로 넘어간다 → 나중에 반드시 "누가 왜"를 묻게 된다.
         'buyer_undecided',

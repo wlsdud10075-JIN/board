@@ -71,6 +71,7 @@ return [
     // 추가검사사항
     'note_section' => '추가검사사항',
     'note_placeholder' => '예: 보증서 미비, 타이어 교체 권장',
+    'request_section' => '영업 검차 요청',
 
     // 금액 산정
     'pricing_section' => '금액 산정',

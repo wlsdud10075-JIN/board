@@ -70,6 +70,7 @@ return [
     'buyer_name' => 'Buyer name',
     'inspection_memo' => 'Memo (vehicle condition)',
     'inspection_note' => 'Inspection note',
+    'inspection_request' => 'Inspection request (sales)',
     'encar_url' => 'Encar listing URL',
     'encar_dealer' => 'Encar dealer',
     'auction_venue' => 'Auction house',

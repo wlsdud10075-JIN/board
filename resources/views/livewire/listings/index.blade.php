@@ -124,6 +124,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $encar_dealer = '';
     public string $auction_venue = '';
     public string $lot_number = '';
+    public string $inspection_request = '';  // 검차 요청사항 — 영업 → 검차원(2026-10-21 Jin). inspection_note(검차 결과 메모)와 별개
     // 입금정보 (선택 — 영업이 미리 알면 입력, 모르면 구매단계에서) §6e
     public string $payee_name = '';
     public string $payee_bank = '';
@@ -152,6 +153,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $e_encar_dealer = '';
     public string $e_auction_venue = '';
     public string $e_lot_number = '';
+    public string $e_inspection_request = '';
 
     // ── 환율 (§6a 라이브) ──
     public int $krwPerUsd = 0;
@@ -458,6 +460,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->e_encar_dealer = $l->encar_dealer ?? '';
         $this->e_auction_venue = $l->auction_venue ?? '';
         $this->e_lot_number = $l->lot_number ?? '';
+        $this->e_inspection_request = $l->inspection_request ?? '';
         $this->e_sale_price = $l->sale_price !== null ? (string) $l->sale_price : null;
         $this->e_sale_currency = $l->offer_currency ?: null;
         $this->e_sale_rate = $l->offer_rate ? (string) $l->offer_rate : null;
@@ -678,7 +681,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'e_transport_fee', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'eSalesFiles', 'e_sale_price', 'e_sale_currency', 'e_sale_rate', 'resyncResult', 'attachResult', 'syncSince']);
+        $this->reset(['editingId', 'e_transport_fee', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'e_inspection_request', 'eSalesFiles', 'e_sale_price', 'e_sale_currency', 'e_sale_rate', 'resyncResult', 'attachResult', 'syncSince']);
         unset($this->editing);
     }
 
@@ -713,6 +716,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'e_encar_dealer' => 'nullable|string|max:100',
             'e_auction_venue' => 'nullable|string|max:100',
             'e_lot_number' => 'nullable|string|max:50',
+            'e_inspection_request' => 'nullable|string|max:255',
             'eSalesFiles.*' => 'file|max:204800',
         ]);
 
@@ -743,6 +747,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->car_cost = ($this->e_car_cost === null || $this->e_car_cost === '') ? null : (int) $this->e_car_cost;
         $l->discount_rate = ($this->e_discount_rate === null || $this->e_discount_rate === '') ? null : (float) $this->e_discount_rate;
         $l->shipping_usd = $this->e_shipping_usd ?: null;
+        $l->inspection_request = $this->e_inspection_request ?: null;
         $l->final_price = $l->totalKrw($this->usdRate(), $this->eurRate()) ?? $l->final_price;
         if ($l->source === 'encar') {
             $l->encar_url = $this->e_encar_url ?: null;
@@ -927,6 +932,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'encar_dealer' => 'nullable|string|max:100',
             'auction_venue' => 'nullable|string|max:100',
             'lot_number' => 'nullable|string|max:50',
+            'inspection_request' => 'nullable|string|max:255',
             'salesFiles.*' => 'file|max:204800',
         ], attributes: [
             'vehicle_number' => __('listings.add_form.attr_vehicle_number'),
@@ -1009,6 +1015,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             'auction_venue' => $this->source === 'auction' ? ($this->auction_venue ?: null) : null,
             'lot_number' => $this->source === 'auction' ? ($this->lot_number ?: null) : null,
             'lock_at' => $this->source === 'auction' ? TimeGate::auctionLockAt() : null,
+            // 셀프검차는 검차 씬을 건너뛰므로 요청을 받을 사람이 없다 — 저장하지 않는다(입력칸도 숨김).
+            'inspection_request' => $selfInspection ? null : ($this->inspection_request ?: null),
             // 셀프검차매입 = 현지확인·전달·회신 씬을 건너뛰고 바로 경매/구매로.
             // 생성 시점이라 상태전이 가드(updating)를 타지 않는다 — TRANSITIONS 는 손대지 않음.
             // buyer_verdict=accepted 는 "accepted 면 회신도 accepted" 불변식 유지용,
@@ -1148,7 +1156,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     private function resetForm(): void
     {
-        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'encarLink', 'ssancarLink', 'promotingId', 'expected_price', 'expected_price_currency', 'priceOptions', 'encarHistory', 'showHistory', 'payee_name', 'payee_bank', 'payee_account', 'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number', 'salesFiles']);
+        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'encarLink', 'ssancarLink', 'promotingId', 'expected_price', 'expected_price_currency', 'priceOptions', 'encarHistory', 'showHistory', 'payee_name', 'payee_bank', 'payee_account', 'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number', 'inspection_request', 'salesFiles']);
         $this->origin = 'encar';
         $this->source = 'encar';
         $this->resetErrorBag();
@@ -1368,6 +1376,15 @@ new #[Layout('components.layouts.app')] class extends Component {
                     </div>
                 @endif
 
+                {{-- 검차 요청사항 — 검차원에게 남기는 말(선택). 셀프검차는 검차 씬이 없어 숨김 --}}
+                @if ($origin !== \App\Models\PurchaseListing::ORIGIN_SELF_INSPECTION)
+                    <div class="mt-3">
+                        <label class="label-base">{{ __('listings.add_form.inspection_request') }} <span class="text-gray-400">{{ __('listings.add_form.inspection_request_hint') }}</span></label>
+                        <input class="input-base" wire:model="inspection_request" maxlength="255" placeholder="{{ __('listings.add_form.inspection_request_ph') }}">
+                        @error('inspection_request') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    </div>
+                @endif
+
                 <p class="mt-3 text-xs text-gray-500">{!! __('listings.add_form.note') !!}</p>
                 @error('source') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
@@ -1519,6 +1536,12 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <input class="input-base" wire:model="e_auction_venue" @unless ($canEdit) disabled @endunless>
                     <label class="label-base mt-3">{{ __('listings.add_form.lot_number') }}</label>
                     <input class="input-base" wire:model="e_lot_number" @unless ($canEdit) disabled @endunless>
+                @endif
+
+                @if ($e->origin !== \App\Models\PurchaseListing::ORIGIN_SELF_INSPECTION)
+                    <label class="label-base mt-3">{{ __('listings.add_form.inspection_request') }} <span class="text-gray-400">{{ __('listings.add_form.inspection_request_hint') }}</span></label>
+                    <input class="input-base" wire:model="e_inspection_request" maxlength="255" placeholder="{{ __('listings.add_form.inspection_request_ph') }}" @unless ($canEdit) disabled @endunless>
+                    @error('e_inspection_request') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 @endif
 
                 {{-- 읽기전용 진행 정보 (현지확인·경매에서 채워짐) --}}

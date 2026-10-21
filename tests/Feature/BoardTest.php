@@ -802,6 +802,52 @@ class BoardTest extends TestCase
     }
 
     /** 셀프검차 차량이 현지확인 화면에 뜨면 이 기능이 건너뛰려던 그 화면에 되돌아온 것이다. */
+    /** 검차 요청사항(2026-10-21 Jin) — 영업이 등록·드로어에서 적고, 현지확인 화면에 읽기 전용으로. 결과 메모(inspection_note)와 별개. */
+    public function test_inspection_request_saved_from_listing_and_shown_to_inspector(): void
+    {
+        $kim = $this->mkUser('sales');
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')
+            ->set('origin', 'encar')
+            ->set('vehicle_number', '12가3456')
+            ->set('region', '경기 수원시')
+            ->set('inspection_request', '하부 누유 꼭 확인')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $l = PurchaseListing::where('vehicle_number', '12가3456')->first();
+        $this->assertSame('하부 누유 꼭 확인', $l->inspection_request);
+        $this->assertNull($l->inspection_note);   // 결과 메모 칸은 건드리지 않는다
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'field' => 'inspection_request', 'new_value' => '하부 누유 꼭 확인']);
+
+        // 드로어에서 고친다(본인 draft)
+        Volt::test('listings.index')->call('openEdit', $l->id)
+            ->assertSet('e_inspection_request', '하부 누유 꼭 확인')
+            ->set('e_inspection_request', '실내 냄새 확인')
+            ->call('update')
+            ->assertHasNoErrors();
+        $this->assertSame('실내 냄새 확인', $l->fresh()->inspection_request);
+
+        // 현지확인 화면 — 목록·드로어에 보인다
+        $this->actingAs($this->mkUser('manager'));
+        Volt::test('inspection.index')->assertSee('실내 냄새 확인')
+            ->call('openDrawer', $l->id)->assertSee(__('inspection.request_section'));
+    }
+
+    public function test_self_inspection_does_not_store_inspection_request(): void
+    {
+        $this->actingAs($this->mkUser('sales'));
+        Volt::test('listings.index')
+            ->set('inspection_request', '남겨진 값')
+            ->set('origin', 'self_inspection')
+            ->set('vehicle_number', '77사7778')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertNull(PurchaseListing::where('vehicle_number', '77사7778')->value('inspection_request'));
+    }
+
     public function test_self_inspection_listing_hidden_from_inspection_screen(): void
     {
         $kim = $this->mkUser('sales');
