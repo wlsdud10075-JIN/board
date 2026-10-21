@@ -99,7 +99,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public array $salesFiles = [];         // 추가 폼
     public array $eSalesFiles = [];        // 편집 드로어
 
-    public string $origin = 'encar';        // 유입 카테고리(화면) — source 는 여기서 도출
+    public string $origin = '';             // 유입 카테고리(화면) — source 는 여기서 도출. 기본 선택 없음(링크 추출이 정하거나 사람이 고름, 2026-10-21 Jin)
     public string $source = 'encar';        // 매입방법(내부) — 워크플로·연동B
     public string $vehicle_number = '';
     public string $owner_name = '';         // 소유자/차주명 (연동 B: car-erp NICE 조회 입력값)
@@ -109,8 +109,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $ssancar_ref = '';        // ssancar wr_id/car_no (비-c_no, "wr_id:786")
     public string $encar_id = '';           // Encar 차 식별 (URL 자동추출)
     public string $respond_contact_id = ''; // respond.io 대화 연결(스파인, 영업이 채팅에서 복사)
-    public string $encarLink = '';          // 엔카 링크 → JSON API enrich
-    public string $ssancarLink = '';        // ssancar 링크 → 페이지 파싱 enrich
+    public string $link = '';               // 매물 링크 1칸 — 사이트 판별은 ListingLink::parse 가 주소로 한다(칸이 사이트를 정하지 않음)
     public ?int $promotingId = null;        // 승격 대기에서 시작한 경우 — 저장 시 consume
     public ?string $expected_price = null;  // 매물 표시가 (enrichment 자동채움 · 표시용, KRW 값은 car_cost 에도 자동 매핑)
     public string $expected_price_currency = 'KRW';   // 매물 표시가 통화 (원/미/유로 토글)
@@ -796,22 +795,24 @@ new #[Layout('components.layouts.app')] class extends Component {
     }
 
     /** 승격: 붙인 링크에서 식별자 자동추출(encar_id/c_no/ssancar_ref) + 유입카테고리/출처 세팅. */
-    public function parseLink(string $which = 'encar'): void
+    public function parseLink(): void
     {
-        $field = $which.'Link';
-        $url = trim($which === 'ssancar' ? $this->ssancarLink : $this->encarLink);
+        $url = trim($this->link);
         if ($url === '') {
             return;
         }
         $r = \App\Support\ListingLink::parse($url);
 
         if ($r === []) {
-            $this->addError($field, __('listings.links.parse_error'));
+            // 아는 사이트인데 식별값이 없으면 링크 형식 문제, 모르는 사이트면 아직 미지원 — 둘 다 출처는 사람이 고른다.
+            $this->addError('link', \App\Support\ListingLink::isKnownSite($url)
+                ? __('listings.links.parse_error')
+                : __('listings.links.unsupported'));
 
             return;
         }
 
-        $this->resetErrorBag($field);
+        $this->resetErrorBag(['link', 'origin']);
         // 셀프검차매입은 영업이 명시적으로 고른 카테고리다 — 링크 파싱이 덮어쓰면(엔카 URL → origin=encar)
         // 방금 누른 토글이 조용히 풀린다. 식별자만 받고 카테고리는 선택을 유지.
         $keys = $this->origin === PurchaseListing::ORIGIN_SELF_INSPECTION
@@ -865,15 +866,16 @@ new #[Layout('components.layouts.app')] class extends Component {
         $name = ! empty($e['name']) ? __('listings.links.enrich_name', ['name' => $e['name']]) : '';
         $auto = $filled ? __('listings.links.enrich_auto', ['fields' => implode('/', $filled)]) : '';
         session()->flash('ok', __('listings.links.enrich_category', ['cat' => $cat]).implode(' · ', $bits).$name.$auto.__('listings.links.enrich_suffix'));
+        $this->link = '';   // 추출한 값은 아래 칩·칸에 남는다 — 다른 링크를 이어서 넣을 수 있게 비운다
     }
 
     /** 엔카 차량이력(보험이력/성능점검/엔카진단) on-demand 조회 — 조회전용, board 저장 안 함. */
     public function loadEncarHistory(): void
     {
         $id = $this->encar_id !== '' ? $this->encar_id
-            : (string) (\App\Support\ListingLink::parse(trim($this->encarLink))['encar_id'] ?? '');
+            : (string) (\App\Support\ListingLink::parse(trim($this->link))['encar_id'] ?? '');
         if ($id === '') {
-            $this->addError('encarLink', __('listings.history.need_link'));
+            $this->addError('link', __('listings.history.need_link'));
 
             return;
         }
@@ -934,6 +936,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             'lot_number' => 'nullable|string|max:50',
             'inspection_request' => 'nullable|string|max:255',
             'salesFiles.*' => 'file|max:204800',
+        ], messages: [
+            'origin.required' => __('listings.add_form.origin_required'),
         ], attributes: [
             'vehicle_number' => __('listings.add_form.attr_vehicle_number'),
             'vin' => __('listings.add_form.attr_vin'),
@@ -1156,8 +1160,8 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     private function resetForm(): void
     {
-        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'encarLink', 'ssancarLink', 'promotingId', 'expected_price', 'expected_price_currency', 'priceOptions', 'encarHistory', 'showHistory', 'payee_name', 'payee_bank', 'payee_account', 'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number', 'inspection_request', 'salesFiles']);
-        $this->origin = 'encar';
+        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'link', 'promotingId', 'expected_price', 'expected_price_currency', 'priceOptions', 'encarHistory', 'showHistory', 'payee_name', 'payee_bank', 'payee_account', 'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number', 'inspection_request', 'salesFiles']);
+        $this->origin = '';
         $this->source = 'encar';
         $this->resetErrorBag();
     }
@@ -1281,30 +1285,28 @@ new #[Layout('components.layouts.app')] class extends Component {
                             class="rounded-md border px-3 py-1.5 text-[13px] font-semibold {{ $origin === $key ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">{{ $lbl }}</button>
                     @endforeach
                 </div>
-                @if ($origin === \App\Models\PurchaseListing::ORIGIN_SELF_INSPECTION)
+                @if ($origin === '')
+                    <p class="mb-3 text-[11px] text-gray-400">{{ __('listings.add_form.origin_pick') }}</p>
+                @elseif ($origin === \App\Models\PurchaseListing::ORIGIN_SELF_INSPECTION)
                     <p class="mb-3 text-[11px] text-gray-400">{{ __('listings.add_form.method_prefix') }}<b>{{ __('listings.add_form.method_self') }}</b></p>
                 @else
                     <p class="mb-3 text-[11px] text-gray-400">{{ __('listings.add_form.method_prefix') }}<b>{{ $source === 'auction' ? __('listings.add_form.method_auction') : __('listings.add_form.method_encar') }}</b>{{ __('listings.add_form.method_suffix') }}</p>
                 @endif
                 @error('origin') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                {{-- 승격: 링크 붙여넣기 → 식별자 자동추출 + 자동채움. 엔카/ssancar 분리(둘 다 넣으면 합쳐서 채움). --}}
+                {{-- 승격: 링크 1칸 → 주소로 사이트 판별(ListingLink::parse) → 식별자 자동추출 + 출처 자동 + 자동채움.
+                     추출 후 칸을 비워 다른 링크를 이어 넣으면 식별값이 합쳐진다(2026-10-21 Jin — 사이트별 칸 폐지, 링크 종류는 늘어난다). --}}
                 <div class="card-sm mb-3" style="background:#f0f7ff;border-color:#dbeafe">
-                    <label class="label-base">{{ __('listings.links.encar_label') }} <span class="text-gray-400">{{ __('listings.links.encar_hint') }}</span></label>
+                    <label class="label-base">{{ __('listings.links.label') }} <span class="text-gray-400">{{ __('listings.links.hint') }}</span></label>
                     <div class="flex gap-2">
-                        <input class="input-base flex-1" wire:model="encarLink" wire:keydown.enter.prevent="parseLink('encar')"
-                               placeholder="{{ __('listings.links.encar_ph') }}">
-                        <button type="button" class="btn-primary btn-sm shrink-0" wire:click="parseLink('encar')">{{ __('listings.links.extract') }}</button>
+                        <input class="input-base flex-1" wire:model="link" wire:keydown.enter.prevent="parseLink"
+                               placeholder="{{ __('listings.links.ph') }}">
+                        <button type="button" class="btn-primary btn-sm shrink-0" wire:click="parseLink" wire:loading.attr="disabled" wire:target="parseLink">{{ __('listings.links.extract') }}</button>
                     </div>
-                    @error('encarLink') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-
-                    <label class="label-base mt-2">{{ __('listings.links.ssancar_label') }} <span class="text-gray-400">{{ __('listings.links.ssancar_hint') }}</span></label>
-                    <div class="flex gap-2">
-                        <input class="input-base flex-1" wire:model="ssancarLink" wire:keydown.enter.prevent="parseLink('ssancar')"
-                               placeholder="{{ __('listings.links.ssancar_ph') }}">
-                        <button type="button" class="btn-primary btn-sm shrink-0" wire:click="parseLink('ssancar')">{{ __('listings.links.extract') }}</button>
-                    </div>
-                    @error('ssancarLink') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    @error('link') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    @if ($encar_id || $c_no || $ssancar_ref)
+                        <p class="mt-1 text-[11px] text-gray-400">{{ __('listings.links.more_hint') }}</p>
+                    @endif
                     @if ($encar_id || $c_no || $ssancar_ref)
                         <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
                             <span class="text-gray-400">{{ __('listings.links.extracted') }}</span>

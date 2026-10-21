@@ -66,6 +66,8 @@ return [
 
     // 추가 폼
     'add_form' => [
+        'origin_required' => '링크를 추출하거나 출처를 고르세요.',
+        'origin_pick' => '💡 링크를 추출하면 출처가 자동으로 정해집니다. 경매·셀프검차매입은 직접 고르세요.',
         'origin_label' => '출처 (유입 카테고리)',
         'method_prefix' => '💡 매입방법: ',
         'method_auction' => '경매 (시간잠금·낙찰/유찰)',
@@ -104,12 +106,11 @@ return [
 
     // 링크 추출 / 매물 표시가
     'links' => [
-        'encar_label' => '🔗 엔카 링크',
-        'encar_hint' => '(차량번호·차값·지역·VIN 자동)',
-        'encar_ph' => 'https://fem.encar.com/cars/detail/42176484',
-        'ssancar_label' => '🔗 ssancar 링크',
-        'ssancar_hint' => '(차량번호·VIN · 검차매물은 엔카가격까지)',
-        'ssancar_ph' => 'https://www.ssancar.com/...?c_no= / ?wr_id=',
+        'label' => '🔗 매물 링크',
+        'hint' => '(엔카·ssancar.com — 추출하면 출처·차량번호·차값·지역·VIN 자동)',
+        'ph' => '엔카 또는 ssancar.com 매물 주소를 붙여넣고 추출',
+        'more_hint' => '다른 링크를 더 추출하면 식별값이 합쳐집니다(출처는 마지막에 추출한 링크 기준).',
+        'unsupported' => '아직 자동 추출을 지원하지 않는 사이트입니다 — 출처를 직접 고르고 값을 입력하세요.',
         'extract' => '추출',
         'extracted' => '추출됨:',
         'parse_error' => '링크에서 식별값을 찾지 못했습니다. (직접 입력 가능)',

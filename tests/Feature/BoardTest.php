@@ -709,7 +709,7 @@ class BoardTest extends TestCase
         $kim = $this->mkUser('sales');
         $this->actingAs($kim);
 
-        Volt::test('listings.index')
+        Volt::test('listings.index')->set('origin', 'encar')
             ->set('source', 'encar')
             ->set('vehicle_number', '99가9999')
             ->set('vin', 'TESTVIN0001')
@@ -897,8 +897,8 @@ class BoardTest extends TestCase
 
         Volt::test('listings.index')
             ->call('setOrigin', 'self_inspection')
-            ->set('encarLink', 'https://fem.encar.com/cars/detail/42176484')
-            ->call('parseLink', 'encar')
+            ->set('link', 'https://fem.encar.com/cars/detail/42176484')
+            ->call('parseLink')
             ->assertSet('origin', 'self_inspection')   // 카테고리는 영업의 선택 유지
             ->assertSet('source', 'encar')
             ->assertSet('encar_id', '42176484');       // 식별자는 그대로 받는다
@@ -910,7 +910,7 @@ class BoardTest extends TestCase
         $this->mkListing($kim, ['vin' => 'DUPVIN00001', 'vehicle_number' => '11가1111']);
         $this->actingAs($kim);
 
-        Volt::test('listings.index')
+        Volt::test('listings.index')->set('origin', 'encar')
             ->set('source', 'encar')
             ->set('vehicle_number', '22나2222')   // 다른 번호판, 같은 VIN
             ->set('vin', 'DUPVIN00001')
@@ -928,7 +928,7 @@ class BoardTest extends TestCase
         $old->delete();   // 소프트삭제 — VIN 을 계속 쥐고 있음(예전엔 재등록 시 raw 500)
         $this->actingAs($kim);
 
-        Volt::test('listings.index')
+        Volt::test('listings.index')->set('origin', 'encar')
             ->set('source', 'encar')
             ->set('vehicle_number', '33다3333')   // 같은 차 재등록
             ->set('vin', 'REVIVE00001')
@@ -982,7 +982,7 @@ class BoardTest extends TestCase
         $this->actingAs($kim);
 
         // 첨부파일 1칸 — 이미지=사진/그 외=서류 자동분류
-        Volt::test('listings.index')
+        Volt::test('listings.index')->set('origin', 'encar')
             ->set('source', 'encar')
             ->set('vehicle_number', '77가7777')
             ->set('vin', 'ATTACHVIN01')
@@ -1011,7 +1011,7 @@ class BoardTest extends TestCase
         config(['board.photo_disk' => 'public']);
         $this->actingAs($this->mkUser('sales'));
 
-        Volt::test('listings.index')
+        Volt::test('listings.index')->set('origin', 'encar')
             ->set('source', 'encar')
             ->set('vehicle_number', '44가4444')
             ->set('vin', 'EXEVIN0001')
@@ -1045,7 +1045,7 @@ class BoardTest extends TestCase
             $eleven[] = UploadedFile::fake()->image("p{$i}.jpg");
         }
 
-        Volt::test('listings.index')
+        Volt::test('listings.index')->set('origin', 'encar')
             ->set('source', 'encar')
             ->set('vehicle_number', '55가5555')
             ->set('vin', 'CAPVIN0001')
@@ -3485,8 +3485,8 @@ class BoardTest extends TestCase
         $this->actingAs($kim = $this->mkUser('sales'));
 
         Volt::test('listings.index')
-            ->set('encarLink', 'https://fem.encar.com/cars/detail/42176484?x=1')
-            ->call('parseLink', 'encar')
+            ->set('link', 'https://fem.encar.com/cars/detail/42176484?x=1')
+            ->call('parseLink')
             ->assertSet('source', 'encar')
             ->assertSet('encar_id', '42176484')
             ->set('vehicle_number', '88가8888')
@@ -3517,8 +3517,8 @@ class BoardTest extends TestCase
         $this->assertGreaterThan(255, strlen($url));   // 재현 조건 자체를 고정
 
         Volt::test('listings.index')
-            ->set('encarLink', $url)
-            ->call('parseLink', 'encar')
+            ->set('link', $url)
+            ->call('parseLink')
             ->assertSet('encar_id', '41410821')
             ->set('vehicle_number', '55가5555')
             ->call('save')
@@ -3560,8 +3560,8 @@ class BoardTest extends TestCase
         $this->actingAs($this->mkUser('sales'));
 
         Volt::test('listings.index')
-            ->set('ssancarLink', 'https://www.ssancar.com/page/inspected_view.php?wr_id=786')
-            ->call('parseLink', 'ssancar')
+            ->set('link', 'https://www.ssancar.com/page/inspected_view.php?wr_id=786')
+            ->call('parseLink')
             ->assertSet('origin', 'ssancar_checking')
             ->assertSet('ssancar_ref', 'wr_id:786')
             ->set('vehicle_number', '77가7777')
@@ -3582,8 +3582,8 @@ class BoardTest extends TestCase
         $this->actingAs($this->mkUser('sales'));
 
         Volt::test('listings.index')
-            ->set('ssancarLink', 'https://www.ssancar.com/page/car_view.php?car_no=1871585')
-            ->call('parseLink', 'ssancar')
+            ->set('link', 'https://www.ssancar.com/page/car_view.php?car_no=1871585')
+            ->call('parseLink')
             ->assertSet('origin', 'ssancar_auction')
             ->assertSet('source', 'auction')
             ->set('vehicle_number', '66가6666')
@@ -3604,9 +3604,64 @@ class BoardTest extends TestCase
         $this->actingAs($this->mkUser('sales'));
 
         Volt::test('listings.index')
-            ->set('encarLink', 'https://www.google.com')
-            ->call('parseLink', 'encar')
-            ->assertHasErrors('encarLink');
+            ->set('link', 'https://www.google.com')
+            ->call('parseLink')
+            ->assertHasErrors('link');
+    }
+
+    /** 링크 1칸(2026-10-21 Jin) — 사이트별 칸 폐지. 출처는 기본 선택 없음 → 링크 추출이 정하거나 사람이 고른다. */
+    public function test_add_form_has_no_default_origin_and_requires_one(): void
+    {
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->assertSet('origin', '')
+            ->set('showAdd', true)
+            ->set('vehicle_number', '11가1111')
+            ->call('save')
+            ->assertHasErrors(['origin' => 'required'])
+            ->assertSee(__('listings.add_form.origin_required'));
+
+        $this->assertDatabaseMissing('purchase_listings', ['vehicle_number' => '11가1111']);
+    }
+
+    public function test_single_link_box_detects_site_and_merges_second_link(): void
+    {
+        Http::fake(['*ssancar.com*' => Http::response('<html>재고</html>', 200), '*encar.com*' => Http::response([], 404)]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('link', 'https://www.ssancar.com/page/stock_car_view.php?c_no=6797296')
+            ->call('parseLink')
+            ->assertHasNoErrors()
+            ->assertSet('origin', 'ssancar_stock')
+            ->assertSet('c_no', '6797296')
+            ->assertSet('link', '')   // 다음 링크를 이어 넣을 수 있게 비운다
+            ->set('link', 'https://fem.encar.com/cars/detail/42176484')
+            ->call('parseLink')
+            ->assertSet('encar_id', '42176484')
+            ->assertSet('c_no', '6797296')   // 앞 링크 식별값은 남는다
+            ->assertSet('origin', 'encar');  // 출처는 마지막에 추출한 링크 기준
+    }
+
+    public function test_unsupported_site_link_says_so(): void
+    {
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')
+            ->set('showAdd', true)
+            ->set('link', 'https://www.kcar.com/bc/detail/carInfoDtl?i_sCarCd=EC123')
+            ->call('parseLink')
+            ->assertHasErrors('link')
+            ->assertSee(__('listings.links.unsupported'))
+            ->assertSet('origin', '');
+
+        // 아는 사이트인데 식별값이 없으면 형식 오류 문구
+        Volt::test('listings.index')
+            ->set('showAdd', true)
+            ->set('link', 'https://www.ssancar.com/')
+            ->call('parseLink')
+            ->assertSee(__('listings.links.parse_error'));
     }
 
     public function test_duplicate_vehicle_number_is_blocked(): void
@@ -3615,7 +3670,7 @@ class BoardTest extends TestCase
         $this->mkListing($kim, ['vehicle_number' => '55가5555']);
         $this->actingAs($kim);
 
-        Volt::test('listings.index')
+        Volt::test('listings.index')->set('origin', 'encar')
             ->set('source', 'encar')
             ->set('vehicle_number', '55가5555')
             ->call('save')
@@ -4312,7 +4367,7 @@ class BoardTest extends TestCase
         $this->actingAs($sales);
 
         Volt::test('listings.index')
-            ->call('promoteFrom', $req->id)
+            ->call('promoteFrom', $req->id)->set('origin', 'encar')
             ->set('vehicle_number', '99가1234')
             ->call('save')->assertHasNoErrors();
 
@@ -4503,7 +4558,7 @@ class BoardTest extends TestCase
         $this->actingAs($this->mkUser('sales'));
         Volt::test('listings.index')
             ->call('loadEncarHistory')      // encar_id·링크 없음
-            ->assertHasErrors('encarLink');
+            ->assertHasErrors('link');
     }
 
     public function test_listings_link_prefills_from_encar(): void
@@ -4516,8 +4571,8 @@ class BoardTest extends TestCase
         $this->actingAs($this->mkUser('sales'));
 
         Volt::test('listings.index')
-            ->set('encarLink', 'https://fem.encar.com/cars/detail/42176484')
-            ->call('parseLink', 'encar')
+            ->set('link', 'https://fem.encar.com/cars/detail/42176484')
+            ->call('parseLink')
             ->assertSet('vehicle_number', '244로9100')
             ->assertSet('expected_price', '66660000')   // 6666만 ×10000
             ->assertSet('expected_price_currency', 'KRW')
@@ -4580,7 +4635,7 @@ class BoardTest extends TestCase
         // 싼카 USD 차값 → 저장 시 final_price 는 KRW 환산(차값은 USD 그대로 보관).
         $this->actingAs($this->mkUser('sales'));
 
-        Volt::test('listings.index')
+        Volt::test('listings.index')->set('origin', 'encar')
             ->set('priceOptions', ['KRW' => 10000000, 'USD' => 7000])
             ->set('krwPerUsd', 1400)
             ->set('vehicle_number', '33가3333')
@@ -4640,8 +4695,8 @@ class BoardTest extends TestCase
 
         Volt::test('listings.index')
             ->set('showAdd', true)
-            ->set('ssancarLink', 'https://www.ssancar.com/x?wr_id=786')
-            ->call('parseLink', 'ssancar')
+            ->set('link', 'https://www.ssancar.com/x?wr_id=786')
+            ->call('parseLink')
             ->assertSet('encar_id', '999')
             ->assertSee(__('listings.history.view'));   // 싼카 추출 후 '이력 조회' 버튼 노출(추출됨 영역)
     }
@@ -4665,8 +4720,8 @@ class BoardTest extends TestCase
         $this->actingAs($this->mkUser('sales'));
 
         $c = Volt::test('listings.index')
-            ->set('ssancarLink', 'https://www.ssancar.com/x?c_no=1')
-            ->call('parseLink', 'ssancar')
+            ->set('link', 'https://www.ssancar.com/x?c_no=1')
+            ->call('parseLink')
             ->assertSet('expected_price_currency', 'KRW')->assertSet('expected_price', '10500000');
         $c->call('pickCurrency', 'USD')->assertSet('expected_price', '6791')->assertSet('expected_price_currency', 'USD');
         $c->call('pickCurrency', 'EUR')->assertSet('expected_price', '5920');
@@ -7567,7 +7622,7 @@ class BoardTest extends TestCase
         ]);
 
         // 같은 차량번호·VIN 으로 재등록 — 삭제된 행은 중복차단을 안 건다.
-        Volt::test('listings.index')
+        Volt::test('listings.index')->set('origin', 'encar')
             ->set('source', 'encar')
             ->set('vehicle_number', '11가1111')
             ->set('vin', 'STUCKVIN001')
@@ -7591,7 +7646,7 @@ class BoardTest extends TestCase
         ]);
         $this->actingAs($kim);
 
-        Volt::test('listings.index')
+        Volt::test('listings.index')->set('origin', 'encar')
             ->set('source', 'encar')->set('vehicle_number', '22나2222')
             ->set('car_cost', '13000000')->set('discount_rate', '0')->set('shipping_usd', 1640)
             ->call('save')
@@ -7600,7 +7655,7 @@ class BoardTest extends TestCase
         Volt::test('listings.index')->call('openEdit', $l->id)->call('deleteListing');
         $this->assertSoftDeleted('purchase_listings', ['id' => $l->id]);
 
-        Volt::test('listings.index')
+        Volt::test('listings.index')->set('origin', 'encar')
             ->set('source', 'encar')->set('vehicle_number', '22나2222')->set('vin', 'REJVIN0002')
             ->set('car_cost', '13000000')->set('discount_rate', '0')->set('shipping_usd', 1640)
             ->call('save')
