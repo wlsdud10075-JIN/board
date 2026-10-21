@@ -66,6 +66,8 @@ return [
 
     // Add form
     'add_form' => [
+        'origin_required' => 'Extract a link or pick a source.',
+        'origin_pick' => '💡 Extracting a link sets the source automatically. Pick Auction or Self-inspection manually.',
         'origin_label' => 'Source (origin category)',
         'method_prefix' => '💡 Purchase method: ',
         'method_auction' => 'Auction (time-locked · won/failed)',
@@ -86,6 +88,9 @@ return [
         'c_no' => 'Listing no.',
         'c_no_hint' => '(c_no)',
         'c_no_ph' => 'Auto-filled from link',
+        'inspection_request' => 'Inspection request',
+        'inspection_request_hint' => '(for the inspector — optional)',
+        'inspection_request_ph' => 'e.g. check underbody oil leak, interior smell',
         'auction_venue' => 'Auction venue',
         'auction_venue_ph' => 'Lotte / Hyundai Glovis',
         'lot_number' => 'Lot number',
@@ -101,12 +106,11 @@ return [
 
     // Link extraction / listing price
     'links' => [
-        'encar_label' => '🔗 Encar link',
-        'encar_hint' => '(auto: vehicle no. · car cost · region · VIN)',
-        'encar_ph' => 'https://fem.encar.com/cars/detail/42176484',
-        'ssancar_label' => '🔗 SSANCAR link',
-        'ssancar_hint' => '(vehicle no. · VIN · Encar price for inspected listings)',
-        'ssancar_ph' => 'https://www.ssancar.com/...?c_no= / ?wr_id=',
+        'label' => '🔗 Listing link',
+        'hint' => '(Encar · ssancar.com — Extract fills source, vehicle no., car cost, region, VIN)',
+        'ph' => 'Paste an Encar or ssancar.com listing URL, then Extract',
+        'more_hint' => 'Extract another link to merge identifiers (source follows the last extracted link).',
+        'unsupported' => 'This site is not supported for auto-extract yet — pick the source and enter values manually.',
         'extract' => 'Extract',
         'extracted' => 'Extracted:',
         'parse_error' => 'Could not find an identifier in the link. (Enter manually instead.)',

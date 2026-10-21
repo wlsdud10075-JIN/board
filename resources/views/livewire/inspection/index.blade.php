@@ -483,6 +483,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 {{ $l->final_price ? __('inspection.final_amount_prefix', ['amount' => number_format($l->final_price)]) : __('inspection.amount_undecided') }}
                                 {{ $l->inspection_note ? '· '.$l->inspection_note : '' }}
                             </div>
+                            @if ($l->inspection_request)
+                                <div class="mt-0.5 truncate text-xs text-amber-700" title="{{ $l->inspection_request }}">📝 {{ $l->inspection_request }}</div>
+                            @endif
                         </div>
                         <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span>
                         <span class="text-gray-300">›</span>
@@ -577,6 +580,12 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <div class="section-title-sm">{{ __('inspection.inspection_region_section') }}</div>
                 <x-region-input model="region" :placeholder="__('inspection.region_placeholder')" />
                 @error('region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+
+                {{-- 영업 검차 요청(읽기 전용) — 등록한 영업이 검차원에게 남긴 말. 검차 결과 메모(추가검사사항)와 별개 --}}
+                @if ($e->inspection_request)
+                    <div class="section-title-sm">{{ __('inspection.request_section') }}</div>
+                    <div class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">📝 {{ $e->inspection_request }}</div>
+                @endif
 
                 {{-- 메모 --}}
                 <div class="section-title-sm">{{ __('inspection.memo_section') }}</div>

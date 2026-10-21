@@ -72,6 +72,7 @@ return [
         'car_erp_vehicle_id' => 'car-erp차량',
         'region' => '지역',
         'inspection_note' => '추가검사',
+        'inspection_request' => '검차요청',
         'inspection_memo' => '메모',
         'c_no' => '매물번호',
         'encar_url' => '엔카URL',

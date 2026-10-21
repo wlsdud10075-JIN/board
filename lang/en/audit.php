@@ -72,6 +72,7 @@ return [
         'car_erp_vehicle_id' => 'car-erp vehicle',
         'region' => 'Region',
         'inspection_note' => 'Extra inspection',
+        'inspection_request' => 'Inspection request',
         'inspection_memo' => 'Memo',
         'c_no' => 'Listing no.',
         'encar_url' => 'Encar URL',

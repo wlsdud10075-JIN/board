@@ -65,6 +65,14 @@ class ListingLink
         return $out;
     }
 
+    /** 자동 추출 규칙이 있는 사이트인가 — parse() 가 빈 배열일 때 「형식 오류」와 「미지원 사이트」를 가른다. 사이트를 추가하면 여기도. */
+    public static function isKnownSite(string $url): bool
+    {
+        $lower = mb_strtolower(trim($url));
+
+        return str_contains($lower, 'encar.com') || str_contains($lower, 'ssancar.com');
+    }
+
     /**
      * 엔카 상세 URL 에서 추적 파라미터를 떼어낸다 — `https://{host}/cars/detail/{id}`.
      *
