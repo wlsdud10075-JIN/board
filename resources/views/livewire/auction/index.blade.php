@@ -478,8 +478,8 @@ new #[Layout('components.layouts.app')] class extends Component {
      * 이상 총판매가(2026-10-22 Jin, **보여주기 전용** — 저장·전송 없음):
      *   매입가(원화) + 매도비 − 매입가 × 부가세율(9%) × 45%  →  환율을 넣으면 USD·EUR 로도.
      * 매입가가 외화(싼카 차값 통화)면 화면에 적은 환율(없으면 오늘 환율)로 원화 환산한다.
-     * `diff` = **판매가**(쪼개기 결과, 운임비 제외)를 원화로 바꾼 금액(`sale_krw`)이 이상가 대비 몇 % 위/아래인가.
-     *   🚫 운임비는 더하지 않는다(2026-10-22 Jin) — 이상가 공식에 운임이 없다.
+     * `diff` = (판매가 + 운임비) 를 원화로 바꾼 금액(`sale_krw`)이 이상가 대비 몇 % 위/아래인가(2026-10-22 Jin).
+     *   판매가 + 운임비 = 총판매가(견적통화)라 원화 환산 = 총판매가 × 견적통화 환율.
      *
      * @return array{krw: ?int, usd: ?float, eur: ?float, sale_krw: ?int, diff: ?float}
      */
@@ -508,8 +508,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             'EUR' => $eur,
             default => null,
         };
-        $sale = $this->selfSplit()['sale'];
-        $saleKrw = ($sale !== null && $quoteRate) ? (int) round($sale * $quoteRate) : null;
+        $total = $num($this->sale_total);
+        $saleKrw = ($total !== null && $quoteRate) ? (int) round($total * $quoteRate) : null;
 
         return [
             'krw' => $krw,

@@ -1642,13 +1642,13 @@ class BoardTest extends TestCase
         $c = Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('selling_fee', '440000')->set('rate_usd', '1400')->set('rate_eur', '1600')
             ->set('quoteCurrency', 'EUR')->set('sale_total', '6600');
-        // 10,000,000 + 440,000 − 900,000 × 45% = 10,035,000 / 판매가 = 6600(운임비 없음) × 1600 = 10,560,000 원 → +5.2%
+        // 10,000,000 + 440,000 − 900,000 × 45% = 10,035,000 / (판매가 + 운임비) = 6600 × 1600 = 10,560,000 원 → +5.2%
         $this->assertSame(['krw' => 10035000, 'usd' => 7167.86, 'eur' => 6271.88, 'sale_krw' => 10560000, 'diff' => 5.2], $c->instance()->idealPrice());
 
-        // Jin 실측(2026-10-22 50서3741): 이상가 8,787,650 / 판매가 4032(운임비 1768 제외) × 1500 = 6,048,000 → −31.2%
+        // Jin 실측(2026-10-22 50서3741): 870만 + 44만 − 783,000 × 45% = 8,787,650 / 5800 × 1500 = 8,700,000 → −1.0%
         $c->set('car_cost', '8700000')->set('rate_usd', '1300')->set('rate_eur', '1500')->set('sale_total', '5800')->set('transport_fee_usd', '2040');
-        $this->assertSame(6048000, $c->instance()->idealPrice()['sale_krw']);
-        $this->assertSame(-31.2, $c->instance()->idealPrice()['diff']);
+        $this->assertSame(8700000, $c->instance()->idealPrice()['sale_krw']);
+        $this->assertSame(-1.0, $c->instance()->idealPrice()['diff']);
         $c->assertSee(__('auction.ideal_title'));
         $this->assertNull($l->fresh()->sale_price);   // 저장 없음
     }

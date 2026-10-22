@@ -45,7 +45,7 @@ return [
     'rate_eur' => 'Rate EUR',
     'auto' => 'auto',
     'ideal_title' => 'Ideal total',
-    'ideal_diff' => 'Sale price :sale KRW (excl. freight) → vs ideal: :pct',
+    'ideal_diff' => 'Sale price + freight = :sale KRW → vs ideal: :pct',
     'ideal_formula' => 'Purchase + selling fee − :share% of purchase VAT (:vat%) · for reference only (not saved or sent)',
     'split_hint' => 'Freight is fixed in USD and converted to :currency with the rates. Sale price = total − freight.',
     'err_total_required' => 'Enter the total sale price before confirming the purchase. Leaving it empty creates the vehicle in the ERP with no sale data.',
