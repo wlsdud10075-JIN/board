@@ -358,7 +358,16 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
     통화 락만 걸면 두 번째 구멍이 남는다 — 환율칸이 `1` 로 **미리 채워져** 있으면 USD 를 골라도 `exchange_rate=1` 로 박힌다.
     → 셀프검차는 **통화·환율 둘 다 미리 채우지 않는다**(빈 값으로 시작). 빈 값이어야 락이 잡는다.
   ⚠️ 이 락은 **셀프검차에만** 건다. 다른 출처는 견적 씬에서 채워지므로 여기서 막으면 기존 흐름이 죽는다.
-- 🚫 **자동계산이 아예 없다**(2026-08-10 Jin) — 통화를 눌러도 환율이 안 바뀌고, 환율을 적어도 판매가가 안 따라오고,
+- 🔁 **판매가·운임비 쪼개기(2026-10-22 Jin — 아래 「자동계산 없음」을 이 두 칸에 한해 뒤집는다)**: 운임비는 USD 로 정해지는데
+  (예: RORO 알바니아 세단 2,040) 판매는 EUR 일 수 있다. 사람이 적는 칸 = **총판매가(견적통화)·운임비 USD·환율 USD·환율 EUR**,
+  계산값(읽기 전용) = **운임비(견적통화) = 운임비 USD × USD환율 ÷ 견적환율**(USD 견적=그대로, KRW 견적=×USD환율) ·
+  **판매가 = 총판매가 − 운임비** → 환율이 움직이면 판매가가 흡수하고 총판매가는 고정. 단일 경로 = `/auction` `selfSplit()`.
+  - 소수 둘째 자리 — 운임비를 먼저 반올림하고 빼서 합계가 정확히 맞는다. ERP `sale_price`·`transport_fee` = decimal(15,2)·`numeric` 검증이라 그대로 받는다(car-erp `PurchaseSyncController.php:97-98`).
+  - 저장 = `sale_price`·`transport_fee`(계산값, ERP 로 가는 칸 그대로) + 새 칸 `transport_fee_usd`·`offer_rate_usd`·`offer_rate_eur`(화면 복원용, 감사 대상). 총판매가 컬럼은 없다(= 합). `offer_rate` = **견적통화 환율**(ERP `sale_exchange_rate`) 유지.
+  - ⚠️ `transport_fee_usd` 는 **ERP 로 안 간다** — purchase-sync 가 그 키를 받지 않는다(ERP `transport_fee_usd` 는 선적요청 1/N 경로 전용). 보내려면 car-erp 수신측 변경.
+  - 락 변경: 판매가 락 → **총판매가 락**(`sale_total`), 환율 락은 견적통화 쪽 칸(`rate_usd`/`rate_eur`), **운임비 USD 가 있고 견적이 USD 가 아니면 USD 환율 필수**(없으면 운임비가 빠진 채 판매가 = 총판매가로 나간다). 운임비 > 총판매가 = 저장 거부.
+  - 환율 두 칸도 **미리 채우지 않는다**(아래 환율 락 이유 그대로).
+- 🚫 **자동계산이 아예 없다**(2026-08-10 Jin — ⚠️ 2026-10-22 판매가·운임비는 위 쪼개기로 바뀜, 환율·`final_price` 는 여전히 무계산) — 통화를 눌러도 환율이 안 바뀌고, 환율을 적어도 판매가가 안 따라오고,
   `판매가 × 환율` 로 `final_price` 를 만들지도 **않는다**. 전부 "적은 값 그대로"다. 빈 칸일 때 KRW=1 폴백만 남겼다.
   ⚠️ 그래서 셀프검차는 **`final_price` 가 비어 있다** → Job 이 `offerAmount()`(final_price 기반)를 쓰면 판매 통화·환율이
   안 실리고, car-erp 는 `sale_price>0 && rate>0` 일 때만 판매 pre-fill 을 저장하므로 **통째로 보류**된다.

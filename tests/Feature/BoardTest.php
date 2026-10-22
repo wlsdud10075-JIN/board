@@ -770,7 +770,7 @@ class BoardTest extends TestCase
             ->call('openDetail', $l->id)
             ->set('owner_name', '차주')
             ->set('payee_name', '판매상사')
-            ->set('sale_price', '7000')     // 셀프검차 필수 락 — 차값·판매가·통화
+            ->set('sale_total', '7000')     // 셀프검차 필수 락 — 차값·총판매가·통화
             ->set('quoteCurrency', 'KRW')
             ->set('buyerId', 7)             // 구매확정은 바이어 필수(매입 등록 락의 전제)
             ->call('conclude', $l->id, 'won')
@@ -1164,7 +1164,7 @@ class BoardTest extends TestCase
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '12000000')
-            ->set('sale_price', '8000')->set('quoteCurrency', 'KRW')   // 셀프검차 필수 락
+            ->set('sale_total', '8000')->set('quoteCurrency', 'KRW')   // 셀프검차 필수 락
             ->call('conclude', $l->id, 'won')->assertHasNoErrors();
 
         $this->assertSame(12000000, (int) $l->fresh()->car_cost);
@@ -1344,9 +1344,9 @@ class BoardTest extends TestCase
             ->set('car_cost', '13600000')
             ->set('selling_fee', '440000')
             ->set('quoteCurrency', 'USD')
-            ->set('sale_price', '8590')
-            ->set('offer_rate', '1400')
-            ->set('transport_fee', '1350')      // 판매통화(USD) 기준 · 선택지 밖 값도 허용(직접입력)
+            ->set('sale_total', '9940')
+            ->set('rate_usd', '1400')
+            ->set('transport_fee_usd', '1350')  // USD 견적이면 운임비 USD 그대로 → 판매가 = 9940 − 1350
             ->call('conclude', $l->id, 'won')->assertHasNoErrors();
 
         $f = $l->fresh();
@@ -1410,7 +1410,7 @@ class BoardTest extends TestCase
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '10000000')->set('quoteCurrency', 'KRW')
             ->call('conclude', $l->id, 'won')
-            ->assertHasErrors('sale_price');
+            ->assertHasErrors('sale_total');
 
         $this->assertSame('accepted', $l->fresh()->status);
         Bus::assertNotDispatched(SyncWonListingToCarErp::class);
@@ -1418,7 +1418,7 @@ class BoardTest extends TestCase
         // 판매가까지 넣으면 통과
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '10000000')
-            ->set('sale_price', '7000')->set('quoteCurrency', 'KRW')
+            ->set('sale_total', '7000')->set('quoteCurrency', 'KRW')
             ->call('conclude', $l->id, 'won')->assertHasNoErrors();
 
         $this->assertSame('won', $l->fresh()->status);
@@ -1441,7 +1441,7 @@ class BoardTest extends TestCase
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->assertSet('quoteCurrency', '')      // 미선택으로 시작 — KRW 로 흘러가지 않는다
             ->set('car_cost', '12000000')
-            ->set('sale_price', '8590')
+            ->set('sale_total', '8590')
             ->call('conclude', $l->id, 'won')
             ->assertHasErrors('quoteCurrency');
 
@@ -1464,17 +1464,18 @@ class BoardTest extends TestCase
         $this->actingAs($this->mkUser('manager'));
 
         $c = Volt::test('auction.index')->call('openDetail', $l->id)
-            ->assertSet('offer_rate', null)       // 미리 채우지 않는다
+            ->assertSet('rate_usd', null)         // 미리 채우지 않는다
+            ->assertSet('rate_eur', null)
             ->set('car_cost', '12000000')
-            ->set('sale_price', '8590')
+            ->set('sale_total', '8590')
             ->set('quoteCurrency', 'USD')
             ->call('conclude', $l->id, 'won')
-            ->assertHasErrors('offer_rate');
+            ->assertHasErrors('rate_usd');
 
         $this->assertSame('accepted', $l->fresh()->status);
 
         // 환율까지 넣으면 통과
-        $c->set('offer_rate', '1400')->call('conclude', $l->id, 'won')->assertHasNoErrors();
+        $c->set('rate_usd', '1400')->call('conclude', $l->id, 'won')->assertHasNoErrors();
         $this->assertSame('won', $l->fresh()->status);
         $this->assertSame(1400, (int) $l->fresh()->offer_rate);
     }
@@ -1491,7 +1492,7 @@ class BoardTest extends TestCase
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '12000000')
-            ->set('sale_price', '11000000')
+            ->set('sale_total', '11000000')
             ->set('quoteCurrency', 'KRW')
             ->call('conclude', $l->id, 'won')->assertHasNoErrors();
 
@@ -1532,8 +1533,7 @@ class BoardTest extends TestCase
             ->set('car_cost', '400000')
             ->set('selling_fee', '440000')
             ->set('quoteCurrency', 'KRW')
-            ->set('sale_price', '400000')
-            ->set('offer_rate', '1')
+            ->set('sale_total', '400000')
             ->call('conclude', $l->id, 'won')
             ->assertHasNoErrors();
 
@@ -1557,10 +1557,54 @@ class BoardTest extends TestCase
     }
 
     /**
-     * ★셀프검차 금액칸은 **자동계산이 없다**(2026-08-10 Jin) — 통화를 눌러도 환율이 안 바뀌고,
-     * 환율을 적어도 다른 칸이 안 따라온다. 전부 "적은 값 그대로"다.
+     * ★셀프검차 판매 쪼개기(2026-10-22 Jin, 2026-08-10 「자동계산 없음」을 판매가·운임비에 한해 뒤집음) —
+     * 총판매가·운임비 USD 고정, 운임비(견적통화) = USD × USD환율 ÷ 견적환율, 판매가 = 총판매가 − 운임비.
+     * Jin 예시: EUR 11,800 · RORO 알바니아 세단 2,040 USD → 운임비가 환율로 줄면 판매가가 그만큼 올라 합계 유지.
+     * 환율은 여전히 미리 채우지 않는다(통화를 바꿔도 환율칸이 따라오지 않는다).
      */
-    public function test_self_inspection_amounts_never_autocalculate(): void
+    public function test_self_inspection_splits_total_with_fixed_usd_freight(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        $c = Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('quoteCurrency', 'EUR')
+            ->assertSet('rate_usd', null)->assertSet('rate_eur', null)   // 통화를 골라도 환율은 안 채운다
+            ->set('sale_total', '11800')
+            ->set('transport_fee_usd', '2040')
+            ->set('rate_usd', '1380')
+            ->set('rate_eur', '1580');
+
+        // 2040 × 1380 ÷ 1580 = 1781.77 → 판매가 10018.23, 합계 11800 정확히
+        $this->assertSame(['sale' => 10018.23, 'freight' => 1781.77, 'rate' => 1580], $c->instance()->selfSplit());
+
+        $c->set('buyerId', 7)->call('savePayee')->assertHasNoErrors();
+        $f = $l->fresh();
+        $this->assertSame(10018.23, (float) $f->sale_price);
+        $this->assertSame(1781.77, (float) $f->transport_fee);
+        $this->assertSame(11800.0, round((float) $f->sale_price + (float) $f->transport_fee, 2));
+        $this->assertSame(2040.0, (float) $f->transport_fee_usd);
+        $this->assertSame('EUR', $f->offer_currency);
+        $this->assertSame(1580, (int) $f->offer_rate);      // ERP sale_exchange_rate = 견적통화 환율
+        $this->assertSame(1380, (int) $f->offer_rate_usd);
+        $this->assertSame(1580, (int) $f->offer_rate_eur);
+        $this->assertNull($f->shipping_usd);
+        $this->assertNull($f->final_price);                 // final_price 는 여전히 안 만든다
+
+        // 다시 열면 총판매가·운임비 USD·두 환율이 그대로 돌아온다
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->assertSet('sale_total', '11800')
+            ->assertSet('transport_fee_usd', '2040')
+            ->assertSet('rate_usd', '1380')
+            ->assertSet('rate_eur', '1580');
+    }
+
+    /** 원화 견적은 운임비 = USD × USD환율, USD 견적은 USD 그대로. 운임비가 총판매가를 넘으면 막는다. */
+    public function test_self_inspection_split_krw_usd_and_over_total(): void
     {
         $l = $this->mkListing($this->mkUser('sales'), [
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
@@ -1568,14 +1612,37 @@ class BoardTest extends TestCase
         ]);
         $this->actingAs($this->mkUser('manager'));
 
+        $c = Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('quoteCurrency', 'KRW')->set('sale_total', '20000000')
+            ->set('transport_fee_usd', '2040')->set('rate_usd', '1380');
+        $this->assertSame(['sale' => 17184800.0, 'freight' => 2815200.0, 'rate' => 1], $c->instance()->selfSplit());
+
+        $c->set('quoteCurrency', 'USD')->set('sale_total', '11800');
+        $this->assertSame(['sale' => 9760.0, 'freight' => 2040.0, 'rate' => 1380], $c->instance()->selfSplit());
+
+        $c->set('sale_total', '1000')->call('savePayee')->assertHasErrors('sale_total');
+        $this->assertNull($l->fresh()->sale_price);
+    }
+
+    /** 운임비 USD 를 적었는데 USD 환율이 없으면(EUR 견적) 운임비가 빠진 채 나간다 — 구매확정을 막는다. */
+    public function test_self_inspection_freight_usd_needs_usd_rate_to_conclude(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
         Volt::test('auction.index')->call('openDetail', $l->id)
-            ->set('offer_rate', '1234')
-            ->set('sale_price', '5000')
-            ->set('quoteCurrency', 'USD')      // 통화를 바꿔도 환율은 그대로
-            ->assertSet('offer_rate', '1234')
-            ->assertSet('sale_price', '5000')  // 판매가도 환산되지 않는다
-            ->set('offer_rate', '1400')
-            ->assertSet('sale_price', '5000'); // 환율을 고쳐도 판매가는 그대로
+            ->set('quoteCurrency', 'EUR')->set('rate_eur', '1580')
+            ->set('sale_total', '11800')->set('transport_fee_usd', '2040')
+            ->set('buyerId', 7)
+            ->call('conclude', $l->id, 'won')
+            ->assertHasErrors('rate_usd');
+
+        $this->assertSame('accepted', $l->fresh()->status);
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
     }
 
     /** 운임비는 **판매통화 그대로** ERP 로 간다 — USD 로 환산하면 EUR 딜에서 부풀어 오른다. */
