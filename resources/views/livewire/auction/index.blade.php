@@ -597,6 +597,44 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->payee_name = $c['holder'];
     }
 
+    /** 소유자 후보를 소유자 칸에 옮긴다 — 계좌 후보와 같이 **저장은 아니다**. */
+    public function applyOwner(int $index): void
+    {
+        $l = PurchaseListing::findOrFail($this->detailId);
+        $owner = ($l->payee_suggestions['registration_owners'] ?? [])[$index] ?? null;
+        if ($owner) {
+            $this->owner_name = $owner;
+        }
+    }
+
+    /**
+     * [이미지에서 계좌·소유자 찾기] — 이미 올라간 사진으로도 돌린다(2026-10-22 Jin).
+     * 종전 [계좌정보 찾기]는 `savePayee` 라 **새 사진이 있을 때만** 추출이 돌았다 → 올려 둔 사진으로는 눌러도 아무 일이 없었다.
+     * 새로 고른 사진이 있으면 저장(→ storeSalesFiles 가 추출 발사), 없으면 기존 사진으로 발사. 입력칸 값은 저장하지 않는다.
+     */
+    public function extractFromImages(): void
+    {
+        if (! config('board.payee_extract.enabled')) {
+            return;
+        }
+        $l = PurchaseListing::findOrFail($this->detailId);
+        $this->validate(['salesFiles.*' => 'file|max:204800']);
+        if (! $this->checkSalesFiles($l->salesAttachments()->count())) {
+            return;
+        }
+        if (count(array_filter($this->salesFiles)) > 0) {
+            $this->storeSalesFiles($l);
+        } elseif ($l->salesAttachments()->where('kind', InspectionPhoto::KIND_SALES_PHOTO)->exists()) {
+            $l->forceFill(['payee_extraction_status' => 'pending', 'payee_extraction_at' => now()])->saveQuietly();
+            ExtractPayeeFromPhotos::dispatch($l->id);
+        } else {
+            $this->addError('salesFiles', __('auction.payee_extract.no_photos'));
+
+            return;
+        }
+        unset($this->detail);
+    }
+
     /** 후보를 지운다(오독이거나 이미 손으로 넣은 경우). payee_* 는 안 건드린다. */
     public function dismissSuggestions(): void
     {
@@ -1085,13 +1123,25 @@ new #[Layout('components.layouts.app')] class extends Component {
                              wire:poll.5s>{{ __('auction.payee_extract.searching') }}</div>
                     {{-- 못 찾았거나 실패했으면 **그렇다고 말해준다** — 아무것도 안 그리면 사용자는 계속 기다린다
                          (2026-09-10 Jin 실사용: 화면이 멈춘 줄 알고 3분을 기다렸다). --}}
-                    @elseif (empty($d->payee_suggestions['candidates']) && in_array($d->payee_extraction_status, ['none', 'failed', 'pending'], true))
+                    @elseif (empty($d->payee_suggestions['candidates']) && empty($d->payee_suggestions['registration_owners']) && in_array($d->payee_extraction_status, ['none', 'failed', 'pending'], true))
                         <div class="mb-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs font-semibold text-amber-800">
                             ⚠ {{ $d->payee_extraction_status === 'none' ? __('auction.payee_extract.not_found') : __('auction.payee_extract.failed') }}
                         </div>
-                    @elseif (!empty($d->payee_suggestions['candidates']))
+                    @elseif (!empty($d->payee_suggestions['candidates']) || !empty($d->payee_suggestions['registration_owners']))
                         <div class="mb-2 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-2">
-                            <div class="text-[11px] font-semibold text-blue-800">{{ __('auction.payee_extract.title') }}</div>
+                            {{-- 소유자 후보(자동차등록증) — 2026-10-22 Jin. 누르면 소유자 칸에만 들어간다(저장 전). --}}
+                            @if (!empty($d->payee_suggestions['registration_owners']))
+                                <div class="text-[11px] font-semibold text-blue-800">{{ __('auction.payee_extract.owner_title') }}</div>
+                                @foreach ($d->payee_suggestions['registration_owners'] as $oi => $ownerName)
+                                    <div class="mt-1 flex items-center gap-2">
+                                        <span class="text-xs text-gray-800">{{ $ownerName }}</span>
+                                        <button type="button" wire:click="applyOwner({{ $oi }})"
+                                                class="rounded border border-blue-300 bg-white px-2 py-0.5 text-[11px] text-blue-700">{{ __('auction.payee_extract.apply_owner') }}</button>
+                                    </div>
+                                @endforeach
+                            @endif
+                            @if (!empty($d->payee_suggestions['candidates']))
+                            <div class="text-[11px] font-semibold text-blue-800 {{ !empty($d->payee_suggestions['registration_owners']) ? 'mt-2 border-t border-blue-100 pt-1.5' : '' }}">{{ __('auction.payee_extract.title') }}</div>
                             @foreach ($d->payee_suggestions['candidates'] as $i => $c)
                                 <div class="mt-1.5 flex gap-2 border-t border-blue-100 pt-1.5 first:border-0 first:pt-0">
                                     @php $srcId = $c['source_photo_ids'][0] ?? null; @endphp
@@ -1099,7 +1149,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                                         <img src="{{ $this->photoUrl($src->s3_path) }}" class="h-12 w-12 shrink-0 rounded object-cover">
                                     @endif
                                     <div class="min-w-0 flex-1">
-                                        <div class="font-mono text-xs text-gray-800">{{ $c['bank'] }} {{ $c['number'] }}</div>
+                                        <div class="font-mono text-xs text-gray-800">{{ $c['bank'] }} {{ $c['number'] }}
+                                            @if (($c['label'] ?? '') !== '')<span class="ml-1 rounded bg-white px-1 font-sans text-[10px] text-gray-500">{{ $c['label'] }}</span>@endif
+                                        </div>
                                         <div class="truncate text-[11px] text-gray-500">{{ $c['holder'] }}</div>
                                         @if (in_array('owner_mismatch', $c['warnings'] ?? [], true))
                                             <div class="text-[11px] text-amber-700">⚠ {{ __('auction.payee_extract.owner_mismatch') }}</div>
@@ -1116,6 +1168,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     </div>
                                 </div>
                             @endforeach
+                            @endif
                             <div class="mt-1.5 flex items-center justify-between">
                                 <span class="text-[11px] text-gray-500">{{ __('auction.payee_extract.confirm_hint') }}</span>
                                 <button type="button" wire:click="dismissSuggestions" class="text-[11px] text-gray-400 underline">{{ __('auction.payee_extract.dismiss') }}</button>
@@ -1210,13 +1263,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @error('salesFiles.*') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     <p class="mt-1 text-[11px] text-gray-400">{{ __('auction.attach.help') }}</p>
 
-                    {{-- 사진을 넣고 **여기서** 계좌를 찾는다. 이 버튼이 없으면 구매확정을 눌러 가드에 걸리는 것 말고는
-                         추출을 시작할 방법이 없었다(2026-09-10 Jin). won 은 아래 [입금정보 저장]이 같은 일을 한다. --}}
-                    @if (config('board.payee_extract.enabled') && $d->status === 'accepted')
-                        <button class="btn-primary mt-2 w-full justify-center" wire:click="savePayee"
-                                wire:loading.attr="disabled" wire:target="savePayee">
-                            <span wire:loading.remove wire:target="savePayee">{{ __('auction.payee_extract.find') }}</span>
-                            <span wire:loading wire:target="savePayee">{{ __('auction.payee_extract.finding') }}</span>
+                    {{-- 사진을 넣고 **여기서** 계좌·소유자를 찾는다(2026-09-10 Jin). 2026-10-22 — 이미 올라간 사진으로도 돌고(extractFromImages),
+                         won 에서도 보인다. 종전 버튼은 savePayee 라 새 사진이 없으면 눌러도 추출이 안 돌았다. --}}
+                    @if (config('board.payee_extract.enabled'))
+                        <button class="btn-primary mt-2 w-full justify-center" wire:click="extractFromImages"
+                                wire:loading.attr="disabled" wire:target="extractFromImages">
+                            <span wire:loading.remove wire:target="extractFromImages">{{ __('auction.payee_extract.find') }}</span>
+                            <span wire:loading wire:target="extractFromImages">{{ __('auction.payee_extract.finding') }}</span>
                         </button>
                     @endif
                 @endif

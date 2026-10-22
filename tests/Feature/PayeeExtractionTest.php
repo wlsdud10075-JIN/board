@@ -348,6 +348,122 @@ class PayeeExtractionTest extends TestCase
         $this->assertSame('won', $l->fresh()->status);
     }
 
+    // ───────────────────────── 2026-10-22 — 계좌 전부 + 소유자 후보 + 이미지 찾기 버튼 ─────────────────────────
+
+    /**
+     * 새 형식 accounts[] — 번호를 전부 후보로 낸다. 실측(IBK 평생계좌 사진): 윗줄 평생계좌 + 아랫줄 계좌번호.
+     * 은행·예금주는 첫 줄에만 붙어 오지만 그 사진에서 한 가지뿐이라 둘째 줄에도 채운다.
+     */
+    public function test_all_accounts_become_candidates_with_label(): void
+    {
+        $r = (new PayeeExtractor)->parseOne('{"accounts":[
+            {"bank":"IBK기업은행","number":"010-2000-1111","holder":"박창준","label":"평생주거래기업통장"},
+            {"bank":"","number":"336-058265-01-011","holder":"","label":"계좌번호"}],"registration_owner":""}', 1);
+
+        $this->assertCount(2, $r['candidates']);
+        $this->assertSame(['010-2000-1111', '336-058265-01-011'], array_column($r['candidates'], 'number'));
+        $this->assertSame('계좌번호', $r['candidates'][1]['label']);
+        $this->assertSame('IBK기업은행', $r['candidates'][1]['bank']);
+        $this->assertSame('박창준', $r['candidates'][1]['holder']);
+        $this->assertContains('phone_like', $r['candidates'][0]['warnings']);
+    }
+
+    /** 은행이 둘 이상 읽혔으면 빈 칸을 채우지 않는다 — 어느 계좌 것인지 모른다. */
+    public function test_blank_bank_not_filled_when_photo_has_two_banks(): void
+    {
+        $r = (new PayeeExtractor)->parseOne('{"accounts":[
+            {"bank":"신한은행","number":"140-014-011460","holder":"","label":"차량대금"},
+            {"bank":"우리은행","number":"1005-204-616107","holder":"","label":"매도비"},
+            {"bank":"","number":"355-0068-4730-03","holder":"","label":""}]}', 1);
+
+        $this->assertSame('', $r['candidates'][2]['bank']);
+        $this->assertSame('fee', $r['candidates'][1]['role']);
+    }
+
+    /** 🚨 「010-2000-1111 (계좌번호)」 — 괄호 설명 때문에 not_numeric 으로 버려 후보 0 이 됐다(2026-10-22 실측, 옛 형식). */
+    public function test_parenthetical_label_is_moved_out_of_number(): void
+    {
+        $r = (new PayeeExtractor)->parseOne(
+            '{"found":true,"car_account":{"bank":"IBK기업은행","number":"010-2000-1111 (계좌번호)","holder":"박창준"}}', 1
+        );
+
+        $this->assertSame([], $r['rejected']);
+        $this->assertSame('010-2000-1111', $r['candidates'][0]['number']);
+        $this->assertSame('계좌번호', $r['candidates'][0]['label']);
+    }
+
+    /** 소유자 후보 — 사진마다 읽은 이름을 중복 없이. 등록증만 있고 계좌가 없어도 결과로 남는다. */
+    public function test_owner_only_result_is_stored(): void
+    {
+        Storage::fake('public');
+        Storage::disk('public')->put('sales/photos/reg.jpg', $this->jpeg());
+        $l = $this->mkListing();
+        $l->salesAttachments()->update(['s3_path' => 'sales/photos/reg.jpg']);
+        $l->salesAttachments()->create(['s3_path' => 'sales/photos/reg.jpg', 'original_name' => 'g.jpg', 'sort' => 2, 'kind' => InspectionPhoto::KIND_SALES_PHOTO]);
+        $this->fakeOllama(['{"accounts":[],"registration_owner":"오승환"}', '{"accounts":[],"registration_owner":"오승환"}']);
+
+        (new ExtractPayeeFromPhotos($l->id))->handle(new PayeeExtractor, app(OllamaClient::class));
+
+        $l->refresh();
+        $this->assertSame('done', $l->payee_extraction_status);
+        $this->assertSame(['오승환'], $l->payee_suggestions['registration_owners']);
+        $this->assertSame([], $l->payee_suggestions['candidates']);
+        $this->assertNull($l->owner_name);   // 🚫 자동 기입 없음
+    }
+
+    /** 소유자 적용은 **입력칸까지만**. 후보 블록이 계좌 없이도 그려진다. */
+    public function test_apply_owner_fills_input_only(): void
+    {
+        $l = $this->mkListing(['payee_extraction_status' => 'done', 'payee_suggestions' => [
+            'registration_owner' => '오승환', 'registration_owners' => ['오승환'], 'candidates' => [],
+        ]]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')
+            ->call('openDetail', $l->id)
+            ->assertSee(__('auction.payee_extract.owner_title'))
+            ->assertDontSee(__('auction.payee_extract.not_found'))
+            ->call('applyOwner', 0)
+            ->assertSet('owner_name', '오승환');
+
+        $this->assertNull($l->fresh()->owner_name);
+    }
+
+    /**
+     * [이미지에서 계좌·소유자 찾기] — 이미 올라간 사진으로도 돈다. 종전 버튼(savePayee)은 새 사진이 없으면
+     * 추출을 안 돌려 눌러도 아무 일이 없었다. won 에서도 보인다.
+     */
+    public function test_find_button_runs_on_existing_photos(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing(['status' => 'won']);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')
+            ->call('openDetail', $l->id)
+            ->assertSee(__('auction.payee_extract.find'))
+            ->call('extractFromImages')
+            ->assertHasNoErrors();
+
+        Bus::assertDispatched(ExtractPayeeFromPhotos::class);
+        $this->assertSame('pending', $l->fresh()->payee_extraction_status);
+    }
+
+    public function test_find_button_without_photos_says_so(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing();
+        $l->salesAttachments()->delete();
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')
+            ->call('openDetail', $l->id)
+            ->call('extractFromImages')
+            ->assertHasErrors('salesFiles');
+
+        Bus::assertNotDispatched(ExtractPayeeFromPhotos::class);
+    }
+
     /** 1x1 JPEG — GD 로 열리기만 하면 된다. */
     private function jpeg(): string
     {

@@ -20,27 +20,28 @@ class PayeeExtractor
      *    「여러 개 보이면 하나도 빠뜨리지 말고」로 바꾸자 둘 다 잡았다. 라벨 검증은 어차피
      *    코드(hasFeeLabel)가 하므로, 프롬프트는 **다 담게** 하고 판정은 코드에 맡긴다.
      * ⚠️ 이 상수를 고치면 표본으로 재검증할 것 — 테스트(가짜 응답)로는 이 계열 회귀가 안 잡힌다.
+     *
+     * 2026-10-22 Jin — **계좌를 전부 담고 사람이 고른다**(accounts[]). 종전엔 모델이 차값 계좌 1개를 골랐는데,
+     *    IBK 평생계좌 사진에서 윗줄 평생계좌 번호에 아랫줄 「(계좌번호)」 꼬리표를 붙여 내 코드가 버렸다(후보 0).
+     *    「정식 계좌번호를 택하라」 규칙도 안 먹었다. 새 형식 표본 = 평생계좌 1장(두 번호·이름표 모두) +
+     *    자동차등록증 5장(소유자 5/5 정확, 계좌 오검출 0). registration_owner 는 **자동차등록증 소유자만**
+     *    (종전 「사업자등록증 상호」까지 물어 운영 값에 딜러 상호가 섞였다) — 소유자 칸 후보로 쓴다.
      */
     public const PROMPT = <<<'TXT'
-이 이미지에서 계좌 정보를 찾아 JSON만 출력하라. 설명 금지.
+이 이미지에서 계좌번호와 자동차등록증 소유자를 찾아 JSON만 출력하라. 설명 금지.
 형식:
-{"found":true,"car_account":{"bank":"","number":"","holder":""},
- "fee_account":{"bank":"","number":"","holder":"","label":""},
- "registration_owner":"","note":""}
+{"accounts":[{"bank":"","number":"","holder":"","label":""}],
+ "registration_owner":""}
 
 규칙:
-- 이미지에 계좌가 여러 개 보이면 **하나도 빠뜨리지 말고** 용도에 맞게 나눠 담아라.
-- car_account = 차량대금(차값) 계좌.
-- bank 와 holder 도 **이미지에 보이면 반드시 채워라** — bank 는 은행명(기업은행·신한은행 등),
-  holder 는 예금주 이름. 계좌번호 바로 앞뒤에 적혀 있는 경우가 많다.
-- fee_account = 매도비·차량이전비·알선수수료 계좌. 그 라벨이 보이면 label 에 그 문구를 그대로 옮겨라.
-- 해당 용도의 계좌가 이미지에 없으면 그 항목만 null.
-- 계좌가 하나도 없으면 {"found":false}.
-- registration_owner = 자동차등록증·사업자등록증이 보이면 그 소유자/상호.
+- accounts = 이미지에 보이는 **계좌번호를 하나도 빠뜨리지 말고 전부** 담아라. 한 칸에 번호가 두 줄이면 두 개로 나눠 담아라.
+- number 에는 숫자와 하이픈만 넣어라. 괄호 속 설명은 label 로 옮겨라.
+- label = 그 번호 옆에 적힌 이름표를 그대로 옮겨라(예: 계좌번호, 평생계좌, 차량대금, 매도비, 이전비).
+- bank = 은행명, holder = 예금주. 이미지에 보이면 반드시 채워라.
 - **「계좌」라고 적힌 번호는 전화번호처럼 보여도 계좌다**(031-296-5454 같은 평생계좌). 그대로 담아라.
-- 명함·문의처의 연락처, 1566-/1588- 고객센터 번호는 계좌가 아니다.
-- 한 칸에 숫자가 여럿이면 "(계좌번호)" 표기가 붙은 것, 자릿수가 긴 것을 택하라.
-- "평생계좌"는 휴대폰 기반 별칭이다. 정식 계좌번호가 있으면 그쪽을 택하라.
+- 명함·문의처의 연락처, 1566-/1588- 고객센터 번호, 금액(원), 차대번호, 문서번호는 계좌가 아니다.
+- 계좌가 하나도 없으면 accounts 는 [].
+- registration_owner = 자동차등록증의 「소유자 ⑨ 성명(명칭)」 칸에 적힌 이름. 자동차등록증이 아니면 "".
 TXT;
 
     /** 매도비 계좌로 인정하는 라벨 키워드 — 하나라도 있어야 fee 로 보낸다. */
@@ -72,17 +73,33 @@ TXT;
     {
         $data = $this->decode($raw);
         $out = ['candidates' => [], 'rejected' => [], 'registration_owner' => ''];
-        if ($data === null || ($data['found'] ?? false) !== true) {
+        if ($data === null) {
             return $out;
         }
         $out['registration_owner'] = trim((string) ($data['registration_owner'] ?? ''));
 
-        foreach (['car', 'fee'] as $role) {
-            $acc = $data[$role.'_account'] ?? null;
-            if (! is_array($acc)) {
-                continue;
+        // 새 형식 = accounts[](전부). 옛 형식(car_account/fee_account + found)도 읽는다 — 배포 직후 큐에 남은 응답·표본 대조용.
+        if (is_array($data['accounts'] ?? null)) {
+            $accounts = array_values(array_filter($data['accounts'], 'is_array'));
+        } elseif (($data['found'] ?? false) === true) {
+            $accounts = [];
+            foreach (['car', 'fee'] as $role) {
+                if (is_array($data[$role.'_account'] ?? null)) {
+                    $accounts[] = $data[$role.'_account'];   // 매도비 판정은 그 칸의 label 로(종전과 같다)
+                }
             }
+        } else {
+            return $out;
+        }
+
+        foreach ($accounts as $acc) {
             $number = trim((string) ($acc['number'] ?? ''));
+            $label = trim((string) ($acc['label'] ?? ''));
+            // 「010-2000-1111 (계좌번호)」 — 괄호 속 설명은 이름표로 옮기고 번호만 판정한다(2026-10-22 실측).
+            if (preg_match_all('/\(([^)]*)\)/u', $number, $m)) {
+                $label = trim($label.' '.implode(' ', array_map('trim', $m[1])));
+                $number = trim((string) preg_replace('/\([^)]*\)/u', '', $number));
+            }
             if ($number === '') {
                 continue;
             }
@@ -95,13 +112,27 @@ TXT;
             $out['candidates'][] = [
                 // 🚨 매도비는 라벨이 실제로 있을 때만. 파일럿에서 라벨 없는 통장사본 2건을 모델이 매도비로 넣었다.
                 //    차값 계좌를 매도비로 잘못 보내면 **차값이 안 나간다**.
-                'role' => ($role === 'fee' && $this->hasFeeLabel((string) ($acc['label'] ?? ''))) ? 'fee' : 'car',
+                'role' => $this->hasFeeLabel($label) ? 'fee' : 'car',
                 'bank' => $this->normalizeBank((string) ($acc['bank'] ?? '')),
                 'number' => $number,
                 'holder' => trim((string) ($acc['holder'] ?? '')),
+                'label' => $label,
                 'source_photo_ids' => [$photoId],
                 'warnings' => $this->phoneLike($number) ? ['phone_like'] : [],
             ];
+        }
+
+        // 통장사본 한 장에 번호가 둘이면(평생계좌 + 계좌번호) 모델이 은행·예금주를 첫 줄에만 붙인다.
+        // 그 사진에서 읽힌 은행·예금주가 **한 가지뿐일 때만** 빈 칸에 채운다 — 둘 이상이면 어느 계좌 것인지 모른다.
+        foreach (['bank', 'holder'] as $f) {
+            $vals = array_values(array_unique(array_filter(array_column($out['candidates'], $f))));
+            if (count($vals) === 1) {
+                foreach ($out['candidates'] as $k => $c) {
+                    if ($c[$f] === '') {
+                        $out['candidates'][$k][$f] = $vals[0];
+                    }
+                }
+            }
         }
 
         return $out;
@@ -114,7 +145,8 @@ TXT;
      */
     public function merge(array $perPhoto): array
     {
-        $owners = array_values(array_filter(array_map(fn ($r) => $r['registration_owner'], $perPhoto)));
+        // 소유자 후보 — 사진마다 읽은 이름을 중복 없이(같은 차라면 보통 하나). 사람이 골라 소유자 칸에 넣는다.
+        $owners = array_values(array_unique(array_filter(array_map(fn ($r) => $r['registration_owner'], $perPhoto))));
         $owner = $owners[0] ?? '';
 
         $candidates = [];
@@ -150,6 +182,7 @@ TXT;
         return [
             'extracted_at' => now()->toIso8601String(),
             'registration_owner' => $owner,
+            'registration_owners' => $owners,
             'candidates' => array_values($candidates),
             'rejected' => $rejected,
         ];
