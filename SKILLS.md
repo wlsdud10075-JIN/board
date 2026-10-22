@@ -190,6 +190,7 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 
 **USD 운임비·USD 환율 (2026-10-22 Jin, 버전 그대로 optional 2개 — 받는 쪽 = car-erp dev `4e48bac3`, 스펙 `purchase-sync-receiver.md` f392db28)**:
 `transport_fee_usd`(정수 달러 → ERP `vehicles.transport_fee_usd`) · `usd_exchange_rate`(board `offer_rate_usd` → ERP 판매 탭 환율 칸 위 메모). 판매통화와 무관하게 실린다. 재고매입·첨부 전용 재전송은 둘 다 null. ERP 는 빈 칸일 때만 채운다(재전송 already_set) — 운임비 USD 를 비우면 나중에 컨테이너 1/N 이 들어간다.
+⚠️ 1/N 은 **USD 메모 칸만** 채운다 — 판매통화 `transport_fee`(미수·총판매가·CFR 정산 「운임 미확정」 판정에 쓰이는 실제 금액)는 비어 남는다. **2026-10-22 Jin 결정 A안 = 그대로 둔다**: 컨테이너 차는 판매가만 보내고, 운임 확정 뒤 실무자가 ERP 에서 판매통화 운임비를 넣는다(그 전까지 미수 과소·정산 대기). 후속 후보 = ERP 가 1/N 적재 시 `usd_exchange_rate` 로 판매통화 운임비 환산(미착수).
 
 **HMAC 서명 (계약 — car-erp 가 동일하게 검증)**:
 - 헤더 `X-Board-Signature: sha256=<hex>`.
