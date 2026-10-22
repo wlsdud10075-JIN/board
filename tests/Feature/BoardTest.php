@@ -2946,17 +2946,26 @@ class BoardTest extends TestCase
         ]);
     }
 
-    public function test_manager_cannot_delete_listing(): void
+    /** 관리 이상(관리 role·업무관리자)도 /manage 에서 삭제·재전송한다(2026-10-22 Jin, 종전 super 전용). */
+    public function test_manager_and_work_manager_can_delete_and_resync(): void
     {
-        $l = $this->mkListing($this->mkUser('sales'));
-        $this->actingAs($this->mkUser('manager'));   // super 아님
+        Bus::fake();
+        foreach ([$this->mkUser('manager'), $this->mkUser('sales', null, 'manager')] as $u) {
+            $l = $this->mkListing($this->mkUser('sales'));
+            $synced = $this->mkListing($this->mkUser('sales'), ['status' => 'synced', 'car_erp_vehicle_id' => 77, 'buyer_verdict' => 'accepted']);
+            $this->actingAs($u);
 
-        Volt::test('manage.index')
-            ->call('openEdit', $l->id)
-            ->call('deleteListing')
-            ->assertForbidden();
+            Volt::test('manage.index')->call('openEdit', $synced->id)
+                ->assertSee(__('manage.resync'))
+                ->call('resyncToCarErp')->assertHasNoErrors();
+            Bus::assertDispatched(fn (SyncWonListingToCarErp $job) => $job->listingId === $synced->id);
 
-        $this->assertNotSoftDeleted('purchase_listings', ['id' => $l->id]);
+            Volt::test('manage.index')->call('openEdit', $l->id)
+                ->assertSee(__('manage.delete'))
+                ->call('deleteListing')->assertHasNoErrors();
+            $this->assertSoftDeleted('purchase_listings', ['id' => $l->id]);
+            $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'action' => 'delete', 'user_id' => $u->id]);
+        }
     }
 
     public function test_super_can_resync_synced_listing_to_car_erp(): void
@@ -7729,23 +7738,34 @@ class BoardTest extends TestCase
             ->assertHasNoErrors();
     }
 
-    /**
-     * ERP 로 넘어간 차·accepted 이후는 영업이 못 지운다 — 원장(car-erp)과 갈리고,
-     * accepted 이후엔 /auction 에 자체 종료 경로(유찰/취소)가 있다.
-     */
-    public function test_sales_cannot_delete_erp_synced_or_accepted(): void
+    /** ERP 로 넘어간 차·구매확정(won) 이후는 영업이 못 지운다 — 원장(car-erp)과 갈린다. */
+    public function test_sales_cannot_delete_erp_synced_or_won(): void
     {
         $kim = $this->mkUser('sales');
         $synced = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 501, 'buyer_verdict' => 'accepted']);
-        $accepted = $this->mkListing($kim, ['status' => 'accepted', 'buyer_verdict' => 'accepted']);
+        $won = $this->mkListing($kim, ['status' => 'won', 'buyer_verdict' => 'accepted']);
         $this->actingAs($kim);
 
-        foreach ([$synced, $accepted] as $l) {
+        foreach ([$synced, $won] as $l) {
             Volt::test('listings.index')->call('openEdit', $l->id)
                 ->assertDontSee(__('listings.drawer.delete'))
                 ->call('deleteListing')->assertForbidden();
             $this->assertNotSoftDeleted('purchase_listings', ['id' => $l->id]);
         }
+    }
+
+    /** 구매대기(accepted)는 본인이 지운다 — 셀프검차매입은 등록 즉시 accepted 라 종전엔 버튼이 안 보였다(2026-10-22 Jin). */
+    public function test_sales_can_delete_own_accepted_self_inspection(): void
+    {
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection', 'source' => 'encar']);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')->call('openEdit', $l->id)
+            ->assertSee(__('listings.drawer.delete'))
+            ->call('deleteListing')->assertHasNoErrors();
+
+        $this->assertSoftDeleted('purchase_listings', ['id' => $l->id]);
     }
 
     /** 남의 매입예정은 삭제 대상이 아니다 — 영업은 열지도 못하고(SalesmanScope), 관리는 열려도 버튼이 없다. */
@@ -7763,7 +7783,7 @@ class BoardTest extends TestCase
             // 기대 동작
         }
 
-        // 관리 role 은 전체가 보이지만(격리 대상 아님) 남의 글 삭제는 /manage 의 super 경로로만.
+        // 관리 role 은 전체가 보이지만(격리 대상 아님) 남의 글 삭제는 /manage 경로로만.
         $this->actingAs($this->mkUser('manager'));
         Volt::test('listings.index')->call('openEdit', $l->id)
             ->assertDontSee(__('listings.drawer.delete'))

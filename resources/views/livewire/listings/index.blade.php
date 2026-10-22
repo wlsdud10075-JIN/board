@@ -358,16 +358,16 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     /**
      * 본인이 등록한 매입예정을 지울 수 있는 조건.
-     * 남의 글은 못 지운다 — 전체 대상 삭제는 /manage 의 super 경로 그대로 둔다.
-     * ERP 로 넘어간 차(car_erp_vehicle_id)와 accepted/won/synced 는 제외 —
-     * accepted 이후는 /auction 에 자체 종료 경로(유찰/취소 → failed)가 있고, ERP 전송분은 되돌릴 수 없다.
+     * 남의 글은 못 지운다 — 전체 대상 삭제는 /manage 의 관리 이상 경로.
+     * ERP 로 넘어간 차(car_erp_vehicle_id)와 won/synced(구매확정 이후)는 제외 — ERP 전송분은 되돌릴 수 없다.
+     * accepted(구매대기)는 지울 수 있다(2026-10-22 Jin) — 셀프검차매입은 등록 즉시 accepted 라 종전엔 버튼이 아예 안 보였다.
      * editable() 을 그대로 태워 경매 시간잠금 차는 삭제도 막는다(잠기면 읽기전용 = 삭제 포함).
      */
     public function deletable(PurchaseListing $l): bool
     {
         return $l->created_by_user_id === Auth::id()
             && $l->car_erp_vehicle_id === null
-            && ! in_array($l->status, ['accepted', 'won', 'synced'], true)
+            && ! in_array($l->status, ['won', 'synced'], true)
             && $this->editable($l);
     }
 

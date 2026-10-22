@@ -233,10 +233,24 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->closeEdit();
     }
 
-    /** 잘못 등록된 건 삭제 — 시스템관리자(super) 전용. soft delete(복구 가능) + 감사기록. */
+    /**
+     * 관리 이상(관리 role·업무관리자·super)인가 — 삭제·재전송 가드(2026-10-22 Jin, 종전 super 전용).
+     * 라우트(`role:manager`)를 통과한 사람은 전부 해당하지만, 라우트가 바뀌어도 새지 않게 메서드에서 한 번 더 본다.
+     */
+    private function canManageActions(): bool
+    {
+        $u = Auth::user();
+
+        return $u !== null && ($u->isManager() || $u->hasFullAccess());
+    }
+
+    /**
+     * 잘못 등록된 건 삭제 — 관리 이상(2026-10-22 Jin, 종전 super 전용). soft delete(복구 가능) + 감사기록.
+     * ⚠️ ERP 로 넘어간 차도 지워진다 — board 행만 사라지고 ERP 차량은 남는다(지운 뒤엔 재전송도 불가).
+     */
     public function deleteListing(): void
     {
-        abort_unless(Auth::user()?->isSuper(), 403);
+        abort_unless($this->canManageActions(), 403);
 
         $l = PurchaseListing::findOrFail($this->editingId);
 
@@ -258,13 +272,13 @@ new #[Layout('components.layouts.app')] class extends Component {
     }
 
     /**
-     * car-erp 재전송 — 시스템관리자(super) 전용. won/synced 차량만.
+     * car-erp 재전송 — 관리 이상(2026-10-22 Jin — 금액·사진을 따로 보내는 경로가 생겨 super 로 묶을 이유가 없어졌다). won/synced 차량만.
      * 멱등 포인터(car_erp_vehicle_id)를 비우고 status 를 won 으로 되돌려 Sync Job 재발사.
      * 중복 안 생김: car-erp 가 vehicle_number 로 매칭 → 기존 차면 재연결, 지웠으면 새로 생성.
      */
     public function resyncToCarErp(): void
     {
-        abort_unless(Auth::user()?->isSuper(), 403);
+        abort_unless($this->canManageActions(), 403);
 
         $l = PurchaseListing::findOrFail($this->editingId);
         abort_unless(in_array($l->status, ['won', 'synced'], true), 422);
@@ -507,8 +521,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <button class="btn-ghost" wire:click="closeEdit">{{ __('common.cancel') }}</button>
                 </div>
 
-                {{-- 시스템관리자(super) 전용 액션 --}}
-                @if (auth()->user()->isSuper())
+                {{-- 관리 이상 액션(2026-10-22 Jin, 종전 super 전용) --}}
+                @if (auth()->user()->isManager() || auth()->user()->hasFullAccess())
                     @if (in_array($e->status, ['won', 'synced'], true))
                         <button class="btn-ghost mt-2 w-full justify-center text-[var(--color-primary-text)] hover:bg-[#f5f8ff]"
                             wire:click="resyncToCarErp" wire:confirm="{{ __('manage.resync_confirm') }}">🔄 {{ __('manage.resync') }}</button>

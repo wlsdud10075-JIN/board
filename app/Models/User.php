@@ -46,7 +46,7 @@ class User extends Authenticatable // implements MustVerifyEmail
     /**
      * 권한 단계 (car-erp 미러 super > manager > user) — super=시스템관리자, manager=업무관리자(2026-10-14 Jin), user=role 기반.
      * 업무관리자 = role 무관 전체 화면 + 감사로그 + 사용자관리(super 계정 제외). 기능설정·업무관리자/super 지정·
-     * 포털 타인 명의 대리실행·관리자 페이지 삭제/재전송은 super 만.
+     * 포털 타인 명의 대리실행은 super 만. 관리자 페이지 삭제/재전송은 관리 이상(관리 role 포함, 2026-10-22 Jin).
      */
     public const PERMISSIONS = ['super', 'manager', 'user'];
 

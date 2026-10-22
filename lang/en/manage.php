@@ -85,9 +85,9 @@ return [
 
     // Actions
     'save' => 'Save (logged to audit)',
-    'delete' => 'Delete this record (admin)',
+    'delete' => 'Delete this record',
     'delete_confirm' => 'Delete this purchase record? For cleaning up mistakenly added entries. (Logged to audit)',
-    'resync' => 'Re-send to car-erp (admin)',
+    'resync' => 'Re-send to car-erp',
     'resync_confirm' => 'Re-send to car-erp? No duplicates are created (matched by vehicle number — re-links if it exists, creates fresh if deleted).',
 
     // flash
