@@ -45,7 +45,7 @@ return [
     'rate_eur' => '환율 EUR',
     'auto' => '자동',
     'ideal_title' => '이상 총판매가',
-    'ideal_diff' => '입력한 총판매가는 이상가 대비 :pct',
+    'ideal_diff' => '판매가 + 운임비 = :sale원 → 이상가 대비 :pct',
     'ideal_formula' => '매입가 + 매도비 − 매입가 부가세(:vat%)의 :share% · 보여주기용(저장·전송 안 함)',
     'split_hint' => '운임비는 USD 로 고정하고, 환율로 :currency 운임비를 계산합니다. 판매가 = 총판매가 − 운임비.',
     'err_total_required' => '총판매가를 넣어야 구매확정할 수 있습니다. 비우면 ERP 판매정보가 빈 채로 생깁니다.',

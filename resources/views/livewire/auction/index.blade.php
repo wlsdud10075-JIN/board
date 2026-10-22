@@ -478,14 +478,15 @@ new #[Layout('components.layouts.app')] class extends Component {
      * 이상 총판매가(2026-10-22 Jin, **보여주기 전용** — 저장·전송 없음):
      *   매입가(원화) + 매도비 − 매입가 × 부가세율(9%) × 45%  →  환율을 넣으면 USD·EUR 로도.
      * 매입가가 외화(싼카 차값 통화)면 화면에 적은 환율(없으면 오늘 환율)로 원화 환산한다.
-     * `diff` = 입력한 총판매가가 이상가(견적통화 기준) 대비 몇 % 위/아래인가.
+     * `diff` = (판매가 + 운임비) 를 원화로 바꾼 금액(`sale_krw`)이 이상가 대비 몇 % 위/아래인가(2026-10-22 Jin).
+     *   판매가 + 운임비 = 총판매가(견적통화)라 원화 환산 = 총판매가 × 견적통화 환율.
      *
-     * @return array{krw: ?int, usd: ?float, eur: ?float, diff: ?float}
+     * @return array{krw: ?int, usd: ?float, eur: ?float, sale_krw: ?int, diff: ?float}
      */
     public function idealPrice(): array
     {
         $num = fn ($v) => ($v === null || $v === '') ? null : (float) $v;
-        $none = ['krw' => null, 'usd' => null, 'eur' => null, 'diff' => null];
+        $none = ['krw' => null, 'usd' => null, 'eur' => null, 'sale_krw' => null, 'diff' => null];
         $cost = $num($this->car_cost);
         $l = $this->detail;
         if ($cost === null || ! $l) {
@@ -501,19 +502,21 @@ new #[Layout('components.layouts.app')] class extends Component {
         $vat = $costKrw * (float) config('board.ideal_vat_rate') * (float) config('board.ideal_vat_share');
         $krw = (int) round($costKrw + ($num($this->selling_fee) ?? 0) - $vat);
 
-        $inQuote = match ($this->quoteCurrency) {
-            'KRW' => (float) $krw,
-            'USD' => $usd ? $krw / $usd : null,
-            'EUR' => $eur ? $krw / $eur : null,
+        $quoteRate = match ($this->quoteCurrency) {
+            'KRW' => 1.0,
+            'USD' => $usd,
+            'EUR' => $eur,
             default => null,
         };
         $total = $num($this->sale_total);
+        $saleKrw = ($total !== null && $quoteRate) ? (int) round($total * $quoteRate) : null;
 
         return [
             'krw' => $krw,
             'usd' => $usd ? round($krw / $usd, 2) : null,
             'eur' => $eur ? round($krw / $eur, 2) : null,
-            'diff' => ($total !== null && $inQuote) ? round(($total - $inQuote) / $inQuote * 100, 1) : null,
+            'sale_krw' => $saleKrw,
+            'diff' => ($saleKrw !== null && $krw > 0) ? round(($saleKrw - $krw) / $krw * 100, 1) : null,
         ];
     }
 
@@ -1022,7 +1025,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     @if ($ideal['eur'] !== null)<span>· €{{ number_format($ideal['eur'], 2) }}</span>@endif
                                 </div>
                                 @if ($ideal['diff'] !== null)
-                                    <p class="mt-0.5 font-semibold {{ $ideal['diff'] < 0 ? 'text-red-600' : 'text-emerald-700' }}">{{ __('auction.ideal_diff', ['pct' => ($ideal['diff'] > 0 ? '+' : '').number_format($ideal['diff'], 1).'%']) }}</p>
+                                    <p class="mt-0.5 font-semibold {{ $ideal['diff'] < 0 ? 'text-red-600' : 'text-emerald-700' }}">{{ __('auction.ideal_diff', ['sale' => number_format($ideal['sale_krw']), 'pct' => ($ideal['diff'] > 0 ? '+' : '').number_format($ideal['diff'], 1).'%']) }}</p>
                                 @endif
                                 <p class="mt-0.5 text-gray-400">{{ __('auction.ideal_formula', ['vat' => config('board.ideal_vat_rate') * 100, 'share' => config('board.ideal_vat_share') * 100]) }}</p>
                             </div>
