@@ -188,6 +188,9 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 
 **전송**: `POST {CAR_ERP_BASE_URL}/api/internal/purchase-sync` (HMAC 서명 + HTTPS). `status='won'` 만, `dispatch()->afterCommit()`, 큐 비동기. **구현 = `App\Jobs\SyncWonListingToCarErp`** (dispatch 훅 = `PurchaseListing::updated` 에서 status→won 단일 지점 → auction conclude·manage override 공통).
 
+**USD 운임비·USD 환율 (2026-10-22 Jin, 버전 그대로 optional 2개 — 받는 쪽 = car-erp dev `4e48bac3`, 스펙 `purchase-sync-receiver.md` f392db28)**:
+`transport_fee_usd`(정수 달러 → ERP `vehicles.transport_fee_usd`) · `usd_exchange_rate`(board `offer_rate_usd` → ERP 판매 탭 환율 칸 위 메모). 판매통화와 무관하게 실린다. 재고매입·첨부 전용 재전송은 둘 다 null. ERP 는 빈 칸일 때만 채운다(재전송 already_set) — 운임비 USD 를 비우면 나중에 컨테이너 1/N 이 들어간다.
+
 **HMAC 서명 (계약 — car-erp 가 동일하게 검증)**:
 - 헤더 `X-Board-Signature: sha256=<hex>`.
 - 서명대상 = **직렬화된 raw request body** (`json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)`). car-erp 는 **수신 raw body 그대로** `hash_hmac('sha256', $rawBody, $secret)` 로 재계산해 `hash_equals` 비교 — **재직렬화 금지**(바이트 달라지면 불일치). 비밀키 = `CAR_ERP_HMAC_SECRET` (양쪽 공유).
@@ -327,6 +330,12 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 - **선박별 묶기는 안 만들었다** — ERP `/inventory?search=` 가 **`vessel_name` 도 서버에서 검색**한다(실측 확인). 검색창에 선박명을 치면 같은 배에 실린 차가 나오므로 board 에 그룹핑 UI 를 따로 두지 않는다. `/sales` 엔 검색이 없어 거기선 미제공.
 
 ### 14-5. 셀프검차매입 금액 — 출처별로 **다른 칸·다른 공식** (2026-08-10 Jin 확정)
+
+- 🔁 **2026-10-22 Jin — 쪼개기 칸이 전 출처로**(dev 미배포): 아래 표의 「그 외」 칸(할인율·차감액·배송 선택)은 `/auction` 에서 빠지고,
+  **모든 출처**가 총판매가·운임비 USD(정수 달러)·환율 USD·환율 EUR → 판매가·운임비 계산(`selfSplit()`)을 쓴다. 할인율·차감액은 견적 단계 값이 컬럼에 남아 `final_price` 재계산에 계속 쓰인다.
+  - 판매측 락: 셀프검차 = 종전 그대로(총판매가 필수). **비-셀프는 총판매가를 적었을 때만** 통화·환율 락(2026-10-16 「판매 없이도 확정」 유지).
+  - Job: 판매가가 있으면 출처 무관 컬럼 통화·환율을 쓰고, **운임비 USD 를 비우면 운임비 없음**(옛 `shipping_usd` 폴백 안 탐 — 컨테이너 차는 적재 뒤 ERP 선적요청 1/N 이 채운다).
+  - **이상 총판매가**(`idealPrice()`, 보여주기 전용·저장/전송 없음) = 매입가(원화) + 매도비 − 매입가 × `board.ideal_vat_rate`(0.09) × `board.ideal_vat_share`(0.45). 환율을 넣으면 USD·EUR, 입력 총판매가가 이상가(견적통화) 대비 몇 %인지.
 
 셀프검차매입은 `/inspection`(최종금액)·`/forwarding`(견적)을 둘 다 건너뛴다 → **파생계산의 근거(할인율·차감액)가 없다.**
 그래서 `/auction` 드로어의 금액칸이 **origin 으로 갈린다.**

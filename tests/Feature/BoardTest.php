@@ -1197,20 +1197,21 @@ class BoardTest extends TestCase
      * 셀프검차가 **아닌** 출처는 바이어 금액을 직접 타이핑받지 않고 `/forwarding` 과 같은 공식(`totalKrw`)으로 만든다.
      * 직접 입력받으면 할인·차감액과 숫자가 갈린다.
      */
+    /** 할인율·차감액은 견적 단계 값 그대로 — 구매 탭은 칸을 뺐지만(2026-10-22) 차값을 고치면 final_price 는 다시 계산된다. */
     public function test_auction_quote_fields_recompute_final_price(): void
     {
         Bus::fake();
         $l = $this->mkListing($this->mkUser('sales'), [
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'encar',
             'source' => 'encar', 'car_cost' => null, 'final_price' => null,
-            'expected_price_currency' => 'KRW',
+            'expected_price_currency' => 'KRW', 'discount_rate' => 10, 'sale_discount_amount' => 500000,
         ]);
         $this->actingAs($this->mkUser('manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
-            ->set('car_cost', '10000000')
-            ->set('discount_rate', '10')          // 관례할인 10% → 9,000,000
-            ->set('sale_discount', '500000')      // 차감액 → 8,500,000
+            ->assertDontSee(__('forwarding.sale_discount_label'))
+            ->set('car_cost', '10000000')          // 관례할인 10% → 9,000,000 − 차감액 → 8,500,000
+            ->set('buyerId', 7)
             ->call('conclude', $l->id, 'won')->assertHasNoErrors();
 
         $f = $l->fresh();
@@ -1562,6 +1563,91 @@ class BoardTest extends TestCase
      * Jin 예시: EUR 11,800 · RORO 알바니아 세단 2,040 USD → 운임비가 환율로 줄면 판매가가 그만큼 올라 합계 유지.
      * 환율은 여전히 미리 채우지 않는다(통화를 바꿔도 환율칸이 따라오지 않는다).
      */
+    /** 2026-10-22 Jin — 쪼개기는 **전 출처**. 엔카 차도 총판매가·운임비 USD·두 환율로 판매가·운임비가 정해지고, 두 값이 ERP 로 간다. */
+    public function test_split_applies_to_every_origin_and_sends_usd_fields(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'hs']);
+        Http::fake(['*' => Http::response(['vehicle_id' => 501], 201)]);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'encar',
+            'source' => 'encar', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW', 'shipping_usd' => 1740,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        $c = Volt::test('auction.index')->call('openDetail', $l->id)
+            ->assertSee(__('auction.sale_total'))
+            ->set('quoteCurrency', 'EUR')->set('sale_total', '11800')->set('transport_fee_usd', '2040')
+            ->set('rate_usd', '1380')->set('rate_eur', '1580');
+        $this->assertSame(['sale' => 10018.23, 'freight' => 1781.77, 'rate' => 1580], $c->instance()->selfSplit());
+        $c->set('buyerId', 7)->call('conclude', $l->id, 'won')->assertHasNoErrors();
+
+        Http::assertSent(function ($req) {
+            $d = $req->data();
+
+            return str_contains($req->url(), 'purchase-sync') && $d['sale_price'] == 10018.23 && $d['transport_fee'] == 1781.77
+                && $d['sale_currency'] === 'EUR' && $d['sale_exchange_rate'] === 1580
+                && $d['transport_fee_usd'] === 2040 && $d['usd_exchange_rate'] === 1380;
+        });
+    }
+
+    /** 운임비 USD 를 비우면 운임비 없음 — 견적 단계 배송값(shipping_usd)을 끌어오지 않는다(컨테이너는 적재 뒤 ERP 에서, 2026-10-22 Jin). */
+    public function test_blank_usd_freight_sends_no_freight_even_with_old_shipping(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'hs']);
+        Http::fake(['*' => Http::response(['vehicle_id' => 502], 201)]);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'encar',
+            'source' => 'encar', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW', 'shipping_usd' => 1740,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('quoteCurrency', 'USD')->set('sale_total', '8000')->set('rate_usd', '1380')
+            ->set('buyerId', 7)->call('conclude', $l->id, 'won')->assertHasNoErrors();
+
+        Http::assertSent(fn ($req) => str_contains($req->url(), 'purchase-sync') && $req->data()['sale_price'] == 8000 && $req->data()['transport_fee'] === null
+            && $req->data()['transport_fee_usd'] === null);
+    }
+
+    /** 비-셀프는 총판매가를 안 적어도 확정된다(2026-10-16 규칙 유지 — 판매 필드 비워 전송). 적으면 통화·환율 락이 걸린다. */
+    public function test_non_self_total_optional_but_locks_currency_when_entered(): void
+    {
+        Bus::fake();
+        $mk = fn () => $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'encar',
+            'source' => 'encar', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        $a = $mk();
+        Volt::test('auction.index')->call('openDetail', $a->id)->set('buyerId', 7)
+            ->call('conclude', $a->id, 'won')->assertHasNoErrors();
+        $this->assertSame('won', $a->fresh()->status);
+
+        $b = $mk();
+        Volt::test('auction.index')->call('openDetail', $b->id)->set('sale_total', '8000')->set('buyerId', 7)
+            ->call('conclude', $b->id, 'won')->assertHasErrors('quoteCurrency');
+        $this->assertSame('accepted', $b->fresh()->status);
+    }
+
+    /** 이상 총판매가 = 매입가 + 매도비 − 매입가 × 9% × 45% (보여주기 전용). 입력 총판매가 대비 % 도. */
+    public function test_ideal_price_formula_and_diff(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'encar',
+            'source' => 'encar', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        $c = Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('selling_fee', '440000')->set('rate_usd', '1400')->set('rate_eur', '1600')
+            ->set('quoteCurrency', 'EUR')->set('sale_total', '6600');
+        // 10,000,000 + 440,000 − 900,000 × 45% = 10,035,000 → EUR 6271.88 → 6600 은 +5.2%
+        $this->assertSame(['krw' => 10035000, 'usd' => 7167.86, 'eur' => 6271.88, 'diff' => 5.2], $c->instance()->idealPrice());
+        $c->assertSee(__('auction.ideal_title'));
+        $this->assertNull($l->fresh()->sale_price);   // 저장 없음
+    }
+
     public function test_self_inspection_splits_total_with_fixed_usd_freight(): void
     {
         Bus::fake();
