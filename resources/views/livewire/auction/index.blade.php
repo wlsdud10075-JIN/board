@@ -68,6 +68,17 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** 운임비 — **판매통화 기준**(USD 아님). 기존 `shipping_usd` 와 컬럼이 다르다 — SKILLS §14-5. */
     public ?string $transport_fee = null;
 
+    // ── 셀프검차 판매 쪼개기(2026-10-22 Jin) — 사람이 적는 건 총판매가·운임비 USD·두 환율. 판매가·운임비(견적통화)는 계산값.
+    /** 총판매가(견적통화) — 고정값. 저장 컬럼은 없다(= sale_price + transport_fee). */
+    public ?string $sale_total = null;
+
+    /** 운임비 USD — 고정값(예: RORO 알바니아 세단 2040). */
+    public ?string $transport_fee_usd = null;
+
+    public ?string $rate_usd = null;
+
+    public ?string $rate_eur = null;
+
 
     /** 견적 통화 — 드로어 열 때 offer_currency 표시, 저장 시 바뀐 경우만 재스냅(EUR 딜 보존). */
     public string $quoteCurrency = 'KRW';
@@ -242,7 +253,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->loadConsignees();
     }
 
-    private function payeeRules(bool $selfInspection = false): array
+    private function payeeRules(): array
     {
         $base = [
             'owner_name' => 'nullable|string|max:60',
@@ -258,23 +269,20 @@ new #[Layout('components.layouts.app')] class extends Component {
             'salesFiles.*' => 'file|max:204800',
         ];
 
-        // 셀프검차매입은 운임비를 직접 적는다 → 고정 선택지(config)로 묶지 않는다.
-        if ($selfInspection) {
+        // 2026-10-22 Jin — **전 출처** 같은 칸(총판매가·운임비 USD·두 환율). 종전 비-셀프 칸(할인율·차감액·배송 선택)은
+        //    구매 탭에서 뺐다 — 견적 단계(/forwarding) 값은 컬럼에 그대로 남는다.
+        {
             return $base + [
                 // 🚫 `lte:car_cost` 제거(2026-09-11 Jin) — 매도비는 이제 **차값과 무관한 별개 금액**이다.
                 //    예전엔 차값에 포함된 값이라 넘을 수 없었다(넘으면 매입가가 0 으로 깎였다).
                 //    매도비는 공통 규칙으로 위(비-셀프검차 분기와 같은 자리)에서 검증한다.
-                'sale_price' => 'nullable|numeric|min:0',
-                'offer_rate' => 'nullable|numeric|min:1',
-                'transport_fee' => 'nullable|numeric|min:0',
+                'sale_total' => 'nullable|numeric|min:0',
+                // 정수(달러) — ERP `vehicles.transport_fee_usd` 가 bigInteger 라 소수가 안 남는다(2026-10-22 Jin).
+                'transport_fee_usd' => 'nullable|integer|min:0',
+                'rate_usd' => 'nullable|integer|min:1',
+                'rate_eur' => 'nullable|integer|min:1',
             ];
         }
-
-        return $base + [
-            'discount_rate' => 'nullable|numeric|min:0|max:100',
-            'sale_discount' => 'nullable|numeric|min:0',
-            'shipping_usd' => 'nullable|integer|in:'.implode(',', config('board.shipping_options')),
-        ];
     }
 
     /**
@@ -403,7 +411,12 @@ new #[Layout('components.layouts.app')] class extends Component {
         // ERP 에 exchange_rate=1 로 박힌다(통화 락을 통과한 뒤 생기는 두 번째 구멍). 빈 칸이어야 락이 잡는다.
         $this->offer_rate = $l->offer_rate !== null
             ? (string) $l->offer_rate
-            : ((! $l->isSelfInspection() && $this->quoteCurrency !== '') ? (string) $this->rateFor($this->quoteCurrency) : null);
+            : null;   // 2026-10-22 전 출처 미리 채우지 않음(환율은 사람이 적는다)
+        $this->transport_fee_usd = $l->transport_fee_usd !== null ? (string) (0 + $l->transport_fee_usd) : null;
+        $this->sale_total = $l->sale_price !== null ? (string) (0 + round((float) $l->sale_price + (float) $l->transport_fee, 2)) : null;
+        // 두 환율도 셀프검차는 미리 채우지 않는다(위 offer_rate 와 같은 이유). 새 칸 이전 행은 견적통화 쪽만 offer_rate 에서 읽는다.
+        $this->rate_usd = $l->offer_rate_usd !== null ? (string) $l->offer_rate_usd : ($l->offer_currency === 'USD' && $l->offer_rate ? (string) $l->offer_rate : null);
+        $this->rate_eur = $l->offer_rate_eur !== null ? (string) $l->offer_rate_eur : ($l->offer_currency === 'EUR' && $l->offer_rate ? (string) $l->offer_rate : null);
         $this->buyerUndecided = (bool) $l->buyer_undecided;
         $this->buyerId = $l->car_erp_buyer_id;
         $this->consigneeId = $l->car_erp_consignee_id;
@@ -418,8 +431,106 @@ new #[Layout('components.layouts.app')] class extends Component {
             'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account',
             'car_cost', 'discount_rate', 'sale_discount', 'shipping_usd', 'quoteCurrency',
             'selling_fee', 'sale_price', 'offer_rate', 'transport_fee',
+            'sale_total', 'transport_fee_usd', 'rate_usd', 'rate_eur',
             'buyerUndecided', 'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts', 'salesFiles']);
         unset($this->detail);
+    }
+
+    /**
+     * 셀프검차 판매 쪼개기(2026-10-22 Jin) — 총판매가·운임비 USD 는 고정, 판매가가 환율 차이를 흡수한다.
+     *   운임비(견적통화) = 운임비 USD × USD 환율 ÷ 견적통화 환율 (USD 견적이면 그대로, KRW 견적이면 × USD 환율)
+     *   판매가 = 총판매가 − 운임비 → 합계가 총판매가와 정확히 같도록 운임비를 먼저 반올림하고 뺀다.
+     * 소수 둘째 자리 — ERP `sale_price`·`transport_fee` 가 decimal(15,2) 라 그대로 받는다.
+     * 환율이 비어 운임비를 못 구하면 운임비 null·판매가 = 총판매가(총판매가는 보존 → 환율을 넣으면 다시 나뉜다).
+     *
+     * @return array{sale: ?float, freight: ?float, rate: ?int}
+     */
+    public function selfSplit(): array
+    {
+        $num = fn ($v) => ($v === null || $v === '') ? null : (float) $v;
+        $total = $num($this->sale_total);
+        $fUsd = $num($this->transport_fee_usd);
+        $usd = $num($this->rate_usd);
+        $rate = match ($this->quoteCurrency) {
+            'KRW' => 1.0,
+            'USD' => $usd,
+            'EUR' => $num($this->rate_eur),
+            default => null,
+        };
+
+        $freight = null;
+        if ($fUsd !== null) {
+            if ($this->quoteCurrency === 'USD') {
+                $freight = round($fUsd, 2);
+            } elseif ($usd && $rate) {
+                $freight = round($fUsd * $usd / $rate, 2);
+            }
+        }
+
+        return [
+            'sale' => $total === null ? null : round($total - ($freight ?? 0), 2),
+            'freight' => $freight,
+            'rate' => $rate ? (int) $rate : null,
+        ];
+    }
+
+    /**
+     * 이상 총판매가(2026-10-22 Jin, **보여주기 전용** — 저장·전송 없음):
+     *   매입가(원화) + 매도비 − 매입가 × 부가세율(9%) × 45%  →  환율을 넣으면 USD·EUR 로도.
+     * 매입가가 외화(싼카 차값 통화)면 화면에 적은 환율(없으면 오늘 환율)로 원화 환산한다.
+     * `diff` = (판매가 + 운임비) 를 원화로 바꾼 금액(`sale_krw`)이 이상가 대비 몇 % 위/아래인가(2026-10-22 Jin).
+     *   판매가 + 운임비 = 총판매가(견적통화)라 원화 환산 = 총판매가 × 견적통화 환율.
+     *
+     * @return array{krw: ?int, usd: ?float, eur: ?float, sale_krw: ?int, diff: ?float}
+     */
+    public function idealPrice(): array
+    {
+        $num = fn ($v) => ($v === null || $v === '') ? null : (float) $v;
+        $none = ['krw' => null, 'usd' => null, 'eur' => null, 'sale_krw' => null, 'diff' => null];
+        $cost = $num($this->car_cost);
+        $l = $this->detail;
+        if ($cost === null || ! $l) {
+            return $none;
+        }
+        $usd = $num($this->rate_usd);
+        $eur = $num($this->rate_eur);
+        $costKrw = match ($l->expected_price_currency ?: 'KRW') {
+            'USD' => $cost * ($usd ?: $this->usdRate()),
+            'EUR' => $cost * ($eur ?: $this->eurRate()),
+            default => $cost,
+        };
+        $vat = $costKrw * (float) config('board.ideal_vat_rate') * (float) config('board.ideal_vat_share');
+        $krw = (int) round($costKrw + ($num($this->selling_fee) ?? 0) - $vat);
+
+        $quoteRate = match ($this->quoteCurrency) {
+            'KRW' => 1.0,
+            'USD' => $usd,
+            'EUR' => $eur,
+            default => null,
+        };
+        $total = $num($this->sale_total);
+        $saleKrw = ($total !== null && $quoteRate) ? (int) round($total * $quoteRate) : null;
+
+        return [
+            'krw' => $krw,
+            'usd' => $usd ? round($krw / $usd, 2) : null,
+            'eur' => $eur ? round($krw / $eur, 2) : null,
+            'sale_krw' => $saleKrw,
+            'diff' => ($saleKrw !== null && $krw > 0) ? round(($saleKrw - $krw) / $krw * 100, 1) : null,
+        ];
+    }
+
+    /** 쪼개기 입력 오류 — 저장·구매확정 공통(운임비가 총판매가를 넘으면 판매가가 음수가 된다). */
+    private function selfSplitInvalid(): bool
+    {
+        $split = $this->selfSplit();
+        if ($split['sale'] !== null && $split['sale'] < 0) {
+            $this->addError('sale_total', __('auction.err_freight_over_total'));
+
+            return true;
+        }
+
+        return false;
     }
 
     private function applyPayee(PurchaseListing $l): void
@@ -443,29 +554,30 @@ new #[Layout('components.layouts.app')] class extends Component {
         //   ⚠️ 예전엔 이 줄이 셀프검차 분기 안에만 있어서 다른 출처는 칸을 만들어도 값이 안 남았다.
         $l->selling_fee = ($this->selling_fee === null || $this->selling_fee === '') ? null : (int) $this->selling_fee;
 
-        if ($l->isSelfInspection()) {
-            // 셀프검차매입 — 견적 씬이 없어 파생계산의 근거가 없다. 적은 값을 그대로 쓴다.
-            // 차값 = 항상 KRW. 판매가·환율·운임비 = 선택한 견적통화 기준.(매도비는 위에서 공통 저장)
-            $l->sale_price = ($this->sale_price === null || $this->sale_price === '') ? null : (float) $this->sale_price;
-            $l->transport_fee = ($this->transport_fee === null || $this->transport_fee === '') ? null : (float) $this->transport_fee;
-            $l->shipping_usd = null;   // 셀프검차는 USD 선택형을 안 쓴다 — 두 값이 같이 있으면 어느 게 진짜인지 갈린다
-            $l->offer_currency = $this->quoteCurrency ?: null;   // 미선택은 null 로 둔다('' 저장 금지)
-            // ⚠️ **자동계산 없음**(2026-08-10 Jin) — 셀프검차 금액칸은 전부 "적은 값 그대로"다.
-            //    통화를 바꿔도 환율을 다시 잡지 않고, 판매가×환율로 final_price 를 만들지도 않는다.
-            //    빈 칸일 때만 KRW=1 폴백 — car-erp 는 exchange_rate>0 이어야 판매 pre-fill 을 저장한다.
-            $l->offer_rate = ($this->offer_rate === null || $this->offer_rate === '') ? $this->rateFor($this->quoteCurrency) : (int) $this->offer_rate;
-
-            return;
+        {
+            // 2026-10-22 Jin — **전 출처 공통**(종전 셀프검차 전용). 비-셀프의 할인율·차감액은 견적 단계 값을 그대로 둔다.
+            // 차값 = 항상 KRW. 총판매가·판매가·운임비 = 견적통화, 운임비 USD = 달러.(매도비는 위에서 공통 저장)
+            // 2026-10-22 Jin — 판매가·운임비는 **계산값**(selfSplit): 운임비 USD·총판매가 고정, 환율 차이는 판매가가 흡수.
+            //    (2026-08-10 의 「자동계산 없음」을 이 두 칸에 한해 뒤집는다 — 환율은 여전히 사람이 적고, final_price 도 안 만든다.)
+            $split = $this->selfSplit();
+            $l->sale_price = $split['sale'];
+            $l->transport_fee = $split['freight'];
+            $l->transport_fee_usd = ($this->transport_fee_usd === null || $this->transport_fee_usd === '') ? null : (int) $this->transport_fee_usd;
+            $l->offer_rate_usd = ($this->rate_usd === null || $this->rate_usd === '') ? null : (int) $this->rate_usd;
+            $l->offer_rate_eur = ($this->rate_eur === null || $this->rate_eur === '') ? null : (int) $this->rate_eur;
+            if ($l->isSelfInspection()) {
+                $l->shipping_usd = null;   // 셀프검차는 USD 선택형을 안 쓴다 — 두 값이 같이 있으면 어느 게 진짜인지 갈린다
+            }   // 비-셀프의 shipping_usd 는 견적 기록으로 남긴다 — 판매가가 있으면 Job 이 쓰지 않는다
+            // 견적통화 환율 = ERP sale_exchange_rate. 빈 칸일 때만 폴백(KRW=1) — car-erp 는 exchange_rate>0 이어야 판매 pre-fill 을 저장한다.
+            //    원화가 아닌데 비었으면 구매확정 락이 잡는다.
+            //    비-셀프는 통화 미선택이면 견적 단계 통화·환율을 지우지 않는다. 미선택은 null 로 둔다('' 저장 금지).
+            if ($l->isSelfInspection() || $this->quoteCurrency !== '') {
+                $l->offer_currency = $this->quoteCurrency ?: null;
+                $l->offer_rate = $split['rate'] ?? ($this->quoteCurrency !== '' ? $this->rateFor($this->quoteCurrency) : $l->offer_rate);
+            }
         }
-
-        $l->discount_rate = ($this->discount_rate === null || $this->discount_rate === '') ? null : (float) $this->discount_rate;
-        $l->sale_discount_amount = ($this->sale_discount === null || $this->sale_discount === '') ? null : (int) $this->sale_discount;
-
-        // 견적통화는 **바뀐 경우에만** 재스냅 — 안 그러면 EUR 딜의 확정환율이 저장할 때마다 오늘 환율로 덮인다(/forwarding 동일).
-        // 첫 선택(KRW 포함)도 변경이다 — 미선택('')은 건드리지 않는다(2026-10-16).
-        if ($this->quoteCurrency !== '' && $this->quoteCurrency !== ($l->offer_currency ?? '')) {
-            $l->offer_currency = $this->quoteCurrency;
-            $l->offer_rate = $this->rateFor($this->quoteCurrency);
+        if ($l->isSelfInspection()) {
+            return;
         }
 
         // 바이어 금액(현지 최종금액) = 기존 공식 그대로. 직접 타이핑받지 않는 이유 = 할인·차감액과 숫자가 갈린다.
@@ -477,7 +589,10 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function savePayee(): void
     {
         $l = PurchaseListing::findOrFail($this->detailId);
-        $this->validate($this->payeeRules($l->isSelfInspection()));
+        $this->validate($this->payeeRules());
+        if ($this->selfSplitInvalid()) {
+            return;
+        }
         if (! $this->checkSalesFiles($l->salesAttachments()->count())) {
             return;
         }
@@ -520,6 +635,44 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->payee_name = $c['holder'];
     }
 
+    /** 소유자 후보를 소유자 칸에 옮긴다 — 계좌 후보와 같이 **저장은 아니다**. */
+    public function applyOwner(int $index): void
+    {
+        $l = PurchaseListing::findOrFail($this->detailId);
+        $owner = ($l->payee_suggestions['registration_owners'] ?? [])[$index] ?? null;
+        if ($owner) {
+            $this->owner_name = $owner;
+        }
+    }
+
+    /**
+     * [이미지에서 계좌·소유자 찾기] — 이미 올라간 사진으로도 돌린다(2026-10-22 Jin).
+     * 종전 [계좌정보 찾기]는 `savePayee` 라 **새 사진이 있을 때만** 추출이 돌았다 → 올려 둔 사진으로는 눌러도 아무 일이 없었다.
+     * 새로 고른 사진이 있으면 저장(→ storeSalesFiles 가 추출 발사), 없으면 기존 사진으로 발사. 입력칸 값은 저장하지 않는다.
+     */
+    public function extractFromImages(): void
+    {
+        if (! config('board.payee_extract.enabled')) {
+            return;
+        }
+        $l = PurchaseListing::findOrFail($this->detailId);
+        $this->validate(['salesFiles.*' => 'file|max:204800']);
+        if (! $this->checkSalesFiles($l->salesAttachments()->count())) {
+            return;
+        }
+        if (count(array_filter($this->salesFiles)) > 0) {
+            $this->storeSalesFiles($l);
+        } elseif ($l->salesAttachments()->where('kind', InspectionPhoto::KIND_SALES_PHOTO)->exists()) {
+            $l->forceFill(['payee_extraction_status' => 'pending', 'payee_extraction_at' => now()])->saveQuietly();
+            ExtractPayeeFromPhotos::dispatch($l->id);
+        } else {
+            $this->addError('salesFiles', __('auction.payee_extract.no_photos'));
+
+            return;
+        }
+        unset($this->detail);
+    }
+
     /** 후보를 지운다(오독이거나 이미 손으로 넣은 경우). payee_* 는 안 건드린다. */
     public function dismissSuggestions(): void
     {
@@ -557,7 +710,10 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
 
         if ($result === 'won') {
-            $this->validate($this->payeeRules($l->isSelfInspection()));
+            $this->validate($this->payeeRules());
+            if ($this->selfSplitInvalid()) {
+                return;
+            }
             if (! $this->checkSalesFiles($l->salesAttachments()->count())) {
                 return;
             }
@@ -574,25 +730,37 @@ new #[Layout('components.layouts.app')] class extends Component {
             //    ⚠️ 차값 게이트(위 `hasSyncableAmount`)와 첨부 필수(아래)는 **그대로 건다** — 매입 원가와
             //    딜러 자료는 재고매입에도 똑같이 필요하다.
             $stock = (bool) $this->buyerUndecided;
+            // 판매측 락을 거는 차 — 셀프검차는 항상, 그 외는 **총판매가를 적었을 때만**(2026-10-16 Jin 「비-셀프는 판매 없이도 확정」 유지).
+            $sells = $l->isSelfInspection() || $l->sale_price !== null;
 
-            // 셀프검차 필수 락 (2026-08-10 Jin) — 차값은 위 게이트가 잡고, 판매가는 여기서.
+            // 판매측 필수 락 (2026-08-10 Jin 셀프검차 → 2026-10-22 전 출처) — 차값은 위 게이트가 잡고, 판매가는 여기서.
             // 판매가가 비면 car-erp 가 판매 pre-fill 을 통째로 보류해(수신측 `sale_price>0 && rate>0`)
             // ERP 판매탭이 빈 채로 생긴다 — 관리가 나중에 손으로 채워야 하고, 그때 board 값과 갈린다.
             if (! $stock && $l->isSelfInspection() && $l->sale_price === null) {
-                $this->addError('sale_price', __('auction.err_sale_price_required'));
+                $this->addError('sale_total', __('auction.err_total_required'));
 
                 return;
             }
             // 통화 미선택 락 — 안 막으면 KRW 로 떨어져 **USD 판매가가 원화로 박힌다**(8,590 USD → 8,590원, 실측).
             // 조용히 1/환율 로 기록되므로 나중에 원장을 봐도 틀린 줄을 모른다.
-            if (! $stock && $l->isSelfInspection() && ! $l->offer_currency) {
+            if (! $stock && $sells && ! $l->offer_currency) {
                 $this->addError('quoteCurrency', __('auction.err_currency_required'));
 
                 return;
             }
             // 원화가 아니면 환율도 필수 — 비우면 **오늘 환율**이 조용히 들어가 합의환율과 갈린다.
-            if (! $stock && $l->isSelfInspection() && $l->offer_currency !== 'KRW' && ($this->offer_rate === null || $this->offer_rate === '')) {
-                $this->addError('offer_rate', __('auction.err_rate_required'));
+            if (! $stock && $sells && $l->offer_currency !== 'KRW') {
+                $rateField = $l->offer_currency === 'EUR' ? 'rate_eur' : 'rate_usd';
+                if ($this->{$rateField} === null || $this->{$rateField} === '') {
+                    $this->addError($rateField, __('auction.err_rate_required'));
+
+                    return;
+                }
+            }
+            // 운임비 USD 를 적었는데 USD 환율이 없으면 운임비가 빠진 채(판매가 = 총판매가) 나간다 — 막는다.
+            if (! $stock && $sells && $l->transport_fee_usd !== null && $l->offer_currency !== 'USD'
+                && ($this->rate_usd === null || $this->rate_usd === '')) {
+                $this->addError('rate_usd', __('auction.err_usd_rate_for_freight', ['currency' => $l->offer_currency]));
 
                 return;
             }
@@ -772,7 +940,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <div>
                                 {{-- 차값·매도비는 **항상 원화** — 견적통화 토글의 영향을 받지 않는다(2026-08-10 Jin). --}}
                                 <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.car_cost') }} <span class="text-gray-400">({{ $d->isSelfInspection() ? __('common.won_currency') : \App\Support\Money::symbol($costCur) }})</span></label>
-                                <input type="number" min="0" class="input-base" wire:model="car_cost" placeholder="{{ __('auction.car_cost_ph') }}">
+                                <input type="number" min="0" class="input-base" wire:model.live.debounce.400ms="car_cost" placeholder="{{ __('auction.car_cost_ph') }}">
                                 @error('car_cost') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
                             </div>
 
@@ -782,53 +950,48 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     (fill-if-empty 대상이 아니다, §12). 나중에 고치려면 ERP 화면에서. --}}
                             <div>
                                 <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.selling_fee') }} <span class="text-gray-400">({{ __('common.won_currency') }})</span></label>
-                                <input type="number" min="0" class="input-base" wire:model="selling_fee" placeholder="{{ __('auction.selling_fee_ph') }}">
+                                <input type="number" min="0" class="input-base" wire:model.live.debounce.400ms="selling_fee" placeholder="{{ __('auction.selling_fee_ph') }}">
                                 @error('selling_fee') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
                             </div>
 
                             {{-- 셀프검차매입 = 판매가·환율·운임비도 직접 적는다(견적 씬이 없어 파생계산의 근거가 없다).
                                  그 외 출처 = 기존 견적 공식(할인율·차감액·배송 선택). --}}
-                            @if ($d->isSelfInspection())
-                                {{-- 아래 셋은 견적통화 기준 — 라벨에 통화를 안 붙인다(단일 표시 = 견적통화 pill).
+                            @if (true)
+                                {{-- 2026-10-22 Jin — 전 출처 공통(종전 셀프검차 전용, 비-셀프는 할인율·차감액·배송 선택이었다).
+                                     아래 셋은 견적통화 기준 — 라벨에 통화를 안 붙인다(단일 표시 = 견적통화 pill).
                                      재고매입(바이어 미정)이면 통째로 감춘다 — 팔 상대가 없어 판매가가 아직 없는 게 정상이다. --}}
+                                {{-- 2026-10-22 Jin — 사람이 적는 건 총판매가·운임비 USD·두 환율. 판매가·운임비(견적통화)는 selfSplit() 계산값(읽기 전용). --}}
                                 @if (! $buyerUndecided)
+                                @php $split = $this->selfSplit(); @endphp
                                 <div>
-                                    <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.sale_price') }}</label>
-                                    <input type="number" min="0" step="0.01" class="input-base" wire:model="sale_price">
-                                    @error('sale_price') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                                    <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.sale_total') }}</label>
+                                    <input type="number" min="0" step="0.01" class="input-base" wire:model.live.debounce.400ms="sale_total">
+                                    @error('sale_total') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
                                 </div>
                                 <div>
-                                    <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.offer_rate') }}</label>
-                                    <input type="number" min="1" class="input-base" wire:model="offer_rate">
-                                    @error('offer_rate') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                                    <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.transport_fee_usd') }}</label>
+                                    <input type="number" min="0" step="1" class="input-base" wire:model.live.debounce.400ms="transport_fee_usd">
+                                    @error('transport_fee_usd') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
                                 </div>
                                 <div>
-                                    <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.transport_fee') }}</label>
-                                    <input type="number" min="0" step="0.01" class="input-base" wire:model="transport_fee">
-                                    @error('transport_fee') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                                    <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.rate_usd') }}</label>
+                                    <input type="number" min="1" class="input-base" wire:model.live.debounce.400ms="rate_usd">
+                                    @error('rate_usd') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                                </div>
+                                <div>
+                                    <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.rate_eur') }}</label>
+                                    <input type="number" min="1" class="input-base" wire:model.live.debounce.400ms="rate_eur">
+                                    @error('rate_eur') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
+                                </div>
+                                <div>
+                                    <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.transport_fee') }} <span class="text-gray-400">({{ __('auction.auto') }})</span></label>
+                                    <div class="input-base bg-gray-100 text-gray-700">{{ $split['freight'] !== null ? number_format($split['freight'], 2) : '—' }}</div>
+                                </div>
+                                <div>
+                                    <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.sale_price') }} <span class="text-gray-400">({{ __('auction.auto') }})</span></label>
+                                    <div class="input-base bg-gray-100 font-semibold text-gray-800">{{ $split['sale'] !== null ? number_format($split['sale'], 2) : '—' }}</div>
                                 </div>
                                 @endif
-                            @elseif (! $buyerUndecided)
-                                <div>
-                                    <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.discount_rate') }} (%)</label>
-                                    <input type="number" min="0" max="100" step="0.1" class="input-base" wire:model="discount_rate" placeholder="0">
-                                    @error('discount_rate') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
-                                </div>
-                                <div>
-                                    <label class="mb-0.5 block text-xs text-gray-500">{{ __('forwarding.sale_discount_label') }} <span class="text-gray-400">({{ __('common.won_currency') }})</span></label>
-                                    <input type="number" min="0" class="input-base" wire:model="sale_discount" placeholder="0">
-                                    @error('sale_discount') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
-                                </div>
-                                <div>
-                                    <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.shipping') }} (USD)</label>
-                                    <select class="input-base" wire:model="shipping_usd">
-                                        <option value="">—</option>
-                                        @foreach (config('board.shipping_options') as $opt)
-                                            <option value="{{ $opt }}">${{ number_format($opt) }}</option>
-                                        @endforeach
-                                    </select>
-                                    @error('shipping_usd') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
-                                </div>
                             @endif
                         </div>
                         @if (! $buyerUndecided)
@@ -836,19 +999,36 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <span class="text-xs text-gray-500">{{ __('auction.quote_currency') }}</span>
                             @foreach (['KRW', 'USD', 'EUR'] as $cur)
                                 <label class="flex cursor-pointer items-center gap-1 text-xs text-gray-600">
-                                    <input type="radio" value="{{ $cur }}" wire:model="quoteCurrency"> {{ $cur }}
+                                    <input type="radio" value="{{ $cur }}" wire:model.live="quoteCurrency"> {{ $cur }}
                                 </label>
                             @endforeach
                         </div>
                         @error('quoteCurrency') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                        @if ($d->isSelfInspection())
+                        @if (true)
                             {{-- 라벨에서 통화를 뺐으니(단일 표시 원칙) 어느 통화 기준인지 여기서 한 번 못박는다.
                                  미선택이면 경고 — KRW 로 흘러가면 USD 판매가가 원화로 박힌다. --}}
                             @if ($quoteCurrency === '')
                                 <p class="mt-1 text-[11px] font-semibold text-red-600">{{ __('auction.self_currency_unset') }}</p>
                             @else
                                 <p class="mt-1 text-[11px] text-gray-600">{{ __('auction.self_currency_hint', ['currency' => $quoteCurrency]) }}</p>
+                                <p class="mt-0.5 text-[11px] text-gray-500">{{ __('auction.split_hint', ['currency' => $quoteCurrency]) }}</p>
                             @endif
+                        @endif
+                        {{-- 이상 총판매가 — 보여주기 전용(저장·전송 없음). 공식 = idealPrice(). --}}
+                        @php $ideal = $this->idealPrice(); @endphp
+                        @if ($ideal['krw'] !== null)
+                            <div class="mt-2 rounded-md border border-dashed border-gray-300 bg-white px-2.5 py-2 text-[11px] text-gray-600">
+                                <div class="flex flex-wrap items-baseline gap-x-2">
+                                    <span class="font-semibold text-gray-700">{{ __('auction.ideal_title') }}</span>
+                                    <span>{{ number_format($ideal['krw']) }}{{ __('common.won_currency') }}</span>
+                                    @if ($ideal['usd'] !== null)<span>· ${{ number_format($ideal['usd'], 2) }}</span>@endif
+                                    @if ($ideal['eur'] !== null)<span>· €{{ number_format($ideal['eur'], 2) }}</span>@endif
+                                </div>
+                                @if ($ideal['diff'] !== null)
+                                    <p class="mt-0.5 font-semibold {{ $ideal['diff'] < 0 ? 'text-red-600' : 'text-emerald-700' }}">{{ __('auction.ideal_diff', ['sale' => number_format($ideal['sale_krw']), 'pct' => ($ideal['diff'] > 0 ? '+' : '').number_format($ideal['diff'], 1).'%']) }}</p>
+                                @endif
+                                <p class="mt-0.5 text-gray-400">{{ __('auction.ideal_formula', ['vat' => config('board.ideal_vat_rate') * 100, 'share' => config('board.ideal_vat_share') * 100]) }}</p>
+                            </div>
                         @endif
                         @endif
                         {{-- ERP 로 가는 금액을 그대로 보여준다 — 차값은 차값, 매도비는 매도비(2026-09-11 Jin).
@@ -875,9 +1055,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @else
                 {{-- 셀프검차매입은 파생계산을 안 한다 → 적은 판매가를 그대로 보여준다(계산값 아님). --}}
                 <div class="mt-3 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
-                    <span class="font-semibold text-gray-700">{{ $d->isSelfInspection() ? __('auction.sale_price') : __('auction.final_price') }}</span>
+                    <span class="font-semibold text-gray-700">{{ ($d->isSelfInspection() || $d->sale_price !== null) ? __('auction.sale_price') : __('auction.final_price') }}</span>
                     <span class="text-base font-bold text-[var(--color-primary-text)]">
-                        @if ($d->isSelfInspection())
+                        @if ($d->isSelfInspection() || $d->sale_price !== null)
                             {{ $d->sale_price !== null ? number_format((float) $d->sale_price, 0).' '.($d->offer_currency ?: 'KRW') : '—' }}
                         @else
                             {{ $d->offerDisplay() ?? '—' }}
@@ -979,13 +1159,25 @@ new #[Layout('components.layouts.app')] class extends Component {
                              wire:poll.5s>{{ __('auction.payee_extract.searching') }}</div>
                     {{-- 못 찾았거나 실패했으면 **그렇다고 말해준다** — 아무것도 안 그리면 사용자는 계속 기다린다
                          (2026-09-10 Jin 실사용: 화면이 멈춘 줄 알고 3분을 기다렸다). --}}
-                    @elseif (empty($d->payee_suggestions['candidates']) && in_array($d->payee_extraction_status, ['none', 'failed', 'pending'], true))
+                    @elseif (empty($d->payee_suggestions['candidates']) && empty($d->payee_suggestions['registration_owners']) && in_array($d->payee_extraction_status, ['none', 'failed', 'pending'], true))
                         <div class="mb-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs font-semibold text-amber-800">
                             ⚠ {{ $d->payee_extraction_status === 'none' ? __('auction.payee_extract.not_found') : __('auction.payee_extract.failed') }}
                         </div>
-                    @elseif (!empty($d->payee_suggestions['candidates']))
+                    @elseif (!empty($d->payee_suggestions['candidates']) || !empty($d->payee_suggestions['registration_owners']))
                         <div class="mb-2 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-2">
-                            <div class="text-[11px] font-semibold text-blue-800">{{ __('auction.payee_extract.title') }}</div>
+                            {{-- 소유자 후보(자동차등록증) — 2026-10-22 Jin. 누르면 소유자 칸에만 들어간다(저장 전). --}}
+                            @if (!empty($d->payee_suggestions['registration_owners']))
+                                <div class="text-[11px] font-semibold text-blue-800">{{ __('auction.payee_extract.owner_title') }}</div>
+                                @foreach ($d->payee_suggestions['registration_owners'] as $oi => $ownerName)
+                                    <div class="mt-1 flex items-center gap-2">
+                                        <span class="text-xs text-gray-800">{{ $ownerName }}</span>
+                                        <button type="button" wire:click="applyOwner({{ $oi }})"
+                                                class="rounded border border-blue-300 bg-white px-2 py-0.5 text-[11px] text-blue-700">{{ __('auction.payee_extract.apply_owner') }}</button>
+                                    </div>
+                                @endforeach
+                            @endif
+                            @if (!empty($d->payee_suggestions['candidates']))
+                            <div class="text-[11px] font-semibold text-blue-800 {{ !empty($d->payee_suggestions['registration_owners']) ? 'mt-2 border-t border-blue-100 pt-1.5' : '' }}">{{ __('auction.payee_extract.title') }}</div>
                             @foreach ($d->payee_suggestions['candidates'] as $i => $c)
                                 <div class="mt-1.5 flex gap-2 border-t border-blue-100 pt-1.5 first:border-0 first:pt-0">
                                     @php $srcId = $c['source_photo_ids'][0] ?? null; @endphp
@@ -993,7 +1185,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                                         <img src="{{ $this->photoUrl($src->s3_path) }}" class="h-12 w-12 shrink-0 rounded object-cover">
                                     @endif
                                     <div class="min-w-0 flex-1">
-                                        <div class="font-mono text-xs text-gray-800">{{ $c['bank'] }} {{ $c['number'] }}</div>
+                                        <div class="font-mono text-xs text-gray-800">{{ $c['bank'] }} {{ $c['number'] }}
+                                            @if (($c['label'] ?? '') !== '')<span class="ml-1 rounded bg-white px-1 font-sans text-[10px] text-gray-500">{{ $c['label'] }}</span>@endif
+                                        </div>
                                         <div class="truncate text-[11px] text-gray-500">{{ $c['holder'] }}</div>
                                         @if (in_array('owner_mismatch', $c['warnings'] ?? [], true))
                                             <div class="text-[11px] text-amber-700">⚠ {{ __('auction.payee_extract.owner_mismatch') }}</div>
@@ -1010,6 +1204,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     </div>
                                 </div>
                             @endforeach
+                            @endif
                             <div class="mt-1.5 flex items-center justify-between">
                                 <span class="text-[11px] text-gray-500">{{ __('auction.payee_extract.confirm_hint') }}</span>
                                 <button type="button" wire:click="dismissSuggestions" class="text-[11px] text-gray-400 underline">{{ __('auction.payee_extract.dismiss') }}</button>
@@ -1104,13 +1299,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @error('salesFiles.*') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     <p class="mt-1 text-[11px] text-gray-400">{{ __('auction.attach.help') }}</p>
 
-                    {{-- 사진을 넣고 **여기서** 계좌를 찾는다. 이 버튼이 없으면 구매확정을 눌러 가드에 걸리는 것 말고는
-                         추출을 시작할 방법이 없었다(2026-09-10 Jin). won 은 아래 [입금정보 저장]이 같은 일을 한다. --}}
-                    @if (config('board.payee_extract.enabled') && $d->status === 'accepted')
-                        <button class="btn-primary mt-2 w-full justify-center" wire:click="savePayee"
-                                wire:loading.attr="disabled" wire:target="savePayee">
-                            <span wire:loading.remove wire:target="savePayee">{{ __('auction.payee_extract.find') }}</span>
-                            <span wire:loading wire:target="savePayee">{{ __('auction.payee_extract.finding') }}</span>
+                    {{-- 사진을 넣고 **여기서** 계좌·소유자를 찾는다(2026-09-10 Jin). 2026-10-22 — 이미 올라간 사진으로도 돌고(extractFromImages),
+                         won 에서도 보인다. 종전 버튼은 savePayee 라 새 사진이 없으면 눌러도 추출이 안 돌았다. --}}
+                    @if (config('board.payee_extract.enabled'))
+                        <button class="btn-primary mt-2 w-full justify-center" wire:click="extractFromImages"
+                                wire:loading.attr="disabled" wire:target="extractFromImages">
+                            <span wire:loading.remove wire:target="extractFromImages">{{ __('auction.payee_extract.find') }}</span>
+                            <span wire:loading wire:target="extractFromImages">{{ __('auction.payee_extract.finding') }}</span>
                         </button>
                     @endif
                 @endif

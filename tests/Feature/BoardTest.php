@@ -770,7 +770,7 @@ class BoardTest extends TestCase
             ->call('openDetail', $l->id)
             ->set('owner_name', '차주')
             ->set('payee_name', '판매상사')
-            ->set('sale_price', '7000')     // 셀프검차 필수 락 — 차값·판매가·통화
+            ->set('sale_total', '7000')     // 셀프검차 필수 락 — 차값·총판매가·통화
             ->set('quoteCurrency', 'KRW')
             ->set('buyerId', 7)             // 구매확정은 바이어 필수(매입 등록 락의 전제)
             ->call('conclude', $l->id, 'won')
@@ -1164,7 +1164,7 @@ class BoardTest extends TestCase
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '12000000')
-            ->set('sale_price', '8000')->set('quoteCurrency', 'KRW')   // 셀프검차 필수 락
+            ->set('sale_total', '8000')->set('quoteCurrency', 'KRW')   // 셀프검차 필수 락
             ->call('conclude', $l->id, 'won')->assertHasNoErrors();
 
         $this->assertSame(12000000, (int) $l->fresh()->car_cost);
@@ -1197,20 +1197,21 @@ class BoardTest extends TestCase
      * 셀프검차가 **아닌** 출처는 바이어 금액을 직접 타이핑받지 않고 `/forwarding` 과 같은 공식(`totalKrw`)으로 만든다.
      * 직접 입력받으면 할인·차감액과 숫자가 갈린다.
      */
+    /** 할인율·차감액은 견적 단계 값 그대로 — 구매 탭은 칸을 뺐지만(2026-10-22) 차값을 고치면 final_price 는 다시 계산된다. */
     public function test_auction_quote_fields_recompute_final_price(): void
     {
         Bus::fake();
         $l = $this->mkListing($this->mkUser('sales'), [
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'encar',
             'source' => 'encar', 'car_cost' => null, 'final_price' => null,
-            'expected_price_currency' => 'KRW',
+            'expected_price_currency' => 'KRW', 'discount_rate' => 10, 'sale_discount_amount' => 500000,
         ]);
         $this->actingAs($this->mkUser('manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
-            ->set('car_cost', '10000000')
-            ->set('discount_rate', '10')          // 관례할인 10% → 9,000,000
-            ->set('sale_discount', '500000')      // 차감액 → 8,500,000
+            ->assertDontSee(__('forwarding.sale_discount_label'))
+            ->set('car_cost', '10000000')          // 관례할인 10% → 9,000,000 − 차감액 → 8,500,000
+            ->set('buyerId', 7)
             ->call('conclude', $l->id, 'won')->assertHasNoErrors();
 
         $f = $l->fresh();
@@ -1344,9 +1345,9 @@ class BoardTest extends TestCase
             ->set('car_cost', '13600000')
             ->set('selling_fee', '440000')
             ->set('quoteCurrency', 'USD')
-            ->set('sale_price', '8590')
-            ->set('offer_rate', '1400')
-            ->set('transport_fee', '1350')      // 판매통화(USD) 기준 · 선택지 밖 값도 허용(직접입력)
+            ->set('sale_total', '9940')
+            ->set('rate_usd', '1400')
+            ->set('transport_fee_usd', '1350')  // USD 견적이면 운임비 USD 그대로 → 판매가 = 9940 − 1350
             ->call('conclude', $l->id, 'won')->assertHasNoErrors();
 
         $f = $l->fresh();
@@ -1410,7 +1411,7 @@ class BoardTest extends TestCase
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '10000000')->set('quoteCurrency', 'KRW')
             ->call('conclude', $l->id, 'won')
-            ->assertHasErrors('sale_price');
+            ->assertHasErrors('sale_total');
 
         $this->assertSame('accepted', $l->fresh()->status);
         Bus::assertNotDispatched(SyncWonListingToCarErp::class);
@@ -1418,7 +1419,7 @@ class BoardTest extends TestCase
         // 판매가까지 넣으면 통과
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '10000000')
-            ->set('sale_price', '7000')->set('quoteCurrency', 'KRW')
+            ->set('sale_total', '7000')->set('quoteCurrency', 'KRW')
             ->call('conclude', $l->id, 'won')->assertHasNoErrors();
 
         $this->assertSame('won', $l->fresh()->status);
@@ -1441,7 +1442,7 @@ class BoardTest extends TestCase
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->assertSet('quoteCurrency', '')      // 미선택으로 시작 — KRW 로 흘러가지 않는다
             ->set('car_cost', '12000000')
-            ->set('sale_price', '8590')
+            ->set('sale_total', '8590')
             ->call('conclude', $l->id, 'won')
             ->assertHasErrors('quoteCurrency');
 
@@ -1464,17 +1465,18 @@ class BoardTest extends TestCase
         $this->actingAs($this->mkUser('manager'));
 
         $c = Volt::test('auction.index')->call('openDetail', $l->id)
-            ->assertSet('offer_rate', null)       // 미리 채우지 않는다
+            ->assertSet('rate_usd', null)         // 미리 채우지 않는다
+            ->assertSet('rate_eur', null)
             ->set('car_cost', '12000000')
-            ->set('sale_price', '8590')
+            ->set('sale_total', '8590')
             ->set('quoteCurrency', 'USD')
             ->call('conclude', $l->id, 'won')
-            ->assertHasErrors('offer_rate');
+            ->assertHasErrors('rate_usd');
 
         $this->assertSame('accepted', $l->fresh()->status);
 
         // 환율까지 넣으면 통과
-        $c->set('offer_rate', '1400')->call('conclude', $l->id, 'won')->assertHasNoErrors();
+        $c->set('rate_usd', '1400')->call('conclude', $l->id, 'won')->assertHasNoErrors();
         $this->assertSame('won', $l->fresh()->status);
         $this->assertSame(1400, (int) $l->fresh()->offer_rate);
     }
@@ -1491,7 +1493,7 @@ class BoardTest extends TestCase
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '12000000')
-            ->set('sale_price', '11000000')
+            ->set('sale_total', '11000000')
             ->set('quoteCurrency', 'KRW')
             ->call('conclude', $l->id, 'won')->assertHasNoErrors();
 
@@ -1532,8 +1534,7 @@ class BoardTest extends TestCase
             ->set('car_cost', '400000')
             ->set('selling_fee', '440000')
             ->set('quoteCurrency', 'KRW')
-            ->set('sale_price', '400000')
-            ->set('offer_rate', '1')
+            ->set('sale_total', '400000')
             ->call('conclude', $l->id, 'won')
             ->assertHasNoErrors();
 
@@ -1557,10 +1558,144 @@ class BoardTest extends TestCase
     }
 
     /**
-     * ★셀프검차 금액칸은 **자동계산이 없다**(2026-08-10 Jin) — 통화를 눌러도 환율이 안 바뀌고,
-     * 환율을 적어도 다른 칸이 안 따라온다. 전부 "적은 값 그대로"다.
+     * ★셀프검차 판매 쪼개기(2026-10-22 Jin, 2026-08-10 「자동계산 없음」을 판매가·운임비에 한해 뒤집음) —
+     * 총판매가·운임비 USD 고정, 운임비(견적통화) = USD × USD환율 ÷ 견적환율, 판매가 = 총판매가 − 운임비.
+     * Jin 예시: EUR 11,800 · RORO 알바니아 세단 2,040 USD → 운임비가 환율로 줄면 판매가가 그만큼 올라 합계 유지.
+     * 환율은 여전히 미리 채우지 않는다(통화를 바꿔도 환율칸이 따라오지 않는다).
      */
-    public function test_self_inspection_amounts_never_autocalculate(): void
+    /** 2026-10-22 Jin — 쪼개기는 **전 출처**. 엔카 차도 총판매가·운임비 USD·두 환율로 판매가·운임비가 정해지고, 두 값이 ERP 로 간다. */
+    public function test_split_applies_to_every_origin_and_sends_usd_fields(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'hs']);
+        Http::fake(['*' => Http::response(['vehicle_id' => 501], 201)]);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'encar',
+            'source' => 'encar', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW', 'shipping_usd' => 1740,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        $c = Volt::test('auction.index')->call('openDetail', $l->id)
+            ->assertSee(__('auction.sale_total'))
+            ->set('quoteCurrency', 'EUR')->set('sale_total', '11800')->set('transport_fee_usd', '2040')
+            ->set('rate_usd', '1380')->set('rate_eur', '1580');
+        $this->assertSame(['sale' => 10018.23, 'freight' => 1781.77, 'rate' => 1580], $c->instance()->selfSplit());
+        $c->set('buyerId', 7)->call('conclude', $l->id, 'won')->assertHasNoErrors();
+
+        Http::assertSent(function ($req) {
+            $d = $req->data();
+
+            return str_contains($req->url(), 'purchase-sync') && $d['sale_price'] == 10018.23 && $d['transport_fee'] == 1781.77
+                && $d['sale_currency'] === 'EUR' && $d['sale_exchange_rate'] === 1580
+                && $d['transport_fee_usd'] === 2040 && $d['usd_exchange_rate'] === 1380;
+        });
+    }
+
+    /** 운임비 USD 를 비우면 운임비 없음 — 견적 단계 배송값(shipping_usd)을 끌어오지 않는다(컨테이너는 적재 뒤 ERP 에서, 2026-10-22 Jin). */
+    public function test_blank_usd_freight_sends_no_freight_even_with_old_shipping(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'hs']);
+        Http::fake(['*' => Http::response(['vehicle_id' => 502], 201)]);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'encar',
+            'source' => 'encar', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW', 'shipping_usd' => 1740,
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('quoteCurrency', 'USD')->set('sale_total', '8000')->set('rate_usd', '1380')
+            ->set('buyerId', 7)->call('conclude', $l->id, 'won')->assertHasNoErrors();
+
+        Http::assertSent(fn ($req) => str_contains($req->url(), 'purchase-sync') && $req->data()['sale_price'] == 8000 && $req->data()['transport_fee'] === null
+            && $req->data()['transport_fee_usd'] === null);
+    }
+
+    /** 비-셀프는 총판매가를 안 적어도 확정된다(2026-10-16 규칙 유지 — 판매 필드 비워 전송). 적으면 통화·환율 락이 걸린다. */
+    public function test_non_self_total_optional_but_locks_currency_when_entered(): void
+    {
+        Bus::fake();
+        $mk = fn () => $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'encar',
+            'source' => 'encar', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        $a = $mk();
+        Volt::test('auction.index')->call('openDetail', $a->id)->set('buyerId', 7)
+            ->call('conclude', $a->id, 'won')->assertHasNoErrors();
+        $this->assertSame('won', $a->fresh()->status);
+
+        $b = $mk();
+        Volt::test('auction.index')->call('openDetail', $b->id)->set('sale_total', '8000')->set('buyerId', 7)
+            ->call('conclude', $b->id, 'won')->assertHasErrors('quoteCurrency');
+        $this->assertSame('accepted', $b->fresh()->status);
+    }
+
+    /** 이상 총판매가 = 매입가 + 매도비 − 매입가 × 9% × 45% (보여주기 전용). 입력 총판매가 대비 % 도. */
+    public function test_ideal_price_formula_and_diff(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'encar',
+            'source' => 'encar', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        $c = Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('selling_fee', '440000')->set('rate_usd', '1400')->set('rate_eur', '1600')
+            ->set('quoteCurrency', 'EUR')->set('sale_total', '6600');
+        // 10,000,000 + 440,000 − 900,000 × 45% = 10,035,000 / (판매가 + 운임비) = 6600 × 1600 = 10,560,000 원 → +5.2%
+        $this->assertSame(['krw' => 10035000, 'usd' => 7167.86, 'eur' => 6271.88, 'sale_krw' => 10560000, 'diff' => 5.2], $c->instance()->idealPrice());
+
+        // Jin 실측(2026-10-22 50서3741): 870만 + 44만 − 783,000 × 45% = 8,787,650 / 5800 × 1500 = 8,700,000 → −1.0%
+        $c->set('car_cost', '8700000')->set('rate_usd', '1300')->set('rate_eur', '1500')->set('sale_total', '5800')->set('transport_fee_usd', '2040');
+        $this->assertSame(8700000, $c->instance()->idealPrice()['sale_krw']);
+        $this->assertSame(-1.0, $c->instance()->idealPrice()['diff']);
+        $c->assertSee(__('auction.ideal_title'));
+        $this->assertNull($l->fresh()->sale_price);   // 저장 없음
+    }
+
+    public function test_self_inspection_splits_total_with_fixed_usd_freight(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
+        $c = Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('quoteCurrency', 'EUR')
+            ->assertSet('rate_usd', null)->assertSet('rate_eur', null)   // 통화를 골라도 환율은 안 채운다
+            ->set('sale_total', '11800')
+            ->set('transport_fee_usd', '2040')
+            ->set('rate_usd', '1380')
+            ->set('rate_eur', '1580');
+
+        // 2040 × 1380 ÷ 1580 = 1781.77 → 판매가 10018.23, 합계 11800 정확히
+        $this->assertSame(['sale' => 10018.23, 'freight' => 1781.77, 'rate' => 1580], $c->instance()->selfSplit());
+
+        $c->set('buyerId', 7)->call('savePayee')->assertHasNoErrors();
+        $f = $l->fresh();
+        $this->assertSame(10018.23, (float) $f->sale_price);
+        $this->assertSame(1781.77, (float) $f->transport_fee);
+        $this->assertSame(11800.0, round((float) $f->sale_price + (float) $f->transport_fee, 2));
+        $this->assertSame(2040.0, (float) $f->transport_fee_usd);
+        $this->assertSame('EUR', $f->offer_currency);
+        $this->assertSame(1580, (int) $f->offer_rate);      // ERP sale_exchange_rate = 견적통화 환율
+        $this->assertSame(1380, (int) $f->offer_rate_usd);
+        $this->assertSame(1580, (int) $f->offer_rate_eur);
+        $this->assertNull($f->shipping_usd);
+        $this->assertNull($f->final_price);                 // final_price 는 여전히 안 만든다
+
+        // 다시 열면 총판매가·운임비 USD·두 환율이 그대로 돌아온다
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->assertSet('sale_total', '11800')
+            ->assertSet('transport_fee_usd', '2040')
+            ->assertSet('rate_usd', '1380')
+            ->assertSet('rate_eur', '1580');
+    }
+
+    /** 원화 견적은 운임비 = USD × USD환율, USD 견적은 USD 그대로. 운임비가 총판매가를 넘으면 막는다. */
+    public function test_self_inspection_split_krw_usd_and_over_total(): void
     {
         $l = $this->mkListing($this->mkUser('sales'), [
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
@@ -1568,14 +1703,37 @@ class BoardTest extends TestCase
         ]);
         $this->actingAs($this->mkUser('manager'));
 
+        $c = Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('quoteCurrency', 'KRW')->set('sale_total', '20000000')
+            ->set('transport_fee_usd', '2040')->set('rate_usd', '1380');
+        $this->assertSame(['sale' => 17184800.0, 'freight' => 2815200.0, 'rate' => 1], $c->instance()->selfSplit());
+
+        $c->set('quoteCurrency', 'USD')->set('sale_total', '11800');
+        $this->assertSame(['sale' => 9760.0, 'freight' => 2040.0, 'rate' => 1380], $c->instance()->selfSplit());
+
+        $c->set('sale_total', '1000')->call('savePayee')->assertHasErrors('sale_total');
+        $this->assertNull($l->fresh()->sale_price);
+    }
+
+    /** 운임비 USD 를 적었는데 USD 환율이 없으면(EUR 견적) 운임비가 빠진 채 나간다 — 구매확정을 막는다. */
+    public function test_self_inspection_freight_usd_needs_usd_rate_to_conclude(): void
+    {
+        Bus::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW',
+        ]);
+        $this->actingAs($this->mkUser('manager'));
+
         Volt::test('auction.index')->call('openDetail', $l->id)
-            ->set('offer_rate', '1234')
-            ->set('sale_price', '5000')
-            ->set('quoteCurrency', 'USD')      // 통화를 바꿔도 환율은 그대로
-            ->assertSet('offer_rate', '1234')
-            ->assertSet('sale_price', '5000')  // 판매가도 환산되지 않는다
-            ->set('offer_rate', '1400')
-            ->assertSet('sale_price', '5000'); // 환율을 고쳐도 판매가는 그대로
+            ->set('quoteCurrency', 'EUR')->set('rate_eur', '1580')
+            ->set('sale_total', '11800')->set('transport_fee_usd', '2040')
+            ->set('buyerId', 7)
+            ->call('conclude', $l->id, 'won')
+            ->assertHasErrors('rate_usd');
+
+        $this->assertSame('accepted', $l->fresh()->status);
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
     }
 
     /** 운임비는 **판매통화 그대로** ERP 로 간다 — USD 로 환산하면 EUR 딜에서 부풀어 오른다. */
@@ -2879,17 +3037,26 @@ class BoardTest extends TestCase
         ]);
     }
 
-    public function test_manager_cannot_delete_listing(): void
+    /** 관리 이상(관리 role·업무관리자)도 /manage 에서 삭제·재전송한다(2026-10-22 Jin, 종전 super 전용). */
+    public function test_manager_and_work_manager_can_delete_and_resync(): void
     {
-        $l = $this->mkListing($this->mkUser('sales'));
-        $this->actingAs($this->mkUser('manager'));   // super 아님
+        Bus::fake();
+        foreach ([$this->mkUser('manager'), $this->mkUser('sales', null, 'manager')] as $u) {
+            $l = $this->mkListing($this->mkUser('sales'));
+            $synced = $this->mkListing($this->mkUser('sales'), ['status' => 'synced', 'car_erp_vehicle_id' => 77, 'buyer_verdict' => 'accepted']);
+            $this->actingAs($u);
 
-        Volt::test('manage.index')
-            ->call('openEdit', $l->id)
-            ->call('deleteListing')
-            ->assertForbidden();
+            Volt::test('manage.index')->call('openEdit', $synced->id)
+                ->assertSee(__('manage.resync'))
+                ->call('resyncToCarErp')->assertHasNoErrors();
+            Bus::assertDispatched(fn (SyncWonListingToCarErp $job) => $job->listingId === $synced->id);
 
-        $this->assertNotSoftDeleted('purchase_listings', ['id' => $l->id]);
+            Volt::test('manage.index')->call('openEdit', $l->id)
+                ->assertSee(__('manage.delete'))
+                ->call('deleteListing')->assertHasNoErrors();
+            $this->assertSoftDeleted('purchase_listings', ['id' => $l->id]);
+            $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'action' => 'delete', 'user_id' => $u->id]);
+        }
     }
 
     public function test_super_can_resync_synced_listing_to_car_erp(): void
@@ -7662,23 +7829,34 @@ class BoardTest extends TestCase
             ->assertHasNoErrors();
     }
 
-    /**
-     * ERP 로 넘어간 차·accepted 이후는 영업이 못 지운다 — 원장(car-erp)과 갈리고,
-     * accepted 이후엔 /auction 에 자체 종료 경로(유찰/취소)가 있다.
-     */
-    public function test_sales_cannot_delete_erp_synced_or_accepted(): void
+    /** ERP 로 넘어간 차·구매확정(won) 이후는 영업이 못 지운다 — 원장(car-erp)과 갈린다. */
+    public function test_sales_cannot_delete_erp_synced_or_won(): void
     {
         $kim = $this->mkUser('sales');
         $synced = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 501, 'buyer_verdict' => 'accepted']);
-        $accepted = $this->mkListing($kim, ['status' => 'accepted', 'buyer_verdict' => 'accepted']);
+        $won = $this->mkListing($kim, ['status' => 'won', 'buyer_verdict' => 'accepted']);
         $this->actingAs($kim);
 
-        foreach ([$synced, $accepted] as $l) {
+        foreach ([$synced, $won] as $l) {
             Volt::test('listings.index')->call('openEdit', $l->id)
                 ->assertDontSee(__('listings.drawer.delete'))
                 ->call('deleteListing')->assertForbidden();
             $this->assertNotSoftDeleted('purchase_listings', ['id' => $l->id]);
         }
+    }
+
+    /** 구매대기(accepted)는 본인이 지운다 — 셀프검차매입은 등록 즉시 accepted 라 종전엔 버튼이 안 보였다(2026-10-22 Jin). */
+    public function test_sales_can_delete_own_accepted_self_inspection(): void
+    {
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection', 'source' => 'encar']);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')->call('openEdit', $l->id)
+            ->assertSee(__('listings.drawer.delete'))
+            ->call('deleteListing')->assertHasNoErrors();
+
+        $this->assertSoftDeleted('purchase_listings', ['id' => $l->id]);
     }
 
     /** 남의 매입예정은 삭제 대상이 아니다 — 영업은 열지도 못하고(SalesmanScope), 관리는 열려도 버튼이 없다. */
@@ -7696,7 +7874,7 @@ class BoardTest extends TestCase
             // 기대 동작
         }
 
-        // 관리 role 은 전체가 보이지만(격리 대상 아님) 남의 글 삭제는 /manage 의 super 경로로만.
+        // 관리 role 은 전체가 보이지만(격리 대상 아님) 남의 글 삭제는 /manage 경로로만.
         $this->actingAs($this->mkUser('manager'));
         Volt::test('listings.index')->call('openEdit', $l->id)
             ->assertDontSee(__('listings.drawer.delete'))

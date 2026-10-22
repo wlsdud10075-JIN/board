@@ -80,12 +80,14 @@ class ExtractPayeeFromPhotos implements ShouldQueue
         }
 
         $result = $extractor->merge($perPhoto);
+        // 계좌가 없어도 소유자만 읽었으면 결과로 남긴다(등록증 사진엔 계좌가 없다 — 2026-10-22).
+        $found = $result['candidates'] !== [] || $result['registration_owners'] !== [];
         $l->forceFill([
-            'payee_suggestions' => $result['candidates'] === [] ? null : $result,
-            'payee_extraction_status' => $result['candidates'] === [] ? 'none' : 'done',
+            'payee_suggestions' => $found ? $result : null,
+            'payee_extraction_status' => $found ? 'done' : 'none',
         ])->saveQuietly();
 
-        $this->log($l, $result['candidates'] === [] ? 'none' : 'done', count($result['candidates']), $failed);
+        $this->log($l, $found ? 'done' : 'none', count($result['candidates']), $failed);
     }
 
     /** 실패해도 구매확정을 영영 막지 않는다 — 상태를 failed 로 풀어준다. */

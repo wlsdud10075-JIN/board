@@ -110,7 +110,8 @@ class SyncWonListingToCarErp implements ShouldQueue
         // ⚠️ 셀프검차매입은 **자동계산을 안 해서 final_price 가 비어 있다** → offerAmount() 가 null 을 준다.
         //    그러면 sale_currency·sale_exchange_rate 가 안 실려 car-erp 가 판매 pre-fill 을 통째로 보류한다
         //    (수신측: `sale_price>0 && rate>0` 일 때만 저장). 컬럼에서 직접 읽는다.
-        if ($l->isSelfInspection()) {
+        // 2026-10-22 — 구매 탭이 전 출처에서 판매가를 적게 됐다 → 판매가가 있으면 출처 무관 컬럼 통화·환율.
+        if ($l->isSelfInspection() || $l->sale_price !== null) {
             $saleCurrency = $l->offer_currency ?: 'KRW';
             $saleRate = (int) ($l->offer_rate ?: 1);
         } else {
@@ -139,7 +140,9 @@ class SyncWonListingToCarErp implements ShouldQueue
         // 운임비 — 셀프검차매입은 판매통화로 직접 적으므로 환산 없이 그대로. 그 외는 shipping_usd(USD원가)를 환산.
         // car-erp `transport_fee` 는 **판매통화 기준**이라 USD raw 를 그냥 넣으면 EUR 딜에서 부풀어 오른다.
         $transportFee = $l->transport_fee !== null ? (float) $l->transport_fee : null;
-        if ($transportFee === null && $l->shipping_usd !== null && $saleRate) {
+        // 판매가를 적은 차는 운임비도 그 자리(USD 고정 → 쪼개기)에서 정해진다 — 비웠으면 운임비 없음이 정답
+        //    (컨테이너 차는 적재 뒤 ERP 에서 정해진다, 2026-10-22 Jin). 옛 견적 배송값을 끌어오지 않는다.
+        if ($transportFee === null && $l->sale_price === null && $l->shipping_usd !== null && $saleRate) {
             $transportKrw = $l->shipping_usd * $usdR;
             $transportFee = $saleCurrency === 'KRW' ? $transportKrw : round($transportKrw / max(1, $saleRate), 2);
         }
@@ -166,7 +169,13 @@ class SyncWonListingToCarErp implements ShouldQueue
             $saleCurrency = null;
             $saleRate = null;
             $transportFee = null;
+            $transportFeeUsd = null;
+            $usdRate = null;
         } else {
+            // USD 운임비(정수 달러) → ERP vehicles.transport_fee_usd / USD 환율 → ERP 환율 칸 위 메모(2026-10-22 Jin).
+            //    판매통화와 무관하게 실린다. 둘 다 optional — 버전 그대로(ERP 는 모르는 키를 무시한다).
+            $transportFeeUsd = $l->transport_fee_usd !== null ? (int) round((float) $l->transport_fee_usd) : null;
+            $usdRate = $l->offer_rate_usd;
             $buyerId = $l->car_erp_buyer_id;
             $consigneeId = $l->car_erp_consignee_id;
         }
@@ -198,6 +207,8 @@ class SyncWonListingToCarErp implements ShouldQueue
             'sale_price' => $salePrice,
             'sale_currency' => $saleCurrency,
             'sale_exchange_rate' => $saleRate,
+            'transport_fee_usd' => $transportFeeUsd,
+            'usd_exchange_rate' => $usdRate,
             // v3 바이어/컨사이니(경매/구매 드롭다운 선택, 미선택=null)
             'buyer_id' => $buyerId,
             'consignee_id' => $consigneeId,
