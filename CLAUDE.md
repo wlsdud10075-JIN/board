@@ -39,7 +39,7 @@ board 와 car-erp 는 형제 디렉터리 + **별도 DB**다. artisan/tinker 실
 
 **permission** (`users.permission`):
 - `super` 시스템관리자 — role 무관 전체 접근 + **기능설정** + **감사로그** + 사용자관리 중 **등급(super·업무관리자) 지정·super 계정 수정** + 포털 타인 명의 대리실행 (관리자 페이지 삭제·재전송은 2026-10-22 부터 **관리 이상** — 관리 role·업무관리자·super). car-erp super 대응.
-- `manager` **업무관리자**(2026-10-14 Jin, car-erp 의 manager 등급 미러) — role 무관 전체 화면 + **감사로그** + 사용자관리(super 계정 제외, 등급 변경 불가; **업무관리자 계정은 관리 role 이 못 건드린다** — 위 등급은 아래 등급이 수정 불가). **기능설정·등급 지정·포털 대리실행은 못 한다**(관리자 페이지 삭제·재전송은 2026-10-22 부터 허용)(Jin 결정: 대리실행은 영업 명의로 ERP 알림톡까지 나가는 쓰기, 지정은 ERP 와 같이 super 만). 판정 = `User::isWorkManager()`, super 와 묶은 바이패스 = `User::hasFullAccess()`(role 가드·영업 격리·사이드바·푸시 수신). ⚠️ `isManager()` 는 **role=관리** 라 별개 — 이름이 비슷해 헷갈린다. 컬럼이 ENUM 이라 마이그 `2026_10_14_000001` 로 값을 넓혔다.
+- `manager` **업무관리자**(2026-10-14 Jin, car-erp 의 manager 등급 미러) — role 무관 전체 화면 + **감사로그** + 사용자관리(super 계정 제외, 등급 변경 불가; **업무관리자 계정은 관리 role 이 못 건드린다** — 위 등급은 아래 등급이 수정 불가). **기능설정·등급 지정·포털 대리실행은 못 한다**(관리자 페이지 삭제·재전송은 2026-10-22 부터 허용 · **포털 남의 정보 조회는 2026-10-23 부터 허용 — 조회 전용**, 쓰기는 `proxyWriteBlocked()` 가 막는다)(Jin 결정: 대리실행은 영업 명의로 ERP 알림톡까지 나가는 쓰기, 지정은 ERP 와 같이 super 만). 판정 = `User::isWorkManager()`, super 와 묶은 바이패스 = `User::hasFullAccess()`(role 가드·영업 격리·사이드바·푸시 수신). ⚠️ `isManager()` 는 **role=관리** 라 별개 — 이름이 비슷해 헷갈린다. 컬럼이 ENUM 이라 마이그 `2026_10_14_000001` 로 값을 넓혔다.
 - `user` 일반 — `role` 기반 접근.
 
 **role** (`users.role`): `sales`(영업) / `inspection`(현지확인) / `auction`(경매) / `manager`(관리). 라벨은 `User::ROLE_LABELS`.

@@ -5,13 +5,14 @@
 return [
     // 헤더
     'title' => '내 정산·미수·선적 (포털)',
+    'viewing_other_readonly' => ':name 님의 포털 — 조회 전용입니다. 요청·선적요청은 시스템관리자만 대신 보낼 수 있습니다.',
     'viewing_other' => ':name 님의 포털 — 시스템관리자는 대신 실행할 수 있습니다. ⚠️ 요청은 :name 님 명의로 car-erp에 전달됩니다.',
     'viewing_self' => '본인(:name) 정보만 — car-erp 원장 읽기. 수정·선적실무는 car-erp.',
     'footer_note' => '읽기전용(car-erp 원장). 금액·정산·선적 실무 수정은 car-erp 담당에게. 선적요청은 car-erp 관리에게 알람으로 전달됩니다.',
 
     // 사용자별 조회 (super)
     'view_by_user' => '사용자별 조회',
-    'view_by_user_hint' => '이름을 누르면 그 사용자의 정산·미수·선적이 표시됩니다 (시스템관리자 전용)',
+    'view_by_user_hint' => '이름을 누르면 그 사용자의 정산·미수·선적이 표시됩니다 (시스템관리자·업무관리자 — 대신 실행은 시스템관리자만)',
     'view_self_btn' => '나(본인)',
 
     // 탭
@@ -156,6 +157,7 @@ return [
     'buyer_unassigned' => '바이어 미지정',
     'buyer_unassigned_paren' => '(바이어 미지정)',
     'ship_available_count' => ':count대 선적가능',
+    'flash_proxy_readonly' => '조회 전용 — 다른 사람 명의의 요청은 시스템관리자만 보낼 수 있습니다.',
     'ship_view_only_note' => '조회 전용 — 선적요청·서류는 본인(:name) 계정에서 진행합니다.',
     'consignee_select' => '컨사이니 선택',
     'ship_request_btn' => '선적요청',

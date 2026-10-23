@@ -8120,8 +8120,11 @@ class BoardTest extends TestCase
         Volt::test('listings.index')->assertSee('33전3333');
     }
 
-    /** 포털 타인 명의 대리실행은 super 만 — 업무관리자도 막힌다(Jin 2026-10-14 결정 1). */
-    public function test_work_manager_cannot_impersonate_in_portal(): void
+    /**
+     * 업무관리자는 남의 포털을 **본다**(2026-10-23 Jin) — 대신 실행(쓰기)은 여전히 super 만(2026-10-14 결정 1).
+     * 요청은 그 영업 명의로 ERP·알림톡까지 나가므로 조회 전용으로 막는다.
+     */
+    public function test_work_manager_can_view_but_not_act_in_others_portal(): void
     {
         $this->carErpReadConfig();
         Http::fake([
@@ -8132,12 +8135,17 @@ class BoardTest extends TestCase
         $other->update(['car_erp_salesman_email' => 'other@ce.test']);
         $this->actingAs($this->mkUser('manager', null, 'manager'));
 
-        Volt::test('portal.index')
+        $c = Volt::test('portal.index')
+            ->assertSee('사용자별 조회')
             ->call('viewUser', $other->id)
-            ->assertSet('viewUserId', null)
-            ->assertDontSee('사용자별 조회');
+            ->assertSet('viewUserId', $other->id)
+            ->assertSee('조회 전용입니다');
+        Http::assertSent(fn ($req) => str_contains($req->url(), 'salesman_email=other%40ce.test'));
 
-        Http::assertNotSent(fn ($req) => str_contains($req->url(), 'salesman_email=other%40ce.test'));
+        $c->call('sendPurchaseRequest', 'purchase_deposit', 10)
+            ->assertSet('reqResult', ['error' => __('portal.flash_proxy_readonly')]);
+        $c->call('requestChange', 10)->assertSet('shipNote', __('portal.flash_proxy_readonly'));
+        Http::assertNotSent(fn ($req) => $req->method() === 'POST');
     }
 
     /** 등급 지정은 super 만(결정 2) — 업무관리자가 프로퍼티를 밀어넣어도 user 로 저장된다. super 계정도 못 건드린다. */
