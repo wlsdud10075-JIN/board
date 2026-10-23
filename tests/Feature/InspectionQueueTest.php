@@ -141,6 +141,22 @@ class InspectionQueueTest extends TestCase
         Http::assertSent(fn ($req) => json_decode($req->body(), true)['event'] === 'queue.withdraw');
     }
 
+    /** 지오게이트 「공사 중」 HTML 이 HTTP 200 으로 와도 실패다(큐 워커면 재시도 = throw). */
+    public function test_html_200_is_failure_and_retried(): void
+    {
+        $l = $this->mkListing();
+        $this->configure();
+        config(['queue.default' => 'database']);
+        Http::fake(['*' => Http::response('<html>공사 중</html>', 200)]);
+
+        $this->expectException(\RuntimeException::class);
+        try {
+            (new SendInspectionQueueEvent($l->id, 'upsert'))->handle();
+        } finally {
+            $this->assertDatabaseHas('integration_events', ['target' => 'ssancar_inspection', 'error' => 'not_ok_body']);
+        }
+    }
+
     public function test_unconfigured_is_noop(): void
     {
         Http::fake();

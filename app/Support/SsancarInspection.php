@@ -30,6 +30,15 @@ class SsancarInspection
         return (string) (config('board.instances.'.config('app.name').'.tenant') ?? '');
     }
 
+    /**
+     * 진짜 성공인가 — ssancar 지오게이트는 허용 목록 밖 IP 에 「공사 중」 HTML 을 **HTTP 200** 으로 준다(2026-10-23 ssancar 세션).
+     * 상태코드만 보면 성공으로 친다 → JSON 이고 `ok === true` 일 때만 성공.
+     */
+    public static function ok(Response $r): bool
+    {
+        return $r->successful() && $r->json('ok') === true;
+    }
+
     /** @param array<string,mixed> $payload */
     public static function post(array $payload): Response
     {

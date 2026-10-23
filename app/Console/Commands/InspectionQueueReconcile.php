@@ -64,10 +64,10 @@ class InspectionQueueReconcile extends Command
             'request_payload' => ['count' => $payload['count'], 'generated_at' => $payload['generated_at']],   // id 목록은 길어 안 남긴다
             'response_status' => $response->status(),
             'response_body' => mb_substr((string) $response->body(), 0, 2000),
-            'error' => $response->failed() ? 'HTTP '.$response->status() : null,
+            'error' => SsancarInspection::ok($response) ? null : ($response->failed() ? 'HTTP '.$response->status() : 'not_ok_body'),
         ]);
-        if ($response->failed()) {
-            $this->error('HTTP '.$response->status());
+        if (! SsancarInspection::ok($response)) {   // 200 이라도 JSON·ok 가 아니면(지오게이트 HTML) 아무것도 재발송하지 않는다
+            $this->error('응답 이상 — HTTP '.$response->status());
 
             return self::SUCCESS;
         }

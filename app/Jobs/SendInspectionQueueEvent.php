@@ -97,14 +97,14 @@ class SendInspectionQueueEvent implements ShouldQueue
             'request_payload' => $payload,
             'response_status' => $response->status(),
             'response_body' => mb_substr((string) $response->body(), 0, 2000),
-            'error' => $response->failed() ? 'HTTP '.$response->status() : null,
+            'error' => SsancarInspection::ok($response) ? null : ($response->failed() ? 'HTTP '.$response->status() : 'not_ok_body'),
         ]);
 
         // 400 = 본문 오류 — 다시 보내도 같다(재시도 안 함, 로그만). 401·5xx·연결 실패는 재시도.
         if ($response->status() === 400) {
             return;
         }
-        if ($response->failed() && config('queue.default') !== 'sync') {   // sync(로컬)은 로그만 — 화면 저장을 깨지 않는다
+        if (! SsancarInspection::ok($response) && config('queue.default') !== 'sync') {   // sync(로컬)은 로그만 — 화면 저장을 깨지 않는다
             throw new \RuntimeException("inspect-queue {$payload['event']} 실패 (listing {$l->id}): HTTP ".$response->status());
         }
     }
