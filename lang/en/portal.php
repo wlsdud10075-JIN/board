@@ -5,13 +5,14 @@
 return [
     // Header
     'title' => 'My Settlement / Receivables / Shipping (Portal)',
+    'viewing_other_readonly' => ":name's portal — view only. Only a system admin can send requests on their behalf.",
     'viewing_other' => ":name's portal — a system administrator may act on their behalf. Requests are sent to car-erp under :name's name.",
     'viewing_self' => 'Your information only (:name) — car-erp ledger (read-only). Edits and shipping operations are in car-erp.',
     'footer_note' => 'Read-only (car-erp ledger). For edits to amounts, settlement, or shipping operations, contact the car-erp owner. Shipping requests are sent to car-erp managers as an alert.',
 
     // View by user (super)
     'view_by_user' => 'View by user',
-    'view_by_user_hint' => "Click a name to display that user's settlement, receivables, and shipping (system admins only)",
+    'view_by_user_hint' => "Click a name to display that user's settlement, receivables, and shipping (admins and work managers — only system admins can act on their behalf)",
     'view_self_btn' => 'Me',
 
     // Tabs
@@ -154,6 +155,7 @@ return [
     'buyer_unassigned' => 'Buyer unassigned',
     'buyer_unassigned_paren' => '(Buyer unassigned)',
     'ship_available_count' => ':count vehicle(s) shippable',
+    'flash_proxy_readonly' => 'View only — only a system admin can send requests in another person\'s name.',
     'ship_view_only_note' => 'View-only — submit shipping requests and documents from your own account (:name).',
     'consignee_select' => 'Select consignee',
     'ship_request_btn' => 'Shipping request',

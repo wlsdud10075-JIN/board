@@ -60,6 +60,7 @@ return [
         'inspection_note' => 'Inspection note',
         'buyer' => 'Buyer',
         'verdict' => 'Buyer reply',
+        'owner' => 'Salesperson',
         'inspection_state' => 'Inspection',
         'status' => 'Status',
     ],

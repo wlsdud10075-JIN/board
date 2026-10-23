@@ -306,11 +306,14 @@ new #[Layout('components.layouts.app')] class extends Component {
         return $u->car_erp_salesman_email ?: $u->email;
     }
 
-    /** super 전용 — 포털 열람 가능한 사용자(영업·관리, 활성). 비-super 는 빈 목록. */
+    /**
+     * 남의 포털을 **볼** 수 있나 — super + 업무관리자(2026-10-23 Jin). 비-해당은 빈 목록.
+     * ⚠️ **대신 실행(쓰기)은 super 만**(2026-10-14 Jin 결정 1 그대로) — `proxyWriteBlocked()` 가 막는다.
+     */
     #[Computed]
     public function portalUsers()
     {
-        if (! Auth::user()->isSuper()) {
+        if (! Auth::user()->hasFullAccess()) {
             return collect();
         }
 
@@ -323,7 +326,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** 현재 열람 중인 사용자 — super 가 지정했고 목록에 있는 유효 대상일 때만. 그 외(비-super 포함) null=본인. */
     private function viewingUser(): ?User
     {
-        if ($this->viewUserId === null || ! Auth::user()->isSuper()) {
+        if ($this->viewUserId === null || ! Auth::user()->hasFullAccess()) {
             return null;
         }
 
@@ -336,16 +339,25 @@ new #[Layout('components.layouts.app')] class extends Component {
         return ($this->viewingUser() ?? Auth::user())->name;
     }
 
-    /** super 가 다른 사용자를 열람 중인가 — 그렇다면 쓰기(선적요청·서류)는 조회 전용 차단. */
+    /** 다른 사용자를 열람 중인가(super·업무관리자). */
     public function isViewingOther(): bool
     {
         return $this->viewingUser() !== null;
     }
 
+    /**
+     * 업무관리자가 남의 포털을 보는 중이면 **쓰기 전부 차단**(조회 전용) — 요청은 그 영업 명의로 ERP·알림톡까지 나간다.
+     * super 는 대신 실행 허용(2026-08-18 §14-10). 쓰기 진입점마다 이걸 먼저 본다.
+     */
+    public function proxyWriteBlocked(): bool
+    {
+        return $this->isViewingOther() && ! Auth::user()->isSuper();
+    }
+
     /** super — 열람 대상 변경(이름 클릭). null=본인. 비-super 는 무시(본인 격리). 목록 밖 id 도 무시. */
     public function viewUser(?int $id): void
     {
-        if (! Auth::user()->isSuper()) {
+        if (! Auth::user()->hasFullAccess()) {
             return;
         }
         $this->viewUserId = ($id !== null && $this->portalUsers->contains('id', $id)) ? $id : null;
@@ -716,6 +728,11 @@ new #[Layout('components.layouts.app')] class extends Component {
      */
     public function syncBundles(): void
     {
+        if ($this->proxyWriteBlocked()) {
+            $this->shipNote = __('portal.flash_proxy_readonly');
+
+            return;
+        }
         // 안전 가드 — /bundles 조회가 degrade 면 desired 가 비어 전체 desired=빈 전송이 됨
         // → car-erp 가 모든 requested 를 자동취소(스펙 §5-2). 로딩 실패 시 절대 sync 금지.
         if (! ($this->result['ok'] ?? false)) {
@@ -786,6 +803,11 @@ new #[Layout('components.layouts.app')] class extends Component {
         if (! in_array($blType, ['original', 'surrender'], true) || $batchId === '') {
             return;
         }
+        if ($this->proxyWriteBlocked()) {
+            $this->shipNote = __('portal.flash_proxy_readonly');
+
+            return;
+        }
         $res = $this->svc()->blRequest($this->salesmanEmail(), $batchId, $blType);
         $this->shipNote = ($res['ok'] ?? false) ? __('portal.flash_bl_requested') : __('portal.flash_ship_failed');
         $this->load();
@@ -795,6 +817,11 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function cancelBl(string $batchId): void
     {
         if ($batchId === '') {
+            return;
+        }
+        if ($this->proxyWriteBlocked()) {
+            $this->shipNote = __('portal.flash_proxy_readonly');
+
             return;
         }
         $res = $this->svc()->blCancel($this->salesmanEmail(), $batchId);
@@ -811,6 +838,11 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** in_progress(관리 착수) 차 변경/취소 요청 — 관리가 수락거절(자동적용 X). */
     public function requestChange(int $vehicleId): void
     {
+        if ($this->proxyWriteBlocked()) {
+            $this->shipNote = __('portal.flash_proxy_readonly');
+
+            return;
+        }
         $note = trim((string) ($this->changeNote[$vehicleId] ?? ''));
         if ($note === '') {
             $this->shipNote = __('portal.flash_change_note_required');
@@ -924,6 +956,9 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         if (! $this->svc()->configured()) {
             return __('portal.req_blocked_unconfigured');
+        }
+        if ($this->proxyWriteBlocked()) {
+            return __('portal.flash_proxy_readonly');
         }
 
         return null;
@@ -1146,7 +1181,12 @@ new #[Layout('components.layouts.app')] class extends Component {
      */
     public function requestSignature(array $vehicleIds, ?string $batchId = null)
     {
-        // super 의 타인 포털 대리실행 허용(2026-08-18 §14-10) — 쓰기 차단 없음, 배너 「OO님 명의」가 유일한 안전장치.
+        // super 의 타인 포털 대리실행 허용(2026-08-18 §14-10) — 배너 「OO님 명의」가 유일한 안전장치. 업무관리자는 조회 전용.
+        if ($this->proxyWriteBlocked()) {
+            $this->shipNote = __('portal.flash_proxy_readonly');
+
+            return;
+        }
         $ids = array_values(array_map('intval', $vehicleIds));
         if ($ids === []) {
             $this->shipNote = __('portal.flash_select_vehicle_docs');
@@ -1222,15 +1262,15 @@ new #[Layout('components.layouts.app')] class extends Component {
 <div class="p-3 md:p-6">
     <div class="mb-4">
         <h1 class="text-xl font-bold text-gray-800">{{ __('portal.title') }}</h1>
-        @if (auth()->user()->isSuper() && $viewUserId !== null)
-            <p class="mt-0.5 text-xs text-gray-500">👁️ {!! __('portal.viewing_other', ['name' => '<b class="text-[var(--color-primary-text)]">'.e($this->viewingName()).'</b>']) !!}</p>
+        @if ($this->isViewingOther())
+            <p class="mt-0.5 text-xs text-gray-500">👁️ {!! __(auth()->user()->isSuper() ? 'portal.viewing_other' : 'portal.viewing_other_readonly', ['name' => '<b class="text-[var(--color-primary-text)]">'.e($this->viewingName()).'</b>']) !!}</p>
         @else
             <p class="mt-0.5 text-xs text-gray-500">🔒 {{ __('portal.viewing_self', ['name' => auth()->user()->name]) }}</p>
         @endif
     </div>
 
-    {{-- 사용자별 조회 (시스템관리자 전용) — 이름 클릭 시 그 사용자의 정산·미수·선적 표시 --}}
-    @if (auth()->user()->isSuper())
+    {{-- 사용자별 조회 (시스템관리자·업무관리자 — 2026-10-23) — 이름 클릭 시 그 사용자의 정산·미수·선적 표시. 대신 실행은 super 만. --}}
+    @if (auth()->user()->hasFullAccess())
         <div class="card-sm mb-3" style="background:#f8f9fb">
             <div class="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
                 <span class="text-[12px] font-semibold text-gray-600">👁️ {{ __('portal.view_by_user') }}</span>

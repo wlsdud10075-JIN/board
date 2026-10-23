@@ -30,7 +30,8 @@ class PayeeExtractor
     public const PROMPT = <<<'TXT'
 이 이미지에서 계좌번호와 자동차등록증 소유자를 찾아 JSON만 출력하라. 설명 금지.
 형식:
-{"accounts":[{"bank":"","number":"","holder":"","label":""}],
+{"doc_type":"",
+ "accounts":[{"bank":"","number":"","holder":"","label":""}],
  "registration_owner":""}
 
 규칙:
@@ -42,7 +43,61 @@ class PayeeExtractor
 - 명함·문의처의 연락처, 1566-/1588- 고객센터 번호, 금액(원), 차대번호, 문서번호는 계좌가 아니다.
 - 계좌가 하나도 없으면 accounts 는 [].
 - registration_owner = 자동차등록증의 「소유자 ⑨ 성명(명칭)」 칸에 적힌 이름. 자동차등록증이 아니면 "".
+- doc_type = 이 이미지의 종류 하나(자동차등록증, 통장, 사업자등록증, 명함, 차량사진, 기타).
 TXT;
+
+    /**
+     * 자동차등록증 2차 질의(2026-10-23) — 사진 전체(긴 변 1100px)로는 소유자 칸 글자가 작아 모델이 빈칸이나
+     * 발급기관(「대구광역시」)을 냈다(ssancarboard 334소8009). **위쪽 45% 를 잘라 확대**하면 정확히 읽는다.
+     * 등록증으로 판정된 사진에만 한 번 더 부른다(통장 위쪽을 자르면 예금주를 소유자로 낼 위험이 있다).
+     */
+    public const OWNER_PROMPT = <<<'TXT'
+이 이미지는 자동차등록증의 윗부분이다. 「소유자 ⑨ 성명(명칭)」 칸에 적힌 이름을 괄호·글자 그대로 옮겨 JSON만 출력하라. 설명 금지.
+발급기관(○○시 차량등록사업소)·사용본거지 주소는 소유자가 아니다. 안 보이면 "".
+형식: {"registration_owner":""}
+TXT;
+
+    /** 등록증 2차 질의에서 자를 위쪽 비율 — 0.40 은 「상품용」 같은 꼬리를 잘랐다(실측). */
+    public const OWNER_CROP_RATIO = 0.45;
+
+    /** 모델이 낸 doc_type 이 자동차등록증인가. */
+    public function isRegistration(string $docType): bool
+    {
+        return str_contains(str_replace(' ', '', $docType), '자동차등록증');
+    }
+
+    /** 2차 질의 응답 → 소유자명(발급기관을 낸 경우는 버린다). */
+    public function parseOwner(string $raw): string
+    {
+        return $this->cleanOwner((string) (($this->decode($raw) ?? [])['registration_owner'] ?? ''));
+    }
+
+    /**
+     * 소유자로 볼 수 없는 값은 버린다. 운영 표본(2026-10-23, heymanboard 81대 드라이런)에서 2차 질의가 실제로 낸 쓰레기:
+     * 「⑨」·차량번호·생년월일(810415-****)·「차량 대금 입금계좌」·「기업은행」·「엔카진단+」·「이전」·「복사」·「이름」,
+     * 그리고 발급기관(「대구광역시 차량등록사업소」·「수원시장안」). 숫자가 들어가면 이름이 아니다.
+     */
+    private function cleanOwner(string $owner): string
+    {
+        $owner = trim((string) preg_replace('/^[\s"\x27`“”‘’]+|[\s"\x27`“”‘’]+$/u', '', $owner));   // trim() 문자목록은 바이트라 한글을 깬다
+        if ($owner === ''
+            || preg_match('/\d/u', $owner)
+            || ! preg_match('/[가-힣A-Za-z]{2,}/u', $owner)
+            || preg_match('/(등록사업소|차량등록|구청|시청|군청|도청|시장|부서장|공단|은행|계좌|대금|통장|진단|복사|성명|명칭|소유자|^이름$|^이전$)/u', $owner)
+            || preg_match('/^\S+(특별시|광역시|특별자치시|특별자치도|도|시)$/u', $owner)) {
+            return '';
+        }
+
+        return $owner;
+    }
+
+    /** 비교용 — 공백·따옴표·괄호·「상품용」을 빼면 같은 이름인가(1차 「김석희」 ↔ 2차 「김석희(상품용)」). */
+    public function sameOwner(string $a, string $b): bool
+    {
+        $n = fn ($s) => preg_replace('/[\s"\'`“”‘’*()（）]|상품용/u', '', $s);
+
+        return $n($a) === $n($b);
+    }
 
     /** 매도비 계좌로 인정하는 라벨 키워드 — 하나라도 있어야 fee 로 보낸다. */
     private const FEE_LABEL_KEYWORDS = ['매도비', '이전비', '수수료', '알선'];
@@ -67,16 +122,17 @@ TXT;
     /**
      * 모델 응답(JSON 문자열) 1장분을 후보/거절로 가른다.
      *
-     * @return array{candidates: list<array>, rejected: list<array>, registration_owner: string}
+     * @return array{candidates: list<array>, rejected: list<array>, registration_owner: string, doc_type: string}
      */
     public function parseOne(string $raw, int $photoId): array
     {
         $data = $this->decode($raw);
-        $out = ['candidates' => [], 'rejected' => [], 'registration_owner' => ''];
+        $out = ['candidates' => [], 'rejected' => [], 'registration_owner' => '', 'doc_type' => ''];
         if ($data === null) {
             return $out;
         }
-        $out['registration_owner'] = trim((string) ($data['registration_owner'] ?? ''));
+        $out['registration_owner'] = $this->cleanOwner((string) ($data['registration_owner'] ?? ''));
+        $out['doc_type'] = trim((string) ($data['doc_type'] ?? ''));
 
         // 새 형식 = accounts[](전부). 옛 형식(car_account/fee_account + found)도 읽는다 — 배포 직후 큐에 남은 응답·표본 대조용.
         if (is_array($data['accounts'] ?? null)) {
@@ -146,7 +202,13 @@ TXT;
     public function merge(array $perPhoto): array
     {
         // 소유자 후보 — 사진마다 읽은 이름을 중복 없이(같은 차라면 보통 하나). 사람이 골라 소유자 칸에 넣는다.
-        $owners = array_values(array_unique(array_filter(array_map(fn ($r) => $r['registration_owner'], $perPhoto))));
+        // `registration_owner_alt` = 등록증 1·2차가 서로 다르게 읽은 경우의 다른 쪽(둘 다 보여 사람이 고른다).
+        $owners = [];
+        foreach ($perPhoto as $r) {
+            $owners[] = $r['registration_owner'] ?? '';
+            $owners[] = $r['registration_owner_alt'] ?? '';
+        }
+        $owners = array_values(array_unique(array_filter($owners)));
         $owner = $owners[0] ?? '';
 
         $candidates = [];
