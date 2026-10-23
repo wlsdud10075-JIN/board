@@ -87,7 +87,9 @@ class SsancarInspectionWebhookController extends Controller
                 $l->ssancar_inspector_name = $name ?: $l->ssancar_inspector_name;
                 break;
             case 'inspection.reopened':
-                // 되돌리기 — 패스 칸만 비운다(다시 큐에 들어갔다).
+                // 되돌리기 — 다시 대기(queued)다. 패스 칸 + 지난 검차 시작·검차원도 비운다(안 비우면 「검차중」이 남는다 — 2026-10-23 데모 D6).
+                $l->inspection_started_at = null;
+                $l->ssancar_inspector_name = null;
                 $l->inspection_skipped_at = null;
                 $l->inspection_skip_reason = null;
                 $l->inspection_skip_memo = null;

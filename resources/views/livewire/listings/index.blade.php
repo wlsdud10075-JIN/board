@@ -433,8 +433,10 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l = PurchaseListing::findOrFail($this->editingId);
         abort_unless($this->reinspectable($l), 403);
 
+        // 다시 대기 — 지난 검차 시작·검차원도 비운다(안 비우면 「검차중 · 검차원」이 남는다, 2026-10-23 데모 D6).
         $l->forceFill(['inspection_skipped_at' => null, 'inspection_skip_reason' => null,
-            'inspection_skip_memo' => null, 'inspection_skip_photo_url' => null])->save();
+            'inspection_skip_memo' => null, 'inspection_skip_photo_url' => null,
+            'inspection_started_at' => null, 'ssancar_inspector_name' => null])->save();
         \App\Jobs\SendInspectionQueueEvent::dispatch($l->id, 'upsert', 'reinspect')->afterCommit();
 
         unset($this->listings, $this->tabCounts);

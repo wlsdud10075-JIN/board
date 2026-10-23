@@ -205,6 +205,7 @@ class InspectionQueueTest extends TestCase
 
         $this->hook(['event' => 'inspection.reopened', 'event_id' => 'e3', 'listing_id' => $l->id, 'at' => '2026-10-23T10:00:00+09:00', 'by' => 'admin'])->assertOk();
         $this->assertNull($l->fresh()->inspection_skipped_at);
+        $this->assertNull($l->fresh()->inspection_started_at);   // 되돌리기 = 다시 대기
 
         $this->hook($base + ['event' => 'inspection.completed', 'event_id' => 'e4', 'at' => '2026-10-23T10:30:00+09:00', 'wr_id' => 5123, 'photos' => 30, 'videos' => 2])->assertOk();
         $l->refresh();
@@ -245,6 +246,7 @@ class InspectionQueueTest extends TestCase
             ->call('requestReinspection')->assertHasNoErrors();
 
         $this->assertNull($l->fresh()->inspection_skipped_at);
+        $this->assertNull($l->fresh()->inspection_started_at);   // 「검차중」이 남지 않는다
         Bus::assertDispatched(fn (SendInspectionQueueEvent $j) => $j->listingId === $l->id && $j->action === 'upsert' && $j->reason === 'reinspect');
     }
 
