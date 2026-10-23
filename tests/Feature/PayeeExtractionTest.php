@@ -481,7 +481,8 @@ class PayeeExtractionTest extends TestCase
 
         (new ExtractPayeeFromPhotos($l->id))->handle(new PayeeExtractor, app(OllamaClient::class));
 
-        $this->assertSame(['배한규(번영모터스)상품용'], $l->fresh()->payee_suggestions['registration_owners']);
+        // 1·2차가 다르게 읽었으면 둘 다 후보(2차 먼저) — 사람이 사진을 보고 고른다.
+        $this->assertSame(['배한규(번영모터스)상품용', '박찬규'], $l->fresh()->payee_suggestions['registration_owners']);
     }
 
     /** 등록증이 아니면 2차 질의를 안 한다 — 통장 위쪽을 자르면 예금주를 소유자로 낼 수 있다. 다음 응답이 그대로 남아야 한다. */
@@ -496,11 +497,14 @@ class PayeeExtractionTest extends TestCase
     public function test_issuing_office_is_not_an_owner(): void
     {
         $ex = new PayeeExtractor;
-        foreach (['대구광역시 차량등록사업소', '대구광역시', '서울특별시', '경기도'] as $bad) {
+        foreach (['대구광역시 차량등록사업소', '대구광역시', '서울특별시', '경기도', '⑨', '68거9002', '810415-********',
+            '차량 대금 입금계좌', '기업은행', '엔카진단+', '이전', '복사', '이름', '수원시장안'] as $bad) {
             $this->assertSame('', $ex->parseOne('{"accounts":[],"registration_owner":"'.$bad.'"}', 1)['registration_owner'], $bad);
         }
         $this->assertSame('배한규(번영모터스)상품용', $ex->parseOwner('{"registration_owner":"배한규(번영모터스)상품용"}'));
         $this->assertSame('', $ex->parseOwner('{"registration_owner":"대구광역시 차량등록사업소"}'));
+        $this->assertTrue($ex->sameOwner('김석희', '김석희(상품용)'));
+        $this->assertFalse($ex->sameOwner('김창표', '김장표(상품용)'));
     }
 
     /** 1x1 JPEG — GD 로 열리기만 하면 된다. */

@@ -70,8 +70,14 @@ class ExtractPayeeFromPhotos implements ShouldQueue
                 if ($extractor->isRegistration($one['doc_type']) && ($crop = $this->prepare($photo, PayeeExtractor::OWNER_CROP_RATIO))) {
                     try {
                         $owner = $extractor->parseOwner($client->vision($model, PayeeExtractor::OWNER_PROMPT, $crop, $numCtx));
+                        // 2차를 앞에 둔다(평평한 스캔에서 더 정확 — 김창표→김장표, 김수란→김수완 실측). 다르게 읽었으면
+                        // 1차도 후보로 남긴다: 사진이 돌아가 있거나 캡처 아래쪽에 등록증이 있으면 위쪽 자르기가 엉뚱한 곳을 본다.
                         if ($owner !== '') {
+                            $first = $one['registration_owner'];
                             $one['registration_owner'] = $owner;
+                            if ($first !== '' && ! $extractor->sameOwner($first, $owner)) {
+                                $one['registration_owner_alt'] = $first;
+                            }
                         }
                     } catch (\Throwable $e) {
                         // 2차가 실패해도 1차 결과는 쓴다

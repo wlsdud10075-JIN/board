@@ -72,16 +72,31 @@ TXT;
         return $this->cleanOwner((string) (($this->decode($raw) ?? [])['registration_owner'] ?? ''));
     }
 
-    /** 발급기관·관청을 소유자로 낸 경우 버린다 — 334소8009 에서 「대구광역시 차량등록사업소」가 실제로 나왔다. */
+    /**
+     * 소유자로 볼 수 없는 값은 버린다. 운영 표본(2026-10-23, heymanboard 81대 드라이런)에서 2차 질의가 실제로 낸 쓰레기:
+     * 「⑨」·차량번호·생년월일(810415-****)·「차량 대금 입금계좌」·「기업은행」·「엔카진단+」·「이전」·「복사」·「이름」,
+     * 그리고 발급기관(「대구광역시 차량등록사업소」·「수원시장안」). 숫자가 들어가면 이름이 아니다.
+     */
     private function cleanOwner(string $owner): string
     {
-        $owner = trim($owner);
-        if ($owner === '' || preg_match('/(등록사업소|차량등록|구청|시청|군청|도청)/u', $owner)
+        $owner = trim((string) preg_replace('/^[\s"\x27`“”‘’]+|[\s"\x27`“”‘’]+$/u', '', $owner));   // trim() 문자목록은 바이트라 한글을 깬다
+        if ($owner === ''
+            || preg_match('/\d/u', $owner)
+            || ! preg_match('/[가-힣A-Za-z]{2,}/u', $owner)
+            || preg_match('/(등록사업소|차량등록|구청|시청|군청|도청|시장|부서장|공단|은행|계좌|대금|통장|진단|복사|성명|명칭|소유자|^이름$|^이전$)/u', $owner)
             || preg_match('/^\S+(특별시|광역시|특별자치시|특별자치도|도|시)$/u', $owner)) {
             return '';
         }
 
         return $owner;
+    }
+
+    /** 비교용 — 공백·따옴표·괄호·「상품용」을 빼면 같은 이름인가(1차 「김석희」 ↔ 2차 「김석희(상품용)」). */
+    public function sameOwner(string $a, string $b): bool
+    {
+        $n = fn ($s) => preg_replace('/[\s"\'`“”‘’*()（）]|상품용/u', '', $s);
+
+        return $n($a) === $n($b);
     }
 
     /** 매도비 계좌로 인정하는 라벨 키워드 — 하나라도 있어야 fee 로 보낸다. */
@@ -187,7 +202,13 @@ TXT;
     public function merge(array $perPhoto): array
     {
         // 소유자 후보 — 사진마다 읽은 이름을 중복 없이(같은 차라면 보통 하나). 사람이 골라 소유자 칸에 넣는다.
-        $owners = array_values(array_unique(array_filter(array_map(fn ($r) => $r['registration_owner'], $perPhoto))));
+        // `registration_owner_alt` = 등록증 1·2차가 서로 다르게 읽은 경우의 다른 쪽(둘 다 보여 사람이 고른다).
+        $owners = [];
+        foreach ($perPhoto as $r) {
+            $owners[] = $r['registration_owner'] ?? '';
+            $owners[] = $r['registration_owner_alt'] ?? '';
+        }
+        $owners = array_values(array_unique(array_filter($owners)));
         $owner = $owners[0] ?? '';
 
         $candidates = [];
