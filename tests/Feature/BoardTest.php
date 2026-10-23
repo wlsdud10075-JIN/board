@@ -392,6 +392,7 @@ class BoardTest extends TestCase
         $c->set('owner', $lee->id)
             ->assertSee('33다3333')->assertDontSee('11가1111')->assertDontSee('22나2222');
         $this->assertSame(1, $c->get('tabCounts')['all']);   // 탭 건수도 같은 필터
+        $c->assertSee(__('listings.table.owner'))->assertSee($lee->name);   // 담당자 칸(2026-10-23 Jin)
 
         $c->set('owner', 999999);                              // 목록 밖 → 전체로 되돌림
         $this->assertSame(0, $c->get('owner'));
@@ -400,6 +401,7 @@ class BoardTest extends TestCase
         $this->actingAs($kim);
         $c2 = Volt::test('listings.index')->set('owner', $lee->id)
             ->assertDontSee(__('listings.list.owner_all'))
+            ->assertDontSee(__('listings.table.owner'))   // 영업은 본인 것만 → 담당자 칸 없음
             ->assertSee('11가1111')->assertDontSee('33다3333');
         $this->assertSame(2, $c2->get('tabCounts')['all']);
     }

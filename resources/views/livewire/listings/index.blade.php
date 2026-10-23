@@ -1413,10 +1413,12 @@ new #[Layout('components.layouts.app')] class extends Component {
         @else
         {{-- 리스트 (데스크톱: 표) --}}
         <div class="hidden overflow-x-auto sm:block">
-            {{-- 가운데 정렬(tbl-center). 칸 = 차량 · 출처 · 금액 · 추가검사사항 · 바이어(이름) · 바이어 회신(칩) · 상태 · 검차상태(ssancar 폴러 한 줄) (Jin 2026-10-13) --}}
+            {{-- 가운데 정렬(tbl-center). 칸 = 차량 · 출처 · [담당자] · 금액 · 추가검사사항 · 바이어(이름) · 바이어 회신(칩) · 상태 · 검차상태(ssancar 폴러 한 줄) (Jin 2026-10-13)
+                 담당자(등록자) = 전체가 보이는 사람(관리·super 등 canSeeAll)에게만(2026-10-23 Jin). 영업은 본인 것만 보여 칸이 뜻이 없다. --}}
+            @php $showOwner = auth()->user()->canSeeAll(); @endphp
             <table class="tbl tbl-center">
                 <thead>
-                    <tr><th class="w-px whitespace-nowrap">{{ __('listings.table.vehicle') }}</th><th>{{ __('listings.table.source') }}</th><th>{{ __('listings.table.total') }}</th><th>{{ __('listings.table.inspection_note') }}</th><th>{{ __('listings.table.buyer') }}</th><th>{{ __('listings.table.verdict') }}</th><th>{{ __('listings.table.status') }}</th><th>{{ __('listings.table.inspection_state') }}</th></tr>
+                    <tr><th class="w-px whitespace-nowrap">{{ __('listings.table.vehicle') }}</th><th>{{ __('listings.table.source') }}</th>@if ($showOwner)<th>{{ __('listings.table.owner') }}</th>@endif<th>{{ __('listings.table.total') }}</th><th>{{ __('listings.table.inspection_note') }}</th><th>{{ __('listings.table.buyer') }}</th><th>{{ __('listings.table.verdict') }}</th><th>{{ __('listings.table.status') }}</th><th>{{ __('listings.table.inspection_state') }}</th></tr>
                 </thead>
                 <tbody>
                     @forelse ($this->listings as $l)
@@ -1426,6 +1428,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <div class="text-xs text-gray-400">VIN ·{{ \Illuminate\Support\Str::limit($l->vin, 10, '') }}</div>
                             </td>
                             <td><span class="badge {{ $l->originBadge() }}">{{ $l->originLabel() }}</span></td>
+                            @if ($showOwner)<td class="whitespace-nowrap text-gray-700">{{ $l->creator?->name ?? '—' }}</td>@endif
                             <td class="font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).__('common.won_currency') : '—' }}</td>
                             <td class="max-w-[200px] truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">{{ $l->inspection_note ?: '—' }}</td>
                             <td class="max-w-[160px] truncate text-gray-700" title="{{ $l->buyer_name }}">{{ $l->buyer_name ?: '—' }}</td>
@@ -1435,7 +1438,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <td class="max-w-[260px] whitespace-normal text-[11px] leading-snug text-gray-500">@if ($hold = $l->ssancarHoldHint()){{ __($hold['key'], $hold['params']) }}@else<span class="text-gray-300">—</span>@endif</td>
                         </tr>
                     @empty
-                        <tr><td colspan="8" class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</td></tr>
+                        <tr><td colspan="{{ $showOwner ? 9 : 8 }}" class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -1457,6 +1460,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span>
                             @if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@endif
                             @if ($l->buyer_name)<span class="truncate text-xs text-gray-600">🧑 {{ $l->buyer_name }}</span>@endif
+                            @if (auth()->user()->canSeeAll() && $l->creator)<span class="truncate text-xs text-gray-500">👤 {{ $l->creator->name }}</span>@endif
                         </div>
                         <span class="shrink-0 text-sm font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).__('common.won_currency') : '—' }}</span>
                     </div>
