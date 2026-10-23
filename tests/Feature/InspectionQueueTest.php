@@ -126,6 +126,21 @@ class InspectionQueueTest extends TestCase
         $this->assertDatabaseHas('integration_events', ['target' => 'ssancar_inspection', 'event_type' => 'queue.upsert', 'purchase_listing_id' => $l->id]);
     }
 
+    /** 삭제·전이된 차의 upsert 는 안 보낸다(2026-10-23 로컬 시험에서 삭제된 차를 보냈다). withdraw 는 보낸다. */
+    public function test_upsert_skips_listing_no_longer_target(): void
+    {
+        $l = $this->mkListing();
+        $l->delete();
+        $this->configure();
+        Http::fake(['*' => Http::response(['ok' => true, 'status' => 'withdrawn'], 200)]);
+
+        (new SendInspectionQueueEvent($l->id, 'upsert'))->handle();
+        Http::assertNothingSent();
+
+        (new SendInspectionQueueEvent($l->id, 'withdraw', 'deleted'))->handle();
+        Http::assertSent(fn ($req) => json_decode($req->body(), true)['event'] === 'queue.withdraw');
+    }
+
     public function test_unconfigured_is_noop(): void
     {
         Http::fake();

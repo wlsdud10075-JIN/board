@@ -52,6 +52,10 @@ class SendInspectionQueueEvent implements ShouldQueue
         if (! $l) {
             return;
         }
+        // 대기 중 판정식이 바뀐 upsert(그 사이 삭제·전이된 차)는 보내지 않는다 — 뒤따르는 withdraw 가 이미 큐에 있다.
+        if ($this->action === 'upsert' && ! PurchaseListing::isInspectionTarget($l->status, $l->origin, $l->trashed())) {
+            return;
+        }
 
         $payload = $this->action === 'upsert'
             ? array_filter([
