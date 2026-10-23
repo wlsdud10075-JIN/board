@@ -464,6 +464,45 @@ class PayeeExtractionTest extends TestCase
         Bus::assertNotDispatched(ExtractPayeeFromPhotos::class);
     }
 
+    /**
+     * 자동차등록증이면 위쪽을 잘라 소유자를 한 번 더 묻는다(2026-10-23). 334소8009 — 전체 사진으론 엉뚱한 이름·발급기관을 냈고,
+     * 위쪽 45% 로는 「배한규(번영모터스)상품용」을 정확히 읽었다. 2차 값이 1차를 이긴다.
+     */
+    public function test_registration_photo_gets_cropped_owner_pass(): void
+    {
+        Storage::fake('public');
+        Storage::disk('public')->put('sales/photos/reg.jpg', $this->jpeg());
+        $l = $this->mkListing();
+        $l->salesAttachments()->update(['s3_path' => 'sales/photos/reg.jpg']);
+        $this->fakeOllama([
+            '{"doc_type":"자동차등록증","accounts":[],"registration_owner":"박찬규"}',   // 1차(오독)
+            '{"registration_owner":"배한규(번영모터스)상품용"}',                        // 2차(위쪽 확대)
+        ]);
+
+        (new ExtractPayeeFromPhotos($l->id))->handle(new PayeeExtractor, app(OllamaClient::class));
+
+        $this->assertSame(['배한규(번영모터스)상품용'], $l->fresh()->payee_suggestions['registration_owners']);
+    }
+
+    /** 등록증이 아니면 2차 질의를 안 한다 — 통장 위쪽을 자르면 예금주를 소유자로 낼 수 있다. 다음 응답이 그대로 남아야 한다. */
+    public function test_non_registration_photo_skips_owner_pass(): void
+    {
+        $ex = new PayeeExtractor;
+        $this->assertFalse($ex->isRegistration('통장'));
+        $this->assertTrue($ex->isRegistration('자동차 등록증'));
+    }
+
+    /** 발급기관을 소유자로 낸 경우는 버린다(334소8009 옛 프롬프트 「대구광역시 차량등록사업소」). */
+    public function test_issuing_office_is_not_an_owner(): void
+    {
+        $ex = new PayeeExtractor;
+        foreach (['대구광역시 차량등록사업소', '대구광역시', '서울특별시', '경기도'] as $bad) {
+            $this->assertSame('', $ex->parseOne('{"accounts":[],"registration_owner":"'.$bad.'"}', 1)['registration_owner'], $bad);
+        }
+        $this->assertSame('배한규(번영모터스)상품용', $ex->parseOwner('{"registration_owner":"배한규(번영모터스)상품용"}'));
+        $this->assertSame('', $ex->parseOwner('{"registration_owner":"대구광역시 차량등록사업소"}'));
+    }
+
     /** 1x1 JPEG — GD 로 열리기만 하면 된다. */
     private function jpeg(): string
     {

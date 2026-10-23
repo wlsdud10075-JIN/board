@@ -65,7 +65,19 @@ class ExtractPayeeFromPhotos implements ShouldQueue
             }
             try {
                 $raw = $client->vision($model, PayeeExtractor::PROMPT, $image, $numCtx);
-                $perPhoto[] = $extractor->parseOne($raw, $photo->id);
+                $one = $extractor->parseOne($raw, $photo->id);
+                // 자동차등록증이면 위쪽을 잘라 소유자만 한 번 더 묻는다 — 전체 사진으론 칸 글자가 작다(PayeeExtractor::OWNER_PROMPT).
+                if ($extractor->isRegistration($one['doc_type']) && ($crop = $this->prepare($photo, PayeeExtractor::OWNER_CROP_RATIO))) {
+                    try {
+                        $owner = $extractor->parseOwner($client->vision($model, PayeeExtractor::OWNER_PROMPT, $crop, $numCtx));
+                        if ($owner !== '') {
+                            $one['registration_owner'] = $owner;
+                        }
+                    } catch (\Throwable $e) {
+                        // 2차가 실패해도 1차 결과는 쓴다
+                    }
+                }
+                $perPhoto[] = $one;
             } catch (\Throwable $e) {
                 $failed++;
             }
@@ -104,13 +116,17 @@ class ExtractPayeeFromPhotos implements ShouldQueue
      * ⚠️ 해상도를 올리면 비전 토큰이 num_ctx 를 넘겨 HTTP 400 이 난다(1500px 실측 3300~4100 토큰).
      *    대략 `가로 × 세로 / 770` 이 토큰 수다.
      */
-    private function prepare(InspectionPhoto $photo): ?string
+    private function prepare(InspectionPhoto $photo, ?float $topRatio = null): ?string
     {
         try {
             $raw = Storage::disk(config('board.photo_disk'))->get($photo->s3_path);
             $im = $raw ? @imagecreatefromstring($raw) : false;
             if (! $im) {
                 return null;
+            }
+            // 위쪽 일부만(등록증 소유자 칸) — 자른 뒤 같은 폭으로 늘리면 글자가 커진다.
+            if ($topRatio !== null) {
+                $im = imagecrop($im, ['x' => 0, 'y' => 0, 'width' => imagesx($im), 'height' => max(1, (int) (imagesy($im) * $topRatio))]) ?: $im;
             }
             $max = (int) config('board.payee_extract.max_px');
             $scaled = imagescale($im, min($max, imagesx($im)));
