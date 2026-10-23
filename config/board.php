@@ -145,12 +145,14 @@ return [
             'manifest' => 'manifest-heyman.json',
             'apple_icon' => 'icons/heyman-180.png',
             'title' => 'HeymanBoard',
+            'tenant' => 'heymanboard',   // 검차 큐 연동 X-Board-Tenant
         ],
         'board-ssancar' => [
             'favicon' => 'favicon-ssancar.ico',
             'manifest' => 'manifest-ssancar.json',
             'apple_icon' => 'icons/ssancar-180.png',
             'title' => 'SsancarBoard',
+            'tenant' => 'ssancarboard',
         ],
     ],
 ];

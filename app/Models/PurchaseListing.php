@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Jobs\SendInspectionQueueEvent;
 use App\Jobs\SyncWonListingToCarErp;
 use App\Models\Concerns\NormalizesRegion;
 use App\Models\Scopes\SalesmanScope;
@@ -56,6 +57,8 @@ class PurchaseListing extends Model
             'payee_suggestions' => 'encrypted:json',   // 계좌 후보(확정 전) — 실계좌라 같이 암호화
             'payee_extraction_at' => 'datetime',
             'lock_at' => 'datetime',
+            'inspection_started_at' => 'datetime',
+            'inspection_skipped_at' => 'datetime',
             'ssancar_media_seen_at' => 'datetime',
             'ssancar_checked_at' => 'datetime',
             'ssancar_insp_photos' => 'integer',
@@ -305,6 +308,26 @@ class PurchaseListing extends Model
             return null;
         }
 
+        // 검차 큐 웹훅(ssancar.com, 2026-10-23)이 알려 준 진행이 폴러 문구보다 먼저다 — 보류(사유) > 완료 > 검차중.
+        if ($this->inspection_skipped_at !== null) {
+            $code = (string) $this->inspection_skip_reason;
+            $label = __('inspection.skip_reason.'.$code);
+
+            return ['key' => 'inspection.hold_skipped', 'params' => [
+                'reason' => ($label === 'inspection.skip_reason.'.$code) ? $code : $label,   // 모르는 코드는 원문
+                'memo' => $this->inspection_skip_memo ? ' · '.$this->inspection_skip_memo : '',
+            ]];
+        }
+        if ($this->ssancar_inspected_wr_id !== null) {
+            return ['key' => 'inspection.hold_inspected', 'params' => ['name' => $this->ssancar_inspector_name ?: '—']];
+        }
+        if ($this->inspection_started_at !== null) {
+            return ['key' => 'inspection.hold_started', 'params' => [
+                'name' => $this->ssancar_inspector_name ?: '—',
+                'at' => $this->inspection_started_at->timezone(config('app.timezone'))->format('m-d H:i'),
+            ]];
+        }
+
         $configured = (string) config('services.ssancar_media.base_url') !== '' && (string) config('services.ssancar_media.api_key') !== '';
         if (! $configured || ! config('board.ssancar_auto_forward')) {
             return ['key' => 'inspection.hold_auto_off', 'params' => []];
@@ -491,6 +514,51 @@ class PurchaseListing extends Model
             }
             BoardAudit::logChanges($listing, $original, $changed, Auth::id());
         });
+
+        // 검차 큐 연동(ssancar.com, 2026-10-23) — **판정식 하나**로 등록·철회. draft 를 벗어나는 길이 화면 여러 곳
+        // (영업 삭제·관리 삭제·셀프검차 전환·수동 검차완료·사진으로 전달대기·관리자 override)이라 버튼마다 붙이면 하나는 빠진다.
+        // ⚠️ `saveQuietly()` 는 이 훅을 안 탄다(지금 5곳은 계좌추출 칸뿐이라 무관) — 어긋나면 일일 대사가 바로잡는다.
+        static::created(function (PurchaseListing $listing) {
+            if (self::isInspectionTarget($listing->status, $listing->origin, false)) {
+                SendInspectionQueueEvent::dispatch($listing->id, 'upsert')->afterCommit();
+            }
+        });
+        static::updated(function (PurchaseListing $listing) {
+            $before = self::isInspectionTarget($listing->getOriginal('status'), $listing->getOriginal('origin'), false);
+            $after = self::isInspectionTarget($listing->status, $listing->origin, false);
+            if (! $before && $after) {
+                SendInspectionQueueEvent::dispatch($listing->id, 'upsert')->afterCommit();
+            } elseif ($before && ! $after) {
+                $reason = $listing->wasChanged('origin') && $listing->origin === 'self_inspection'
+                    ? 'not_inspection_target'
+                    : ($listing->allowManagerOverride ? 'status_override' : 'closed_in_board');
+                SendInspectionQueueEvent::dispatch($listing->id, 'withdraw', $reason)->afterCommit();
+            } elseif ($after && $listing->wasChanged(self::INSPECTION_QUEUE_FIELDS)) {
+                SendInspectionQueueEvent::dispatch($listing->id, 'upsert')->afterCommit();   // 큐 필드 변경 = 재발송
+            }
+        });
+        static::deleted(function (PurchaseListing $listing) {
+            if (self::isInspectionTarget($listing->status, $listing->origin, false)) {
+                SendInspectionQueueEvent::dispatch($listing->id, 'withdraw', 'deleted')->afterCommit();
+            }
+        });
+        static::restored(function (PurchaseListing $listing) {
+            if (self::isInspectionTarget($listing->status, $listing->origin, false)) {
+                SendInspectionQueueEvent::dispatch($listing->id, 'upsert')->afterCommit();
+            }
+        });
+    }
+
+    /** 검차 큐에 실리는 값 — 이 중 하나가 바뀌면 upsert 를 다시 보낸다. 🚫 소유자명·계좌·금액은 넣지 않는다. */
+    public const INSPECTION_QUEUE_FIELDS = ['vehicle_number', 'vin', 'region', 'inspection_request', 'encar_url'];
+
+    /**
+     * 검차 큐 판정식 — `status='draft' AND origin≠self_inspection AND 미삭제` (스펙 §8-6). origin 은 nullable 이라
+     * `!==` 로만 본다(NULL 행 = 검차 대상). 일일 대사(`board:inspection-reconcile`)도 같은 식을 쿼리로 쓴다.
+     */
+    public static function isInspectionTarget(?string $status, ?string $origin, bool $trashed): bool
+    {
+        return $status === 'draft' && $origin !== 'self_inspection' && ! $trashed;
     }
 
     // ─────────────────────── 관계 ───────────────────────

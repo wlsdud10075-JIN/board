@@ -49,6 +49,16 @@ return [
         'api_key' => env('SSANCAR_MEDIA_API_KEY'),
     ],
 
+    // 검차 큐 연동(ssancar.com, 2026-10-23) — board → ssancar 큐 등록·철회(HMAC) / ssancar → board 진행·완료 웹훅.
+    // 시크릿은 **인스턴스별·방향별 별개**(값은 Jin 이 직접 투입). url·hmac_secret 둘 다 있어야 보낸다(없으면 no-op).
+    // tenant 미설정이면 APP_NAME 으로 `board.instances.*.tenant` 를 찾는다(heymanboard/ssancarboard).
+    'ssancar_inspection' => [
+        'url' => env('SSANCAR_INSPECTION_URL'),                         // 운영 https://www.ssancar.com/page/api_inspect_queue.php (www 필수 — 없으면 301) · 로컬 http://localhost:8002/page/api_inspect_queue.php
+        'hmac_secret' => env('SSANCAR_INSPECTION_HMAC_SECRET'),         // board → ssancar (보내는 쪽)
+        'webhook_secret' => env('SSANCAR_INSPECTION_WEBHOOK_SECRET'),   // ssancar → board (받는 쪽)
+        'tenant' => env('SSANCAR_INSPECTION_TENANT'),
+    ],
+
     'car_erp' => [
         'base_url' => env('CAR_ERP_BASE_URL'),
         'hmac_secret' => env('CAR_ERP_HMAC_SECRET'),

@@ -898,3 +898,13 @@ Jin 이 ERP 에서 수기 정정. **전수 조사 = heymanboard 74대 중 12대*
 - **JS 알림창 문구도 lang** — `alert(@js(__('…')))`. 스크립트 안 한글은 lang 검사 테스트에 안 잡힌다.
 - **감사 로그 전송 표 = `App\Support\IntegrationEventView`** — 방향·대상·이벤트·응답·요약을 lang(`audit.ev.*`)으로. 숫자 응답 코드·원래 키는 **툴팁에만**. 이벤트별 응답 문구(`resp_by.purchase_sync.201` = 새로 등록 / 200 = 이미 있어 보강) → 없으면 계열별(성공·인증 실패·거절·상대 서버 오류). 계좌 추출(ollama)은 HTTP 가 아니라 결과 상태로 말한다. 새 이벤트를 추가하면 `audit.ev.event.*` 에 이름을 같이 넣는다(안 넣어도 원문으로 뜬다 — 깨지지는 않음). 가드 = `test_audit_transmission_rows_are_plain_language_in_both_locales`.
 - 하드코딩 한글 찾는 법: blade 주석(`{{-- --}}`·`/* */`·`<!-- -->`)과 `__('…')` 를 걷어 낸 뒤 한글이 남는 줄. 남는 정상 예외 = 기능설정 `Setting` 설명(DB 메모)·번호판 변환표·ERP 쿼리 값(`['거래완료']`)·뱃지 비교용 한글 키.
+
+### 14-25. 검차 큐 연동 — board 쪽 (2026-10-23 Jin 착수, dev 미배포)
+정본 스펙 = ssancar 레포 `htdocs/_ops/dev/INSPECTION_PLAN.md` §8(받는 쪽 권위는 ssancar). board 는 보내는 절반·웹훅 받는 절반만.
+- **등록·철회 = 판정식 하나**(`PurchaseListing::isInspectionTarget` = draft · origin≠self_inspection · 미삭제). `booted()` 의 created/updated/deleted/restored 가 전후를 비교해 `SendInspectionQueueEvent` 를 afterCommit 으로. withdraw reason = 셀프검차 전환 `not_inspection_target` · override `status_override` · 그 외 `closed_in_board` · 삭제 `deleted`. 큐 필드(`INSPECTION_QUEUE_FIELDS` 번호판·VIN·지역·요청사항·링크) 변경 = upsert 재발송. ⚠️ `saveQuietly()` 는 안 탄다 → 일일 대사.
+- **전송** = `App\Support\SsancarInspection::post` — `X-Board-Tenant`(설정 없으면 APP_NAME → `board.instances.*.tenant`) · `X-Timestamp`(unix 초) · `X-Board-Signature: sha256=hex(HMAC(ts + "." + body))`. 운영 URL = `https://www.ssancar.com/page/api_inspect_queue.php`(**www 필수** — 없으면 301). event_id 는 디스패치 때 고정(재시도 = 같은 id). 400 = 재시도 안 함. 🚫 소유자명·계좌·금액 미포함(테스트가 지킨다). 미설정 = no-op. 로컬 sync 큐에선 실패를 삼킨다(화면 저장 보호).
+- **웹훅** `POST /api/webhooks/ssancar-inspection` — `X-Webhook-Secret` · event_id 멱등(integration_events inbound) · started/completed/skipped/reopened 는 **칸만**(새 칸 7개, 마이그 `2026_10_23_000001`). inspected 전이는 폴러 소유 그대로. 모르는 이벤트·없는 매물도 200(ssancar 재시도 5회 방지). skip 사진 링크는 http(s) 만 저장(화면 href).
+- **검차상태 칸**(`ssancarHoldHint`) = 보류(사유 lang `inspection.skip_reason.*`, 모르는 코드 원문) > 완료(검차원) > 검차중 > 폴러 문구.
+- **재검차 요청**(`/listings` 드로어, 보류일 때) = 패스 칸 비우고 upsert(reason=reinspect). ssancar 「되돌리기」는 `inspection.reopened` 로 같은 결과.
+- **일일 대사** `board:inspection-reconcile` 07:20 — 판정식 true 전부를 `queue.reconcile` 로, 응답 `missing_listing_ids` 중 **지금도 대상인 것만** upsert. 빈 목록은 안 보낸다.
+- 시크릿 env = `SSANCAR_INSPECTION_URL`·`_HMAC_SECRET`(보내는 쪽)·`_WEBHOOK_SECRET`(받는 쪽)·`_TENANT`(선택). 인스턴스별·방향별 별개, 운영 값은 Jin 이 직접. 로컬 시험값 출처 = `C:/xampp/htdocs/_local_shared/inspect_test_secrets.json`(레포 밖, `.env.bak-inspect-20261023` 백업). `phpunit.xml` 은 이 env 를 비운다.

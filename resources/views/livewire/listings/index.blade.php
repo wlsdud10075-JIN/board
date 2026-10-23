@@ -414,6 +414,35 @@ new #[Layout('components.layouts.app')] class extends Component {
     }
 
     /**
+     * 「재검차 요청」(검차 큐 연동, 2026-10-23 Jin (다)) — ssancar 검차원이 패스(보류)한 차를 다시 큐에 넣는다.
+     * 조건 = 사진만으로 넘기기와 같은 사람·상태(본인 또는 관리 이상 · draft · 시간잠금 아님) + 보류 상태.
+     * board 의 패스 칸을 비우고 `queue.upsert`(reason=reinspect)를 보낸다. ssancar 쪽 「되돌리기」(→ reopened 웹훅)와 같은 결과.
+     */
+    public function reinspectable(PurchaseListing $l): bool
+    {
+        $u = Auth::user();
+
+        return $l->status === 'draft'
+            && $l->inspection_skipped_at !== null
+            && ($l->created_by_user_id === $u->id || $u->isManager() || $u->hasFullAccess())
+            && $this->editable($l);
+    }
+
+    public function requestReinspection(): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        abort_unless($this->reinspectable($l), 403);
+
+        $l->forceFill(['inspection_skipped_at' => null, 'inspection_skip_reason' => null,
+            'inspection_skip_memo' => null, 'inspection_skip_photo_url' => null])->save();
+        \App\Jobs\SendInspectionQueueEvent::dispatch($l->id, 'upsert', 'reinspect')->afterCommit();
+
+        unset($this->listings, $this->tabCounts);
+        session()->flash('ok', __('listings.drawer.reinspect_flash', ['number' => \App\Support\Plate::show($l->vehicle_number)]));
+        $this->closeEdit();
+    }
+
+    /**
      * draft → inspected(전달대기) 수동 전이. 현지확인 「검차완료」와 같은 전이(TRANSITIONS 허용)라 가드를 그대로 탄다.
      * 감사로그는 모델 옵저버가 status_change 로 남긴다(user_id = 누른 영업). 전달대기 알림톡(B)은 자동 전이와 같은 조건으로 발사.
      * 넘긴 차는 현지확인 목록과 폴러 대상에서 빠진다 — 전달 화면이 ssancar 미디어를 실시간으로 다시 가져오므로
@@ -1570,6 +1599,15 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @if ($e->status === 'draft' && ($hold = $e->ssancarHoldHint()))
                     <div class="card-sm mt-4 border-gray-200 bg-gray-50 text-[12px] text-gray-600">
                         <div>🔎 {{ __($hold['key'], $hold['params']) }}</div>
+                        @if ($e->inspection_skip_photo_url)
+                            <a href="{{ $e->inspection_skip_photo_url }}" target="_blank" rel="noopener" class="mt-1 inline-block text-[11px] text-blue-600 underline">{{ __('listings.drawer.skip_photo') }}</a>
+                        @endif
+                        @if ($this->reinspectable($e))
+                            <button type="button" class="btn-outline btn-sm mt-2 w-full justify-center"
+                                wire:click="requestReinspection" wire:confirm="{{ __('listings.drawer.reinspect_confirm') }}">
+                                🔁 {{ __('listings.drawer.reinspect_btn') }}
+                            </button>
+                        @endif
                         @if ($this->forwardable($e))
                             <button type="button" class="btn-outline btn-sm mt-2 w-full justify-center"
                                 wire:click="forwardWithPhotos" wire:confirm="{{ __('listings.drawer.forward_photos_confirm') }}">

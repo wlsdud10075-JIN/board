@@ -40,6 +40,10 @@ Schedule::command('board:assistant-health')->hourly()->withoutOverlapping();
 // 두 박스(heymanboard·ssancarboard) 모두 돌고, 각 ERP 는 **같은 박스의** board 파일을 읽는다.
 Schedule::command('board:purchase-sync-audit')->dailyAt('07:40')->withoutOverlapping();
 
+// 검차 큐(ssancar.com) 일일 대사 — 판정식 true 목록 vs ssancar 열린 행. 배정 알림톡(ssancar 08:00) 전에 맞춰 둔다.
+// 미설정이면 명령 내부 no-op.
+Schedule::command('board:inspection-reconcile')->dailyAt('07:20')->withoutOverlapping();
+
 // §11 요청 결과(ERP 확인·거절) → 웹푸시. ERP→board 역방향 채널이 없어 board 가 매분 사용자별 since 조회.
 // VAPID·car-erp 미설정이면 명령 내부 no-op. 두 박스 모두 돈다(각자 자기 ERP).
 Schedule::command('board:push-request-results')->everyMinute()->withoutOverlapping();

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\RespondWebhookController;
+use App\Http\Controllers\SsancarInspectionWebhookController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -13,3 +14,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::post('/webhooks/respond', RespondWebhookController::class)
     ->name('webhooks.respond');
+
+// 검차 큐 연동(ssancar.com, 2026-10-23) — 진행·완료·보류·되돌리기. 인증 = X-Webhook-Secret(인스턴스별), 멱등 = event_id.
+Route::post('/webhooks/ssancar-inspection', SsancarInspectionWebhookController::class)
+    ->name('webhooks.ssancar-inspection');
