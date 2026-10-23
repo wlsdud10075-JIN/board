@@ -1449,7 +1449,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             @php $showOwner = auth()->user()->canSeeAll(); @endphp
             <table class="tbl tbl-center">
                 <thead>
-                    <tr><th class="w-px whitespace-nowrap">{{ __('listings.table.vehicle') }}</th><th>{{ __('listings.table.source') }}</th>@if ($showOwner)<th>{{ __('listings.table.owner') }}</th>@endif<th>{{ __('listings.table.total') }}</th><th>{{ __('listings.table.inspection_note') }}</th><th>{{ __('listings.table.buyer') }}</th><th>{{ __('listings.table.verdict') }}</th><th>{{ __('listings.table.status') }}</th><th>{{ __('listings.table.inspection_state') }}</th></tr>
+                    <tr><th class="w-px whitespace-nowrap">{{ __('listings.table.vehicle') }}</th><th>{{ __('listings.table.source') }}</th>@if ($showOwner)<th>{{ __('listings.table.owner') }}</th>@endif<th>{{ __('listings.table.total') }}</th><th>{{ __('listings.table.inspection_request') }}</th><th>{{ __('listings.table.inspection_note') }}</th><th>{{ __('listings.table.buyer') }}</th><th>{{ __('listings.table.verdict') }}</th><th>{{ __('listings.table.status') }}</th><th>{{ __('listings.table.inspection_state') }}</th></tr>
                 </thead>
                 <tbody>
                     @forelse ($this->listings as $l)
@@ -1461,7 +1461,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <td><span class="badge {{ $l->originBadge() }}">{{ $l->originLabel() }}</span></td>
                             @if ($showOwner)<td class="whitespace-nowrap text-gray-700">{{ $l->creator?->name ?? '—' }}</td>@endif
                             <td class="font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).__('common.won_currency') : '—' }}</td>
-                            <td class="max-w-[200px] truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">{{ $l->inspection_note ?: '—' }}</td>
+                            {{-- 추가 검사 요청(영업 → 검차원) / 검차 메모(검차 결과) — 이름이 헷갈려 두 칸으로 나눴다(2026-10-23 Jin). --}}
+                            <td class="max-w-[180px] truncate text-xs text-gray-600" title="{{ $l->inspection_request }}">{{ $l->inspection_request ?: '—' }}</td>
+                            <td class="max-w-[180px] truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">{{ $l->inspection_note ?: '—' }}</td>
                             <td class="max-w-[160px] truncate text-gray-700" title="{{ $l->buyer_name }}">{{ $l->buyer_name ?: '—' }}</td>
                             <td>@if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</td>
                             <td><span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span></td>
@@ -1469,7 +1471,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <td class="max-w-[260px] whitespace-normal text-[11px] leading-snug text-gray-500">@if ($hold = $l->ssancarHoldHint()){{ __($hold['key'], $hold['params']) }}@else<span class="text-gray-300">—</span>@endif</td>
                         </tr>
                     @empty
-                        <tr><td colspan="{{ $showOwner ? 9 : 8 }}" class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</td></tr>
+                        <tr><td colspan="{{ $showOwner ? 10 : 9 }}" class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -1495,8 +1497,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                         </div>
                         <span class="shrink-0 text-sm font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).__('common.won_currency') : '—' }}</span>
                     </div>
+                    @if ($l->inspection_request)
+                        <div class="mt-1 truncate text-xs text-gray-600" title="{{ $l->inspection_request }}">🔍 {{ __('listings.table.inspection_request') }}: {{ $l->inspection_request }}</div>
+                    @endif
                     @if ($l->inspection_note)
-                        <div class="mt-1 truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">📝 {{ $l->inspection_note }}</div>
+                        <div class="mt-1 truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">📝 {{ __('listings.table.inspection_note') }}: {{ $l->inspection_note }}</div>
                     @endif
                     @if ($hold = $l->ssancarHoldHint())
                         <div class="mt-1 text-[11px] leading-snug text-gray-400">↳ {{ __($hold['key'], $hold['params']) }}</div>

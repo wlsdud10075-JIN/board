@@ -57,7 +57,8 @@ return [
         'vehicle' => '차량',
         'source' => '출처',
         'total' => '최종금액',
-        'inspection_note' => '추가검사사항',
+        'inspection_request' => '추가 검사 요청',   // 영업 → 검차원(inspection_request)
+        'inspection_note' => '검차 메모',           // 검차 결과(inspection_note) — 2026-10-23 「추가검사사항」에서 이름 변경
         'buyer' => '바이어',                 // 바이어 이름(buyer_name)
         'verdict' => '바이어 회신',          // 수락/거절/회신대기 칩 — 종전엔 「바이어」 칸에 들어 있었다(2026-10-13 Jin 분리)
         'owner' => '담당자',             // 등록자(created_by) — 전체가 보이는 사람에게만(2026-10-23 Jin)

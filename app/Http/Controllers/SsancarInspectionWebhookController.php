@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\IntegrationEvent;
 use App\Models\PurchaseListing;
+use App\Services\WebPushService;
+use App\Support\Plate;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -100,7 +102,39 @@ class SsancarInspectionWebhookController extends Controller
         }
         $l->save();   // 큐 필드가 아니라 판정식·재발송은 안 걸린다
 
+        if ($event === 'inspection.skipped') {
+            $this->pushSkipped($l);
+        }
+
         return ['applied', $l->id, null];
+    }
+
+    /**
+     * 패스 → 등록한 영업에게 웹푸시(진동·소리, 2026-10-23 Jin — 알림톡 말고). 종 배지는 종 컴포넌트가 board DB 에서 센다.
+     * 푸시 실패가 웹훅 응답을 깨지 않는다(ssancar 재시도 유발 금지).
+     */
+    private function pushSkipped(PurchaseListing $l): void
+    {
+        $u = $l->creator;
+        if (! $u || ! $u->is_active || ! WebPushService::configured()) {
+            return;
+        }
+        $prev = app()->getLocale();
+        try {
+            app()->setLocale($u->locale ?: $prev);
+            $h = $l->ssancarHoldHint();
+            app(WebPushService::class)->sendToUser($u, [
+                'title' => __('nav.bell.push_title_hold').' — '.Plate::show($l->vehicle_number),
+                'body' => $h ? __($h['key'], $h['params']) : '',
+                'url' => route('listings'),
+                'tag' => 'board-hold-'.$l->id,
+                'sticky' => true,
+            ]);
+        } catch (\Throwable $e) {
+            report($e);
+        } finally {
+            app()->setLocale($prev);
+        }
     }
 
     private function time(mixed $v): Carbon

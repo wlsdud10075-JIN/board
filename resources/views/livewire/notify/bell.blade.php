@@ -38,6 +38,9 @@ new class extends Component
     /** 진행 중(open) 라인 최신순. */
     public array $inProgress = [];
 
+    /** 검차 보류(ssancar 검차원 패스) — **board DB** 에서 센다(ERP 아님). 내가 등록한 현지확인대기 차만(2026-10-23 Jin). */
+    public array $holds = [];
+
     /** 마지막 열람 시각(ISO8601) — 미읽음 판정 기준. 패널을 열 때 now 로 갱신된다. */
     public ?string $seenAt = null;
 
@@ -97,19 +100,38 @@ new class extends Component
         return BoardRequestLines::resolvedAfter($l, $ts);
     }
 
+    /** 내 검차 보류 차 — 보류 시각 최신순. ERP 가 죽어도 이건 보인다(board 값). */
+    private function holdQuery()
+    {
+        return \App\Models\PurchaseListing::query()
+            ->where('created_by_user_id', Auth::id())
+            ->where('status', 'draft')
+            ->whereNotNull('inspection_skipped_at')
+            ->orderByDesc('inspection_skipped_at');
+    }
+
     /** 폴링(30초) — 배지 갱신 + 새로 끝난 결과 토스트. 패널이 열려 있으면 목록은 건드리지 않는다(읽는 중 하이라이트가 사라진다). */
     public function refresh(): void
     {
+        // 검차 보류는 board 값이라 ERP 조회와 무관하게 먼저 센다. 새 보류 = 빨간 토스트 + 비프(거절과 같은 무게).
+        $holdUnread = $this->holdQuery()->where('inspection_skipped_at', '>', Carbon::parse($this->seenAt))->count();
+        $holdFresh = $this->holdQuery()->where('inspection_skipped_at', '>', Carbon::parse($this->pollFrom))->count();
+        if ($holdFresh > 0) {
+            $this->dispatch('forward-arrived', type: 'rejected', msg: __('nav.bell.toast_hold', ['count' => $holdFresh]));
+        }
+
         $lines = $this->lines($this->seenAt);
         if ($lines === null) {
             $this->loadFailed = true;
+            $this->unread = $holdUnread;
+            $this->pollFrom = now()->toIso8601String();
 
             return;
         }
         $this->loadFailed = false;
 
         $results = array_values(array_filter($lines, fn ($l) => self::isResult($l)));
-        $this->unread = count(array_filter($results, fn ($l) => self::resolvedAfter($l, $this->seenAt)));
+        $this->unread = $holdUnread + count(array_filter($results, fn ($l) => self::resolvedAfter($l, $this->seenAt)));
 
         $fresh = array_filter($results, fn ($l) => self::resolvedAfter($l, $this->pollFrom));
         $rejected = count(array_filter($fresh, fn ($l) => $l['status'] === 'rejected'));
@@ -127,6 +149,14 @@ new class extends Component
     public function openPanel(): void
     {
         $this->open = true;
+        $seen = Carbon::parse($this->seenAt);
+        $this->holds = $this->holdQuery()->limit(20)->get()->map(fn ($l) => [
+            'id' => $l->id,
+            'plate' => $l->vehicle_number,
+            'text' => ($h = $l->ssancarHoldHint()) ? __($h['key'], $h['params']) : '',
+            'at' => $l->inspection_skipped_at->timezone(config('app.timezone'))->format('m-d H:i'),
+            'new' => $l->inspection_skipped_at->gt($seen),
+        ])->all();
         // 패널도 전체 이력을 끌어오지 않는다 — 최근 PANEL_WINDOW_DAYS 일(ERP `since` = updated_at 기준)만.
         //   진행 중(open) 라인도 같은 호출에서 나오므로 그보다 오래 방치된 open 요청은 여기 안 보인다(포털 칩엔 보인다).
         //   잔금은 지급 시 자동소멸·계약금은 계약금 행 저장 시 소멸이라 90일 넘게 열린 요청은 사실상 없다.
@@ -135,6 +165,8 @@ new class extends Component
             $this->loadFailed = true;
             $this->results = [];
             $this->inProgress = [];
+            // 보류는 board 값이라 읽음 처리한다(ERP 결과는 다음에 다시 센다 — 열람 시각을 옮기면 ERP 쪽 미읽음이 사라지므로 안 옮긴다).
+            $this->unread = 0;
 
             return;
         }
@@ -216,6 +248,20 @@ new class extends Component
             </div>
 
             <div class="flex-1 overflow-y-auto">
+                @if ($holds)
+                    <div class="px-3 pt-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">{{ __('nav.bell.holds') }}</div>
+                    @foreach ($holds as $h)
+                        <a wire:key="bell-h-{{ $h['id'] }}" href="{{ route('listings') }}" wire:navigate class="block border-b border-gray-50 px-3 py-2 hover:bg-gray-50 {{ $h['new'] ? 'bg-red-50/60' : '' }}">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-[13px] font-semibold text-gray-800">{{ \App\Support\Plate::show($h['plate']) }}</span>
+                                <span class="badge badge-red shrink-0 whitespace-nowrap">{{ __('nav.bell.hold_chip') }}</span>
+                            </div>
+                            <p class="mt-0.5 text-[12px] text-red-700">{{ $h['text'] }}</p>
+                            <p class="mt-0.5 text-[11px] text-gray-400">{{ $h['at'] }}@if ($h['new'])<span class="ml-1 rounded bg-red-600 px-1 text-[10px] font-bold text-white">{{ __('nav.bell.new') }}</span>@endif</p>
+                        </a>
+                    @endforeach
+                @endif
+
                 @if ($loadFailed)
                     <p class="px-3 py-2 text-[11px] text-amber-600">⚠️ {{ __('nav.bell.unavailable') }}</p>
                 @endif

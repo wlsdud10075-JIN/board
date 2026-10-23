@@ -125,6 +125,7 @@ return [
     'hold_advancing' => 'ssancar.com 미디어 확인됨 — 다음 확인에서 자동으로 전달대기 (확인 :at)',
     'hold_skipped' => '검차 보류 · :reason:memo',
     'hold_inspected' => 'ssancar.com 검차 완료(:name) — 영상이 확인되면 자동으로 전달대기',
+    'hold_no_region' => '지역 미지정 — 검차원 배정 안 됨. 드로어에서 지역을 넣어 주세요',
     'hold_started' => '검차중 · :name (:at 시작)',
     'skip_reason' => [
         'bad_condition' => '차량 상태 불량',

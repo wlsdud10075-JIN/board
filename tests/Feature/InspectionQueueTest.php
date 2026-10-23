@@ -5,7 +5,9 @@ namespace Tests\Feature;
 use App\Jobs\SendInspectionQueueEvent;
 use App\Models\IntegrationEvent;
 use App\Models\PurchaseListing;
+use App\Models\PushSubscription;
 use App\Models\User;
+use App\Services\WebPushService;
 use App\Support\SsancarInspection;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
@@ -257,6 +259,63 @@ class InspectionQueueTest extends TestCase
         $own = $this->mkListing(['created_by_user_id' => auth()->id()]);
 
         Volt::test('listings.index')->call('openEdit', $own->id)->assertDontSee(__('listings.drawer.reinspect_btn'));
+    }
+
+    // ───────────── 데모 피드백(2026-10-23 Jin) — 지역 미지정 · 칸 분리 · 보류 알림 ─────────────
+
+    public function test_no_region_hint_only_when_integration_on(): void
+    {
+        $l = $this->mkListing(['region' => null]);
+        $this->assertNotSame('inspection.hold_no_region', $l->ssancarHoldHint()['key']);   // 꺼진 박스 = 종전 문구
+
+        $this->configure();
+        $this->assertSame('inspection.hold_no_region', $l->ssancarHoldHint()['key']);
+    }
+
+    public function test_list_shows_inspection_request_and_memo_separately(): void
+    {
+        $kim = $this->mkUser();
+        $this->mkListing(['created_by_user_id' => $kim->id, 'inspection_request' => '하부 부식 확인 부탁', 'inspection_note' => '검차원 메모']);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')
+            ->assertSee(__('listings.table.inspection_request'))->assertSee('하부 부식 확인 부탁')
+            ->assertSee(__('listings.table.inspection_note'))->assertSee('검차원 메모');
+    }
+
+    /** 패스 → 등록한 영업에게 웹푸시 1건(알림톡 아님) + 종 배지·패널. */
+    public function test_skipped_pushes_to_creator_and_shows_in_bell(): void
+    {
+        $kim = $this->mkUser();
+        $l = $this->mkListing(['created_by_user_id' => $kim->id]);
+        $this->configure();
+        config(['board.push.vapid_public' => 'pub', 'board.push.vapid_private' => 'priv', 'board.push.vapid_subject' => 'mailto:t@t.test']);
+        $sent = [];
+        app()->instance(WebPushService::class, new class($sent) extends WebPushService
+        {
+            public function __construct(private array &$sent) {}
+
+            protected function deliver(PushSubscription $sub, string $json): ?bool
+            {
+                $this->sent[] = json_decode($json, true);
+
+                return true;
+            }
+        });
+        PushSubscription::create(['user_id' => $kim->id, 'endpoint' => 'https://push.example/x',
+            'endpoint_hash' => PushSubscription::hashEndpoint('https://push.example/x'), 'p256dh' => 'k', 'auth_token' => 'a']);
+        $kim->forceFill(['portal_seen_at' => now()->subHour()])->save();
+
+        $this->hook(['event' => 'inspection.skipped', 'event_id' => 'p1', 'listing_id' => $l->id, 'reason' => 'bad_condition',
+            'memo' => '하부 부식', 'at' => now()->toIso8601String()])->assertOk();
+
+        $this->assertCount(1, $sent);
+        $this->assertStringContainsString($l->vehicle_number, $sent[0]['title']);
+        $this->assertStringContainsString('차량 상태 불량', $sent[0]['body']);
+
+        $this->actingAs($kim);
+        Volt::test('notify.bell')->call('refresh')->assertSet('unread', 1)
+            ->call('openPanel')->assertSee(__('nav.bell.holds'))->assertSee('하부 부식');
     }
 
     // ───────────── B4 일일 대사 ─────────────

@@ -124,6 +124,7 @@ return [
     'hold_advancing' => 'ssancar.com media found — moves to awaiting forward on the next check (checked :at)',
     'hold_skipped' => 'Inspection on hold · :reason:memo',
     'hold_inspected' => 'Inspected on ssancar.com (:name) — moves to ready once the video is found',
+    'hold_no_region' => 'No region — no inspector assigned. Enter the region in the drawer',
     'hold_started' => 'Inspecting · :name (started :at)',
     'skip_reason' => [
         'bad_condition' => 'Poor vehicle condition',

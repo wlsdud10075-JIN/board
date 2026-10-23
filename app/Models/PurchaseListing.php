@@ -8,6 +8,7 @@ use App\Models\Concerns\NormalizesRegion;
 use App\Models\Scopes\SalesmanScope;
 use App\Services\BoardAudit;
 use App\Support\Money;
+use App\Support\SsancarInspection;
 use Illuminate\Database\Eloquent\Attributes\ScopedBy;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -320,6 +321,11 @@ class PurchaseListing extends Model
         }
         if ($this->ssancar_inspected_wr_id !== null) {
             return ['key' => 'inspection.hold_inspected', 'params' => ['name' => $this->ssancar_inspector_name ?: '—']];
+        }
+        // 지역이 비면 ssancar 큐에서 검차원 배정이 안 된다(「지역 미지정」 버킷) — 영업이 지역을 넣게 안내(2026-10-23 Jin).
+        //   검차 연동이 켜진 박스에서만(꺼진 박스는 지역이 배정과 무관하다). 지역을 넣으면 upsert 재발송으로 배정 대상이 된다.
+        if (trim((string) $this->region) === '' && SsancarInspection::configured() && $this->inspection_started_at === null) {
+            return ['key' => 'inspection.hold_no_region', 'params' => []];
         }
         if ($this->inspection_started_at !== null) {
             return ['key' => 'inspection.hold_started', 'params' => [
