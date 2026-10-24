@@ -44,6 +44,7 @@ class BoardAudit
             'old_value' => null,
             'new_value' => $listing->vehicle_number,
             'created_at' => now(),
+            'ip_address' => BoardAuditLog::currentIp(),
         ]];
 
         foreach (PurchaseListing::AUDITED as $field) {
@@ -65,6 +66,7 @@ class BoardAudit
                 'old_value' => null,
                 'new_value' => $masked ? '***' : (string) $new,
                 'created_at' => now(),
+                'ip_address' => BoardAuditLog::currentIp(),
             ];
         }
 

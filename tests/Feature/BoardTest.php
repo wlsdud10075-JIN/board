@@ -435,6 +435,30 @@ class BoardTest extends TestCase
         $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'field' => 'selling_fee_payee_account', 'new_value' => '***']);
     }
 
+    /**
+     * 첨부 추가·삭제는 파일당 1행만, 변경 없는 재저장은 0행(2026-10-24 Jin 「바뀐 것만, 반복해서 남으면 안 된다」). 화면 요청은 IP 가 남는다.
+     */
+    public function test_audit_logs_attachments_and_ip_only_on_change(): void
+    {
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['car_cost' => 9000000]);
+        $this->actingAs($kim);
+        $before = BoardAuditLog::count();
+
+        $l->update(['car_cost' => 9000000]);   // 같은 값 재저장
+        $l->update(['car_cost' => '9000000.00']);   // 표기만 다름
+        $this->assertSame($before, BoardAuditLog::count());
+
+        $p = $l->salesAttachments()->create(['s3_path' => 'sales/photos/a.jpg', 'original_name' => '등록증.jpg', 'sort' => 9, 'kind' => 'sales_photo']);
+        $p->delete();
+        $this->assertSame($before + 2, BoardAuditLog::count());
+        $this->assertDatabaseHas('board_audit_logs', ['action' => 'attachment_add', 'field' => 'attachment_sales_photo', 'new_value' => '등록증.jpg', 'user_id' => $kim->id]);
+        $this->assertDatabaseHas('board_audit_logs', ['action' => 'attachment_delete', 'old_value' => '등록증.jpg']);
+
+        $l->update(['car_cost' => 9500000]);
+        $this->assertNotNull(BoardAuditLog::where('field', 'car_cost')->latest('id')->first()->ip_address);
+    }
+
     /** 매입예정 목록 바이어 = 전달 단계 이름 우선, 없으면 /auction 에서 고른 ERP 바이어 이름(2026-10-24 Jin). */
     public function test_listing_buyer_falls_back_to_erp_buyer_name(): void
     {
