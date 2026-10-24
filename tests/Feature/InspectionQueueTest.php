@@ -270,6 +270,7 @@ class InspectionQueueTest extends TestCase
 
         $this->configure();
         $this->assertSame('inspection.hold_no_region', $l->ssancarHoldHint()['key']);
+        $this->assertTrue($l->ssancarHoldHint()['alert']);   // 눈에 띄게(빨간 굵은 글씨 + ⚠)
     }
 
     public function test_list_shows_inspection_request_and_memo_separately(): void

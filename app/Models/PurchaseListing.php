@@ -301,7 +301,8 @@ class PurchaseListing extends Model
      * 현지확인 행과 매입예정 드로어가 같은 이 메서드를 쓴다 — 두 화면이 다르게 말하면 안 된다.
      * 재료는 폴러가 남긴 마지막 판정(`ssancar_checked_at`·소스별 개수)뿐이다. 화면에서 ssancar 를 직접 묻지 않는다.
      *
-     * @return array{key:string, params:array}|null lang 키(inspection.hold_*) + 치환값. draft 아니면 null.
+     * @return array{key:string, params:array, alert?:bool}|null lang 키(inspection.hold_*) + 치환값. draft 아니면 null.
+     *   `alert` = 영업이 손을 써야 하는 경우(검차 보류·지역 미지정) — 화면이 빨간 굵은 글씨 + ⚠ 로 띄운다(2026-10-24 Jin).
      */
     public function ssancarHoldHint(): ?array
     {
@@ -314,7 +315,7 @@ class PurchaseListing extends Model
             $code = (string) $this->inspection_skip_reason;
             $label = __('inspection.skip_reason.'.$code);
 
-            return ['key' => 'inspection.hold_skipped', 'params' => [
+            return ['key' => 'inspection.hold_skipped', 'alert' => true, 'params' => [
                 'reason' => ($label === 'inspection.skip_reason.'.$code) ? $code : $label,   // 모르는 코드는 원문
                 'memo' => $this->inspection_skip_memo ? ' · '.$this->inspection_skip_memo : '',
             ]];
@@ -325,7 +326,7 @@ class PurchaseListing extends Model
         // 지역이 비면 ssancar 큐에서 검차원 배정이 안 된다(「지역 미지정」 버킷) — 영업이 지역을 넣게 안내(2026-10-23 Jin).
         //   검차 연동이 켜진 박스에서만(꺼진 박스는 지역이 배정과 무관하다). 지역을 넣으면 upsert 재발송으로 배정 대상이 된다.
         if (trim((string) $this->region) === '' && SsancarInspection::configured() && $this->inspection_started_at === null) {
-            return ['key' => 'inspection.hold_no_region', 'params' => []];
+            return ['key' => 'inspection.hold_no_region', 'alert' => true, 'params' => []];
         }
         if ($this->inspection_started_at !== null) {
             return ['key' => 'inspection.hold_started', 'params' => [

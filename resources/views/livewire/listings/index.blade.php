@@ -1468,7 +1468,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <td>@if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</td>
                             <td><span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span></td>
                             {{-- 검차상태 — 현지확인대기 차가 왜 아직 전달대기로 안 넘어갔나(ssancar 폴러 마지막 판정). 그 외 상태는 빈 칸. 상태 칸 오른쪽(Jin). --}}
-                            <td class="max-w-[260px] whitespace-normal text-[11px] leading-snug text-gray-500">@if ($hold = $l->ssancarHoldHint()){{ __($hold['key'], $hold['params']) }}@else<span class="text-gray-300">—</span>@endif</td>
+                            <td class="max-w-[260px] whitespace-normal text-[11px] leading-snug text-gray-500">@if ($hold = $l->ssancarHoldHint())@if (! empty($hold['alert']))<span class="font-semibold text-red-600">⚠ {{ __($hold['key'], $hold['params']) }}</span>@else{{ __($hold['key'], $hold['params']) }}@endif @else<span class="text-gray-300">—</span>@endif</td>
                         </tr>
                     @empty
                         <tr><td colspan="{{ $showOwner ? 10 : 9 }}" class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</td></tr>
@@ -1505,7 +1505,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <div class="mt-1 truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">📝 {{ __('listings.table.inspection_note') }}: {{ $l->inspection_note }}</div>
                     @endif
                     @if ($hold = $l->ssancarHoldHint())
-                        <div class="mt-1 text-[11px] leading-snug text-gray-400">↳ {{ __($hold['key'], $hold['params']) }}</div>
+                        {{-- 영업이 손을 써야 하는 문구(보류·지역 미지정)는 빨간 굵은 글씨 + ⚠ — 폰 카드에서 회색 문구와 구분이 안 됐다(2026-10-24 Jin). --}}
+                        <div class="mt-1 text-[11px] leading-snug {{ ! empty($hold['alert']) ? 'font-semibold text-red-600' : 'text-gray-400' }}">{{ ! empty($hold['alert']) ? '⚠' : '↳' }} {{ __($hold['key'], $hold['params']) }}</div>
                     @endif
                 </div>
             @empty
@@ -1606,7 +1607,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 {{-- 현지확인대기 차 — 왜 아직 안 넘어갔나(폴러 마지막 판정, 현지확인 행과 같은 문구) + 사진만으로 넘기기 (2026-10-13 Jin) --}}
                 @if ($e->status === 'draft' && ($hold = $e->ssancarHoldHint()))
                     <div class="card-sm mt-4 border-gray-200 bg-gray-50 text-[12px] text-gray-600">
-                        <div>🔎 {{ __($hold['key'], $hold['params']) }}</div>
+                        <div class="{{ ! empty($hold['alert']) ? 'font-semibold text-red-600' : '' }}">{{ ! empty($hold['alert']) ? '⚠' : '🔎' }} {{ __($hold['key'], $hold['params']) }}</div>
                         @if ($e->inspection_skip_photo_url)
                             <a href="{{ $e->inspection_skip_photo_url }}" target="_blank" rel="noopener" class="mt-1 inline-block text-[11px] text-blue-600 underline">{{ __('listings.drawer.skip_photo') }}</a>
                         @endif
