@@ -909,3 +909,8 @@ Jin 이 ERP 에서 수기 정정. **전수 조사 = heymanboard 74대 중 12대*
 - **재검차 요청**(`/listings` 드로어, 보류일 때) = 패스 칸 비우고 upsert(reason=reinspect). ssancar 「되돌리기」는 `inspection.reopened` 로 같은 결과.
 - **일일 대사** `board:inspection-reconcile` 07:20 — 판정식 true 전부를 `queue.reconcile` 로, 응답 `missing_listing_ids` 중 **지금도 대상인 것만** upsert. 빈 목록은 안 보낸다.
 - 시크릿 env = `SSANCAR_INSPECTION_URL`·`_HMAC_SECRET`(보내는 쪽)·`_WEBHOOK_SECRET`(받는 쪽)·`_TENANT`(선택). 인스턴스별·방향별 별개, 운영 값은 Jin 이 직접. 로컬 시험값 출처 = `C:/xampp/htdocs/_local_shared/inspect_test_secrets.json`(레포 밖, `.env.bak-inspect-20261023` 백업). `phpunit.xml` 은 이 env 를 비운다.
+
+### 14-26. 2026-10-24 — 사용자 검색 · 목록 바이어 · ERP 감사 대조 (dev 미배포, 마이그 `2026_10_24_000001`)
+- `/users` 검색 = ERP 미러: 이름·이메일·전화번호(하이픈 무시 `REPLACE(phone,'-','')`) **버튼·Enter 로만**(`search` 입력 ↔ `appliedSearch` 적용 분리, 메서드명 `searchNow` — `search()` 금지) + 등급·역할 필터.
+- 매입예정 「바이어」 = `buyerDisplay()` = `buyer_name`(전달 단계) ?: `car_erp_buyer_name`(`/auction` 에서 고른 ERP 바이어 **이름 스냅샷**, id 와 항상 같이 저장). 셀프검차매입은 전달 단계가 없어 바이어가 「—」였다. 모바일 카드는 바이어 줄을 항상 그린다(없으면 —).
+- ERP 감사 업그레이드(car-erp `c54bd995`) 대조: ① 숫자 표기만 다른 재저장 = 변경 아님(`BoardAudit::isRealChange`, heymanboard 실측 소음 0건이지만 decimal 판매가부터 위험) ② 매도비 계좌 3칸·컨사이니를 AUDITED 에(계좌 *** 마스킹). 미착수 = **첨부(사진·서류) 추가·삭제 감사**, IP 기록. ERP 도 없음 = 로그인·계정/권한 변경·설정 변경·user_agent.

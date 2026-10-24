@@ -12,7 +12,23 @@ use App\Models\PurchaseListing;
 class BoardAudit
 {
     /** 민감 필드(계좌번호 등) — 감사로그엔 값 대신 마스킹만 기록(§6e). */
-    private const MASKED = ['payee_account'];
+    private const MASKED = ['payee_account', 'selling_fee_payee_account'];
+
+    /**
+     * 진짜 바뀌었나 — 숫자는 숫자로 비교한다(「12100.00」→「12100」 재저장은 변경 아님). ERP 는 이런 소음이 감사의 83% 였다
+     * (car-erp `AuditLog::isRealChange`, 2026-10-24 대조). board 는 decimal 판매가·운임비(2026-10-22 쪼개기)부터 같은 위험이 생겼다.
+     */
+    public static function isRealChange(mixed $old, mixed $new): bool
+    {
+        if (($old === null || $old === '') && ($new === null || $new === '')) {
+            return false;
+        }
+        if (is_numeric($old) && is_numeric($new)) {
+            return (float) $old !== (float) $new;
+        }
+
+        return (string) $old !== (string) $new;
+    }
 
     /**
      * 등록 시점 기록 — 「등록」 1행(field=created) + 등록 때 이미 채워진 AUDITED 필드 각 1행(∅ → 값).
@@ -62,7 +78,7 @@ class BoardAudit
             $old = $original[$field] ?? null;
             $new = $listing->$field;
 
-            if ((string) $old === (string) $new) {
+            if (! self::isRealChange($old, $new)) {
                 continue;
             }
 

@@ -1464,7 +1464,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             {{-- 추가 검사 요청(영업 → 검차원) / 검차 메모(검차 결과) — 이름이 헷갈려 두 칸으로 나눴다(2026-10-23 Jin). --}}
                             <td class="max-w-[180px] truncate text-xs text-gray-600" title="{{ $l->inspection_request }}">{{ $l->inspection_request ?: '—' }}</td>
                             <td class="max-w-[180px] truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">{{ $l->inspection_note ?: '—' }}</td>
-                            <td class="max-w-[160px] truncate text-gray-700" title="{{ $l->buyer_name }}">{{ $l->buyer_name ?: '—' }}</td>
+                            <td class="max-w-[160px] truncate text-gray-700" title="{{ $l->buyerDisplay() }}">{{ $l->buyerDisplay() ?: '—' }}</td>
                             <td>@if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</td>
                             <td><span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span></td>
                             {{-- 검차상태 — 현지확인대기 차가 왜 아직 전달대기로 안 넘어갔나(ssancar 폴러 마지막 판정). 그 외 상태는 빈 칸. 상태 칸 오른쪽(Jin). --}}
@@ -1492,7 +1492,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <div class="flex flex-wrap items-center gap-1">
                             <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span>
                             @if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@endif
-                            @if ($l->buyer_name)<span class="truncate text-xs text-gray-600">🧑 {{ $l->buyer_name }}</span>@endif
+                            {{-- 바이어는 항상 한 줄(없으면 —) — 모바일에서 「안 보인다」로 읽혔다(2026-10-24 Jin). --}}
+                            <span class="min-w-0 max-w-full truncate text-xs text-gray-600">🧑 {{ __('listings.table.buyer') }}: {{ $l->buyerDisplay() ?: '—' }}</span>
                             @if (auth()->user()->canSeeAll() && $l->creator)<span class="truncate text-xs text-gray-500">👤 {{ $l->creator->name }}</span>@endif
                         </div>
                         <span class="shrink-0 text-sm font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).__('common.won_currency') : '—' }}</span>

@@ -14,6 +14,7 @@ use App\Models\PurchaseListing;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\BizmAlimtalkService;
+use App\Services\BoardAudit;
 use App\Services\CarErpReadService;
 use App\Services\ExchangeRateService;
 use App\Services\ListingEnrichment;
@@ -404,6 +405,45 @@ class BoardTest extends TestCase
             ->assertDontSee(__('listings.table.owner'))   // 영업은 본인 것만 → 담당자 칸 없음
             ->assertSee('11가1111')->assertDontSee('33다3333');
         $this->assertSame(2, $c2->get('tabCounts')['all']);
+    }
+
+    /** 사용자관리 검색 — ERP 와 같이 이름·이메일·전화번호(하이픈 무시), 버튼·Enter 로만 적용 + 등급·역할 필터(2026-10-24 Jin). */
+    public function test_users_search_by_name_email_phone_and_filters(): void
+    {
+        $a = $this->mkUser('sales');
+        $a->update(['name' => '김검색', 'phone' => '010-1234-5678']);
+        $b = $this->mkUser('inspection');
+        $b->update(['name' => '박다른']);
+        $this->actingAs($this->mkUser('manager', null, 'super'));
+
+        $c = Volt::test('users.index')->assertSee('김검색')->assertSee('박다른');
+        $c->set('search', '김검')->assertSee('박다른');               // 버튼 전엔 그대로
+        $c->call('searchNow')->assertSee('김검색')->assertDontSee('박다른');
+        $c->set('search', '01012345678')->call('searchNow')->assertSee('김검색');   // 하이픈 없이 전화번호
+        $c->set('search', '')->call('searchNow')->set('roleFilter', 'inspection')->assertSee('박다른')->assertDontSee('김검색');
+    }
+
+    /** 숫자 표기만 다른 재저장은 감사 변경이 아니다(ERP isRealChange 대조, 2026-10-24). 매도비 계좌는 *** 로 남는다. */
+    public function test_audit_skips_numeric_format_only_changes_and_masks_fee_account(): void
+    {
+        $this->assertFalse(BoardAudit::isRealChange('9760.00', 9760.0));
+        $this->assertFalse(BoardAudit::isRealChange(null, ''));
+        $this->assertTrue(BoardAudit::isRealChange('9760.00', '9760.5'));
+
+        $l = $this->mkListing($this->mkUser('sales'));
+        $l->update(['selling_fee_payee_account' => '123-456']);
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'field' => 'selling_fee_payee_account', 'new_value' => '***']);
+    }
+
+    /** 매입예정 목록 바이어 = 전달 단계 이름 우선, 없으면 /auction 에서 고른 ERP 바이어 이름(2026-10-24 Jin). */
+    public function test_listing_buyer_falls_back_to_erp_buyer_name(): void
+    {
+        $kim = $this->mkUser('sales');
+        $this->mkListing($kim, ['vehicle_number' => '11가2001', 'buyer_name' => '전달바이어']);
+        $this->mkListing($kim, ['vehicle_number' => '11가2002', 'buyer_name' => null, 'car_erp_buyer_id' => 7, 'car_erp_buyer_name' => 'AUTO BRIXH']);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')->assertSee('전달바이어')->assertSee('AUTO BRIXH');
     }
 
     /** 「건수만」 = 행을 아예 안 불러온다(총계만). 빈 목록의 「없습니다」와 다른 문구로 말한다. */

@@ -546,6 +546,12 @@ new #[Layout('components.layouts.app')] class extends Component {
         // 재고매입이면 바이어를 컬럼에도 안 남긴다 — 화면엔 안 보이는데 값만 남아 있으면
         // 나중에 그게 실려 나갈 자리가 생긴다(Job 이 한 번 더 막지만, 두 곳이 어긋날 이유가 없다).
         $l->car_erp_buyer_id = $this->buyerUndecided ? null : ($this->buyerId ?: null);
+        // 이름 스냅샷 — 매입예정 목록 「바이어」 칸용(2026-10-24). id 와 항상 같이 바꾼다. 목록 조회 실패로 이름을 못 찾으면 기존 값 유지.
+        if ($l->car_erp_buyer_id === null) {
+            $l->car_erp_buyer_name = null;
+        } elseif ($b = collect($this->buyerOpts)->firstWhere('id', $l->car_erp_buyer_id)) {
+            $l->car_erp_buyer_name = mb_substr((string) ($b['name'] ?? ''), 0, 120) ?: null;
+        }
         $l->car_erp_consignee_id = $this->buyerUndecided ? null : ($this->consigneeId ?: null);
         // 차값 — 통화는 등록 시 정해진 `expected_price_currency` 그대로(여기선 금액만 보정).
         $l->car_cost = ($this->car_cost === null || $this->car_cost === '') ? null : (int) $this->car_cost;
