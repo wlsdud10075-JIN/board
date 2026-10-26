@@ -57,7 +57,8 @@ return [
         'vehicle' => '차량',
         'source' => '출처',
         'total' => '최종금액',
-        'inspection_note' => '추가검사사항',
+        'inspection_request' => '추가 검사 요청',   // 영업 → 검차원(inspection_request)
+        'inspection_note' => '검차 메모',           // 검차 결과(inspection_note) — 2026-10-23 「추가검사사항」에서 이름 변경
         'buyer' => '바이어',                 // 바이어 이름(buyer_name)
         'verdict' => '바이어 회신',          // 수락/거절/회신대기 칩 — 종전엔 「바이어」 칸에 들어 있었다(2026-10-13 Jin 분리)
         'owner' => '담당자',             // 등록자(created_by) — 전체가 보이는 사람에게만(2026-10-23 Jin)
@@ -315,6 +316,10 @@ return [
         'delete_confirm' => '이 매입예정을 삭제할까요? 목록에서 사라지고 같은 차량번호로 다시 등록할 수 있습니다. (감사로그에 기록)',
         'deleted_flash' => ':number 삭제했습니다. 같은 차량번호로 다시 등록할 수 있습니다.',
         // 사진만으로 전달대기 (2026-10-13 Jin) — 검차 영상 없이 바이어와 바로 얘기하고 싶을 때
+        'reinspect_btn' => '재검차 요청',
+        'reinspect_confirm' => '검차원에게 이 차를 다시 검차해 달라고 요청할까요? (ssancar.com 검차 목록에 다시 올라갑니다)',
+        'reinspect_flash' => ':number 재검차를 요청했습니다.',
+        'skip_photo' => '검차원이 남긴 사진 보기',
         'forward_photos_btn' => '지금 있는 사진으로 전달대기로 넘기기',
         'forward_photos_confirm' => '검차 영상 없이 지금 있는 사진으로 전달대기로 넘깁니다. 바이어 링크에는 현재 사진이 들어가고, 영상이 나중에 올라오면 같은 링크에서 보입니다. 이 차는 현지확인 목록에서 빠집니다. 진행할까요?',
         'forward_photos_flash' => ':number 전달대기로 넘겼습니다 — 「전달 대기」 화면에서 바이어에게 보내세요.',

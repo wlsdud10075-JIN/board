@@ -246,13 +246,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @forelse ($this->logs as $log)
                         <tr>
                             <td class="whitespace-nowrap text-gray-400">{{ $log->created_at?->format('Y-m-d H:i') }}</td>
-                            <td class="text-gray-700">{{ $log->user?->name ?? __('audit.system') }}</td>
+                            <td class="text-gray-700">{{ $log->user?->name ?? __('audit.system') }}@if ($log->ip_address)<div class="text-[10px] text-gray-400">{{ $log->ip_address }}</div>@endif</td>
                             <td class="text-gray-600">
                                 {{ \App\Support\Plate::show($log->listing?->vehicle_number) ?? '#'.$log->purchase_listing_id }}
                                 @if ($log->listing?->trashed())<span class="badge badge-gray">{{ __('audit.field.deleted') }}</span>@endif
                             </td>
                             <td>
-                                @php $badge = match ($log->action) { 'status_change' => 'badge-purple', 'create' => 'badge-green', 'delete' => 'badge-red', default => 'badge-gray' }; @endphp
+                                @php $badge = match ($log->action) { 'status_change' => 'badge-purple', 'create', 'attachment_add' => 'badge-green', 'delete', 'attachment_delete' => 'badge-red', default => 'badge-gray' }; @endphp
                                 <span class="badge {{ $badge }}" title="{{ $log->action }}">{{ $this->fieldLabel($log->field) }}</span>
                             </td>
                             <td class="text-gray-500">{{ $this->valueLabel($log->field, $log->old_value) ?? '∅' }} → <b class="text-gray-800">{{ $this->valueLabel($log->field, $log->new_value) ?? '∅' }}</b></td>

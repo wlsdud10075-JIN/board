@@ -14,8 +14,22 @@ class BoardAuditLog extends Model
     public const UPDATED_AT = null;
 
     protected $fillable = [
-        'user_id', 'purchase_listing_id', 'action', 'field', 'old_value', 'new_value',
+        'user_id', 'purchase_listing_id', 'action', 'field', 'old_value', 'new_value', 'ip_address',
     ];
+
+    /** 접속 IP — 화면 요청일 때만. 큐 Job·스케줄러(콘솔)는 null(요청이 없다). 2026-10-24 car-erp 대조. */
+    public static function currentIp(): ?string
+    {
+        return app()->runningInConsole() && ! app()->runningUnitTests() ? null : request()?->ip();
+    }
+
+    protected static function booted(): void
+    {
+        // create() 로 들어오는 모든 기록(삭제·챗봇·필드 변경)에 IP 를 붙인다. insert() 경로는 BoardAudit 이 직접 넣는다.
+        static::creating(function (BoardAuditLog $log) {
+            $log->ip_address ??= self::currentIp();
+        });
+    }
 
     public function user(): BelongsTo
     {

@@ -56,4 +56,12 @@ return [
     'err_cannot_deactivate_self' => 'You cannot deactivate your own account.',
     'err_cannot_remove_own_super' => 'You cannot remove your own system admin permission.',
     'err_super_target_forbidden' => 'Higher-tier accounts (system admin, operations manager) can only be edited by the same tier or above.',
+    'search_ph' => 'Name · email · phone',
+    'filter_perm_all' => 'All levels',
+    'filter_perm_super' => 'System admin',
+    'filter_perm_manager' => 'Work manager',
+    'filter_perm_user' => 'User',
+    'filter_role_all' => 'All roles',
+    'count' => ':count users',
+    'search_empty' => 'No users match.',
 ];

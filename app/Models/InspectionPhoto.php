@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 
@@ -27,6 +28,28 @@ class InspectionPhoto extends Model
     protected function casts(): array
     {
         return ['share_to_buyer' => 'boolean'];
+    }
+
+    /**
+     * 첨부 추가·삭제 감사(2026-10-24 Jin — car-erp 대조로 남은 차이). 파일 1개 = 1행, **바뀔 때만**(추가·삭제) 남는다.
+     * field = `attachment_<kind>`, 값 = 원래 파일 이름(경로·내용은 안 남긴다).
+     */
+    protected static function booted(): void
+    {
+        static::created(function (InspectionPhoto $p) {
+            BoardAuditLog::create([
+                'user_id' => Auth::id(), 'purchase_listing_id' => $p->purchase_listing_id,
+                'action' => 'attachment_add', 'field' => 'attachment_'.($p->kind ?: self::KIND_INSPECTION),
+                'old_value' => null, 'new_value' => (string) ($p->original_name ?: basename((string) $p->s3_path)),
+            ]);
+        });
+        static::deleted(function (InspectionPhoto $p) {
+            BoardAuditLog::create([
+                'user_id' => Auth::id(), 'purchase_listing_id' => $p->purchase_listing_id,
+                'action' => 'attachment_delete', 'field' => 'attachment_'.($p->kind ?: self::KIND_INSPECTION),
+                'old_value' => (string) ($p->original_name ?: basename((string) $p->s3_path)), 'new_value' => null,
+            ]);
+        });
     }
 
     public function listing(): BelongsTo

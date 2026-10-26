@@ -23,10 +23,52 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $respond_agent_email = '';      // 연동 A 승격 라우팅(respond.io 상담원 이메일이 로그인과 다를 때)
     public string $password = '';
 
+    /** 검색어(이름·이메일·전화번호) — ERP 사용자관리와 같은 규칙: **버튼·Enter 로만** 돈다(타이핑마다 LIKE 왕복 안 함). */
+    public string $search = '';
+
+    /** 실제로 적용된 검색어 — 입력칸(`search`)과 분리해야 버튼을 누르기 전까지 목록이 안 바뀐다. */
+    public string $appliedSearch = '';
+
+    public string $permFilter = '';
+
+    public string $roleFilter = '';
+
+    /** 🚨 `search()` 로 짓지 말 것 — 프로퍼티와 이름이 겹쳐 버튼이 죽는다(car-erp SKILLS §8 #32). */
+    public function searchNow(): void
+    {
+        $this->appliedSearch = trim($this->search);
+        unset($this->users);
+    }
+
     #[Computed]
     public function users()
     {
-        return User::orderByDesc('permission')->orderBy('role')->orderBy('name')->get();
+        $term = $this->appliedSearch;
+        $digits = preg_replace('/\D/', '', $term);
+
+        return User::query()
+            ->when($term !== '', fn ($q) => $q->where(function ($q2) use ($term, $digits) {
+                $like = '%'.addcslashes($term, '%_\\').'%';
+                $q2->where('name', 'like', $like)->orWhere('email', 'like', $like)->orWhere('phone', 'like', $like);
+                // 전화번호는 하이픈 유무가 섞여 있다 — 숫자만으로도 걸리게(ERP 와 같은 처리).
+                if (strlen($digits) >= 3) {
+                    $q2->orWhereRaw("REPLACE(phone, '-', '') like ?", ['%'.$digits.'%']);
+                }
+            }))
+            ->when($this->permFilter !== '', fn ($q) => $q->where('permission', $this->permFilter))
+            ->when($this->roleFilter !== '', fn ($q) => $q->where('role', $this->roleFilter))
+            ->orderByDesc('permission')->orderBy('role')->orderBy('name')->orderBy('id')
+            ->get();
+    }
+
+    public function updatedPermFilter(): void
+    {
+        unset($this->users);
+    }
+
+    public function updatedRoleFilter(): void
+    {
+        unset($this->users);
     }
 
     public function roleLabel(string $r): string
@@ -210,6 +252,26 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="card-sm mb-3 border-red-200 bg-red-50 text-[13px] text-red-700">⚠ {{ session('err') }}</div>
     @endif
 
+    {{-- 검색 — ERP 사용자관리와 같은 모양(이름·이메일·전화번호 + 등급, 버튼·Enter 로만). 모바일은 한 줄씩 쌓인다. --}}
+    <div class="card-sm mb-3 flex flex-wrap items-center gap-2">
+        <input wire:model="search" wire:keydown.enter="searchNow" type="search" class="input-filter w-full sm:w-64"
+               placeholder="{{ __('users.search_ph') }}">
+        <button type="button" wire:click="searchNow" class="btn-primary btn-sm">{{ __('common.search') }}</button>
+        <select wire:model.live="permFilter" class="input-filter w-full sm:w-auto">
+            <option value="">{{ __('users.filter_perm_all') }}</option>
+            <option value="super">{{ __('users.filter_perm_super') }}</option>
+            <option value="manager">{{ __('users.filter_perm_manager') }}</option>
+            <option value="user">{{ __('users.filter_perm_user') }}</option>
+        </select>
+        <select wire:model.live="roleFilter" class="input-filter w-full sm:w-auto">
+            <option value="">{{ __('users.filter_role_all') }}</option>
+            @foreach (\App\Models\User::ROLE_LABELS as $rk => $rl)
+                <option value="{{ $rk }}">{{ $this->roleLabel($rk) }}</option>
+            @endforeach
+        </select>
+        <span class="text-[12px] text-gray-500">{{ __('users.count', ['count' => $this->users->count()]) }}</span>
+    </div>
+
     <div class="card">
         <div class="overflow-x-auto">
             <table class="tbl">
@@ -217,7 +279,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <tr><th>{{ __('users.col_name') }}</th><th>{{ __('users.col_email') }}</th><th>{{ __('users.col_perm_role') }}</th><th>{{ __('users.col_car_erp_match') }}</th><th>{{ __('users.col_status') }}</th><th></th></tr>
                 </thead>
                 <tbody>
-                    @foreach ($this->users as $u)
+                    @forelse ($this->users as $u)
                         <tr>
                             <td class="font-semibold text-gray-800">
                                 {{ $u->name }}
@@ -250,7 +312,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 </div>
                             </td>
                         </tr>
-                    @endforeach
+                    @empty
+                        <tr><td colspan="6" class="py-8 text-center text-gray-400">{{ __('users.search_empty') }}</td></tr>
+                    @endforelse
                 </tbody>
             </table>
         </div>

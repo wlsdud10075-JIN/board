@@ -35,6 +35,9 @@
         <env name="MAIL_MAILER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
+        <env name="SSANCAR_INSPECTION_URL" value=""/>
+        <env name="SSANCAR_INSPECTION_HMAC_SECRET" value=""/>
+        <env name="SSANCAR_INSPECTION_WEBHOOK_SECRET" value=""/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
     </php>

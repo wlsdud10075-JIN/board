@@ -414,6 +414,37 @@ new #[Layout('components.layouts.app')] class extends Component {
     }
 
     /**
+     * 「재검차 요청」(검차 큐 연동, 2026-10-23 Jin (다)) — ssancar 검차원이 패스(보류)한 차를 다시 큐에 넣는다.
+     * 조건 = 사진만으로 넘기기와 같은 사람·상태(본인 또는 관리 이상 · draft · 시간잠금 아님) + 보류 상태.
+     * board 의 패스 칸을 비우고 `queue.upsert`(reason=reinspect)를 보낸다. ssancar 쪽 「되돌리기」(→ reopened 웹훅)와 같은 결과.
+     */
+    public function reinspectable(PurchaseListing $l): bool
+    {
+        $u = Auth::user();
+
+        return $l->status === 'draft'
+            && $l->inspection_skipped_at !== null
+            && ($l->created_by_user_id === $u->id || $u->isManager() || $u->hasFullAccess())
+            && $this->editable($l);
+    }
+
+    public function requestReinspection(): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        abort_unless($this->reinspectable($l), 403);
+
+        // 다시 대기 — 지난 검차 시작·검차원도 비운다(안 비우면 「검차중 · 검차원」이 남는다, 2026-10-23 데모 D6).
+        $l->forceFill(['inspection_skipped_at' => null, 'inspection_skip_reason' => null,
+            'inspection_skip_memo' => null, 'inspection_skip_photo_url' => null,
+            'inspection_started_at' => null, 'ssancar_inspector_name' => null])->save();
+        \App\Jobs\SendInspectionQueueEvent::dispatch($l->id, 'upsert', 'reinspect')->afterCommit();
+
+        unset($this->listings, $this->tabCounts);
+        session()->flash('ok', __('listings.drawer.reinspect_flash', ['number' => \App\Support\Plate::show($l->vehicle_number)]));
+        $this->closeEdit();
+    }
+
+    /**
      * draft → inspected(전달대기) 수동 전이. 현지확인 「검차완료」와 같은 전이(TRANSITIONS 허용)라 가드를 그대로 탄다.
      * 감사로그는 모델 옵저버가 status_change 로 남긴다(user_id = 누른 영업). 전달대기 알림톡(B)은 자동 전이와 같은 조건으로 발사.
      * 넘긴 차는 현지확인 목록과 폴러 대상에서 빠진다 — 전달 화면이 ssancar 미디어를 실시간으로 다시 가져오므로
@@ -1418,7 +1449,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             @php $showOwner = auth()->user()->canSeeAll(); @endphp
             <table class="tbl tbl-center">
                 <thead>
-                    <tr><th class="w-px whitespace-nowrap">{{ __('listings.table.vehicle') }}</th><th>{{ __('listings.table.source') }}</th>@if ($showOwner)<th>{{ __('listings.table.owner') }}</th>@endif<th>{{ __('listings.table.total') }}</th><th>{{ __('listings.table.inspection_note') }}</th><th>{{ __('listings.table.buyer') }}</th><th>{{ __('listings.table.verdict') }}</th><th>{{ __('listings.table.status') }}</th><th>{{ __('listings.table.inspection_state') }}</th></tr>
+                    <tr><th class="w-px whitespace-nowrap">{{ __('listings.table.vehicle') }}</th><th>{{ __('listings.table.source') }}</th>@if ($showOwner)<th>{{ __('listings.table.owner') }}</th>@endif<th>{{ __('listings.table.total') }}</th><th>{{ __('listings.table.inspection_request') }}</th><th>{{ __('listings.table.inspection_note') }}</th><th>{{ __('listings.table.buyer') }}</th><th>{{ __('listings.table.verdict') }}</th><th>{{ __('listings.table.status') }}</th><th>{{ __('listings.table.inspection_state') }}</th></tr>
                 </thead>
                 <tbody>
                     @forelse ($this->listings as $l)
@@ -1430,15 +1461,17 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <td><span class="badge {{ $l->originBadge() }}">{{ $l->originLabel() }}</span></td>
                             @if ($showOwner)<td class="whitespace-nowrap text-gray-700">{{ $l->creator?->name ?? '—' }}</td>@endif
                             <td class="font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).__('common.won_currency') : '—' }}</td>
-                            <td class="max-w-[200px] truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">{{ $l->inspection_note ?: '—' }}</td>
-                            <td class="max-w-[160px] truncate text-gray-700" title="{{ $l->buyer_name }}">{{ $l->buyer_name ?: '—' }}</td>
+                            {{-- 추가 검사 요청(영업 → 검차원) / 검차 메모(검차 결과) — 이름이 헷갈려 두 칸으로 나눴다(2026-10-23 Jin). --}}
+                            <td class="max-w-[180px] truncate text-xs text-gray-600" title="{{ $l->inspection_request }}">{{ $l->inspection_request ?: '—' }}</td>
+                            <td class="max-w-[180px] truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">{{ $l->inspection_note ?: '—' }}</td>
+                            <td class="max-w-[160px] truncate text-gray-700" title="{{ $l->buyerDisplay() }}">{{ $l->buyerDisplay() ?: '—' }}</td>
                             <td>@if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</td>
                             <td><span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span></td>
                             {{-- 검차상태 — 현지확인대기 차가 왜 아직 전달대기로 안 넘어갔나(ssancar 폴러 마지막 판정). 그 외 상태는 빈 칸. 상태 칸 오른쪽(Jin). --}}
-                            <td class="max-w-[260px] whitespace-normal text-[11px] leading-snug text-gray-500">@if ($hold = $l->ssancarHoldHint()){{ __($hold['key'], $hold['params']) }}@else<span class="text-gray-300">—</span>@endif</td>
+                            <td class="max-w-[260px] whitespace-normal text-[11px] leading-snug text-gray-500">@if ($hold = $l->ssancarHoldHint())@if (! empty($hold['alert']))<span class="font-semibold text-red-600">⚠ {{ __($hold['key'], $hold['params']) }}</span>@else{{ __($hold['key'], $hold['params']) }}@endif @else<span class="text-gray-300">—</span>@endif</td>
                         </tr>
                     @empty
-                        <tr><td colspan="{{ $showOwner ? 9 : 8 }}" class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</td></tr>
+                        <tr><td colspan="{{ $showOwner ? 10 : 9 }}" class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -1459,16 +1492,21 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <div class="flex flex-wrap items-center gap-1">
                             <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span>
                             @if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@endif
-                            @if ($l->buyer_name)<span class="truncate text-xs text-gray-600">🧑 {{ $l->buyer_name }}</span>@endif
+                            {{-- 바이어는 항상 한 줄(없으면 —) — 모바일에서 「안 보인다」로 읽혔다(2026-10-24 Jin). --}}
+                            <span class="min-w-0 max-w-full truncate text-xs text-gray-600">🧑 {{ __('listings.table.buyer') }}: {{ $l->buyerDisplay() ?: '—' }}</span>
                             @if (auth()->user()->canSeeAll() && $l->creator)<span class="truncate text-xs text-gray-500">👤 {{ $l->creator->name }}</span>@endif
                         </div>
                         <span class="shrink-0 text-sm font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).__('common.won_currency') : '—' }}</span>
                     </div>
+                    @if ($l->inspection_request)
+                        <div class="mt-1 truncate text-xs text-gray-600" title="{{ $l->inspection_request }}">🔍 {{ __('listings.table.inspection_request') }}: {{ $l->inspection_request }}</div>
+                    @endif
                     @if ($l->inspection_note)
-                        <div class="mt-1 truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">📝 {{ $l->inspection_note }}</div>
+                        <div class="mt-1 truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">📝 {{ __('listings.table.inspection_note') }}: {{ $l->inspection_note }}</div>
                     @endif
                     @if ($hold = $l->ssancarHoldHint())
-                        <div class="mt-1 text-[11px] leading-snug text-gray-400">↳ {{ __($hold['key'], $hold['params']) }}</div>
+                        {{-- 영업이 손을 써야 하는 문구(보류·지역 미지정)는 빨간 굵은 글씨 + ⚠ — 폰 카드에서 회색 문구와 구분이 안 됐다(2026-10-24 Jin). --}}
+                        <div class="mt-1 text-[11px] leading-snug {{ ! empty($hold['alert']) ? 'font-semibold text-red-600' : 'text-gray-400' }}">{{ ! empty($hold['alert']) ? '⚠' : '↳' }} {{ __($hold['key'], $hold['params']) }}</div>
                     @endif
                 </div>
             @empty
@@ -1569,7 +1607,16 @@ new #[Layout('components.layouts.app')] class extends Component {
                 {{-- 현지확인대기 차 — 왜 아직 안 넘어갔나(폴러 마지막 판정, 현지확인 행과 같은 문구) + 사진만으로 넘기기 (2026-10-13 Jin) --}}
                 @if ($e->status === 'draft' && ($hold = $e->ssancarHoldHint()))
                     <div class="card-sm mt-4 border-gray-200 bg-gray-50 text-[12px] text-gray-600">
-                        <div>🔎 {{ __($hold['key'], $hold['params']) }}</div>
+                        <div class="{{ ! empty($hold['alert']) ? 'font-semibold text-red-600' : '' }}">{{ ! empty($hold['alert']) ? '⚠' : '🔎' }} {{ __($hold['key'], $hold['params']) }}</div>
+                        @if ($e->inspection_skip_photo_url)
+                            <a href="{{ $e->inspection_skip_photo_url }}" target="_blank" rel="noopener" class="mt-1 inline-block text-[11px] text-blue-600 underline">{{ __('listings.drawer.skip_photo') }}</a>
+                        @endif
+                        @if ($this->reinspectable($e))
+                            <button type="button" class="btn-outline btn-sm mt-2 w-full justify-center"
+                                wire:click="requestReinspection" wire:confirm="{{ __('listings.drawer.reinspect_confirm') }}">
+                                🔁 {{ __('listings.drawer.reinspect_btn') }}
+                            </button>
+                        @endif
                         @if ($this->forwardable($e))
                             <button type="button" class="btn-outline btn-sm mt-2 w-full justify-center"
                                 wire:click="forwardWithPhotos" wire:confirm="{{ __('listings.drawer.forward_photos_confirm') }}">

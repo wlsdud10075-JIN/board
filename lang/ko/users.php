@@ -56,4 +56,12 @@ return [
     'err_cannot_deactivate_self' => '본인 계정은 비활성화할 수 없습니다.',
     'err_cannot_remove_own_super' => '본인의 시스템관리자 권한은 해제할 수 없습니다.',
     'err_super_target_forbidden' => '상위 등급(시스템관리자·업무관리자) 계정은 같은 등급 이상만 수정할 수 있습니다.',
+    'search_ph' => '이름 · 이메일 · 전화번호',
+    'filter_perm_all' => '등급 전체',
+    'filter_perm_super' => '시스템관리자',
+    'filter_perm_manager' => '업무관리자',
+    'filter_perm_user' => '일반',
+    'filter_role_all' => '역할 전체',
+    'count' => ':count명',
+    'search_empty' => '조건에 맞는 사용자가 없습니다.',
 ];
