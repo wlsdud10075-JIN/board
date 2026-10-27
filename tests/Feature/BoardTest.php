@@ -8306,4 +8306,208 @@ class BoardTest extends TestCase
         $this->actingAs($this->mkUser('manager', null, 'manager'));
         Volt::test('users.index')->call('openEdit', $wm->id)->assertSet('editingId', $wm->id);
     }
+
+    // ───────────────── §11 재전송 (2026-10-27 Jin) ─────────────────
+
+    /**
+     * `resend` 플래그는 **달라고 했을 때만**, **매입 3종에만** 실린다. 판매대금확인에 실리면 ERP 가 무시하기로 했지만
+     * 보내지 않는 게 맞다(묶음 공유형이라 회차 의미 없음 — car-erp M4).
+     */
+    public function test_resend_flag_is_sent_only_when_asked_and_only_for_purchase_types(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        Http::fake(['*/api/internal/board/requests*' => Http::response(['batch_id' => null, 'created' => ['11가1111'], 'skipped' => []], 201)]);
+        $svc = app(CarErpReadService::class);
+
+        $svc->sendBoardRequest('s@ce.test', CarErpReadService::REQ_PURCHASE_DEPOSIT, [6], null, null, 3000000, true);
+        $svc->sendBoardRequest('s@ce.test', CarErpReadService::REQ_PURCHASE_DEPOSIT, [6], null, null, 3000000);
+        $svc->sendBoardRequest('s@ce.test', CarErpReadService::REQ_SALE_CONFIRM, [6, 7], 3, null, null, true);
+
+        $bodies = [];
+        Http::assertSent(function ($req) use (&$bodies) {
+            $bodies[] = json_decode($req->body(), true);
+
+            return true;
+        });
+        $this->assertCount(3, $bodies);
+        $this->assertTrue($bodies[0]['resend']);
+        $this->assertArrayNotHasKey('resend', $bodies[1]);
+        $this->assertArrayNotHasKey('resend', $bodies[2]);
+    }
+
+    /**
+     * 열려 있는 칩이 있으면 그 type 버튼만 「계약금 재전송」 이 되고, 칩에 「재전송 N/L」 이 붙는다(회차는 버튼이 아니라 칩 — Jin UX 조건).
+     * 재전송은 금액칸이 비면 **열려 있는 요청의 금액 그대로** — 잔금도 미지급 전액(7,500,000)이 아니라 요청액(8,000,000)이다.
+     */
+    public function test_resend_button_for_open_chip_sends_flag_with_stored_amount(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test']);
+        $this->actingAs($sales);
+
+        Http::fake([
+            '*/api/internal/board/inventory*' => Http::response(['count' => 1, 'total' => 1, 'data' => [
+                ['vehicle_id' => 6, 'vehicle_number' => '11가1111', 'purchase_price' => 10000000, 'purchase_unpaid' => 7500000],
+            ]], 200),
+            '*/api/internal/board/requests*' => function ($request) {
+                if ($request->method() === 'POST') {
+                    return Http::response(['batch_id' => null, 'created' => ['11가1111'], 'resent' => ['11가1111'], 'skipped' => []], 201);
+                }
+
+                return Http::response(['count' => 2, 'requests' => [
+                    ['batch_id' => 'B1', 'type' => 'purchase_deposit', 'status' => 'open', 'amount_krw' => 3000000, 'requested_at' => '2026-10-27T10:00:00+09:00',
+                        'resent_count' => 1, 'resend_limit' => 5,
+                        'vehicles' => [['vehicle_number' => '11가1111', 'status' => 'open', 'amount_krw' => 3000000, 'resent_count' => 1]]],
+                    ['batch_id' => 'B2', 'type' => 'purchase_balance', 'status' => 'open', 'amount_krw' => 8000000, 'requested_at' => '2026-10-27T10:01:00+09:00',
+                        'resent_count' => 0, 'resend_limit' => 5,
+                        'vehicles' => [['vehicle_number' => '11가1111', 'status' => 'open', 'amount_krw' => 8000000, 'resent_count' => 0]]],
+                ]], 200);
+            },
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        $c = Volt::test('portal.index')->call('setTab', 'inventory');
+        $text = preg_replace('/<!--\[if (?:END)?BLOCK\]><!\[endif\]-->/', '', $c->html());
+
+        $this->assertStringContainsString(__('portal.req_resend_btn', ['type' => __('portal.req_deposit_btn')]), $text);
+        $this->assertStringContainsString(__('portal.req_resend_btn', ['type' => __('portal.req_balance_btn')]), $text);
+        $this->assertStringNotContainsString(__('portal.req_resend_btn', ['type' => __('portal.req_deposit_ceo_btn')]), $text);   // 대표계약금은 열린 게 없다 → 종전 버튼
+        $this->assertStringContainsString(' · 3,000,000 · '.__('portal.req_chip_resent', ['n' => 1, 'limit' => 5]), $text);   // 회차는 칩에
+        $this->assertStringNotContainsString(__('portal.req_chip_resent', ['n' => 0, 'limit' => 5]), $text);               // 0회는 안 붙인다
+        $this->assertStringContainsString("sendPurchaseRequest('purchase_deposit', 6, true)", $text);                       // 플래그는 버튼에서
+
+        // 금액칸 비움 + 재전송 → 열려 있는 요청의 금액
+        $c->call('sendPurchaseRequest', CarErpReadService::REQ_PURCHASE_DEPOSIT, 6, true)
+            ->assertSet('reqResult.created', ['11가1111'])
+            ->assertSet('reqResult.resent', ['11가1111']);
+        $c->call('sendPurchaseRequest', CarErpReadService::REQ_PURCHASE_BALANCE, 6, true);
+
+        $posts = [];
+        Http::assertSent(function ($req) use (&$posts) {
+            if (str_contains($req->url(), '/board/requests') && $req->method() === 'POST') {
+                $posts[] = json_decode($req->body(), true);
+            }
+
+            return true;
+        });
+        $this->assertCount(2, $posts);
+        $this->assertTrue($posts[0]['resend']);
+        $this->assertSame(3000000, $posts[0]['amount_krw']);
+        $this->assertTrue($posts[1]['resend']);
+        $this->assertSame(8000000, $posts[1]['amount_krw']);   // 7,500,000(미지급 전액) 이 아니다
+
+        // 결과 줄에 「(재전송)」
+        $text = preg_replace('/<!--\[if (?:END)?BLOCK\]><!\[endif\]-->/', '', $c->html());
+        $this->assertStringContainsString('11가1111 ('.__('portal.req_result_resent').')', $text);
+    }
+
+    /**
+     * 🚫 서버가 칩을 보고 플래그를 **스스로 켜지 않는다**. 「계약금」(비-재전송) 버튼 경로는 열린 칩이 있어도 종전 그대로 —
+     * 빈 금액이면 거절, 보낸다면 플래그 없이(ERP already_open 이 맞는 답). stale 화면에서 confirm 없는 재전송 방지.
+     */
+    public function test_open_chip_does_not_turn_plain_button_into_resend(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test']);
+        $this->actingAs($sales);
+
+        Http::fake([
+            '*/api/internal/board/inventory*' => Http::response(['count' => 1, 'total' => 1, 'data' => [
+                ['vehicle_id' => 6, 'vehicle_number' => '11가1111', 'purchase_unpaid' => 7500000],
+            ]], 200),
+            '*/api/internal/board/requests*' => function ($request) {
+                if ($request->method() === 'POST') {
+                    return Http::response(['batch_id' => null, 'created' => [], 'skipped' => [['vehicle_number' => '11가1111', 'reason' => 'already_open']]], 201);
+                }
+
+                return Http::response(['count' => 1, 'requests' => [
+                    ['batch_id' => 'B1', 'type' => 'purchase_deposit', 'status' => 'open', 'amount_krw' => 3000000, 'requested_at' => '2026-10-27T10:00:00+09:00', 'resent_count' => 0, 'resend_limit' => 5,
+                        'vehicles' => [['vehicle_number' => '11가1111', 'status' => 'open', 'amount_krw' => 3000000]]],
+                ]], 200);
+            },
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        $c = Volt::test('portal.index')->call('setTab', 'inventory');
+        $c->call('sendPurchaseRequest', CarErpReadService::REQ_PURCHASE_DEPOSIT, 6)
+            ->assertSet('reqResult.error', __('portal.req_amount_required'));
+        Http::assertNotSent(fn ($req) => str_contains($req->url(), '/board/requests') && $req->method() === 'POST');
+
+        $c->set('reqAmount.6', '3000000')->call('sendPurchaseRequest', CarErpReadService::REQ_PURCHASE_DEPOSIT, 6)
+            ->assertSet('reqResult.skipped.0.reason', 'already_open');
+        Http::assertSent(function ($req) {
+            if (! str_contains($req->url(), '/board/requests') || $req->method() !== 'POST') {
+                return false;
+            }
+            $this->assertArrayNotHasKey('resend', json_decode($req->body(), true));
+
+            return true;
+        });
+    }
+
+    /**
+     * 상한(ERP `resend_limit`)에 닿으면 버튼은 **비활성 + 사유**(없애지 않는다) 이고 서버도 보내지 않는다.
+     * 상한을 안 주는 ERP(구버전) 면 board 가 판정하지 않는다 — 숫자 5 를 board 가 들고 있지 않는다(ERP skipped 가 답).
+     * skipped 사유 `resend_limit` 은 사람 말로, 모르는 사유는 원문.
+     */
+    public function test_resend_limit_disables_button_and_blocks_server_side_only_when_erp_gives_limit(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $sales->update(['car_erp_salesman_email' => 'req@ce.test']);
+        $this->actingAs($sales);
+
+        Http::fake([
+            '*/api/internal/board/inventory*' => Http::response(['count' => 1, 'total' => 1, 'data' => [
+                ['vehicle_id' => 6, 'vehicle_number' => '11가1111', 'purchase_unpaid' => 7500000],
+            ]], 200),
+            '*/api/internal/board/requests*' => function ($request) {
+                if ($request->method() === 'POST') {
+                    return Http::response(['batch_id' => null, 'created' => [], 'skipped' => [
+                        ['vehicle_number' => '11가1111', 'reason' => 'resend_limit'],
+                        ['vehicle_number' => '22나2222', 'reason' => 'something_new'],
+                    ]], 201);
+                }
+
+                return Http::response(['count' => 2, 'requests' => [
+                    // 계약금: 5/5 — 상한 도달
+                    ['batch_id' => 'B1', 'type' => 'purchase_deposit', 'status' => 'open', 'amount_krw' => 3000000, 'requested_at' => '2026-10-27T10:00:00+09:00', 'resent_count' => 5, 'resend_limit' => 5,
+                        'vehicles' => [['vehicle_number' => '11가1111', 'status' => 'open', 'amount_krw' => 3000000, 'resent_count' => 5]]],
+                    // 잔금: 구 ERP 모양(limit 없음) 인데 7회 — board 는 막지 않는다
+                    ['batch_id' => 'B2', 'type' => 'purchase_balance', 'status' => 'open', 'amount_krw' => 8000000, 'requested_at' => '2026-10-27T10:01:00+09:00', 'resent_count' => 7,
+                        'vehicles' => [['vehicle_number' => '11가1111', 'status' => 'open', 'amount_krw' => 8000000, 'resent_count' => 7]]],
+                ]], 200);
+            },
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        $c = Volt::test('portal.index')->call('setTab', 'inventory');
+        $text = preg_replace('/<!--\[if (?:END)?BLOCK\]><!\[endif\]-->/', '', $c->html());
+        $this->assertStringContainsString('disabled title="'.__('portal.req_resend_limit_reached', ['limit' => 5]).'"', $text);
+        $this->assertStringContainsString(__('portal.req_chip_resent', ['n' => 5, 'limit' => 5]), $text);
+        $this->assertStringContainsString(__('portal.req_chip_resent_nolimit', ['n' => 7]), $text);   // 분모 없으면 「N회」
+
+        // 계약금 5/5 → 서버가 막는다(왕복 없음)
+        $c->call('sendPurchaseRequest', CarErpReadService::REQ_PURCHASE_DEPOSIT, 6, true)
+            ->assertSet('reqResult.error', __('portal.req_resend_limit_reached', ['limit' => 5]));
+        Http::assertNotSent(fn ($req) => str_contains($req->url(), '/board/requests') && $req->method() === 'POST');
+
+        // 잔금 7회·limit 없음 → 보낸다. ERP 가 resend_limit 로 거르면 그 사유를 사람 말로, 모르는 사유는 원문.
+        $c->call('sendPurchaseRequest', CarErpReadService::REQ_PURCHASE_BALANCE, 6, true)
+            ->assertSet('reqResult.skipped.0.reason', 'resend_limit');
+        $text = preg_replace('/<!--\[if (?:END)?BLOCK\]><!\[endif\]-->/', '', $c->html());
+        $this->assertStringContainsString('('.__('portal.req_reason_resend_limit').')', $text);
+        $this->assertStringContainsString('(something_new)', $text);
+    }
+
+    public function test_resend_lang_keys_exist_in_both_locales(): void
+    {
+        foreach (['req_resend_btn', 'req_resend_round', 'req_resend_round_nolimit', 'req_resend_confirm', 'req_resend_limit_reached', 'req_reason_resend_limit', 'req_chip_resent', 'req_chip_resent_nolimit', 'req_result_resent'] as $k) {
+            foreach (['ko', 'en'] as $loc) {
+                $this->assertNotSame('portal.'.$k, __('portal.'.$k, [], $loc), "$k missing in $loc");
+            }
+        }
+    }
 }
