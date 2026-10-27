@@ -11,12 +11,23 @@
                     {{ $reqResult['error'] }}
                 @else
                     @if ($reqResult['created'])
-                        <div><b class="text-green-700">{{ __('portal.req_result_created') }}</b> · {{ implode(', ', $reqResult['created']) }}</div>
+                        @php
+                            // 재전송분(2026-10-27)은 created 의 부분집합 — 그 차만 「(재전송)」 을 붙인다. 없으면 종전 표시 그대로.
+                            $resent = (array) ($reqResult['resent'] ?? []);
+                            $createdShown = array_map(fn ($no) => \App\Support\Plate::show($no).(in_array($no, $resent, true) ? ' ('.__('portal.req_result_resent').')' : ''), $reqResult['created']);
+                        @endphp
+                        <div><b class="text-green-700">{{ __('portal.req_result_created') }}</b> · {{ implode(', ', $createdShown) }}</div>
                     @endif
                     @forelse ($reqResult['skipped'] as $s)
                         @php
                             $who = \App\Support\Plate::show(data_get($s, 'vehicle_number')) ?: ('#'.data_get($s, 'vehicle_id'));
-                            $why = data_get($s, 'reason') === 'forbidden' ? __('portal.req_reason_forbidden') : __('portal.req_reason_already_open');
+                            // 모르는 사유는 원문 — already_open 으로 뭉개면 새 사유(resend_limit 등)가 「이미 요청됨」으로 보인다.
+                            $why = match (data_get($s, 'reason')) {
+                                'forbidden' => __('portal.req_reason_forbidden'),
+                                'already_open' => __('portal.req_reason_already_open'),
+                                'resend_limit' => __('portal.req_reason_resend_limit'),
+                                default => (string) data_get($s, 'reason'),
+                            };
                         @endphp
                         <div class="text-gray-500">{{ __('portal.req_result_skipped') }} · {{ $who }} ({{ $why }})</div>
                     @empty

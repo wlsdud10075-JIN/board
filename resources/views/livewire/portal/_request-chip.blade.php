@@ -2,6 +2,8 @@
     §11 요청·확인 신호 칩. $chip = $this->requestChip(차량번호, type) 반환값(없으면 null).
     상태는 **ERP 집계값 그대로** 쓴다 — board 가 재계산하거나 완료로 coerce 하지 않는다(§11-4 항목 4).
     묶음이 2대 이상일 때만 진행도(3/5)를 붙인다(입금요청은 1대=1묶음이라 의미 없음).
+    재전송(2026-10-27) — `resent_count>0` 이면 「재전송 N/L」(L = ERP `resend_limit`, 없으면 「N회」). 회차는 버튼이 아니라 여기에 —
+    버튼은 「계약금 재전송」까지만 길어진다(폰 360px 에서 버튼 3개가 더 접히지 않게, Jin UX 조건).
 --}}
 @if ($chip)
     @php
@@ -39,6 +41,6 @@
             @endif
         </span>
     @else
-    <span class="badge {{ $cls }} whitespace-nowrap">@if (! empty($chipLabel)){{ $chipLabel }} @endif{{ $label }}@if (is_numeric($chip['amount'] ?? null)) · {{ number_format((float) $chip['amount']) }}@endif@if (($chip['total'] ?? 1) > 1) · {{ __('portal.req_chip_progress', ['done' => $chip['done'], 'total' => $chip['total']]) }}@endif</span>
+    <span class="badge {{ $cls }} whitespace-nowrap">@if (! empty($chipLabel)){{ $chipLabel }} @endif{{ $label }}@if (is_numeric($chip['amount'] ?? null)) · {{ number_format((float) $chip['amount']) }}@endif@if (($chip['total'] ?? 1) > 1) · {{ __('portal.req_chip_progress', ['done' => $chip['done'], 'total' => $chip['total']]) }}@endif@if (($chip['resent_count'] ?? 0) > 0) · {{ ($chip['resend_limit'] ?? null) !== null ? __('portal.req_chip_resent', ['n' => $chip['resent_count'], 'limit' => $chip['resend_limit']]) : __('portal.req_chip_resent_nolimit', ['n' => $chip['resent_count']]) }}@endif</span>
     @endif
 @endif

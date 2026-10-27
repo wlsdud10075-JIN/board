@@ -308,6 +308,15 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 - **성능**: 칩은 `chipMap` 으로 **렌더당 1회**만 훑는다(행×묶음×차량 → 1회). 읽기 API 응답은 **정렬이 없다(=id 순)** → `latestFirst()` 로 최신 우선(날짜 desc, 빈 날짜는 맨 뒤).
 - **같은 차·같은 type 에 묶음이 여럿이면 칩 = `requested_at` 이 가장 늦은 묶음**(2026-10-20, heymanboard 34루7841). ⚠️ `/requests` 는 **최신 id 먼저**(`orderByDesc('id')`) 오는데 `chipMap` 이 덮어쓰기라 **가장 오래된 묶음이 이겨** 재요청 「확인됨」 대신 옛 「거절」이 떴다. 응답 순서에 기대지 말고 시각으로 고른다(시각 없으면 먼저 온 것 유지). 가드 = `test_portal_chip_picks_latest_batch_per_type_not_erp_order`.
 - **거절 칩은 접는다** — 「계약금 거절 ⓘ」 한 줄, 누르면 「거절 사유 · 요청 금액」 펼침(PC 는 title 툴팁). 사유 원문 줄을 항상 그리면 행이 두세 줄로 커진다(Jin A안). 요청중·확인됨 칩은 종전대로 금액을 칩에 붙인다.
+- **재전송(2026-10-27 Jin, dev 미배포 — ERP 먼저 배포 권장)** — 열려 있는 계약금·대표계약금·매입잔금 요청을 **같은 내용으로 다시 알린다**. 종전엔 ERP 멱등 가드(`(vehicle_id, type)` open)에 걸려 `already_open` 으로 버려져, 재촉하려면 ERP 에서 확인·거절로 닫는 길밖에 없었다. 받는 쪽 권위 = car-erp `docs/integration/board-portal-api.md` §11(분기표·상한·응답 — 복사 금지). board 는 보내는 쪽만:
+  - 그 type 칩이 `open` 이면 **그 버튼만** 「계약금 재전송」(`req_resend_btn`, 종류 이름 유지 — 어느 버튼이었는지 알아야 한다). 세 버튼은 독립 — 「계약금 재전송」 옆에 「매입잔금」 이 서는 게 정상. 누르면 **confirm**(차량·종류·금액·회차) 뒤 `sendPurchaseRequest(type, vid, resend=true)` → payload `resend: true`(`CarErpReadService::sendBoardRequest` 마지막 인자, 매입 3종에만 실린다).
+  - 🚫 **서버가 칩을 보고 플래그를 스스로 켜지 않는다** — 「재전송」 라벨 버튼을 누른 손에서만 true. stale 화면에서 「계약금」을 눌렀는데 confirm 없이 재전송이 나가면 안 된다(그 경우 종전 already_open 이 맞고, 재렌더에 재전송 버튼이 뜬다). 가드 = `test_open_chip_does_not_turn_plain_button_into_resend`.
+  - 금액칸이 비면 **열려 있는 요청의 금액 그대로**(「같은 내용을 한 번 더」, `openChipFor`) — 잔금의 미지급 전액 프리필(`remainingUnpaidFor`)보다 **먼저**다. 적은 금액이 있으면 그 금액(ERP 가 금액 수정 + 회차 둘 다). 가드 = `test_resend_button_for_open_chip_sends_flag_with_stored_amount`.
+  - **회차는 버튼이 아니라 칩**(「계약금 요청중 · 3,000,000 · 재전송 1/5」)과 confirm 창에만 — 버튼이 「계약금 재전송」 이상 길어지면 폰(360px)에서 버튼 3개가 더 접힌다(Jin: PC·모바일 UX 깨지지 않는 선). 두 줄(칩 줄·버튼 줄) 모두 `flex-wrap` 이라 잘림·가로 스크롤은 없다.
+  - **숫자 5 를 board 가 들고 있지 않는다** — 분모·비활성 판정은 ERP `GET /requests` head 의 `resend_limit`, 회차는 라인·head 의 `resent_count`(`chipMap`). ERP 가 limit 을 안 주면(구버전) 「재전송 N회」 로만 그리고 **board 는 막지 않는다**(ERP `skipped(resend_limit)` 이 답). limit 이 있고 닿았으면 버튼 **비활성 + title 사유**(없애지 않는다 — 이 화면 원칙) + 서버도 `req_resend_limit_reached` 로 거절(왕복 절약). 가드 = `test_resend_limit_disables_button_and_blocks_server_side_only_when_erp_gives_limit`.
+  - 응답 `resent[]` 는 `created` 의 부분집합 — 결과 줄에 그 차만 「(재전송)」. skipped 사유는 `match` 로 — `resend_limit` 은 사람 말, **모르는 사유는 원문**(종전엔 forbidden 아니면 전부 「이미 요청됨」 으로 뭉갰다).
+  - ℹ️ ERP 쪽(car-erp 세션 구현): `resent_count`·`last_resent_at` 컬럼, 회차 증가는 트랜잭션 안(알림톡 실패해도 회차 소비), 알림톡 본문 「(재전송 N회)」 는 자유 텍스트 변수 자리라 **BizM 재승인 없음**, 같은 날 중복 억제 없음(재전송마다 실제 발송), 판매대금확인에 온 플래그는 무시. 연타 방어는 board confirm 만(Jin), 거절 행은 대상 아님(종전대로 새 요청).
+
 
 ### 14-3. 로컬 e2e — board ↔ car-erp 연결 (매번 헷갈리는 지점)
 

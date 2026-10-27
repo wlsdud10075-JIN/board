@@ -944,6 +944,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                     'amount' => data_get($line, 'amount_krw') ?? data_get($batch, 'amount_krw'),
                     // 거절 씬(2026-10-12) — ERP 사용자가 쓴 사유 원문. 없는 ERP(구버전)면 null 로 남는다.
                     'reason' => data_get($line, 'reject_reason') ?? data_get($batch, 'reject_reason'),
+                    // 재전송(2026-10-27) — 회차는 ERP 가 센다. 상한(`resend_limit`)도 ERP 값 — board 는 분모·비활성 판정에만 쓰고
+                    //   숫자 5 를 들고 있지 않는다(ERP 가 바꾸면 라벨만 옛 값으로 남는 사고). 둘 다 없는 ERP(구버전)면 null.
+                    'resent_count' => (int) (data_get($line, 'resent_count') ?? data_get($batch, 'resent_count') ?? 0),
+                    'resend_limit' => is_numeric(data_get($batch, 'resend_limit')) ? (int) data_get($batch, 'resend_limit') : null,
                 ];
             }
         }
@@ -971,7 +975,7 @@ new #[Layout('components.layouts.app')] class extends Component {
      *    계약금은 board 가 알 수 없고(ERP 회계에 안 쓰기로 했다), 틀린 금액이 그대로 송금된다.
      *    Jin 2026-08-11: "그건 우리가 알 수 없으니 그것도 기입할 수 있어야". §14-5 와 같은 원칙.
      */
-    public function sendPurchaseRequest(string $type, int $vehicleId): void
+    public function sendPurchaseRequest(string $type, int $vehicleId, bool $resend = false): void
     {
         if (! in_array($type, CarErpReadService::PURCHASE_REQUEST_TYPES, true)) {
             return;   // 조작된 호출 — 조용히 무시(공개 Livewire 액션)
@@ -983,6 +987,24 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
 
         $amount = $this->normalizeAmount($this->reqAmount[$vehicleId] ?? null);
+
+        // 재전송(2026-10-27 Jin) — 「:type 재전송」 버튼에서만 true 로 온다. 서버가 칩을 보고 스스로 켜지 않는다
+        //   (stale 화면에서 「계약금」을 누른 사람에게 confirm 없이 재전송이 나가면 안 된다 — 그 경우 ERP already_open 이 맞다).
+        //   금액칸이 비어 있으면 **열려 있는 요청의 금액 그대로**(「같은 내용을 한 번 더」). 잔금의 미지급 전액 프리필보다 먼저다.
+        //   상한은 ERP 가 판정한다(skipped resend_limit). 여기선 ERP 가 준 limit 이 있을 때만 미리 막는다(왕복 절약).
+        if ($resend) {
+            $chip = $this->openChipFor($vehicleId, $type);
+            if ($chip !== null) {
+                if ($chip['resend_limit'] !== null && $chip['resent_count'] >= $chip['resend_limit']) {
+                    $this->reqResult = ['error' => __('portal.req_resend_limit_reached', ['limit' => $chip['resend_limit']])];
+
+                    return;
+                }
+                if ($amount === null && is_numeric($chip['amount'] ?? null) && (float) $chip['amount'] > 0) {
+                    $amount = (int) round((float) $chip['amount']);
+                }
+            }
+        }
 
         // 매입잔금만 — 금액칸이 비어 있으면 **ERP 미지급 전액**(매도비 포함)으로 보낸다(2026-10-12 Jin).
         //   board 가 숫자를 만드는 게 아니라 ERP `/inventory` 가 준 `purchase_unpaid`(확정 지급분을 뺀 원장값)를 옮기는 것.
@@ -1001,9 +1023,25 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
 
-        if ($this->applyRequest($type, [$vehicleId], null, $amount)) {
+        if ($this->applyRequest($type, [$vehicleId], null, $amount, $resend)) {
             unset($this->reqAmount[$vehicleId]);
         }
+    }
+
+    /** 그 차·그 type 의 **열려 있는** 칩. 차량번호는 현재 재고 탭 행에서 찾는다(클라이언트 값 불신). 없으면 null. */
+    private function openChipFor(int $vehicleId, string $type): ?array
+    {
+        foreach ($this->invRows as $row) {
+            if ((int) data_get($row, 'vehicle_id') !== $vehicleId) {
+                continue;
+            }
+            $vno = (string) (data_get($row, 'vehicle_number') ?: '');
+            $chip = $vno !== '' ? $this->requestChip($vno, $type) : null;
+
+            return $chip && ($chip['status'] ?? '') === 'open' ? $chip : null;
+        }
+
+        return null;
     }
 
     /**
@@ -1073,11 +1111,11 @@ new #[Layout('components.layouts.app')] class extends Component {
      * 전송 단일 지점 — 결과를 화면에 그대로 편다.
      * skipped 는 **실패가 아니다**(대개 already_open = 이미 보낸 것). created 와 함께 보여준다.
      */
-    private function applyRequest(string $type, array $vehicleIds, ?int $buyerId, ?int $amountKrw = null): bool
+    private function applyRequest(string $type, array $vehicleIds, ?int $buyerId, ?int $amountKrw = null, bool $resend = false): bool
     {
         $note = trim((string) ($this->reqNote[$buyerId ?? 0] ?? ''));
         $res = $this->svc()->sendBoardRequest(
-            $this->salesmanEmail(), $type, $vehicleIds, $buyerId, $note ?: null, $amountKrw
+            $this->salesmanEmail(), $type, $vehicleIds, $buyerId, $note ?: null, $amountKrw, $resend
         );
 
         if (! ($res['ok'] ?? false)) {
@@ -1090,6 +1128,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->reqResult = [
             'created' => (array) data_get($res['data'], 'created', []),
             'skipped' => (array) data_get($res['data'], 'skipped', []),
+            // 재전송분 = created 의 부분집합(ERP 가 종전 호환으로 created 에도 담는다). 결과 줄에 「재전송」 표기용.
+            'resent' => (array) data_get($res['data'], 'resent', []),
         ];
         unset($this->reqNote[$buyerId ?? 0]);
         unset($this->boardRequests, $this->chipMap);   // 칩 즉시 갱신

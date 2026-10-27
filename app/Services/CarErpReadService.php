@@ -337,9 +337,15 @@ class CarErpReadService
      *  ⚠️ `skipped[]` 는 항목마다 키가 다르다 — forbidden 은 `vehicle_id`, already_open 은 `vehicle_number`.
      *    (둘 다 §11-3 문서와 어긋난 실제 구현. 권위는 구현 — car-erp `BoardRequestController::store`.)
      *
+     *  💡 `resend=true`(2026-10-27, Jin) — 열려 있는 같은 (vehicle_id, type) 요청에 **같은 내용을 다시 알린다**.
+     *    ERP 가 행을 새로 만들지 않고 `resent_count +1` + 알림톡 재발송(본문 「재전송 N회」). 상한(ERP `resend_limit`,
+     *    현재 5) 에 닿으면 `skipped(reason: resend_limit)`. 매입 3종 전용 — 판매대금확인에 실리면 ERP 가 무시한다.
+     *    🚫 board 가 칩을 보고 플래그를 **스스로 켜지 않는다** — 「재전송」 라벨 버튼을 누른 손에서만 온다
+     *       (stale 화면에서 「계약금」을 눌렀는데 confirm 없이 재전송이 나가면 안 된다. 그 경우는 종전대로 already_open).
+     *
      * @param  list<int>  $vehicleIds
      */
-    public function sendBoardRequest(string $email, string $type, array $vehicleIds, ?int $buyerId = null, ?string $note = null, ?int $amountKrw = null): array
+    public function sendBoardRequest(string $email, string $type, array $vehicleIds, ?int $buyerId = null, ?string $note = null, ?int $amountKrw = null, bool $resend = false): array
     {
         $payload = [
             'salesman_email' => $email,
@@ -355,6 +361,9 @@ class CarErpReadService
         // 금액은 매입 2종 전용 — 판매대금확인에 실리면 ERP 가 버린다(그리고 보낼 이유도 없다).
         if ($amountKrw !== null && in_array($type, self::PURCHASE_REQUEST_TYPES, true)) {
             $payload['amount_krw'] = $amountKrw;
+        }
+        if ($resend && in_array($type, self::PURCHASE_REQUEST_TYPES, true)) {
+            $payload['resend'] = true;
         }
 
         return $this->post('/requests', ['salesman_email' => $email], $payload);
