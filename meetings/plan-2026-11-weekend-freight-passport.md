@@ -1,4 +1,4 @@
-# 주말 개발 계획 — ① 컨테이너 운임비 → 판매통화 환산·총판매가·면장 미러 ② 여권 Name·ID + board 전용 Travel Services Invoice
+# 주말 개발 계획 — ① 컨테이너 운임비 → 판매통화 환산·총판매가·면장 미러 ② 여권 Name·ID + board 전용 Travel Services Invoice ③ 포털 바이어 적립금
 
 > 2026-10-28 Jin 요구(「기록만 해놔줘」, 주말 개발 예정). **양쪽 코드 0 — 결정값 확정 단계.**
 > 경위: board 초안 → car-erp 세션 사실 확인(파일:줄 대조) → Jin 2차(문서는 board 전용) → **Jin 결정값(car-erp 세션에서 직접 답, 2026-10-28)** 반영. 받는 쪽 스펙은 car-erp 문서(`purchase-sync-receiver.md` ① · `board-portal-api.md` ②)가 권위 — car-erp 세션이 쓴다. board 는 SKILLS §12·§14 에 보내는 쪽만.
@@ -85,3 +85,25 @@
 ### 인프라 메모
 - GPU PC 는 `qwen2.5vl:7b` 단독 상주(챗봇 off). 여권 OCR 도 같은 모델·같은 Job 틀, 새 모델 안 올린다. 🚫 프롬프트 이중 부정 금지·1100px·`num_ctx` 4096(§14-15 함정 그대로).
 - Jin 이 줄 것: Travel Services Invoice 양식(xlsx) + 여권 샘플 사진(프롬프트 맞춤용).
+
+## ③ 포털 — 내 바이어의 적립금 잔액 보기 (2026-10-28 Jin 추가, 🅿️ 기획 · 코드 0)
+
+### Jin 원문 요지
+「포털에서 내 바이어의 적립금이 얼마나 있는지를 볼 수 있는 탭이 없는 것 같아.」
+
+### 사실(확인)
+- board 포털 탭 = 요약·미수금·재고·판매내역·정산내역·선적요청(`portal/index.blade.php:94` TABS). **적립금은 어느 탭·lang 키에도 없다**(grep 0건).
+- ERP 에는 있다: `savings_statuses`(마이그 `2026_05_07_000007`) = buyer_id · vehicle_id(nullable) · currency(USD/JPY/EUR/GBP/CNY/KRW) · transaction_type(EARNED/REFUND/USED/ADJUSTMENT/CANCELLED) · savings(거래액 ±) · **balance(잔액 스냅샷)** · note. `Buyer::savingsStatuses()`(`Buyer.php:146`), 바이어 화면 「통화별 적립금 잔액」(`lang/ko/buyer.php:136`).
+- ⚠️ ERP 는 **적립금(회사가 준 크레딧)과 바이어 현금 입금 원장(실제 들어온 외화, `BuyerCashReceipt`·`BuyerCashFee`)을 다른 것**으로 다룬다(`Buyer.php:157-158`, 기획 `docs/design/buyer-cash-ledger.md`). 대시보드 라벨 「디파짓(적립금 사용분)」(`admin_dash.php:147`).
+- board 로 나오는 바이어 API = `GET /buyers`(board-portal-api.md §4) — `{id, name, country, purchase_locked, purchase_lock}` 만, **영업 본인 바이어 스코프**(Jin 결정). 적립금 필드 없음. 포털 미수금 탭은 바이어별 접기 헤더가 이미 있다(바이어 통화별 미납 합).
+
+### 제안(Jin 결정 대기)
+- **Q3-1 무엇을 보여주나.** (a) 적립금 잔액만 (b) 적립금 + 현금 디파짓 잔액 둘 다(ERP 가 구분해 두었으니 섞어 한 숫자로 내지 않는다). 제안 = **(a) 먼저**, 현금 디파짓은 Jin 이 원하면 같은 자리에 별도 줄.
+- **Q3-2 잔액만 vs 이력.** 제안 = **통화별 잔액 + 최근 이력 N건(적립/사용/환불/조정, 차량번호·메모·일자)** — 잔액만 주면 「왜 줄었지」를 또 카톡으로 묻는다(§11 금액 분리 때와 같은 이유).
+- **Q3-3 위치.** Jin 표현은 「탭」. 제안 = **새 탭 「바이어」**(본인 바이어 목록 → 바이어별 적립금 통화별 잔액·이력 펼침). 대안 = 미수금 탭 바이어 헤더에 「적립금 USD 1,200」 칩 — 탭 하나 덜 늘지만 미수금과 적립금이 한 화면에 섞인다.
+- **Q3-4 스코프.** `/buyers` 와 동일 = 영업 본인 바이어만(관리·super 는 대리조회 규칙 그대로). 금액이지 PII 는 아니라 §3 화이트리스트 충돌 없음(ERP 확인 요청).
+- **분담(예상)**: ERP = `GET /buyers/{id}/savings`(또는 `/buyers` 에 `savings_balances[]` 동봉 + 이력은 별도) · board = 탭 1개 + 서비스 메서드 + lang + 테스트. throttle 분당 120 공유 버킷에 호출 1~2개 추가(요약 탭 5개 수준엔 영향 없음).
+
+### ERP 세션에 물어둔 것(2026-10-28 발신)
+- `/buyers` 컨트롤러 위치(InternalPortalController 추정) · 통화별 잔액 계산이 「통화별 최신 balance 스냅샷」인지 합산인지 · 현금 디파짓 잔액 메서드 · §3 PII 판단 · 이력 노출 시 note 에 내부 메모가 섞이는지(영업에게 보여도 되는 문구인지).
+
