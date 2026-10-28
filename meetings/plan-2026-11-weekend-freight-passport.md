@@ -83,6 +83,23 @@
 - 샘플 해상도: 395×678 짜리 스크린샷도 읽혔다. 폰 원본(3024×4032)은 1100px 로 줄여도 충분.
 - 실험 스크립트(일회성, 레포 밖) = scratchpad `passport_mrz_test.py`. 운영 코드엔 안 들어감. 샘플 이미지는 레포·S3 에 올리지 않는다.
 
+### 📋 매입예정 드로어 「여권·Invoice」 섹션 — 체크리스트(2026-10-28 Jin 「빼먹은 게 있을까」 답)
+확정된 것: 여권 이미지 업로드 → OCR(MRZ+인쇄칸 교차검증) → 후보 → [적용] → **Name 칸·여권번호 칸**(수기 입력도 가능) → 저장 → [ERP 로 전송] → [Travel Services Invoice 다운로드].
+빠지기 쉬운 것(board 가 추가로 넣을 것):
+- **폰 카메라 바로 촬영** — 파일 input 에 `capture="environment"`(영업이 현장에서 여권을 찍어 올린다, 드로어는 모바일 사용 비중이 높다).
+- **OCR 불가 안내** — GPU PC 가 꺼져 있거나 응답 없으면 「OCR 불가 · 직접 입력」 한 줄(계좌추출 `payee_extraction_status` 와 같은 상태값 `passport_ocr_status`: idle/running/done/failed). 추출 중에는 전송 버튼만 잠근다(저장은 허용).
+- **ERP 전송 상태 표시** — 「ERP 전송됨 · 시각」/「미전송」/「ERP 차량 없음(구매확정 시 함께 전송)」 — board 칸 `remitter_synced_at` 1개 추가. 전송 응답 `updated[]`·`had_previous` 를 사람 말로(§14-16 재전송 결과와 같은 방식).
+- **감사 가림** — `remitter_id` 는 `BoardAudit::MASKED`(`app/Services/BoardAudit.php:15`, 현재 `payee_account`·`selling_fee_payee_account`)에 추가 → 로그엔 `***`. `remitter_name` 은 평문 기록.
+- **상태와 무관하게 편집 가능** — 드로어 `editable()`(`listings/index.blade.php:354-370`)은 won/synced·ERP 연동 차를 막는데, 여권은 **구매확정 뒤·ERP 전환 뒤에 들어오는 게 보통**이라 이 섹션은 그 게이트 밖(첨부 추가와 같은 예외, `:607`). 시간잠금 경매도 예외. **단 본인 글만**(SalesmanScope) + 관리·super.
+- **`/manage` 드로어에도 같은 두 칸**(관리자 정정 경로 — 매입예정은 본인 글만 열리므로 남의 차 정정은 여기뿐). ERP 전송 버튼도 같이.
+- **지우기는 전파되지 않는다** — ERP 스펙상 빈 문자열은 무시(지우기는 ERP 화면). board 에서 비우면 「ERP 값은 남습니다」 안내.
+- **다운로드 권한·감사** — Travel Services Invoice(여권번호 포함) 다운로드 = 드로어를 여는 사람(본인·관리·super). 다운로드도 감사 행 1개(`action=download`, 파일명) 남긴다(선택).
+- **목록 표시** — `/listings` 표에 「Invoice」 칸(여권 입력 ✓ / ERP 전송 ✓ / 미입력)을 둘지 → **Jin 결정(Q2-14)**. 두면 아직 안 넣은 차가 한눈에 보인다(검차상태 칸과 같은 역할).
+- **같은 바이어 다른 차에 복사** 체크 — 포함 여부 **Jin 결정(Q2-15)**(송금인이 같은 묶음에 여러 대일 때 재입력 방지).
+- **이미지 폐기 재확인(Q2-2)** — 「OCR 뒤 이미지를 버리고 Name·여권번호만 남긴다」는 car-erp 세션 경유 결정값. Jin 직접 확인 1회 권장(보관을 원하면 S3 `sales/documents`, 바이어 전송 제외, ERP 첨부엔 안 보냄).
+- 입력 정규화 — Name 대문자·연속 공백 1개, 여권번호 대문자·영숫자만(공백·하이픈 제거). 길이 제한은 ERP 스펙(이름 ≤100·ID ≤64)과 동일.
+- EN 화면 — 라벨·안내 전부 lang 양쪽, 차량번호 `Plate::show`.
+
 ### 인프라 메모
 - GPU PC 는 `qwen2.5vl:7b` 단독 상주(챗봇 off). 여권 OCR 도 같은 모델·같은 Job 틀, 새 모델 안 올린다. 🚫 프롬프트 이중 부정 금지·1100px·`num_ctx` 4096(§14-15 함정 그대로).
 - Jin 이 줄 것: Travel Services Invoice 양식(xlsx) + 여권 샘플 사진(프롬프트 맞춤용).
@@ -119,6 +136,8 @@
 | Q3-2 | 잔액/이력 | **통화별 잔액(+원화 환산) + 최근 이력**(종류·금액·통화·일자·차량번호, **note 없음**, 조정·취소는 라벨만) |
 | Q3-3 | 위치 | **새 탭 「적립금」 — 본인 바이어별로 보여준다**(Jin 「적립금탭을 만들어서 본인 바이어별로 보여주자」). 탭 이름은 「바이어」가 아니라 **「적립금」** |
 | Q3-4 | 스코프 | `/buyers` 와 동일 = 영업 본인 바이어(`buyers.salesman_id`)만. 관리·super 대리조회 규칙 그대로 |
+
+> 📎 **받는 쪽 권위 = car-erp `board-portal-api.md` §4 표**(dev `e30223c6`): `GET /by-buyer` 행 `savings_balances[]=[{currency, balance, balance_krw}]` · `GET /buyers/{id}/savings?limit=N` → `{buyer_id, balances[], history[{id, type, amount, currency, date, vehicle_number}]}`, `note` 없음, `type` 원문(EARNED/USED/REFUND/ADJUSTMENT/CANCELLED — board 가 lang 라벨, 모르는 값은 원문), `limit` 기본 20·최대 100 최신순, 본인 바이어 아니면 **404**. board 는 이 키를 그대로 쓴다.
 
 ### 분담
 - **ERP**: `SavingsLedger` 에 통화별 잔액 메서드(화면도 그걸 부르게) · `GET /by-buyer` 행 `savings_balances[]`({currency, balance, balance_krw}) 동봉 · `GET /buyers/{id}/savings?limit=N`(이력, note 제외, IDOR = 본인 바이어 아니면 404/빈 응답). 문서 = `board-portal-api.md` §4 표(ERP 세션).
