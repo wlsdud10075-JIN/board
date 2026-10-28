@@ -913,6 +913,12 @@ Jin 이 ERP 에서 수기 정정. **전수 조사 = heymanboard 74대 중 12대*
 - **감사 로그 전송 표 = `App\Support\IntegrationEventView`** — 방향·대상·이벤트·응답·요약을 lang(`audit.ev.*`)으로. 숫자 응답 코드·원래 키는 **툴팁에만**. 이벤트별 응답 문구(`resp_by.purchase_sync.201` = 새로 등록 / 200 = 이미 있어 보강) → 없으면 계열별(성공·인증 실패·거절·상대 서버 오류). 계좌 추출(ollama)은 HTTP 가 아니라 결과 상태로 말한다. 새 이벤트를 추가하면 `audit.ev.event.*` 에 이름을 같이 넣는다(안 넣어도 원문으로 뜬다 — 깨지지는 않음). 가드 = `test_audit_transmission_rows_are_plain_language_in_both_locales`.
 - 하드코딩 한글 찾는 법: blade 주석(`{{-- --}}`·`/* */`·`<!-- -->`)과 `__('…')` 를 걷어 낸 뒤 한글이 남는 줄. 남는 정상 예외 = 기능설정 `Setting` 설명(DB 메모)·번호판 변환표·ERP 쿼리 값(`['거래완료']`)·뱃지 비교용 한글 키.
 
+### 14-24b. ssancar 미디어 캐시 — 「영상 대기」만 짧게 (2026-10-28 Jin A안, dev)
+- 폴러는 2분마다 돌지만 `SsancarMediaService::request()` 가 ssancar `api_car_media` 응답(ok=1)을 캐시한다(키 `ssancar_media:b:md5(vin|car_no)`, 바이어 공개 페이지와 **공용**). 종전 일률 10분 → 영상 업로드 1초 전에 조회가 떨어지면 「영상 없음」이 10분 묶여 전달대기가 ~12분 늦었다(ssancarboard 162수2581 운영 e2e 실측).
+- 지금: TTL = `ttlMinutesFor($out)` — **검차글 사진>0·영상 0·재고 사진 0(= Bunny 인코딩 대기)만 `board.ssancar_media_cache_waiting_minutes`(기본 2)**, 나머지(영상 있음·재고 사진 있음·미디어 없음)는 `board.ssancar_media_cache_minutes`(기본 10). ⇒ ssancar 추가 호출은 「영상 대기 중인 차 × 2분당 1회」뿐 — 미디어 없는 죽은 draft(엔카 등, 3일 에이지아웃까지) 는 10분 그대로라 트래픽이 안 는다(Jin: ssancar 504 전력 때문에 호출 증가 최소화).
+- 🚫 폴러만 캐시를 우회하거나 TTL 을 일률로 줄이지 말 것 — 대상 draft 전부가 2분마다 실호출이 된다. B안(ssancar 가 영상 done 시점 `inspection.media_updated` 를 보내면 board 가 그 차 캐시만 비움)은 ssancar 가 그 이벤트를 **안 보낸다**(completed 는 검차글 저장 시점, 영상은 별도 크론) → 보류.
+- ⚠️ 테스트 함정: 한 테스트에서 `Http::fake()` 를 두 번 부르면 **첫 스텁이 남아 먼저 매칭**된다(응답을 바꿔도 안 바뀜) → 시나리오별로 테스트를 나눈다. 가드 = `test_ssancar_media_cache_is_short_while_waiting_for_video`·`test_ssancar_media_cache_stays_ten_minutes_when_no_media`.
+
 ### 14-25. 검차 큐 연동 — board 쪽 (2026-10-23 Jin 착수, dev 미배포)
 정본 스펙 = ssancar 레포 `htdocs/_ops/dev/INSPECTION_PLAN.md` §8(받는 쪽 권위는 ssancar). board 는 보내는 절반·웹훅 받는 절반만.
 - **등록·철회 = 판정식 하나**(`PurchaseListing::isInspectionTarget` = draft · origin≠self_inspection · 미삭제). `booted()` 의 created/updated/deleted/restored 가 전후를 비교해 `SendInspectionQueueEvent` 를 afterCommit 으로. withdraw reason = 셀프검차 전환 `not_inspection_target` · override `status_override` · 그 외 `closed_in_board` · 삭제 `deleted`. 큐 필드(`INSPECTION_QUEUE_FIELDS` 번호판·VIN·지역·요청사항·링크) 변경 = upsert 재발송. ⚠️ `saveQuietly()` 는 안 탄다 → 일일 대사.

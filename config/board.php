@@ -78,6 +78,10 @@ return [
     // 4초로는 타임아웃 → 빈 배열 → advance=false → **조용히 전이 실패**. 폴러는 백그라운드라
     // 기다리는 사용자가 없으므로 넉넉히 잡는다(ssancar 권고 15초).
     'ssancar_poll_timeout' => (int) env('BOARD_SSANCAR_POLL_TIMEOUT', 15),
+    // ssancar 미디어 응답 캐시(분). 기본 10 — 「검차글 사진만 있고 영상 0」(영상 인코딩 대기) 응답만 waiting 값(기본 2)으로 짧게.
+    //  영상 직전 조회가 10분 묶여 전달대기가 늦던 문제(2026-10-28). 0 이하는 1분으로 본다.
+    'ssancar_media_cache_minutes' => (int) env('BOARD_SSANCAR_MEDIA_CACHE_MINUTES', 10),
+    'ssancar_media_cache_waiting_minutes' => (int) env('BOARD_SSANCAR_MEDIA_CACHE_WAITING_MINUTES', 2),
 
     // ─────────── 웹푸시 (2026-10-12) ───────────
     // §11 요청 결과(ERP 확인·거절)를 화면이 꺼진 폰에도 보낸다. VAPID 키는 **박스별** `.env`(인스턴스마다 다른 키 OK).

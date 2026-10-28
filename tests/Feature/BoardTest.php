@@ -20,6 +20,7 @@ use App\Services\ExchangeRateService;
 use App\Services\ListingEnrichment;
 use App\Services\RegionInspectionNotifier;
 use App\Services\RespondIoService;
+use App\Services\SsancarMediaService;
 use App\Services\VerdictService;
 use App\Support\ListingLink;
 use App\Support\Plate;
@@ -8588,5 +8589,50 @@ class BoardTest extends TestCase
                 return true;
             });
         }
+    }
+
+    /**
+     * 미디어 캐시 TTL(2026-10-28 Jin A안) — 「검차글 사진만·영상 0」(영상 인코딩 대기) 응답은 2분, 그 외(영상 있음·미디어 없음)는 10분.
+     * 영상 업로드 1초 전 조회가 10분 묶여 전달대기가 ~12분 늦던 사고(ssancarboard 162수2581). 죽은 draft(미디어 0)는 10분 그대로라
+     * ssancar 추가 호출은 영상 대기 중인 차에만 2분당 1회다.
+     * ⚠️ `Http::fake()` 를 한 테스트에서 두 번 부르면 첫 스텁이 남아 먼저 매칭된다 → 시나리오별로 테스트를 나눈다.
+     */
+    public function test_ssancar_media_cache_is_short_while_waiting_for_video(): void
+    {
+        $this->ssancarMediaConfig();
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft']);
+        $key = 'ssancar_media:b:'.md5(trim((string) $l->vin).'|'.trim((string) $l->vehicle_number));
+
+        Http::fake(['*api_car_media.php*' => Http::response($this->ssancarResp(0, 5, 0), 200)]);   // 사진만 = 영상 대기
+        $this->artisan('board:poll-ssancar-media')->assertExitCode(0);
+        $this->assertTrue(Cache::has($key));
+        Http::assertSentCount(1);
+        $this->travel(3)->minutes();
+        $this->artisan('board:poll-ssancar-media')->assertExitCode(0);
+        Http::assertSentCount(2);   // 2분 캐시 만료 → 다시 물었다
+        $this->assertSame('draft', $l->fresh()->status);
+    }
+
+    public function test_ssancar_media_cache_stays_ten_minutes_when_no_media(): void
+    {
+        $this->ssancarMediaConfig();
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft']);
+        $key = 'ssancar_media:b:'.md5(trim((string) $l->vin).'|'.trim((string) $l->vehicle_number));
+
+        Http::fake(['*api_car_media.php*' => Http::response($this->ssancarResp(0, 0, 0), 200)]);   // 미디어 없음(죽은 draft)
+        $this->artisan('board:poll-ssancar-media')->assertExitCode(0);
+        $this->assertTrue(Cache::has($key));
+        $this->travel(3)->minutes();
+        $this->artisan('board:poll-ssancar-media')->assertExitCode(0);
+        Http::assertSentCount(1);   // 10분 캐시 — 트래픽 보호
+        $this->travel(8)->minutes();
+        $this->artisan('board:poll-ssancar-media')->assertExitCode(0);
+        Http::assertSentCount(2);   // 만료 후 재조회
+
+        // TTL 판정 단위 — 영상 있으면 10, 사진만이면 2, 재고 사진이면 10(전이되므로 대기 아님), 미디어 없음 10
+        $this->assertSame(10, SsancarMediaService::ttlMinutesFor(['sources' => ['inspected' => ['videos' => [1], 'photos' => [1]]]]));
+        $this->assertSame(2, SsancarMediaService::ttlMinutesFor(['sources' => ['inspected' => ['videos' => [], 'photos' => [1, 2]]]]));
+        $this->assertSame(10, SsancarMediaService::ttlMinutesFor(['sources' => ['inspected' => ['videos' => [], 'photos' => [1]], 'stock' => ['photos' => [1]]]]));
+        $this->assertSame(10, SsancarMediaService::ttlMinutesFor(['sources' => []]));
     }
 }
