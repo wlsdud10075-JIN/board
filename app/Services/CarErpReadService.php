@@ -230,15 +230,30 @@ class CarErpReadService
      * 🚫 `basis` 와 `reference` 를 나란히 렌더하지 말 것 — ratio 모드에서 분모·분자가 달라
      *    "여력 0원인데 등록 가능"·"락인데 여력 1천만"이 **둘 다 정상**이다. 근거는 `basis` 하나뿐.
      */
-    public function buyers(string $email): array
+    public function buyers(string $email, bool $all = false): array
     {
-        return $this->get('/buyers', ['salesman_email' => $email]);
+        return $this->get('/buyers', $this->buyerScopeQuery($email, $all));
+    }
+
+    /**
+     * 시스템관리자 전체 바이어(2026-10-28 Jin) — `scope=all` + **그 사람의 ERP 로그인 이메일**. 판정은 ERP 가 한다
+     * (그 이메일이 활성 super 일 때만 전 활성 바이어, 아니면 종전 403). board 의 role 만 믿고 열지 않는 이유 =
+     * HMAC 호출 하나로 전 바이어가 열리면 §2 「서명 + 매핑 이중」 IDOR 근거가 빠진다. 호출 측 가드 = `/auction` `buyerScope()`.
+     */
+    private function buyerScopeQuery(string $email, bool $all, array $extra = []): array
+    {
+        $q = ['salesman_email' => $email] + $extra;
+        if ($all) {
+            $q['scope'] = 'all';
+        }
+
+        return $q;
     }
 
     /** v3 — 선택 바이어 하위 컨사이니 드롭다운. {count,data:[{id,name}]}. */
-    public function consignees(string $email, int $buyerId): array
+    public function consignees(string $email, int $buyerId, bool $all = false): array
     {
-        return $this->get('/consignees', ['salesman_email' => $email, 'buyer_id' => $buyerId]);
+        return $this->get('/consignees', $this->buyerScopeQuery($email, $all, ['buyer_id' => $buyerId]));
     }
 
     /**
