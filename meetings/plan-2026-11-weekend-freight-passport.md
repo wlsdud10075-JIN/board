@@ -205,7 +205,7 @@
 ### ✅ 확정·구현(2026-10-28)
 - Q5-1 **ERP 가 super 판정** — 확정·양쪽 구현. board: `/auction` `buyerScope()` — 로그인 사용자가 super 면 `scope=all` + 본인 매핑 이메일(없으면 로그인 이메일), 영업·관리·**업무관리자**는 종전 등록자 스코프·플래그 없음(ERP 가 super 만 열므로 hasFullAccess 로 넓히지 않는다). 드롭다운에 ERP 가 주는 `salesman_name` 을 「· 이름」 으로 붙인다. 가드 = `test_super_asks_erp_for_all_buyers_with_own_email`·`test_non_super_keeps_creator_scope_without_all_flag`. 서비스 = `CarErpReadService::buyers($email, $all)`·`consignees(..., $all)`.
 - ⚠️ **운영 설정**: board `/users` 의 super 계정 매핑(`car_erp_salesman_email`)에 **ERP super 로그인 이메일**을 넣어야 전체가 열린다(영업 이메일이면 그 영업 바이어만 = 종전). 두 박스 각각.
-- Q5-2 **담당 영업 자동 배정 — Jin 결정 없음 → 종전대로 null(수동 배정)**. super 가 남의 영업 바이어로 확정한 차는 ERP 에서 담당을 손으로 붙인다. 열어 두려면 board 가 `/buyers` 행 `salesman_id` 를 `car_erp_salesman_id` 로 실어 보내면 된다(ERP 이미 지원 `:645`) — Jin 결정 시 반나절 미만.
+- ✅ Q5-2 **담당 영업 자동 배정 = 안 함(Jin 2026-10-28 「super 로는 테스트하는 거라 바로 삭제 조치할 거야」)**. super 확정 차는 테스트 용도 → ERP 담당 null 그대로, 테스트 후 양쪽에서 삭제. 종전 문구: super 가 남의 영업 바이어로 확정한 차는 ERP 에서 담당을 손으로 붙인다. 열어 두려면 board 가 `/buyers` 행 `salesman_id` 를 `car_erp_salesman_id` 로 실어 보내면 된다(ERP 이미 지원 `:645`) — Jin 결정 시 반나절 미만.
 - 배포 순서 = ERP 먼저(그 전엔 ERP 가 플래그를 몰라 종전 403 = 오늘과 같음, 깨지진 않음) → board master(Jin 허락).
 
 ### 합의안(board 제안 → ERP 수정 반영) — 기록
