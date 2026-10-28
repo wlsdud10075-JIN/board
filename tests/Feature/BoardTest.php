@@ -8635,4 +8635,51 @@ class BoardTest extends TestCase
         $this->assertSame(10, SsancarMediaService::ttlMinutesFor(['sources' => ['inspected' => ['videos' => [], 'photos' => [1]], 'stock' => ['photos' => [1]]]]));
         $this->assertSame(10, SsancarMediaService::ttlMinutesFor(['sources' => []]));
     }
+
+    // ───────────────── 계좌추출 상태 표시 (2026-10-28 Jin) ─────────────────
+
+    /**
+     * 결과 상자는 입금정보 칸 위(버튼에서 ~450px 위)라 버튼 아래에도 상태 줄을 둔다. pending 은 시간과 무관하게 「찾는 중」(5분 넘으면 「오래 걸림」,
+     * 폴링 15초로 계속) — 종전엔 5분 뒤 「실패」로 그려 사용자가 포기했는데 Job 은 나중에 끝나 후보가 저장됐다. 「실패」는 failed 일 때만.
+     */
+    public function test_payee_extract_status_shows_under_button_and_slow_instead_of_failed(): void
+    {
+        Bus::fake();
+        config(['board.payee_extract.enabled' => true, 'services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        Http::fake(['*' => Http::response(['count' => 0, 'data' => []], 200)]);
+        $sales = $this->mkUser('sales');
+        $this->actingAs($sales);
+        $l = $this->mkListing($sales, ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'encar', 'final_price' => 9000000]);
+        $clean = fn (string $html) => preg_replace('/<!--\[if (?:END)?BLOCK\]><!\[endif\]-->/', '', $html);
+
+        // pending 직후 — 찾는 중(5초 폴링) + 버튼 아래 안내
+        $l->forceFill(['payee_extraction_status' => 'pending', 'payee_extraction_at' => now()])->saveQuietly();
+        $html = $clean(Volt::test('auction.index')->call('openDetail', $l->id)->html());
+        $this->assertStringContainsString(__('auction.payee_extract.searching'), $html);
+        $this->assertStringContainsString('wire:poll.5s', $html);
+        $this->assertStringContainsString(__('auction.payee_extract.under_searching'), $html);
+        $this->assertStringNotContainsString(__('auction.payee_extract.failed'), $html);
+
+        // pending 6분 경과 — 「실패」가 아니라 「오래 걸림」, 폴링은 15초로 계속
+        $l->forceFill(['payee_extraction_at' => now()->subMinutes(6)])->saveQuietly();
+        $html = $clean(Volt::test('auction.index')->call('openDetail', $l->id)->html());
+        $this->assertStringContainsString(__('auction.payee_extract.slow'), $html);
+        $this->assertStringContainsString('wire:poll.15s', $html);
+        $this->assertStringContainsString(__('auction.payee_extract.under_slow'), $html);
+        $this->assertStringNotContainsString(__('auction.payee_extract.failed'), $html);
+        $this->assertFalse($l->fresh()->payeeExtractionInFlight());   // 확정 잠금은 종전대로 5분 창(영영 못 막지 않게)
+
+        // 후보 도착 — 버튼 아래 「후보 N건 — 위로 이동」 + 결과 상자 id(자동 스크롤 앵커)
+        $l->forceFill(['payee_extraction_status' => 'done', 'payee_suggestions' => ['candidates' => [['bank' => '국민', 'number' => '123-45-678', 'holder' => '홍길동', 'label' => '계좌', 'source_photo_ids' => [], 'warnings' => []]], 'registration_owners' => ['홍길동']]])->saveQuietly();
+        $html = $clean(Volt::test('auction.index')->call('openDetail', $l->id)->html());
+        $this->assertStringContainsString(__('auction.payee_extract.under_found', ['count' => 2]), $html);
+        $this->assertStringContainsString('id="payee-status"', $html);
+        $this->assertStringContainsString('window.__payeeWaiting', $html);
+
+        // 실제 실패 — 그때만 「실패」
+        $l->forceFill(['payee_extraction_status' => 'failed', 'payee_suggestions' => null])->saveQuietly();
+        $html = $clean(Volt::test('auction.index')->call('openDetail', $l->id)->html());
+        $this->assertStringContainsString(__('auction.payee_extract.failed'), $html);
+        $this->assertStringContainsString(__('auction.payee_extract.under_failed'), $html);
+    }
 }

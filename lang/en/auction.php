@@ -148,5 +148,11 @@ return [
         'failed' => 'Could not read account details. Please enter them below.',
         'wait' => 'Reading account details from the attached photos. Please review the candidates before confirming.',
         'skip' => 'Confirm without account details',
+        'slow' => 'Still reading — the queue may be busy. This will re-check automatically. If urgent, type the details below or use "Confirm without account details".',
+        'under_searching' => 'Reading… results appear above the "Payment details" section (about 20s).',
+        'under_slow' => 'Still reading — taking longer than usual. Results appear above the "Payment details" section.',
+        'under_found' => ':count candidate(s) found — jump up',
+        'under_none' => 'Nothing found — enter the details in the "Payment details" section above.',
+        'under_failed' => 'Reading failed — enter the details in the "Payment details" section above.',
     ],
 ];

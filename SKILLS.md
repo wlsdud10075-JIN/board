@@ -720,6 +720,11 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
 
 설계·근거 = `meetings/design-payee-extraction-2026-09-10.md`
 
+### 14-15b. 계좌추출 상태 표시 — 버튼 아래 상태 줄 · 결과 자동 스크롤 · 「실패」는 failed 만 (2026-10-28 Jin, dev)
+- `/auction` 드로어의 결과 상자(`#payee-status`, 입금정보 칸 위)는 「찾기」 버튼(첨부 섹션 맨 아래)에서 ~450px 위라 **눌러도 아무 변화가 없는 것처럼** 보였다(헤드리스 실측: 스크롤은 안 튀고, 상자가 시야 밖). → ① 버튼 바로 아래 같은 상태 줄(`under_searching`/`under_slow`/`under_found`(누르면 위로)/`under_none`/`under_failed`) ② 결과 도착 시 `#payee-status` 로 자동 스크롤 — Alpine `x-init` + `window.__payeeWaiting`(「찾는 중」을 한 번 그렸을 때만, 드로어 열자마자 후보가 있으면 안 움직임) ③ **pending 은 시간 무관하게 「찾는 중」** — 5분 넘으면 `payeeExtractionSlow()` 로 문구만 「오래 걸림」·폴링 15초(종전엔 「실패」로 그려 사용자가 포기했는데 Job 은 뒤에 끝나 후보가 저장됐다). 「실패」는 `status=failed` 만.
+- ⚠️ 확정 잠금 `payeeExtractionInFlight()`(5분 창)은 **그대로** — 화면용 `payeeExtractionPending()`/`Slow()` 와 분리. 잠금까지 시간 무관으로 바꾸면 Job 이 유실된 차를 영영 확정 못 한다(탈출구 「계좌 없이 확정하기」는 있지만). 가드 = `test_payee_extract_status_shows_under_button_and_slow_instead_of_failed`.
+- 헤드리스 실측 방법(재사용): scratchpad `drawer_scroll.mjs`(Edge CDP, 로그인→드로어→scrollTop 전후) — 레포 밖.
+
 ### 14-16. ERP 로 넘어간 차에 **사진을 나중에 추가** (2026-09-11 Jin)
 
 딜러가 사진을 늦게 주면 board 에는 올릴 데가 없었다 — 업로드 화면은 `/auction` 하나뿐인데 그 화면은

@@ -128,6 +128,7 @@
   | E28~E30 | DEPOSIT | 수기 | |
   | A13~E15 | 회사 계좌 블록 | 양식 리터럴 그대로 | 회사별 |
 - **ID 카드도 대상**(여권만이 아니다): 표시 이미지(코소보 ID 카드)에서 Jin 이 빨간 표시한 칸 = **Surname/Given name + 「ID Card No.」**. 알바니아 ID 카드 2장도 있음(「nr. letërnjoftimit / card no.」 와 「personal no.」 가 따로 있다 → **ID = card no.**, personal no. 아님). ⇒ 규칙 = **문서 번호**(여권 = passport no., ID 카드 = card no.). 샘플 중 2장은 90° 회전 촬영 → OCR 전처리에 **회전 보정**(EXIF + 모델에 「회전돼 있어도 읽어라」, 실패 시 90° 씩 돌려 재시도). ID 카드 앞면엔 MRZ 없음 → 인쇄 칸 읽기가 주, MRZ 는 보조.
+- 📎 **Address·Phone 받는 쪽 권위 = car-erp `board-portal-api.md` §4 `GET /buyers/{id}`**(dev `cc4023e5`, §3 「서류 생성용 예외」): 응답 `{id, name, country, address, phone}`, 본인 바이어(super 는 scope=all 규칙 동일), 비활성 바이어도 id 로 읽음(과거 거래 인보이스), 남의 바이어 404, ERP 가 접근 기록 1행. `buyers.address` text·`contact_phone` string 모두 **자유서식·정규화 없음**(하이픈·+·국가코드 혼재), 비면 null → board 는 **그대로 찍고 없으면 빈 칸**(「-」 금지 — 세관 서류). 조건 = board 저장 0(생성 시점에만 읽음)·한 바이어씩. ⚠️ **주말 전엔 엔드포인트 없음(404) — 호출하지 말 것.**
 - ✅ Q2-16·Q2-17 결정(Jin 2026-10-28): Address·Phone = **ERP 개방**(board 가 이 문서 생성 시 바이어 주소·전화를 ERP 에서 받는다 — §3 「연락처·주소 PII 금지」의 **문서 생성용 예외**, ERP 세션에 스펙 요청) · Code = 차량번호 · Brand/Model = ERP 재고 메타 · 합계 수식 = `−E26` 으로 통일.
 
 ### 인프라 메모
