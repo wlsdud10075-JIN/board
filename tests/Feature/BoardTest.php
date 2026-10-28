@@ -8510,4 +8510,83 @@ class BoardTest extends TestCase
             }
         }
     }
+
+    // ───────────────── super 전체 바이어 (2026-10-28 Jin) ─────────────────
+
+    /**
+     * 시스템관리자는 매핑 없이 등록한 차도 구매확정할 수 있어야 한다 → super 가 열면 `scope=all` + **본인** 이메일.
+     * 판정은 ERP(그 이메일이 super 일 때만 전체) — board 는 플래그만 붙인다. 영업·관리는 종전 등록자 스코프·플래그 없음.
+     */
+    public function test_super_asks_erp_for_all_buyers_with_own_email(): void
+    {
+        Bus::fake();
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        Http::fake([
+            '*/api/internal/board/buyers*' => Http::response(['count' => 1, 'data' => [['id' => 55, 'name' => 'Faturat', 'country' => 'Kosovo', 'salesman_id' => 3, 'salesman_name' => '김영업']]], 200),
+            '*/api/internal/board/consignees*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        $creator = $this->mkUser('sales');
+        $creator->update(['car_erp_salesman_email' => 'creator@ce.test']);
+        $l = $this->mkListing($creator, ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000]);
+
+        $super = $this->mkUser('manager', 'super@board.test', 'super');
+        $super->update(['car_erp_salesman_email' => 'super@erp.test']);   // ERP super 로그인 이메일(영업 매핑이 아니다)
+        $this->actingAs($super);
+
+        $c = Volt::test('auction.index')->call('openDetail', $l->id)
+            ->assertSet('buyerOpts.0.id', 55)
+            ->set('buyerId', 55);
+        $this->assertStringContainsString('Faturat (Kosovo) · 김영업', $c->html());   // 누구 바이어인지 보인다
+
+        Http::assertSent(function ($req) {
+            if (! str_contains($req->url(), '/board/buyers')) {
+                return false;
+            }
+            parse_str((string) parse_url($req->url(), PHP_URL_QUERY), $q);
+            $this->assertSame('all', $q['scope'] ?? null);
+            $this->assertSame('super@erp.test', $q['salesman_email'] ?? null);   // 등록자(creator@ce.test)가 아니라 본인
+
+            return true;
+        });
+        $c->call('openDetail', $l->id)->set('buyerId', 55);
+        Http::assertSent(function ($req) {
+            if (! str_contains($req->url(), '/board/consignees')) {
+                return false;
+            }
+            parse_str((string) parse_url($req->url(), PHP_URL_QUERY), $q);
+            $this->assertSame('all', $q['scope'] ?? null);
+
+            return true;
+        });
+    }
+
+    public function test_non_super_keeps_creator_scope_without_all_flag(): void
+    {
+        Bus::fake();
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        Http::fake([
+            '*/api/internal/board/buyers*' => Http::response(['count' => 0, 'data' => []], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $creator = $this->mkUser('sales');
+        $creator->update(['car_erp_salesman_email' => 'creator@ce.test']);
+        $l = $this->mkListing($creator, ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000]);
+
+        foreach ([$this->mkUser('manager'), $this->mkUser('manager', null, 'manager')] as $viewer) {   // 관리 role · 업무관리자
+            Http::fake(['*/api/internal/board/buyers*' => Http::response(['count' => 0, 'data' => []], 200)]);
+            $this->actingAs($viewer);
+            Volt::test('auction.index')->call('openDetail', $l->id);
+            Http::assertSent(function ($req) {
+                if (! str_contains($req->url(), '/board/buyers')) {
+                    return false;
+                }
+                parse_str((string) parse_url($req->url(), PHP_URL_QUERY), $q);
+                $this->assertArrayNotHasKey('scope', $q);
+                $this->assertSame('creator@ce.test', $q['salesman_email'] ?? null);
+
+                return true;
+            });
+        }
+    }
 }

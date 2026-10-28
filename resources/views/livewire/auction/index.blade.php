@@ -137,9 +137,28 @@ new #[Layout('components.layouts.app')] class extends Component {
         return $creator?->car_erp_salesman_email ?: ($creator?->email ?? '');
     }
 
+    /**
+     * 바이어·컨사이니 조회 스코프 = [이메일, 전체 여부].
+     * 시스템관리자(2026-10-28 Jin)는 매핑 없이 등록한 차도 구매확정할 수 있어야 한다(테스트·대행) → **로그인 사용자가 super 면**
+     * 등록자 무관하게 `scope=all` + **본인**(super 의 매핑 이메일 = ERP super 로그인 이메일) 로 묻는다. 판정·403 은 ERP.
+     * 영업·관리는 종전대로 등록자 스코프(본인 바이어만). 업무관리자(hasFullAccess)는 포함하지 않는다 — ERP 가 super 만 연다.
+     *
+     * @return array{0:string,1:bool}
+     */
+    private function buyerScope(): array
+    {
+        $me = auth()->user();
+        if ($me && $me->isSuper()) {
+            return [$me->car_erp_salesman_email ?: $me->email, true];
+        }
+
+        return [$this->salesmanEmail(), false];
+    }
+
     private function loadBuyers(): void
     {
-        $r = app(\App\Services\CarErpReadService::class)->buyers($this->salesmanEmail());
+        [$email, $all] = $this->buyerScope();
+        $r = app(\App\Services\CarErpReadService::class)->buyers($email, $all);
         $this->buyerOpts = $r['ok'] ? (array) ($r['data']['data'] ?? []) : [];
     }
 
@@ -150,7 +169,8 @@ new #[Layout('components.layouts.app')] class extends Component {
 
             return;
         }
-        $r = app(\App\Services\CarErpReadService::class)->consignees($this->salesmanEmail(), $this->buyerId);
+        [$email, $all] = $this->buyerScope();
+        $r = app(\App\Services\CarErpReadService::class)->consignees($email, $this->buyerId, $all);
         $this->consigneeOpts = $r['ok'] ? (array) ($r['data']['data'] ?? []) : [];
     }
 
@@ -199,7 +219,8 @@ new #[Layout('components.layouts.app')] class extends Component {
      */
     private function buyerLockedNow(int $buyerId): bool
     {
-        $r = app(\App\Services\CarErpReadService::class)->buyers($this->salesmanEmail());
+        [$email, $all] = $this->buyerScope();
+        $r = app(\App\Services\CarErpReadService::class)->buyers($email, $all);
         if (! ($r['ok'] ?? false)) {
             return false;
         }
@@ -1123,7 +1144,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <option value="">{{ __('auction.buyer_select') }}</option>
                             @foreach ($buyerOpts as $b)
                                 {{-- 락 표시는 ERP 판정(purchase_locked) 그대로 — board 가 조건을 다시 계산하지 않는다. --}}
-                                <option value="{{ $b['id'] }}">{{ !empty($b['purchase_locked']) ? '🔒 ' : '' }}{{ $b['name'] }}{{ !empty($b['country']) ? ' ('.$b['country'].')' : '' }}</option>
+                                <option value="{{ $b['id'] }}">{{ !empty($b['purchase_locked']) ? '🔒 ' : '' }}{{ $b['name'] }}{{ !empty($b['country']) ? ' ('.$b['country'].')' : '' }}{{ !empty($b['salesman_name']) ? ' · '.$b['salesman_name'] : '' }}</option>
                             @endforeach
                         </select>
                         @error('buyerId') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror

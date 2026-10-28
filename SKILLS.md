@@ -439,6 +439,11 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
   **전부 ERP 안에서 ERP 화면 게이트를 탄다** — board 가 우회시킬 수 있는 게 아니다. board 가 미러할 락은
   **등록 시점 하나**(미수·무담보)뿐이고, 그게 이 절의 전부다. 🚫 ERP 내부 단계의 락을 board 로 끌고 오지 말 것.
 
+### 14-7b. 시스템관리자 전체 바이어 선택 (2026-10-28 Jin, e2e 중 — dev)
+- `/auction` 드로어 바이어·컨사이니는 **등록자 스코프**가 원칙(`salesmanEmail()`)인데, 매핑 없는 super 가 등록한 차는 ERP `/buyers` 가 403(영업 못 풂)이라 바이어 필수 락에 걸려 확정이 안 됐다. → `buyerScope()`: **로그인 사용자가 super 면 `scope=all` + 본인 매핑 이메일**(= ERP super 로그인 이메일). **판정은 ERP** — 그 이메일이 활성 super 일 때만 전체, 아니면 종전 403. board role 만 믿고 열지 않는 이유 = HMAC 호출 하나로 전 바이어가 열리면 §2 IDOR 근거가 빠진다.
+- 🚫 `hasFullAccess()`(업무관리자 포함)로 넓히지 말 것 — ERP 는 super 만 연다. 운영: super 계정 `/users` 매핑에 **ERP super 이메일**(영업 이메일 ❌). 드롭다운 「· 영업이름」 = ERP `salesman_name`(본인 스코프에서도 온다).
+- super 가 남의 영업 바이어로 확정한 차의 ERP 담당 = **null(수동 배정)** — 자동 배정은 Jin 미결(board 가 `car_erp_salesman_id` 로 실어 보내면 됨). 가드 = `test_super_asks_erp_for_all_buyers_with_own_email`·`test_non_super_keeps_creator_scope_without_all_flag`. 받는 쪽 = car-erp `board-portal-api.md` §4.
+
 ### 14-8. 선적 계획 — 후보 확대 + 포워딩사 + 컨테이너 운임비 (2026-08-12, car-erp master `94a59c3`)
 
 > 🔁 **2026-10-14 Jin — 계획 화면 = 아직 안 묶인 차만.** 「ERP 에서 묶었으면 그건 선적묶음에서 보여야 하고, 계획에선 안 묶은 차만 묶게 해야지.

@@ -192,7 +192,7 @@
 ### ERP 세션에 물어둔 것(2026-10-28 발신, 회신 완료 — 위 반영)
 - `purchase_from` 현재 운영 값 형식(「상호/대표자」 관행이 이미 있는지) · `deregistration_notice_phone` 저장 형식(하이픈 유무·국가코드) 과 알림톡 발송 시 정규화 여부 · purchase-sync 수신에 3필드 fill-if-empty 추가 의견 · ERP 에서 OCR 을 따로 돌리는 쪽을 선호하는지(비전 인프라 없음 확인 요청).
 
-## ⑤ 시스템관리자는 매핑 없이 전체 바이어 선택 (2026-10-28 Jin, e2e 중 발견 · 🅿️ 결정 대기 · 코드 0)
+## ⑤ 시스템관리자는 매핑 없이 전체 바이어 선택 (2026-10-28 Jin, e2e 중 발견 · ✅ 결정 「전체 바이어로 가자, 저녁 배포 같이」 · ERP dev 구현 완료 · board dev 구현 완료)
 
 ### Jin 원문 요지
 「시스템관리자는 바이어 지정(영업 매핑) 안 돼 있어도 전체 바이어 선택이 가능하게 해야겠다. 그래야 테스트할 때 정상적으로 테스트할 수 있겠어.」
@@ -202,7 +202,13 @@
 - ERP: 그 이메일이 활성 영업으로 안 풀리면 **403**(`SalesmanResolver::resolveActiveOrFail`, §2 「서명 + 매핑 이중」) → 매핑 없는 super 가 등록한 차는 목록이 비고 **바이어 필수 락**(`conclude` :778)에 걸려 구매확정 불가. 연동 B 자체는 영업 못 찾으면 null(수동 배정)로 생성돼 안 막힌다.
 - ERP `/buyers` 스코프 = `Buyer::where('salesman_id',$sid)->where('is_active')`(`InternalPortalController:444`), `consignees()` 는 `$ownsBuyer` 판정(`:529-541`). purchase-sync 는 `car_erp_salesman_id`(명시) 를 `salesman_email` 보다 우선(`PurchaseSyncController.php:645-650`).
 
-### 합의안(board 제안 → ERP 수정 반영, Jin 결정 대기)
+### ✅ 확정·구현(2026-10-28)
+- Q5-1 **ERP 가 super 판정** — 확정·양쪽 구현. board: `/auction` `buyerScope()` — 로그인 사용자가 super 면 `scope=all` + 본인 매핑 이메일(없으면 로그인 이메일), 영업·관리·**업무관리자**는 종전 등록자 스코프·플래그 없음(ERP 가 super 만 열므로 hasFullAccess 로 넓히지 않는다). 드롭다운에 ERP 가 주는 `salesman_name` 을 「· 이름」 으로 붙인다. 가드 = `test_super_asks_erp_for_all_buyers_with_own_email`·`test_non_super_keeps_creator_scope_without_all_flag`. 서비스 = `CarErpReadService::buyers($email, $all)`·`consignees(..., $all)`.
+- ⚠️ **운영 설정**: board `/users` 의 super 계정 매핑(`car_erp_salesman_email`)에 **ERP super 로그인 이메일**을 넣어야 전체가 열린다(영업 이메일이면 그 영업 바이어만 = 종전). 두 박스 각각.
+- Q5-2 **담당 영업 자동 배정 — Jin 결정 없음 → 종전대로 null(수동 배정)**. super 가 남의 영업 바이어로 확정한 차는 ERP 에서 담당을 손으로 붙인다. 열어 두려면 board 가 `/buyers` 행 `salesman_id` 를 `car_erp_salesman_id` 로 실어 보내면 된다(ERP 이미 지원 `:645`) — Jin 결정 시 반나절 미만.
+- 배포 순서 = ERP 먼저(그 전엔 ERP 가 플래그를 몰라 종전 403 = 오늘과 같음, 깨지진 않음) → board master(Jin 허락).
+
+### 합의안(board 제안 → ERP 수정 반영) — 기록
 - **Q5-1 super 판정은 ERP 가 한다**(ERP 수정안 채택 권장): board 는 로그인 사용자가 super 면 `scope=all` 을 붙이고 `salesman_email` 에 **그 사람의 ERP 로그인 이메일**을 싣는다. ERP 는 `User(email, permission=super, 활성)` 일 때만 전체 활성 바이어/컨사이니(+`salesman_id`·`salesman_name` 동봉), 아니면 종전 403. 이유 = HMAC 호출 하나로 전 바이어가 열리지 않게(매핑 검증 유지, §2 IDOR 근거). ⇒ 운영에서 super 계정의 board 매핑 = **ERP super 이메일**(영업 이메일 아님).
 - **Q5-2 담당 영업 자동 배정 = ERP 수신 폴백**(권장 ②): 영업을 못 풀었고 `buyer_id` 가 있으면 `vehicles.salesman_id = buyer.salesman_id`. board 변경 0, 규칙 한 곳. super 가 바이어 없이 재고매입하면 종전대로 null. (대안 ① = board 가 `/buyers` 행 `salesman_id` 를 `car_erp_salesman_id` 로 실음 — 규칙이 두 곳이라 비권장.)
 - board 할 일(결정 뒤): `/auction` `buyers()`·`consignees()` 호출에 super 면 `scope=all` + 본인 이메일 · 드롭다운에 「(영업이름)」 표시 · 테스트 2건(super 면 scope=all·영업이면 없음). `/portal` 대리실행과는 별개(그쪽은 종전 `isViewingOther` 규칙).
