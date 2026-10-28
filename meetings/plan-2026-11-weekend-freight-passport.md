@@ -38,6 +38,14 @@
 ### Jin 원문 요지
 ERP 서류탭 통관set(ver2) 마지막 탭 **Travel Services Invoice** 에 여권의 **Name(F5:G5 병합 셀)** 과 **ID(여권번호)** 가 들어가야 한다. **OCR 로 읽고 안 되면 수기.** 여권 사진 샘플은 Jin 보유. board **매입예정 드로어**에서 Name·ID 를 **ERP 로 별도 전송** → ERP 는 **판매탭에 「board 기록 바이어 고객 Name·ID」** 로 기입 → ERP 사용자는 **차량관리에서 「송금증이름」** 으로 그 두 값을 검색.
 
+### 🔁 2026-10-28 Jin 2차 — 문서는 **board 전용 파일**로 별도 제작
+Jin: 「서류는 내가 별도로 줄게. Travel 시트에 들어가는 Name 은 ERP 에서 오는 Name 이 아니야. 이건 board 에서만 사용하는 파일로 별도로 만들어보자.」
+- ⇒ **Travel Services Invoice 는 ERP 통관 SET 와 무관한 board 전용 문서.** ERP 양식 F5 수식 제거·F5/F6 매핑· type 개방(아래 Q2-5·Q2-7 의 ERP 양식 부분)은 **전부 취소**. ERP 세션에 통보함.
+- board 가 **Jin 이 주는 양식(xlsx 예상)** 을 템플릿으로 들고, 드로어에서 Name·ID(+필요 칸)를 채워 **board 에서 생성·다운로드**한다. Name 은 board 에 적힌 여권 이름(ERP 값 아님).
+- 기술 메모(확인): board 엔 xlsx 라이브러리가 없다(composer.json 에 phpspreadsheet/openspout 없음) → 템플릿 셀 채우기용 라이브러리 1개 추가 필요(ERP 와 같은 것을 쓰는지 착수 때 확인). PDF 변환은 요구에 없음(xlsx 그대로 내려주기).
+- **남는 ERP 몫(추정, Jin 확인 필요)**: 「Name·ID 를 ERP 로 전송 → 판매탭 기입 → 차량관리 「송금증이름」 검색」 부분은 2차 발언에서 언급이 없다 — **유지로 가정**(문서만 board 전용). 유지면 ERP 작업 =  2칸 + 엔드포인트 + 검색 1줄만.
+- 새 질문: **Q2-9 양식의 나머지 칸**(Date·Invoice No·주소·국가·전화 등)을 board 가 무엇으로 채우나 — board 엔 컨사이니·바이어 주소가 없다(포털 재고 응답엔 바이어명만). 빈 칸으로 두고 사람이 적나, ERP · 응답에서 가져오나, 양식에 그 칸이 아예 없나 → **양식 파일을 받아 보고 정한다.** **Q2-10 다운로드 위치** — 매입예정 드로어(차 1대 단위)인지 포털 선적요청 묶음인지. (차 1대 단위 가정 — 송금인은 차량 단위.) **Q2-11 접근 권한** — 영업 본인 차 + 관리·super(드로어와 동일) 가정.
+
 ### 현재 사실
 - ERP 확인: V2 는 Ver.1 설정 상속(`ClearanceSetV2Mapping.php:18-22`). Travel 시트 매핑 셀은 **3칸뿐**(`ClearanceSetMapping.php:103-105`) — F7 주소 / F8 국가(ISO3) / F9 전화. **F5(Name)는 매핑 없음 — 양식 수식 `=구매리스트!D14`(컨사이니 블록)** 이고 엔진 `writeCell` 은 수식 셀을 안 덮어쓴다(`:89-90`) ⇒ F5 에 여권 Name 을 넣으려면 **양식 3세트(system/heyman/karaba)의 F5 수식을 지워야** 한다(스크립트 + `--verify`, ERP SKILLS §12 체크리스트). **F6 「Nit」 는 비어 있고 매핑 없음 → ID 자리로 쓸 수 있다.** F3 Date = 선적일, F4 Invoice No = VIN 끝 6. **국적·생년월일 칸은 양식에 없다.** 생성 = `VehicleDocumentController.php:33,69,169` → `DocumentFiller.php:94`.
 - ERP 확인: `vehicles` 에 송금인 칸 없음. 「송금증」은 `final_payments.proof_path`(파일) 뿐. 여권 기존 칸 = `buyers.passport_id`(**평문**) · `consignees.id_value`(**cast 암호화**). vehicles 암호화 관행 = `$casts 'encrypted'`(`purchase_seller_account` 등 `Vehicle.php:268-269`) + `AuditLog::MASKED_COLUMNS`. 1:N 선례 = `vehicle_photos`·`final_payments`.
@@ -52,9 +60,9 @@ ERP 서류탭 통관set(ver2) 마지막 탭 **Travel Services Invoice** 에 여�
 - **Q2-2 여권 이미지 보관.** 제안 유지 = **OCR 뒤 폐기, board 는 Name·ID 만**(ID encrypted). 이미지가 ERP 에 필요하면 ERP 서류탭에 직접. (참고: ERP 는 이미 `buyers.passport_id` 를 평문으로 들고 있다 — 그쪽 정리는 별건.)
 - **Q2-3 전송 시점·경로.** ① synced 이후 드로어 버튼 → 새 엔드포인트 `POST /api/internal/board/vehicles/{id}/remitter`(가칭, HMAC·차량 재인가) ② won 전에 적어 두면 purchase-sync 동봉(v6, 빈 칸만). 제안 = **둘 다**.
 - **Q2-4 덮어쓰기.** board 초안 「덮어쓰기+감사」 유지 제안 — 단 **별도 엔드포인트만 덮어쓰기**(오타 정정 경로, ERP 감사로그 + 「board 에서 받은 값」 출처 표시), purchase-sync 동봉분은 ERP 규칙대로 빈 칸만. ERP 가 원장 락 등으로 반대하면 「빈 칸만 + ERP 에서 비우기」로.
-- **Q2-5 저장 형식·셀.** Name = 여권 표기 그대로(라틴 대문자 `SURNAME GIVEN NAMES`, MRZ `<` → 공백) → **F5:G5**. ID = 여권번호(영숫자, 공백 제거) → **F6(Nit)**. 국적·생년월일은 양식에 칸이 없어 **보내지 않는다**(MRZ 에서 읽혀도 버림 — PII 최소). F5 수식 제거는 ERP 양식 3세트 작업.
+- **Q2-5 저장 형식·셀.** (셀 좌표는 Jin 양식 기준으로 재확인 — 아래 F5/F6 은 ERP 양식 기준이라 **참고만**) Name = 여권 표기 그대로(라틴 대문자 `SURNAME GIVEN NAMES`, MRZ `<` → 공백) → **F5:G5**. ID = 여권번호(영숫자, 공백 제거) → **F6(Nit)**. 국적·생년월일은 양식에 칸이 없어 **보내지 않는다**(MRZ 에서 읽혀도 버림 — PII 최소). F5 수식 제거는 ERP 양식 3세트 작업.
 - **Q2-6 검색.** 「송금증이름」 = **이름만**(암호화 ID 는 검색 불가). ERP 차량관리 placeholder 에 「송금증이름」 추가. board 포털 재고 검색은 ERP 가 훑는 칸이라 자동(§14-2 8가지 → 9가지, placeholder 갱신).
-- **Q2-7 board 에서도 이 문서를 받나.** 통관 SET 통째는 §29 로 불가. 받으려면 **Travel 시트만 별도 type(가칭 `travel_invoice`)** 으로 떼어 `BOARD_ALLOWED_TYPES` 에 추가 — 여권번호가 실리지만 `sales_contract`·`invoice` 선례와 같은 수준. **Jin 결정**: ERP 서류탭 생성만 / board 다운로드도.
+- ~~**Q2-7 board 에서도 이 문서를 받나.**~~ **취소(2차 — board 전용 문서로 board 가 생성).** 원문: 통관 SET 통째는 §29 로 불가. 받으려면 **Travel 시트만 별도 type(가칭 `travel_invoice`)** 으로 떼어 `BOARD_ALLOWED_TYPES` 에 추가 — 여권번호가 실리지만 `sales_contract`·`invoice` 선례와 같은 수준. **Jin 결정**: ERP 서류탭 생성만 / board 다운로드도.
 - **Q2-8 OCR 실패/불일치.** 후보 제시만, 자동 기입 없음(양쪽 동의). 사람이 [적용] → 저장 → 전송.
 
 ### 인프라 메모
