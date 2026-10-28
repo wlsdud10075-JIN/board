@@ -5,6 +5,8 @@
 
 ## ① 컨테이너 운임비 USD → ERP 판매통화 운임비 자동 환산 (+ 총판매가·면장은 기존 cascade)
 
+> 📎 **받는 쪽 권위 = car-erp `docs/integration/board-portal-api.md` §5** `transport_fee_usd_total` 아래 「💱 판매통화 환산 → `vehicles.transport_fee`」(car-erp dev `e1c86a28`). 환율 없으면 선적요청 응답 `skipped[]` 사유 `no_rate`. 여기엔 복사하지 않는다 — board 선적 계획이 그 사유를 사람 말로 보여줄 때 lang 키 1개 추가(착수 때).
+
 ### Jin 원문 요지
 선적묶음에서 CONTAINER 를 고르면 나오는 운임비 USD 칸이 ERP 판매탭의 환율로 그 차의 판매통화로 환산돼 운임비에 기록되고, 판매가 + 운임비 = 총판매가, 그 총판매가가 면장에 미러되게.
 
@@ -33,6 +35,8 @@
 - **board**: 코드 0. SKILLS §12 「후속 후보」 문구를 결정값으로 교체 + 선적 계획 운임비 칸 안내 한 줄(선택).
 
 ## ② 여권 Name·ID → ERP 송금인 칸 + 「송금증이름」 검색 / Travel Services Invoice 는 **board 전용 문서**
+
+> 📎 **받는 쪽 권위 = car-erp `board-portal-api.md` §14**(전용 엔드포인트 `POST /api/internal/board/vehicles/{id}/remitter`, 덮어쓰기+감사, 같은 값 no-op, 응답 `{vehicle_id, updated[], had_previous}`) + `purchase-sync-receiver.md` 「송금인 Name·ID 동봉」(`contract_version` 상향 없음, 빈 칸만, `fields_skipped.remitter_*=already_set`). payload 키 = **`remitter_name`**(필수 ≤100 trim) · **`remitter_id`**(선택 ≤64, 빈 문자열 = 무시, 지우기는 ERP 화면). 읽기 API·포털 응답엔 안 실린다. car-erp dev `e1c86a28`. board 는 이 키를 그대로 쓴다(복사 금지, 포인터만).
 
 ### Jin 원문 요지(1차 + 2차)
 - 1차: Travel Services Invoice 에 여권 Name·ID 가 들어가야 한다. OCR, 안 되면 수기. board 매입예정 드로어에서 Name·ID 를 ERP 로 별도 전송 → ERP 기입 → 차량관리 「송금증이름」 검색.
