@@ -114,21 +114,21 @@
   | E4 | Invoice No. | `="MU"&RIGHT(D18,6)` → `MU`+VIN 끝 6 | 수식 유지 가능(D18 값이면 계산됨) |
   | **E5:F5** | **Name** | **드로어 Name**(OCR/수기) | 병합 셀 |
   | **E6** | **ID** | **드로어 ID**(여권번호 / ID 카드 번호) | |
-  | E7 | Address | ❓ board 에 바이어 주소 없음(§3 PII 로 ERP 가 안 줌) | **Q2-16** 빈 칸·수기 / ERP 개방 |
-  | E8 | Phone | ❓ 동일 | Q2-16 |
+  | E7 | Address | **ERP 개방**(Jin 2026-10-28) — 바이어 주소를 이 문서용으로 ERP 가 내준다 | Q2-16 ✅ → ERP §3 예외 스펙 필요 |
+  | E8 | Phone | **ERP 개방**(Jin) — 바이어 전화 | Q2-16 ✅ |
   | E9 | Euro Rate | `offer_rate_eur`(없으면 EUR 견적이면 `offer_rate`) | |
   | E10 | Dollar Rate | `offer_rate_usd`(없으면 USD 견적이면 `offer_rate`) | |
-  | A18 | Code | ❓ 차량 코드(ERP 「Code」?) | Q2-17 — 차량번호로 대체 가능 |
-  | B18/C18 | Brand/Model | board 에 없음 → ERP 재고 응답 brand/model(§14-6 차량 메타) 또는 빈 칸 | Q2-17 |
+  | A18 | Code | **차량번호**로 대체(Jin) | Q2-17 ✅ |
+  | B18/C18 | Brand/Model | **ERP 재고 응답 brand/model 사용**(Jin 「써도 됨, 같은 거임」, §14-6 차량 메타) | Q2-17 ✅ |
   | D18 | Chassis No. | `vin` | |
   | E18 | FOB PRICE | `sale_price`(판매가, 견적통화) | HEYMAN 판 수식 = 총판매가 − 운임, ssancar 판 = 총 − F18 → 같은 뜻 |
   | F18 | Shipping cost | `transport_fee`(견적통화) | |
   | E24~E26 | COMMISSION / AUTO LOADING / TAX D/C | board 에 없음 → 빈 칸(수기) | |
-  | E27/E31/E34 | SUB TOTAL / TOTAL / BALANCE | 수식 유지 | HEYMAN `+E26`, SSANCAR `−E26` 로 다름 — 양식 그대로 |
+  | E27/E31/E34 | SUB TOTAL / TOTAL / BALANCE | 수식 유지 | ⚠️ HEYMAN 양식은 `+E26`, SSANCAR 는 `−E26` — **`−E26` 이 맞다(Jin), 둘 다 `−E26` 으로 통일**(board 가 생성 시 E27 수식을 `=SUM(E18:F25)-E26` 으로 쓴다) |
   | E28~E30 | DEPOSIT | 수기 | |
   | A13~E15 | 회사 계좌 블록 | 양식 리터럴 그대로 | 회사별 |
 - **ID 카드도 대상**(여권만이 아니다): 표시 이미지(코소보 ID 카드)에서 Jin 이 빨간 표시한 칸 = **Surname/Given name + 「ID Card No.」**. 알바니아 ID 카드 2장도 있음(「nr. letërnjoftimit / card no.」 와 「personal no.」 가 따로 있다 → **ID = card no.**, personal no. 아님). ⇒ 규칙 = **문서 번호**(여권 = passport no., ID 카드 = card no.). 샘플 중 2장은 90° 회전 촬영 → OCR 전처리에 **회전 보정**(EXIF + 모델에 「회전돼 있어도 읽어라」, 실패 시 90° 씩 돌려 재시도). ID 카드 앞면엔 MRZ 없음 → 인쇄 칸 읽기가 주, MRZ 는 보조.
-- 새 질문: **Q2-16 Address·Phone** 소스(빈 칸 수기 vs ERP 가 이 문서용으로 바이어 주소·전화 개방 — §3 PII 결정) · **Q2-17 Code·Brand·Model** 소스(ERP 재고 응답 메타 사용 여부).
+- ✅ Q2-16·Q2-17 결정(Jin 2026-10-28): Address·Phone = **ERP 개방**(board 가 이 문서 생성 시 바이어 주소·전화를 ERP 에서 받는다 — §3 「연락처·주소 PII 금지」의 **문서 생성용 예외**, ERP 세션에 스펙 요청) · Code = 차량번호 · Brand/Model = ERP 재고 메타 · 합계 수식 = `−E26` 으로 통일.
 
 ### 인프라 메모
 - GPU PC 는 `qwen2.5vl:7b` 단독 상주(챗봇 off). 여권 OCR 도 같은 모델·같은 Job 틀, 새 모델 안 올린다. 🚫 프롬프트 이중 부정 금지·1100px·`num_ctx` 4096(§14-15 함정 그대로).
