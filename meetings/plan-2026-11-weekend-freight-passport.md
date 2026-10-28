@@ -58,7 +58,7 @@
 | Q2-4 | 덮어쓰기 | ⚠️ **두 경로 규칙이 다르다**: 전용 엔드포인트 = **덮어쓰기 + ERP 감사로그** / purchase-sync 동봉분 = 그 컨트롤러 재전송 규칙(**빈 칸만**/`already_set`). 스펙에 명기 |
 | Q2-2 | 여권 이미지 | board = **OCR 뒤 폐기, Name·ID 만 보관**(ID encrypted). OCR·보관·폐기는 board 몫 |
 | Q2-8 | OCR 결과 | **후보 제시만, 자동 기입 ❌**(양쪽 동의). 사람이 [적용] → 저장 → 전송 |
-| Q2-5 | 저장 형식 | Name = 여권 표기 그대로(라틴 대문자 `SURNAME GIVEN NAMES`, MRZ `<` → 공백), **ID = 여권번호(Passport No.)**(영숫자, 공백 제거 — Q2-13). 개인번호·국적·생년월일은 **보관·전송 안 함** |
+| Q2-5 | 저장 형식 | Name = 문서 표기 그대로(라틴 대문자 `SURNAME GIVEN NAMES`, MRZ `<` → 공백), **ID = 문서 번호 — 여권은 Passport No., ID 카드는 Card No.**(영숫자, 공백 제거 — Q2-13, 2026-10-28 ID 카드 샘플로 확장). 개인번호·국적·생년월일은 **보관·전송 안 함** |
 | Q2-7 | 문서 | **board 전용 파일** — Jin 이 양식을 board 에 직접 준다. ERP 통관 SET 에 찍지 않고 ERP 다운로드 type 도 안 만든다 |
 
 ### 아직 열린 것(양식 받으면 정함)
@@ -105,6 +105,30 @@
   삭제 버튼은 탭 밖 드로어 맨 아래 그대로. 탭마다 「미입력」 점 표시(예: Invoice 미입력이면 탭 이름 옆 빨간 점) — 선택. `/manage` 드로어는 이번엔 탭 안 나누고 두 칸만 추가(범위 제한). 탭 구성은 Jin 이 조정 가능.
 - 입력 정규화 — Name 대문자·연속 공백 1개, 여권번호 대문자·영숫자만(공백·하이픈 제거). 길이 제한은 ERP 스펙(이름 ≤100·ID ≤64)과 동일.
 - EN 화면 — 라벨·안내 전부 lang 양쪽, 차량번호 `Plate::show`.
+
+### 📄 양식·샘플 수령(2026-10-28 15:14, `Desktop\스크린샷\passport`) — 실제 문서 = **COMMERCIAL INVOICE**(회사별 xlsx 2개: `HEYMAN INVOICE.xlsx` 시트 `heyman` · `SSANCAR INVOICE.xlsx` 시트 `ssancar`, 같은 레이아웃 A1:H44). 「Travel Services Invoice」 라 부르던 것 = 이 파일. **board 전용**, 인스턴스별 양식(`Instance::assets()` 와 같은 APP_NAME 분기).
+- 값 칸은 전부 외부 판매내역 시트 `VLOOKUP($G$1, …)` 수식(G1 = 조회 키) → board 는 **수식을 지우고 값으로 쓴다**. 셀 매핑(두 파일 동일):
+  | 셀 | 라벨 | board 소스 | 비고 |
+  |---|---|---|---|
+  | E3 | Date | 생성일(또는 선적일) | 형식 양식 보고 |
+  | E4 | Invoice No. | `="MU"&RIGHT(D18,6)` → `MU`+VIN 끝 6 | 수식 유지 가능(D18 값이면 계산됨) |
+  | **E5:F5** | **Name** | **드로어 Name**(OCR/수기) | 병합 셀 |
+  | **E6** | **ID** | **드로어 ID**(여권번호 / ID 카드 번호) | |
+  | E7 | Address | ❓ board 에 바이어 주소 없음(§3 PII 로 ERP 가 안 줌) | **Q2-16** 빈 칸·수기 / ERP 개방 |
+  | E8 | Phone | ❓ 동일 | Q2-16 |
+  | E9 | Euro Rate | `offer_rate_eur`(없으면 EUR 견적이면 `offer_rate`) | |
+  | E10 | Dollar Rate | `offer_rate_usd`(없으면 USD 견적이면 `offer_rate`) | |
+  | A18 | Code | ❓ 차량 코드(ERP 「Code」?) | Q2-17 — 차량번호로 대체 가능 |
+  | B18/C18 | Brand/Model | board 에 없음 → ERP 재고 응답 brand/model(§14-6 차량 메타) 또는 빈 칸 | Q2-17 |
+  | D18 | Chassis No. | `vin` | |
+  | E18 | FOB PRICE | `sale_price`(판매가, 견적통화) | HEYMAN 판 수식 = 총판매가 − 운임, ssancar 판 = 총 − F18 → 같은 뜻 |
+  | F18 | Shipping cost | `transport_fee`(견적통화) | |
+  | E24~E26 | COMMISSION / AUTO LOADING / TAX D/C | board 에 없음 → 빈 칸(수기) | |
+  | E27/E31/E34 | SUB TOTAL / TOTAL / BALANCE | 수식 유지 | HEYMAN `+E26`, SSANCAR `−E26` 로 다름 — 양식 그대로 |
+  | E28~E30 | DEPOSIT | 수기 | |
+  | A13~E15 | 회사 계좌 블록 | 양식 리터럴 그대로 | 회사별 |
+- **ID 카드도 대상**(여권만이 아니다): 표시 이미지(코소보 ID 카드)에서 Jin 이 빨간 표시한 칸 = **Surname/Given name + 「ID Card No.」**. 알바니아 ID 카드 2장도 있음(「nr. letërnjoftimit / card no.」 와 「personal no.」 가 따로 있다 → **ID = card no.**, personal no. 아님). ⇒ 규칙 = **문서 번호**(여권 = passport no., ID 카드 = card no.). 샘플 중 2장은 90° 회전 촬영 → OCR 전처리에 **회전 보정**(EXIF + 모델에 「회전돼 있어도 읽어라」, 실패 시 90° 씩 돌려 재시도). ID 카드 앞면엔 MRZ 없음 → 인쇄 칸 읽기가 주, MRZ 는 보조.
+- 새 질문: **Q2-16 Address·Phone** 소스(빈 칸 수기 vs ERP 가 이 문서용으로 바이어 주소·전화 개방 — §3 PII 결정) · **Q2-17 Code·Brand·Model** 소스(ERP 재고 응답 메타 사용 여부).
 
 ### 인프라 메모
 - GPU PC 는 `qwen2.5vl:7b` 단독 상주(챗봇 off). 여권 OCR 도 같은 모델·같은 Job 틀, 새 모델 안 올린다. 🚫 프롬프트 이중 부정 금지·1100px·`num_ctx` 4096(§14-15 함정 그대로).
