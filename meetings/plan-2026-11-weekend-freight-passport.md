@@ -1,5 +1,32 @@
 # 주말 개발 계획 — ① 컨테이너 운임비 → 판매통화 환산·총판매가·면장 미러 ② 여권 Name·ID + board 전용 Travel Services Invoice ③ 포털 바이어 적립금 ④ 딜러 서류 OCR(사업자등록증·명함) ⑤ super 전체 바이어 선택
 
+## 0. 요약 — 주말 착수용 (2026-10-28 저녁 정리)
+
+| # | 항목 | 결정 | ERP 문서 | ERP 코드 | board 코드 | 남은 입력 |
+|---|---|---|---|---|---|---|
+| ① | 컨테이너 운임비 USD → 판매통화 운임비(총판매가·면장은 ERP cascade) | ✅ | `board-portal-api.md` §5 | 주말(1줄) | **없음**(SKILLS §12 문구 교체만) | — |
+| ② | 여권/ID 카드 Name·문서번호 → ERP 송금인 2칸 + 「송금증이름」 검색 + **board 전용 COMMERCIAL INVOICE(xlsx)** + 매입예정 드로어 탭 4개 + 메뉴 「매입예정(Invoice)」 | ✅ | §14 + receiver 「송금인 동봉」 + §4 `GET /buyers/{id}`(주소·전화) | 주말 | 주말(가장 큼) | — (양식·샘플 수령 완료) |
+| ③ | 포털 「적립금」 탭(본인 바이어별 잔액+이력) | ✅ | §4(`/by-buyer` `savings_balances[]`, `GET /buyers/{id}/savings`) | 주말 | 주말 | — |
+| ④ | 딜러 서류 OCR(사업자등록증 법인명·대표자, 명함 휴대폰) → purchase-sync `seller_*` 3필드 | ✅ | receiver 「딜러 서류 OCR 동봉」 | 주말 | 주말 | — |
+| ⑤ | super 전체 바이어 선택 | ✅ | §4 | **배포됨** `2349598f` | **배포됨** `f525c3b` | super 계정 `/users` 매핑 = ERP super 이메일 |
+
+**배포 순서(주말)**: ERP 먼저(②·③·④ 엔드포인트가 그 전엔 404/무시) → board. ① 은 ERP 단독. 양쪽 master 머지는 각자 Jin 허락.
+
+### board 구현 순서(제안) — 의존 적은 것부터
+1. **④ 추출 확장** — `PayeeExtractor` 프롬프트·파싱에 법인명·대표자·휴대폰 추가(`doc_type` 사업자등록증·명함 활용) · `purchase_listings` 컬럼 3개(`seller_phone` encrypted) 마이그 · `BoardAudit::MASKED` 에 `seller_phone` · `/auction` 드로어 후보 섹션 2개(매입처·연락처) + [적용] · 버튼 이름 「📷 이미지에서 정보 찾기」(`payee_extract.find` 등 문구 5개) · `SyncWonListingToCarErp` payload `seller_company`·`seller_ceo`·`seller_phone`(숫자만) · integration_events payload 마스킹 확인 · 테스트.
+2. **③ 적립금 탭** — `CarErpReadService::buyerSavings($email, $buyerId, $limit)` · 포털 TABS 에 `savings`(7번째) · 본인 바이어 목록(`/by-buyer` 의 `savings_balances[]`) → 펼치면 이력(지연 로드, `type` lang 라벨·모르는 값 원문·note 없음) · 잔액 0 도 행 그림 · 조회 실패 「조회 불가」 · lang ko/en · 테스트(렌더·IDOR 404 처리·실패 표시).
+3. **② 여권·Invoice** —
+   a. 컬럼 2개(`remitter_name` 평문·`remitter_id` encrypted, + `remitter_synced_at`) 마이그 · 감사(ID 가림) · `/listings` 목록 「Invoice」 칸(미입력/입력됨/전송됨) · `/manage` 드로어 2칸.
+   b. OCR Job(`ExtractPayeeFromPhotos` 복제, 프롬프트 = MRZ 2줄 + 인쇄 칸 SURNAME/GIVEN/문서번호) · MRZ 파싱+체크디지트 · 인쇄 칸과 교차검증 · 회전 보정(EXIF + 90° 재시도) · **이미지는 OCR 뒤 폐기** · 후보 제시만.
+   c. 드로어 탭 4개(기본·검차·첨부·Invoice) + Invoice 탭(카메라 업로드·후보·Name·ID·[ERP 로 전송]·전송 상태·[인보이스 다운로드]) · 전 상태 편집 허용(`editable()` 밖).
+   d. 전송 = `POST /api/internal/board/vehicles/{id}/remitter`(덮어쓰기) + purchase-sync 동봉(빈 칸만) · synced 전엔 버튼 비활성 + 안내.
+   e. 인보이스 생성 = `phpoffice/phpspreadsheet` 추가 · 인스턴스별 양식(`HEYMAN INVOICE.xlsx`/`SSANCAR INVOICE.xlsx`, APP_NAME 분기) · 셀 매핑(§② 표: E5 Name·E6 ID·E7/E8 = ERP `GET /buyers/{id}` 주소·전화(저장 0, 없으면 빈 칸)·E9/E10 환율·A18 차량번호·B18/C18 ERP 메타·D18 VIN·E18 판매가·F18 운임·E27 `=SUM(E18:F25)-E26` 통일) · 다운로드 권한 = 드로어와 동일 · (선택) 다운로드 감사.
+   f. 메뉴·제목 「매입예정(Invoice)」(`nav.listings` ×2 + `listings.heading`, en 동일).
+4. **①** SKILLS §12 「후속 후보」 → 결정값 문구 교체(코드 0).
+
+### 양식·샘플 위치
+`Desktop\스크린샷\passport` — 여권 5장·ID 카드 3장(코소보 1·알바니아 2, 빨간 표시 = Surname/Given + ID Card No.)·`HEYMAN INVOICE.xlsx`·`SSANCAR INVOICE.xlsx`. **레포·S3 에 올리지 않는다.** 양식 xlsx 는 착수 때 `resources/templates/` 로 복사(계좌 블록 리터럴 포함 — 회사 계좌번호가 들어 있으니 운영 트리에만, 공개 금지 아님이나 주의).
+
 > 2026-10-28 Jin 요구(「기록만 해놔줘」, 주말 개발 예정). **양쪽 코드 0 — 결정값 확정 단계.**
 > 경위: board 초안 → car-erp 세션 사실 확인(파일:줄 대조) → Jin 2차(문서는 board 전용) → **Jin 결정값(car-erp 세션에서 직접 답, 2026-10-28)** 반영. 받는 쪽 스펙은 car-erp 문서(`purchase-sync-receiver.md` ① · `board-portal-api.md` ②)가 권위 — car-erp 세션이 쓴다. board 는 SKILLS §12·§14 에 보내는 쪽만.
 
