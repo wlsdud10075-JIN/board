@@ -104,6 +104,16 @@
 - **Q3-4 스코프.** `/buyers` 와 동일 = 영업 본인 바이어만(관리·super 는 대리조회 규칙 그대로). 금액이지 PII 는 아니라 §3 화이트리스트 충돌 없음(ERP 확인 요청).
 - **분담(예상)**: ERP = `GET /buyers/{id}/savings`(또는 `/buyers` 에 `savings_balances[]` 동봉 + 이력은 별도) · board = 탭 1개 + 서비스 메서드 + lang + 테스트. throttle 분당 120 공유 버킷에 호출 1~2개 추가(요약 탭 5개 수준엔 영향 없음).
 
-### ERP 세션에 물어둔 것(2026-10-28 발신)
+### ERP 회신(2026-10-28, 코드 대조·변경 0) — 반영
+- `GET /buyers` = `InternalPortalController::buyers`(`:442`, 라우트 `routes/api.php:53`), 스코프 = `Buyer::where('salesman_id',$sid)->where('is_active',true)` → 적립금도 같은 스코프. 바이어별 묶음 화면 = `GET /by-buyer`(`byBuyer` `:389`).
+- 통화별 잔액 = **통화별 최신 `balance` 스냅샷**(합산 아님, `erp/buyers/index.blade.php:764-769`). 원화 환산 = `SavingsLedger::balanceKrw()`(선입선출, 적립 시점 환율). 단일 출처가 Volt 안 `loadSavings()` 라 API 로 내려면 **`SavingsLedger` 에 잔액 메서드를 두고 화면도 그걸 부르게**(ERP 몫, ERP SKILLS §8 #44).
+- 현금 디파짓 잔액 = `BuyerCashReceipt::balanceFor()`(`:96`, 받은 합 − 배분 합). **적립금과 다른 돈** — 합치지 않고 따로(`savings_balances[]` / `cash_balances[]`). ⚠️ **현금 원장은 heymanerp·karabaerp 만 쓰고 ssancarerp 는 미사용**(Jin 2026-09-22) → ssancarboard 에 내리면 늘 0 이라 「없음」으로 오해. 내려면 회사 토글이 필요 → **「적립금만」으로 자르는 게 깔끔**(ERP 의견, board 동의).
+- §3: 금액·통화·일자·차량번호·바이어명·`transaction_type` 허용. 🚨 **`note` 는 자유 입력(사람이 친 정정 사유·내부 사정)이 섞인다 → 내리지 않는다.** 이력 = type·금액·통화·일자·차량번호. `ADJUSTMENT`·`CANCELLED` 는 사유 없이 라벨만(또는 「조정」으로 합침).
+- 엔드포인트 형태(ERP 제안, board 동의): **잔액 = `/by-buyer` 행에 `savings_balances[]`({currency, balance, balance_krw}) 동봉**(`/buyers` 는 드로어 드롭다운이라 매번 불려 분당 120 버킷 소모) · **이력 = `GET /buyers/{id}/savings?limit=N` 신설**(IDOR = `buyers.salesman_id` 본인 아니면 404/빈 응답, `/consignees` 방식). 새 탭이든 칩이든 ERP 엔드포인트는 같다.
+
+### 제안 갱신(board)
+- Q3-1 → **적립금만**(현금 디파짓은 ssancarerp 미사용 + 회사 토글 필요라 이번 범위 밖). Q3-2 → **잔액 + 이력(note 없이)**. Q3-3 → Jin 결정(새 탭 「바이어」 vs 미수금 헤더 칩) — 잔액이 `/by-buyer` 에 실리면 **미수금 탭 바이어 헤더 칩은 호출 추가 0**, 새 탭은 이력 호출만 추가.
+
+### ERP 세션에 물어둔 것(2026-10-28 발신, 회신 완료 — 위 반영)
 - `/buyers` 컨트롤러 위치(InternalPortalController 추정) · 통화별 잔액 계산이 「통화별 최신 balance 스냅샷」인지 합산인지 · 현금 디파짓 잔액 메서드 · §3 PII 판단 · 이력 노출 시 note 에 내부 메모가 섞이는지(영업에게 보여도 되는 문구인지).
 
