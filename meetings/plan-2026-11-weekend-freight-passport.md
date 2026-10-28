@@ -184,7 +184,8 @@
 - `deregistration_notice_phone` = string(20), 화면 저장은 `PhoneFormat::format()` 하이픈 형식(국가코드 없음), 발송 직전 `normalizePhone()` 이 숫자만 남겨 **저장 형식 무관하게 발송됨**. 말소등록증·입금완료·이체확인증 **3종 알림톡 공용 수신 번호**. ⚠️ 감사 대상 아님 → board 가 쓰기 시작하면 ERP 가 추가(ERP 몫).
 - purchase-sync: **버전 상향 불필요**(모르는 필드 무시). 신규 생성·재전송 경로에 3블록(값 있고 빈 칸이면 채움, 아니면 `already_set`). `already_set` 키는 ERP 컬럼명 `purchase_from`·`deregistration_notice_phone` 으로 돌려준다. 합성 `purchase_from` 은 비어 있을 때만(사람이 친 값 보호).
 - 휴대폰: ERP 감사 MASKED 아님(RRN·계좌만). §3 「연락처 PII 금지」는 board 로 **내려주는** 응답 화이트리스트라 board → ERP **들어오는** 값엔 해당 없음. ERP 안에선 딜러 전화가 이미 평문으로 다닌다.
-- payload 키 확정(제안 그대로): `seller_company`·`seller_ceo`·`seller_phone`. Jin 결정 뒤 ERP 가 `purchase-sync-receiver.md` 에 쓴다.
+- 📎 **받는 쪽 권위 = car-erp `purchase-sync-receiver.md` 「딜러 서류 OCR 동봉」 절**(dev `c0fe2889`): `seller_company`(≤100)·`seller_ceo`(≤50)·`seller_phone`(≤20, 숫자만), 버전 상향 없음, 신규·재전송 빈 칸만, `fields_skipped` 키 = `purchase_from`·`deregistration_notice_phone`. 합성·하이픈·감사 추가 = ERP. board 는 이 키·길이를 그대로 쓴다(복사 금지).
+- ERP 문서 포인터 총괄: ① `board-portal-api.md` §5 · ② `board-portal-api.md` §14 + receiver 「송금인 Name·ID 동봉」 · ③ `board-portal-api.md` §4 · ④ receiver 「딜러 서류 OCR 동봉」.
 - board 보내는 쪽 메모: `seller_phone` 은 **숫자만**(하이픈 제거) 보낸다 — ERP 가 저장 시 하이픈 형식으로 바꾸거나 발송 시 정규화하므로 어느 쪽이든 된다. 길이 ≤20.
 
 ### ERP 세션에 물어둔 것(2026-10-28 발신, 회신 완료 — 위 반영)
