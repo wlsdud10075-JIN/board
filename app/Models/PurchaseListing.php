@@ -417,6 +417,23 @@ class PurchaseListing extends Model
      *    2026-09-10 운영에서 실제로 발생했다(배포 직후 켠 설정을 워커가 못 읽어 Job 이 무동작 종료).
      *    그래서 **시각으로도 끊는다** — 사람이 손을 못 쓰게 되는 상태를 만들지 않는 게 우선이다.
      */
+    /** 화면용 — 큐에 들어가 아직 결과가 없다(시간 무관). 확정 잠금은 아래 `payeeExtractionInFlight()`(5분 창) 그대로. */
+    public function payeeExtractionPending(): bool
+    {
+        return $this->payee_extraction_status === 'pending';
+    }
+
+    /**
+     * 화면용 — pending 인데 5분이 지났다 = 큐가 밀렸거나 워커가 느리다. 종전엔 이 상태를 「실패」로 그려 사용자가 포기했는데
+     * Job 은 나중에 끝나 후보가 저장된다(2026-10-28 Jin 실사용: 새로고침해 드로어를 다시 여니 후보가 있었다).
+     * 「실패」는 Job 이 실제로 failed 를 찍었을 때만.
+     */
+    public function payeeExtractionSlow(): bool
+    {
+        return $this->payeeExtractionPending()
+            && ($this->payee_extraction_at === null || $this->payee_extraction_at->lte(now()->subMinutes(self::PAYEE_EXTRACT_WAIT_MINUTES)));
+    }
+
     public function payeeExtractionInFlight(): bool
     {
         return $this->payee_extraction_status === 'pending'

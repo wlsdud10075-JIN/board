@@ -1181,17 +1181,23 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 {{-- 계좌 후보 (첨부사진에서 읽음) — 제안일 뿐이고, 적용해도 저장 전이다. --}}
                 @if (in_array($d->status, ['accepted', 'won'], true) && config('board.payee_extract.enabled'))
-                    @if ($d->payeeExtractionInFlight())
-                        <div class="mb-2 rounded-md border border-gray-200 bg-gray-50 px-2.5 py-2 text-[11px] text-gray-500"
-                             wire:poll.5s>{{ __('auction.payee_extract.searching') }}</div>
+                    {{-- 이 상자는 버튼(첨부 섹션 맨 아래)에서 ~450px 위에 있다 — 그래서 버튼 아래에도 같은 상태 줄을 두고(아래 under_*),
+                         결과가 오면 여기로 자동 스크롤한다(2026-10-28 Jin: 눌러도 아무 변화가 없는 줄 알았다). `window.__payeeWaiting` 은
+                         「찾는 중」을 한 번이라도 그렸다는 표식 — 드로어를 열자마자 이미 후보가 있는 경우엔 스크롤하지 않는다. --}}
+                    @if ($d->payeeExtractionPending())
+                        <div id="payee-status" x-data x-init="window.__payeeWaiting = true"
+                             class="mb-2 rounded-md border {{ $d->payeeExtractionSlow() ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-gray-200 bg-gray-50 text-gray-500' }} px-2.5 py-2 text-[11px]"
+                             wire:poll.{{ $d->payeeExtractionSlow() ? '15s' : '5s' }}>{{ $d->payeeExtractionSlow() ? __('auction.payee_extract.slow') : __('auction.payee_extract.searching') }}</div>
                     {{-- 못 찾았거나 실패했으면 **그렇다고 말해준다** — 아무것도 안 그리면 사용자는 계속 기다린다
-                         (2026-09-10 Jin 실사용: 화면이 멈춘 줄 알고 3분을 기다렸다). --}}
-                    @elseif (empty($d->payee_suggestions['candidates']) && empty($d->payee_suggestions['registration_owners']) && in_array($d->payee_extraction_status, ['none', 'failed', 'pending'], true))
-                        <div class="mb-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs font-semibold text-amber-800">
+                         (2026-09-10 Jin 실사용: 화면이 멈춘 줄 알고 3분을 기다렸다). 「실패」는 Job 이 failed 를 찍었을 때만(pending 은 위에서 처리). --}}
+                    @elseif (empty($d->payee_suggestions['candidates']) && empty($d->payee_suggestions['registration_owners']) && in_array($d->payee_extraction_status, ['none', 'failed'], true))
+                        <div id="payee-status" x-data x-init="if (window.__payeeWaiting) { window.__payeeWaiting = false; $nextTick(() => $el.scrollIntoView({ behavior: 'smooth', block: 'center' })) }"
+                             class="mb-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs font-semibold text-amber-800">
                             ⚠ {{ $d->payee_extraction_status === 'none' ? __('auction.payee_extract.not_found') : __('auction.payee_extract.failed') }}
                         </div>
                     @elseif (!empty($d->payee_suggestions['candidates']) || !empty($d->payee_suggestions['registration_owners']))
-                        <div class="mb-2 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-2">
+                        <div id="payee-status" x-data x-init="if (window.__payeeWaiting) { window.__payeeWaiting = false; $nextTick(() => $el.scrollIntoView({ behavior: 'smooth', block: 'center' })) }"
+                             class="mb-2 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-2">
                             {{-- 소유자 후보(자동차등록증) — 2026-10-22 Jin. 누르면 소유자 칸에만 들어간다(저장 전). --}}
                             @if (!empty($d->payee_suggestions['registration_owners']))
                                 <div class="text-[11px] font-semibold text-blue-800">{{ __('auction.payee_extract.owner_title') }}</div>
@@ -1334,6 +1340,26 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <span wire:loading.remove wire:target="extractFromImages">{{ __('auction.payee_extract.find') }}</span>
                             <span wire:loading wire:target="extractFromImages">{{ __('auction.payee_extract.finding') }}</span>
                         </button>
+                        {{-- 버튼 바로 아래 상태 줄 — 결과 상자(#payee-status)는 위쪽 입금정보 칸에 있어 여기서 안 보인다. --}}
+                        @php
+                            $payeeFound = count((array) ($d->payee_suggestions['candidates'] ?? [])) + count((array) ($d->payee_suggestions['registration_owners'] ?? []));
+                        @endphp
+                        @if (in_array($d->status, ['accepted', 'won'], true))
+                            @if ($d->payeeExtractionPending())
+                                <p class="mt-1 text-center text-[11px] {{ $d->payeeExtractionSlow() ? 'text-amber-700' : 'text-gray-500' }}" data-payee-under>
+                                    {{ $d->payeeExtractionSlow() ? __('auction.payee_extract.under_slow') : __('auction.payee_extract.under_searching') }}
+                                </p>
+                            @elseif ($payeeFound > 0)
+                                <button type="button" data-payee-under class="mt-1 w-full text-center text-[11px] text-blue-700 underline"
+                                        x-data @click="document.getElementById('payee-status')?.scrollIntoView({ behavior: 'smooth', block: 'center' })">
+                                    {{ __('auction.payee_extract.under_found', ['count' => $payeeFound]) }}
+                                </button>
+                            @elseif (in_array($d->payee_extraction_status, ['none', 'failed'], true))
+                                <p class="mt-1 text-center text-[11px] text-amber-700" data-payee-under>
+                                    {{ $d->payee_extraction_status === 'none' ? __('auction.payee_extract.under_none') : __('auction.payee_extract.under_failed') }}
+                                </p>
+                            @endif
+                        @endif
                     @endif
                 @endif
 

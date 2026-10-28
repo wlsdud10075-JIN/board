@@ -115,6 +115,18 @@ class SsancarMediaService
     }
 
     /** @return array{videos: list<array<string,?string>>, photos: list<string>} */
+    /** 응답 모양에 따른 캐시 분(위 request() 주석). 검차글 사진>0·영상 0·재고 사진 0 = 영상 대기 → 짧게. */
+    public static function ttlMinutesFor(array $out): int
+    {
+        $src = $out['sources'] ?? [];
+        $inspVideos = count($src['inspected']['videos'] ?? []);
+        $inspPhotos = count($src['inspected']['photos'] ?? []);
+        $stockPhotos = count($src['stock']['photos'] ?? []);
+        $waitingVideo = $inspPhotos > 0 && $inspVideos === 0 && $stockPhotos === 0;
+
+        return max(1, (int) config($waitingVideo ? 'board.ssancar_media_cache_waiting_minutes' : 'board.ssancar_media_cache_minutes'));
+    }
+
     private function request(string $cacheSuffix, array $query, ?int $timeout = null): array
     {
         $base = (string) config('services.ssancar_media.base_url');
@@ -165,7 +177,12 @@ class SsancarMediaService
             'photos' => $photos,
             'sources' => is_array($j['sources'] ?? null) ? $j['sources'] : [],
         ];
-        Cache::put($cacheKey, $out, now()->addMinutes(10));
+        // 캐시 TTL — 기본 10분(바이어 공개 페이지·폴러 공용). 단 「검차글 사진은 있는데 영상이 아직 0」(= Bunny 인코딩 대기,
+        // pollDecision 의 「대기」 상태)만 **짧게**(기본 2분): 영상 업로드 직전에 조회가 떨어지면 「영상 없음」이 10분 묶여 전달대기가
+        // 최대 ~12분 늦었다(2026-10-28 ssancarboard 162수2581 실측, 14:58:03 조회 vs 영상 done 14:58:04). 짧은 TTL 은 이 상태의 차에만
+        // 걸리므로 ssancar 추가 호출 = 「영상 대기 중인 차 × 2분당 1회」뿐(미디어가 아예 없는 죽은 draft 는 10분 그대로 — 트래픽 보호).
+        // Jin 2026-10-28 A안(ssancar 변경 0). 웹훅으로 캐시를 비우는 B안은 ssancar 가 영상 done 이벤트를 안 보내 보류.
+        Cache::put($cacheKey, $out, now()->addMinutes(self::ttlMinutesFor($out)));
 
         return $out;
     }
