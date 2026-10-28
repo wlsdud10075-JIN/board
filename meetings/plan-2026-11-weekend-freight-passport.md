@@ -1,4 +1,4 @@
-# 주말 개발 계획 — ① 컨테이너 운임비 → 판매통화 환산·총판매가·면장 미러 ② 여권 Name·ID + board 전용 Travel Services Invoice ③ 포털 바이어 적립금
+# 주말 개발 계획 — ① 컨테이너 운임비 → 판매통화 환산·총판매가·면장 미러 ② 여권 Name·ID + board 전용 Travel Services Invoice ③ 포털 바이어 적립금 ④ 딜러 서류 OCR(사업자등록증·명함)
 
 > 2026-10-28 Jin 요구(「기록만 해놔줘」, 주말 개발 예정). **양쪽 코드 0 — 결정값 확정 단계.**
 > 경위: board 초안 → car-erp 세션 사실 확인(파일:줄 대조) → Jin 2차(문서는 board 전용) → **Jin 결정값(car-erp 세션에서 직접 답, 2026-10-28)** 반영. 받는 쪽 스펙은 car-erp 문서(`purchase-sync-receiver.md` ① · `board-portal-api.md` ②)가 권위 — car-erp 세션이 쓴다. board 는 SKILLS §12·§14 에 보내는 쪽만.
@@ -151,4 +151,33 @@
 
 ### ERP 세션에 물어둔 것(2026-10-28 발신, 회신 완료 — 위 반영)
 - `/buyers` 컨트롤러 위치(InternalPortalController 추정) · 통화별 잔액 계산이 「통화별 최신 balance 스냅샷」인지 합산인지 · 현금 디파짓 잔액 메서드 · §3 PII 판단 · 이력 노출 시 note 에 내부 메모가 섞이는지(영업에게 보여도 되는 문구인지).
+
+## ④ 딜러 서류 OCR — 사업자등록증 법인명·대표자 + 명함 휴대폰 → ERP 구입처·국내딜러 알림톡 (2026-10-28 Jin, 🅿️ 기획 · 코드 0)
+
+### Jin 원문 요지
+사진 5장(구매확정 딜러 첨부)에서 **사업자등록증 → 법인명·대표자**, **명함 → 휴대폰번호**를 찾아 ERP **매입탭 구입처에 「법인명/대표자」**, **국내딜러 알림톡 탭에 휴대폰번호**를 넣는다. OCR 을 ERP 에서 따로 돌릴지, board 가 찾아 ERP 로 넘길지 판단 필요.
+
+### 사실(확인)
+- board 는 **같은 5장을 이미 읽고 있다** — `/auction` 구매확정 드로어의 계좌추출 Job(`ExtractPayeeFromPhotos`, `PayeeExtractor.php:31-46`)이 장마다 `doc_type`(자동차등록증·통장·**사업자등록증·명함**·차량사진·기타)을 판정하고 계좌·등록증 소유자를 후보로 낸다. 명함 연락처는 「계좌가 아니다」로 **의도적으로 버리는 중**(`:43`). ⇒ 법인명·대표자·휴대폰은 **같은 Job 의 프롬프트·파싱 확장**이다(호출 횟수 증가 0, 사진당 3~4초 그대로).
+- ERP 칸: 구입처 = `vehicles.purchase_from`(자유서식 string, 검색 대상 `Vehicle.php:3190`) · 국내딜러 알림톡 번호 = `vehicles.deregistration_notice_phone`(「국내 딜러 알림톡 (말소등록증·입금완료)」, `lang/ko/vehicle.php:1238`, 없으면 `no_phone` 오류 `:1422`). 연동 B 는 지금 둘 다 안 보낸다(`purchase-sync-receiver.md:37` 매핑에 없음).
+- ERP 엔 **비전 파이프라인이 없다** — `Services/Assistant/OllamaClient.php` 는 챗봇용 텍스트 호출뿐. ERP 에서 하려면 비전 클라이언트·Job·후보 UI 를 새로 짜야 한다(board 것과 중복).
+- 사람 확인 주체: 딜러를 만난 사람은 **board 의 영업**(구매확정 시점). ERP 쪽 사용자(재무·관리)는 그 딜러를 모른다.
+- board PII 스탠스 = **전화 미보유 원칙**(CLAUDE.md). 명함 휴대폰은 딜러(사업자) 연락처라 바이어·소유자 개인정보와 성격이 다르지만, 원칙 예외는 Jin 결정.
+
+### 판단(board 제안) — **board 가 찾아서 ERP 로 넘긴다**
+이유 ① 같은 사진·같은 시점·같은 Job(확장만) ② 확인하는 사람이 영업(계좌 후보 [적용] 과 같은 UX, 자동 기입 ❌) ③ ERP fill-if-empty 경로가 이미 있다 ④ ERP 는 비전 인프라 0. ERP 단독 OCR 은 같은 GPU 에 파이프라인을 하나 더 만들고, 확인자가 딜러를 모르는 사람이 되며, sync 뒤에야 돈다.
+- 흐름: `/auction` 드로어 [이미지에서 계좌·소유자 찾기] → **[계좌·소유자·구입처·연락처 찾기]** 로 확장 → 후보 4종(계좌 / 등록증 소유자 / 법인명·대표자 / 휴대폰) → 각 [적용] → 구매확정 시 purchase-sync 에 동봉 → ERP fill-if-empty(`purchase_from`·`deregistration_notice_phone`). 재전송·후보완은 `/listings` 드로어 「금액 다시 보내기」 와 같은 길.
+- payload: **분리해서 보낸다** — `seller_company`·`seller_ceo`·`seller_phone` 3개. 「법인명/대표자」 한 줄로 합치는 건 **ERP 가** `purchase_from` 에 넣을 때(형식을 ERP 가 소유, 나중에 칸이 쪼개져도 board 무변경). 🚫 board 가 합친 문자열을 보내지 않는다.
+- board 보관: `purchase_listings` 에 `seller_company`·`seller_ceo`(평문) · `seller_phone`(**encrypted**, `BoardAudit::MASKED`, integration_events payload 로그에서도 마스킹 — 지금 payload 로그에 계좌가 어떻게 남는지 착수 때 확인). 감사 대상.
+- 프롬프트 함정(§14-15 그대로): 이중 부정 금지 · 명함의 1566-/1588- 고객센터·유선번호와 **휴대폰(010-)** 구분 · 사업자등록증의 「상호(법인명)」 과 「대표자」 칸 각각 · 등록증 소유자와 섞지 않기(2026-10-23 사고 재발 금지).
+
+### 결정 필요(Jin)
+- **Q4-1 어디서 OCR 하나** — 제안 = board. (ERP 쪽 의견 요청함.)
+- **Q4-2 휴대폰 보관** — (a) board 에 encrypted 로 보관(후보 확정~전송·재전송에 필요) (b) 보관 없이 전송 시점 pass-through(재전송 불가, 로그엔 남음). 제안 = (a) + 마스킹. 「전화 미보유 원칙」의 명시적 예외로 기록.
+- **Q4-3 구입처 형식** — ERP `purchase_from` = 「법인명/대표자」(슬래시 구분)로 ERP 가 합성. 법인명만 있으면 「법인명」, 대표자만이면 「/대표자」? → ERP 가 정한다.
+- **Q4-4 덮어쓰기** — purchase-sync 동봉 = 빈 칸만(기존 규칙). `/listings` 후보완 재전송도 빈 칸만. ERP 에서 수기로 넣은 구입처를 board 가 덮지 않는다.
+- **Q4-5 명함이 여러 장/번호가 여러 개** — 후보 전부 제시(계좌 「전부 후보」 와 동일), 사람이 고른다.
+
+### ERP 세션에 물어둔 것(2026-10-28 발신)
+- `purchase_from` 현재 운영 값 형식(「상호/대표자」 관행이 이미 있는지) · `deregistration_notice_phone` 저장 형식(하이픈 유무·국가코드) 과 알림톡 발송 시 정규화 여부 · purchase-sync 수신에 3필드 fill-if-empty 추가 의견 · ERP 에서 OCR 을 따로 돌리는 쪽을 선호하는지(비전 인프라 없음 확인 요청).
 
