@@ -178,6 +178,15 @@
 - **Q4-4 덮어쓰기** — purchase-sync 동봉 = 빈 칸만(기존 규칙). `/listings` 후보완 재전송도 빈 칸만. ERP 에서 수기로 넣은 구입처를 board 가 덮지 않는다.
 - **Q4-5 명함이 여러 장/번호가 여러 개** — 후보 전부 제시(계좌 「전부 후보」 와 동일), 사람이 고른다.
 
-### ERP 세션에 물어둔 것(2026-10-28 발신)
+### ERP 회신(2026-10-28, 코드 대조·변경 0) — 반영
+- **OCR 위치 = board 에 동의**(ERP 비전 클라이언트 없음 확인, 확인 주체 = 첨부 올린 영업). ERP 는 받는 쪽 + 형식 소유(합성·하이픈)만. → **Q4-1 양쪽 합의**(Jin 확정 대기).
+- `purchase_from` = string nullable 자유서식. 연동 B 는 지금 `purchase_source` 만 넣고 `purchase_from` 은 안 건드린다. 운영 관행 = 「{출처}-{상호}/{대표자}[/전화]」 를 사람마다 다르게 씀. **ERP 합성 = 접두사 없이 `{법인명}/{대표자}`**, 하나만 있으면 그것만(「/」 없이). 📏 말소 재촉 알림톡 본문은 구입처를 **12자에서 자른다** — 법인명이 길면 대표자가 잘림(현행과 같음). `purchase_from` 은 감사 대상.
+- `deregistration_notice_phone` = string(20), 화면 저장은 `PhoneFormat::format()` 하이픈 형식(국가코드 없음), 발송 직전 `normalizePhone()` 이 숫자만 남겨 **저장 형식 무관하게 발송됨**. 말소등록증·입금완료·이체확인증 **3종 알림톡 공용 수신 번호**. ⚠️ 감사 대상 아님 → board 가 쓰기 시작하면 ERP 가 추가(ERP 몫).
+- purchase-sync: **버전 상향 불필요**(모르는 필드 무시). 신규 생성·재전송 경로에 3블록(값 있고 빈 칸이면 채움, 아니면 `already_set`). `already_set` 키는 ERP 컬럼명 `purchase_from`·`deregistration_notice_phone` 으로 돌려준다. 합성 `purchase_from` 은 비어 있을 때만(사람이 친 값 보호).
+- 휴대폰: ERP 감사 MASKED 아님(RRN·계좌만). §3 「연락처 PII 금지」는 board 로 **내려주는** 응답 화이트리스트라 board → ERP **들어오는** 값엔 해당 없음. ERP 안에선 딜러 전화가 이미 평문으로 다닌다.
+- payload 키 확정(제안 그대로): `seller_company`·`seller_ceo`·`seller_phone`. Jin 결정 뒤 ERP 가 `purchase-sync-receiver.md` 에 쓴다.
+- board 보내는 쪽 메모: `seller_phone` 은 **숫자만**(하이픈 제거) 보낸다 — ERP 가 저장 시 하이픈 형식으로 바꾸거나 발송 시 정규화하므로 어느 쪽이든 된다. 길이 ≤20.
+
+### ERP 세션에 물어둔 것(2026-10-28 발신, 회신 완료 — 위 반영)
 - `purchase_from` 현재 운영 값 형식(「상호/대표자」 관행이 이미 있는지) · `deregistration_notice_phone` 저장 형식(하이픈 유무·국가코드) 과 알림톡 발송 시 정규화 여부 · purchase-sync 수신에 3필드 fill-if-empty 추가 의견 · ERP 에서 OCR 을 따로 돌리는 쪽을 선호하는지(비전 인프라 없음 확인 요청).
 
