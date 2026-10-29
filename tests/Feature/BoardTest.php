@@ -184,7 +184,10 @@ class BoardTest extends TestCase
         config(['board.invoice_template' => 'invoice-heyman.xlsx']);
         Http::fake([
             '*/api/internal/board/buyers/7*' => Http::response(['id' => 7, 'name' => 'ATLAS', 'country' => 'Albania', 'address' => 'Rr. Durresi 12, Tirana', 'phone' => '+355 69 123 4567'], 200),
-            '*/api/internal/board/vehicles/188*' => Http::response(['message' => 'Not found'], 404),
+            // Brand/Model = 기존 /sales 행(portalMeta) — 새 엔드포인트 없음(Jin 2026-10-29). 188 은 없고 189 만 있는 응답 → 188 은 빈 칸.
+            '*/api/internal/board/sales*' => Http::response(['count' => 1, 'data' => [
+                ['vehicle_id' => 189, 'vehicle_number' => '99라9999', 'brand' => 'HYUNDAI', 'model_type' => 'SONATA'],
+            ]], 200),
             '*' => Http::response(['count' => 0, 'data' => []], 200),
         ]);
         $kim = $this->mkUser('sales');
@@ -211,7 +214,14 @@ class BoardTest extends TestCase
         $this->assertEquals(1500, $ws->getCell('E9')->getValue());    // EUR 견적 → Euro Rate = offer_rate
         $this->assertEquals(1400, $ws->getCell('E10')->getValue());
         $this->assertSame('12가3456', $ws->getCell('A18')->getValue());
-        $this->assertNull($ws->getCell('B18')->getValue());           // 브랜드 — ERP 404 → 빈 칸(「-」 아님)
+        $this->assertNull($ws->getCell('B18')->getValue());           // 브랜드 — /sales 에 그 차가 없으면 빈 칸(「-」 아님)
+
+        // /sales 에 있는 차 = brand·model_type 가 B18/C18 로
+        $svc = app(CarErpReadService::class);
+        $meta = $svc->vehicleMeta($kim->email, 189);
+        $this->assertTrue($meta['ok']);
+        $this->assertSame('HYUNDAI', data_get($meta['data'], 'brand'));
+        $this->assertSame(404, $svc->vehicleMeta($kim->email, 188)['status']);
         $this->assertSame('KMHXX00XXAB123456', $ws->getCell('D18')->getValue());
         $this->assertEquals(8700, $ws->getCell('E18')->getValue());
         $this->assertEquals(1250, $ws->getCell('F18')->getValue());

@@ -217,12 +217,23 @@ class CarErpReadService
     }
 
     /**
-     * 차량 1대 메타(서류 생성용, 2026-10-29 ② — ERP (a) 안, Jin 확인 대기) — `{id, vehicle_number, vin, brand, model_type}`. 본인 스코프. 없으면 404.
-     * ERP 배포 전엔 404 → 호출측은 빈 칸 폴백(인보이스 B18/C18).
+     * 차량 1대 메타(서류 생성용, 2026-10-29 ②) — **새 엔드포인트 없음**(Jin 「원래 있지 않았나?」): 차량 행을 내보내는 읽기 API 전부에 2026-08-10 부터
+     * `vin`·`brand`·`model_type` 가 실린다(car-erp `Vehicle::portalMeta`). 인보이스 차는 판매된 차라 `GET /sales` 한 번 → `vehicle_id` 로 고른다(호출 1개).
+     * 반환 = 같은 봉투 모양 `{ok, status, data: 행|null}` — 행이 없으면(아직 판매가 없는 차·남의 차) status 404 → 호출측은 빈 칸 폴백(인보이스 B18/C18).
      */
     public function vehicleMeta(string $email, int $vehicleId): array
     {
-        return $this->get('/vehicles/'.$vehicleId, ['salesman_email' => $email]);
+        $r = $this->sales($email);
+        if (! ($r['ok'] ?? false)) {
+            return $r;
+        }
+        foreach ((array) data_get($r['data'], 'data', []) as $row) {
+            if ((int) data_get($row, 'vehicle_id', 0) === $vehicleId) {
+                return ['ok' => true, 'status' => 200, 'data' => $row, 'reason' => null];
+            }
+        }
+
+        return ['ok' => false, 'status' => 404, 'data' => null, 'reason' => 'not_in_sales'];
     }
 
     /**
