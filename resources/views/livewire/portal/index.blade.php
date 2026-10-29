@@ -32,6 +32,8 @@ new #[Layout('components.layouts.app')] class extends Component {
     public ?array $syncResult = null;          // 동기화 응답 {created,updated,cancelled,skipped,locked}
 
     public ?string $shipNote = null;           // 선적/서류 경고·오류 — 작은 안내
+    /** 적립금 탭 — 펼친 바이어의 이력 봉투(buyer_id ⇒ 서비스 응답 그대로). 탭을 바꾸면 비운다(2026-10-29 ③). */
+    public array $savingsHistory = [];
 
     public array $changeNote = [];             // [vehicle_id => note] 변경요청 메모 입력
 
@@ -91,7 +93,10 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public array $salesDetail = [];           // 판매내역 펼침용 per-vehicle (바이어별 차량 리스트)
 
-    private const TABS = ['finance', 'receivables', 'inventory', 'sales', 'settlements', 'shipping'];
+    private const TABS = ['finance', 'receivables', 'inventory', 'sales', 'settlements', 'shipping', 'savings'];
+
+    /** 적립금 종류 → lang 키. 모르는 값은 원문(ERP 가 종류를 늘려도 조용히 사라지지 않게). */
+    public const SAVINGS_TYPES = ['EARNED', 'USED', 'REFUND', 'ADJUSTMENT', 'CANCELLED'];
 
     /** 재고 4분류 — ERP `erp/inventory` 와 **같은 이름·같은 정의**. board 가 새로 만들지 않는다. */
     private const INV_CATEGORIES = ['awaiting_payment', 'general', 'pre_ship', 'shipped_out', 'completed'];
@@ -280,6 +285,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->tab = $tab;
         $this->syncResult = null;
         $this->shipNote = null;
+        $this->savingsHistory = [];
         $this->load();
     }
 
@@ -376,6 +382,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             'inventory' => $this->loadInventory($email, $svc),
             // 판매·정산 = 바이어별 집계(통화별 판매합 / 정산 payout). 같은 by-buyer 엔드포인트.
             'sales', 'settlements' => $svc->byBuyer($email),
+            // 적립금(2026-10-29 ③) = 같은 by-buyer 행의 `savings_balances[]`(ERP 가 동봉). 이력은 펼칠 때 1건씩(toggleSavings).
+            'savings' => $svc->byBuyer($email),
             'shipping' => $this->loadShipping($email, $svc),
             default => $svc->finance($email),
         };
@@ -1287,6 +1295,28 @@ new #[Layout('components.layouts.app')] class extends Component {
         return number_format($won).__('portal.abbr_won');
     }
 
+    /**
+     * 적립금 이력 펼치기/접기 — 펼칠 때만 ERP 를 부른다(바이어당 1회, 「갱신」이면 다시). 실패 봉투도 그대로 담아 「조회 불가」로 그린다.
+     * 본인 바이어가 아니면 ERP 가 404 — super 대리조회는 `salesmanEmail()` 이 대상 사용자 이메일을 쓰므로 그 사람 바이어로 조회된다.
+     */
+    public function toggleSavings(int $buyerId): void
+    {
+        if (array_key_exists($buyerId, $this->savingsHistory)) {
+            unset($this->savingsHistory[$buyerId]);
+
+            return;
+        }
+        $this->savingsHistory[$buyerId] = $this->svc()->buyerSavings($this->salesmanEmail(), $buyerId, 20);
+    }
+
+    /** 적립금 종류 라벨 — 아는 값은 lang, 모르는 값은 원문. */
+    public function savingsTypeLabel(?string $type): string
+    {
+        $t = (string) $type;
+
+        return in_array($t, self::SAVINGS_TYPES, true) ? __('portal.savings_type.'.$t) : ($t !== '' ? $t : '—');
+    }
+
     public function degradeMessage(): string
     {
         return match ($this->result['status'] ?? 0) {
@@ -1331,7 +1361,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     {{-- 탭 --}}
     <div class="mb-3 flex flex-wrap gap-1">
-        @foreach (['finance' => __('portal.tab.finance'), 'receivables' => __('portal.tab.receivables'), 'inventory' => __('portal.tab.inventory'), 'sales' => __('portal.tab.sales'), 'settlements' => __('portal.tab.settlements'), 'shipping' => '🚢 '.__('portal.tab.shipping')] as $key => $label)
+        @foreach (['finance' => __('portal.tab.finance'), 'receivables' => __('portal.tab.receivables'), 'inventory' => __('portal.tab.inventory'), 'sales' => __('portal.tab.sales'), 'settlements' => __('portal.tab.settlements'), 'shipping' => '🚢 '.__('portal.tab.shipping'), 'savings' => __('portal.tab.savings')] as $key => $label)
             <button wire:click="setTab('{{ $key }}')"
                 class="rounded-md border px-3 py-1.5 text-[13px] font-semibold {{ $tab === $key ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">{{ $label }}</button>
         @endforeach
@@ -2112,6 +2142,71 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <div class="py-8 text-center text-gray-400">{{ __('portal.settle_empty') }}</div>
                 @endforelse
             </div>
+
+        @elseif ($tab === 'savings')
+            {{-- 적립금 — 본인 바이어별 통화별 잔액(ERP `savings_balances[]`, 통화별 최신 balance 스냅샷) + 펼치면 최근 이력 20건(2026-10-29 ③, Jin 2026-10-28).
+                 적립금만(현금 디파짓은 범위 밖). note 는 ERP 가 안 내린다. 잔액 0·이력 0 인 바이어도 행을 그린다(없는 척 금지).
+                 `savings_balances` 키 자체가 없으면(ERP 미배포) 숫자를 지어내지 않고 「ERP 가 아직 주지 않음」. --}}
+            @php $buyers = (array) data_get($result['data'], 'data', []); @endphp
+            <p class="mb-3 text-[11px] text-gray-400">{{ __('portal.savings_hint') }}</p>
+            @forelse ($buyers as $b)
+                @php
+                    $bid = (int) data_get($b, 'buyer_id', 0);
+                    $bal = data_get($b, 'savings_balances');
+                    $open = array_key_exists($bid, $savingsHistory);
+                    $hist = $open ? $savingsHistory[$bid] : null;
+                @endphp
+                <div class="card-tight mb-2" wire:key="sav-{{ $bid }}">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <span class="font-semibold text-gray-700">{{ data_get($b, 'buyer') ?: __('portal.buyer_unassigned_paren') }}</span>
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            @if (! is_array($bal))
+                                <span class="text-[11px] text-amber-600">{{ __('portal.savings_not_provided') }}</span>
+                            @elseif ($bal === [])
+                                <span class="text-[12px] text-gray-400">{{ __('portal.savings_none') }}</span>
+                            @else
+                                @foreach ($bal as $x)
+                                    <span class="whitespace-nowrap rounded bg-emerald-50 px-2 py-0.5 text-[12px] font-semibold text-emerald-800">{{ data_get($x, 'currency') }} {{ number_format((float) data_get($x, 'balance', 0), 2) }}@if (is_numeric(data_get($x, 'balance_krw'))) <span class="font-normal text-emerald-600">(₩{{ number_format((float) data_get($x, 'balance_krw')) }})</span>@endif</span>
+                                @endforeach
+                            @endif
+                            @if ($bid > 0)
+                                <button type="button" wire:click="toggleSavings({{ $bid }})" wire:loading.attr="disabled" wire:target="toggleSavings({{ $bid }})"
+                                        class="rounded-md border border-gray-300 bg-white px-2 py-0.5 text-[11px] text-blue-600">{{ $open ? __('portal.savings_hide') : __('portal.savings_show') }}</button>
+                            @endif
+                        </div>
+                    </div>
+                    @if ($open)
+                        @if (! ($hist['ok'] ?? false))
+                            <p class="mt-2 text-[12px] text-amber-700">⚠️ {{ __('portal.unavailable') }}@if (($hist['status'] ?? 0) === 404) — {{ __('portal.savings_404') }}@endif</p>
+                        @else
+                            @php $rows = (array) data_get($hist['data'], 'history', []); @endphp
+                            @if ($rows === [])
+                                <p class="mt-2 text-[12px] text-gray-400">{{ __('portal.savings_history_empty') }}</p>
+                            @else
+                                <div class="mt-2 overflow-x-auto">
+                                    <table class="tbl tbl-center">
+                                        <thead><tr><th>{{ __('portal.savings_col_date') }}</th><th>{{ __('portal.savings_col_type') }}</th><th>{{ __('portal.savings_col_amount') }}</th><th>{{ __('portal.col_vehicle') }}</th></tr></thead>
+                                        <tbody>
+                                            @foreach ($rows as $h)
+                                                @php $amt = (float) data_get($h, 'amount', 0); @endphp
+                                                <tr>
+                                                    <td class="whitespace-nowrap text-gray-500">{{ data_get($h, 'date') ?: '—' }}</td>
+                                                    <td class="whitespace-nowrap">{{ $this->savingsTypeLabel(data_get($h, 'type')) }}</td>
+                                                    <td class="whitespace-nowrap font-semibold {{ $amt < 0 ? 'text-red-600' : 'text-gray-800' }}">{{ $amt > 0 ? '+' : '' }}{{ number_format($amt, 2) }} {{ data_get($h, 'currency') }}</td>
+                                                    <td class="whitespace-nowrap text-gray-600">{{ \App\Support\Plate::show(data_get($h, 'vehicle_number')) ?? '—' }}</td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <p class="mt-1 text-[11px] text-gray-400">{{ __('portal.savings_history_note', ['count' => count($rows)]) }}</p>
+                            @endif
+                        @endif
+                    @endif
+                </div>
+            @empty
+                <div class="py-8 text-center text-gray-400">{{ __('portal.savings_no_buyers') }}</div>
+            @endforelse
 
         @else
             {{-- 재고 4분류 — car-erp `erp/inventory` 미러(같은 이름·같은 정의). 구 「매입내역」(전량조회) 대체.

@@ -23,6 +23,7 @@ return [
         'sales' => '판매내역',
         'settlements' => '정산내역',
         'shipping' => '선적요청',
+        'savings' => '적립금',
     ],
     'reload' => '갱신',
     'reload_title' => '새로고침',
@@ -327,4 +328,19 @@ return [
         '수출통관중' => '수출통관중', '수출통관완료' => '수출통관완료',
     ],
     'sailing_label' => ['운항중' => '운항중', '도착예정' => '도착예정'],
+
+    // 적립금 탭(2026-10-29 ③) — 본인 바이어별 통화별 잔액 + 최근 이력. 적립금만(현금 디파짓 아님), note 없음.
+    'savings_hint' => '내 바이어별 적립금 잔액(통화별, 괄호는 원화 환산)입니다. 「이력」을 누르면 최근 적립·사용·환불·조정 내역이 보입니다.',
+    'savings_none' => '적립금 없음',
+    'savings_not_provided' => 'ERP 가 아직 적립금을 주지 않습니다',
+    'savings_show' => '이력',
+    'savings_hide' => '접기',
+    'savings_404' => '본인 바이어가 아니거나 ERP 에 없는 바이어입니다',
+    'savings_history_empty' => '적립금 이력이 없습니다.',
+    'savings_history_note' => '최근 :count건 (최신순) — 사유 메모는 ERP 에서만 볼 수 있습니다.',
+    'savings_no_buyers' => '바이어가 없습니다.',
+    'savings_col_date' => '일자',
+    'savings_col_type' => '종류',
+    'savings_col_amount' => '금액',
+    'savings_type' => ['EARNED' => '적립', 'USED' => '사용', 'REFUND' => '환불', 'ADJUSTMENT' => '조정', 'CANCELLED' => '취소'],
 ];

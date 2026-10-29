@@ -6257,6 +6257,66 @@ class BoardTest extends TestCase
             ->call('setTab', 'settlements')->assertSee('7,000,000')->assertSee('지급 완료');
     }
 
+    /**
+     * 적립금 탭(2026-10-29 ③) — by-buyer 의 `savings_balances[]` 를 바이어별로 그리고, 「이력」을 누르면 `/buyers/{id}/savings?limit=20` 1회.
+     * 잔액 0(빈 배열) 바이어도 행을 그린다. `balance_krw: null` 은 괄호를 생략한다. 이력의 type 은 lang 라벨, 모르는 값은 원문. note 는 안 온다.
+     */
+    public function test_portal_savings_tab_lists_balances_and_loads_history_on_demand(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/by-buyer*' => Http::response(['data' => [
+                ['buyer_id' => 7, 'buyer' => 'BuyerSav', 'vehicle_count' => 2, 'savings_balances' => [
+                    ['currency' => 'USD', 'balance' => 70, 'balance_krw' => 91000],
+                    ['currency' => 'JPY', 'balance' => 5000, 'balance_krw' => null],
+                ]],
+                ['buyer_id' => 8, 'buyer' => 'BuyerZero', 'vehicle_count' => 1, 'savings_balances' => []],
+            ]], 200),
+            '*/api/internal/board/buyers/7/savings*' => Http::response([
+                'buyer_id' => 7, 'balances' => [['currency' => 'USD', 'balance' => 70, 'balance_krw' => 91000]],
+                'history' => [
+                    ['id' => 31, 'type' => 'ADJUSTMENT', 'amount' => 5, 'currency' => 'USD', 'date' => '2026-10-29', 'vehicle_number' => null],
+                    ['id' => 30, 'type' => 'USED', 'amount' => -30, 'currency' => 'USD', 'date' => '2026-10-28', 'vehicle_number' => '33다3333'],
+                    ['id' => 29, 'type' => 'BONUS_X', 'amount' => 95, 'currency' => 'USD', 'date' => '2026-10-27', 'vehicle_number' => null],
+                ],
+            ], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $t = Volt::test('portal.index')->call('setTab', 'savings')
+            ->assertSee('BuyerSav')->assertSee('USD 70.00')->assertSee('91,000')
+            ->assertSee('JPY 5,000.00')
+            ->assertSee('BuyerZero')->assertSee('적립금 없음')   // 잔액 0 도 행을 그린다
+            ->assertDontSee('33다3333');                       // 이력은 아직 안 불렀다
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), '/buyers/7/savings'));
+
+        $t->call('toggleSavings', 7)
+            ->assertSee('33다3333')->assertSee('조정')->assertSee('사용')->assertSee('-30.00')->assertSee('+5.00')
+            ->assertSee('BONUS_X');   // 모르는 종류는 원문
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/api/internal/board/buyers/7/savings') && $r['limit'] == 20);
+
+        $t->call('toggleSavings', 7)->assertDontSee('33다3333');   // 접기
+    }
+
+    /** 적립금 이력 404(본인 바이어 아님·없는 id) 와 ERP 미배포(`savings_balances` 키 없음)는 숫자를 지어내지 않고 그렇다고 말한다. */
+    public function test_portal_savings_shows_unavailable_on_404_and_not_provided_without_key(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/by-buyer*' => Http::response(['data' => [
+                ['buyer_id' => 9, 'buyer' => 'BuyerOld', 'vehicle_count' => 1],   // 옛 ERP 응답 — 키 없음
+            ]], 200),
+            '*/api/internal/board/buyers/9/savings*' => Http::response(['message' => 'Not found'], 404),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'savings')
+            ->assertSee('BuyerOld')->assertSee('ERP 가 아직 적립금을 주지 않습니다')
+            ->call('toggleSavings', 9)->assertSee('조회 불가')->assertSee('본인 바이어가 아니거나');
+    }
+
     /** v2 「내 선적묶음」 모니터 — /bundles 값 그대로 표시(상태·미수·환율미입력 경고). */
     public function test_portal_shipping_v2_bundles_monitor(): void
     {

@@ -208,6 +208,16 @@ class CarErpReadService
     }
 
     /**
+     * 적립금 이력(2026-10-29 ③, 권위 = car-erp `board-portal-api.md` §4) — `{buyer_id, balances[{currency,balance,balance_krw}], history[{id,type,amount,currency,date,vehicle_number}]}`.
+     * `note` 는 ERP 가 내리지 않는다(자유 입력에 내부 사정이 섞인다). 본인 바이어가 아니면 **404**(IDOR = ERP). `scope=all` 은 이 엔드포인트엔 없다.
+     * 통화별 잔액은 `/by-buyer` 행 `savings_balances[]` 로 같이 온다 — 이력은 펼칠 때만 부른다(분당 120 공유 버킷).
+     */
+    public function buyerSavings(string $email, int $buyerId, int $limit = 20): array
+    {
+        return $this->get('/buyers/'.$buyerId.'/savings', ['salesman_email' => $email, 'limit' => $limit]);
+    }
+
+    /**
      * 환율 — car-erp 전신환 매입률(네이버 "송금 받으실 때") 원본 그대로. ⚠️반올림 안 됨(board와 어긋남 방지).
      * 스코프 없음(전역값). data = {rates:{USD,JPY,EUR,GBP,CNY}, fetched_at, source}. JPY는 100엔 기준.
      * 권위 = car-erp board-portal-api.md §4-1.
