@@ -5,7 +5,7 @@
 | # | 항목 | 결정 | ERP 문서 | ERP 코드 | board 코드 | 남은 입력 |
 |---|---|---|---|---|---|---|
 | ① | 컨테이너 운임비 USD → 판매통화 운임비(총판매가·면장은 ERP cascade) | ✅ | `board-portal-api.md` §5 | **dev `664cf7ca`**(응답 `freight_skipped{}` 추가) | **없음**(SKILLS §12 문구 교체 완료) | board 선적 계획에 `freight_skipped` 사유 표시(미구현) |
-| ② | 여권/ID 카드 Name·문서번호 → ERP 송금인 2칸 + 「송금증이름」 검색 + **board 전용 COMMERCIAL INVOICE(xlsx)** + 매입예정 드로어 탭 4개 + 메뉴 「매입예정(Invoice)」 | ✅ | §14 + receiver 「송금인 동봉」 + §4 `GET /buyers/{id}`(주소·전화) | **dev `ec19b348`** | **dev `9fa5ec3`·`19fa23b`·`91c6488`**(SKILLS §14-28) | Brand/Model = ERP `GET /vehicles/{id}` (a) 안 Jin 확인 대기(그 전엔 빈 칸) |
+| ② | 여권/ID 카드 Name·문서번호 → ERP 송금인 2칸 + 「송금증이름」 검색 + **board 전용 COMMERCIAL INVOICE(xlsx)** + 매입예정 드로어 탭 4개 + 메뉴 「매입예정(Invoice)」 | ✅ | §14 + receiver 「송금인 동봉」 + §4 `GET /buyers/{id}`(주소·전화) | **dev `ec19b348`** | **dev `9fa5ec3`·`19fa23b`·`91c6488`**(SKILLS §14-28) | Brand/Model = 기존 `GET /sales` 행 `brand`·`model_type`(신설 없음, Jin 2026-10-29) — 판매가 없는 차는 빈 칸 |
 | ③ | 포털 「적립금」 탭(본인 바이어별 잔액+이력) | ✅ | §4(`/by-buyer` `savings_balances[]`, `GET /buyers/{id}/savings`) | **dev `7412e92d`** | **dev `40d54b7`**(SKILLS §14-27) | — |
 | ④ | 딜러 서류 OCR(사업자등록증 법인명·대표자, 명함 휴대폰) → purchase-sync `seller_*` 3필드 | ✅ | receiver 「딜러 서류 OCR 동봉」 | **dev `4c88f02b`** | **dev `5cb7a03`**(SKILLS §14-15c) | 프롬프트 실검증(사업자등록증·명함 샘플 1장씩 — 아직 없음) |
 | ⑤ | super 전체 바이어 선택 | ✅ | §4 | **배포됨** `2349598f` | **배포됨** `f525c3b` | super 계정 `/users` 매핑 = ERP super 이메일 |
