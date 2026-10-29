@@ -235,6 +235,8 @@ return [
     'sync_updated' => 'Updated :count',
     'sync_cancelled' => 'Cancelled :count',
     'sync_locked' => 'In progress (locked) :count',
+    'sync_freight_skipped' => ':count vehicle(s) without converted freight — fill the rates in ERP and request shipping again:',
+    'freight_reason' => ['no_rate' => 'no rate', 'ledger_closed' => 'ledger closed'],
     'flash_bl_requested' => 'B/L request sent. Management has been alerted.',
     'flash_change_requested' => 'Change request sent. Management will review and handle it.',
     'flash_change_note_required' => 'Please enter a reason for the change/cancel.',

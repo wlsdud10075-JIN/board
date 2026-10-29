@@ -997,7 +997,7 @@ class BoardTest extends TestCase
             ->set('owner_name', '차주')
             ->set('payee_name', '판매상사')
             ->set('sale_total', '7000')     // 셀프검차 필수 락 — 차값·총판매가·통화
-            ->set('quoteCurrency', 'KRW')
+            ->set('quoteCurrency', 'KRW')->set('rate_usd', '1400')   // 환율 USD 는 2026-10-29 부터 항상 필수(운임비 환산용)
             ->set('buyerId', 7)             // 구매확정은 바이어 필수(매입 등록 락의 전제)
             ->call('conclude', $l->id, 'won')
             ->assertHasNoErrors();
@@ -1390,7 +1390,7 @@ class BoardTest extends TestCase
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '12000000')
-            ->set('sale_total', '8000')->set('quoteCurrency', 'KRW')   // 셀프검차 필수 락
+            ->set('sale_total', '8000')->set('quoteCurrency', 'KRW')->set('rate_usd', '1400')   // 셀프검차 필수 락(+환율 USD 2026-10-29)
             ->call('conclude', $l->id, 'won')->assertHasNoErrors();
 
         $this->assertSame(12000000, (int) $l->fresh()->car_cost);
@@ -1645,7 +1645,7 @@ class BoardTest extends TestCase
         // 판매가까지 넣으면 통과
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '10000000')
-            ->set('sale_total', '7000')->set('quoteCurrency', 'KRW')
+            ->set('sale_total', '7000')->set('quoteCurrency', 'KRW')->set('rate_usd', '1400')
             ->call('conclude', $l->id, 'won')->assertHasNoErrors();
 
         $this->assertSame('won', $l->fresh()->status);
@@ -1708,6 +1708,23 @@ class BoardTest extends TestCase
     }
 
     /** 원화 딜은 환율을 안 물어본다 — 1 이 자명해서 물으면 잡일만 는다. */
+    /** 2026-10-29 Jin — 환율 USD 는 통화 무관 필수(컨테이너 운임비 환산용 `usd_exchange_rate`). 비우면 rate_usd 에러, 넣으면 통과. */
+    public function test_conclude_requires_usd_rate_regardless_of_currency(): void
+    {
+        Bus::fake();
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection', 'car_cost' => 10000000]);
+        $this->actingAs($kim);
+
+        $c = Volt::test('auction.index')->call('openDetail', $l->id)->set('owner_name', '차주')->set('buyerId', 7)
+            ->set('sale_total', '6600')->set('quoteCurrency', 'EUR')->set('rate_eur', '1580');
+        $c->call('conclude', $l->id, 'won')->assertHasErrors('rate_usd');
+        $this->assertSame('accepted', $l->fresh()->status);
+
+        $c->set('rate_usd', '1400')->call('conclude', $l->id, 'won')->assertHasNoErrors();
+        $this->assertSame(1400, (int) $l->fresh()->offer_rate_usd);
+    }
+
     public function test_krw_self_inspection_does_not_require_rate(): void
     {
         Bus::fake();
@@ -1720,7 +1737,7 @@ class BoardTest extends TestCase
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '12000000')
             ->set('sale_total', '11000000')
-            ->set('quoteCurrency', 'KRW')
+            ->set('quoteCurrency', 'KRW')->set('rate_usd', '1400')   // KRW 라도 환율 USD 는 필수(2026-10-29) — 견적통화 환율(rate_eur 등)은 안 묻는다
             ->call('conclude', $l->id, 'won')->assertHasNoErrors();
 
         $this->assertSame('won', $l->fresh()->status);
@@ -3615,7 +3632,8 @@ class BoardTest extends TestCase
 
         Http::assertSent(fn ($r) => $r['seller_company'] === '(주)성진모터스'
             && $r['seller_ceo'] === '김대표'
-            && $r['seller_phone'] === '01020001111');
+            && $r['seller_phone'] === '01020001111'
+            && $r['amounts_overwrite'] === false);   // 신규 생성 = 덮어쓰기 아님
         $this->assertSame('***', IntegrationEvent::first()->request_payload['seller_phone']);
         $this->assertNotSame('010-2000-1111', \DB::table('purchase_listings')->where('id', $l->id)->value('seller_phone'));
     }
@@ -4512,7 +4530,8 @@ class BoardTest extends TestCase
 
         $this->assertSame(1800.0, (float) $l->fresh()->transport_fee);
         $this->assertSame(1800, (int) $l->fresh()->transport_fee_usd);
-        Http::assertSent(fn ($req) => ($b = json_decode($req->body(), true)) && (float) $b['transport_fee'] === 1800.0 && (float) $b['sale_price'] === 5700.0 && (int) $b['transport_fee_usd'] === 1800 && (int) $b['usd_exchange_rate'] === 1487);
+        // 2026-10-29 Jin — 재전송 금액은 ERP 를 덮어쓴다(`amounts_overwrite: true`). 신규 생성·첨부 전용은 false.
+        Http::assertSent(fn ($req) => ($b = json_decode($req->body(), true)) && (float) $b['transport_fee'] === 1800.0 && (float) $b['sale_price'] === 5700.0 && (int) $b['transport_fee_usd'] === 1800 && (int) $b['usd_exchange_rate'] === 1487 && $b['amounts_overwrite'] === true);
     }
 
     /** 「저장」 — 금액 칸이 하나라도 바뀌면 금액+첨부 재전송, 금액은 그대로인데 사진만 새로 있으면 첨부 전용, 둘 다 없으면 안 보낸다(2026-10-16 Jin). */
@@ -6475,6 +6494,28 @@ class BoardTest extends TestCase
         Volt::test('portal.index')->call('setTab', 'savings')
             ->assertSee('BuyerOld')->assertSee('ERP 가 아직 적립금을 주지 않습니다')
             ->call('toggleSavings', 9)->assertSee('조회 불가')->assertSee('본인 바이어가 아니거나');
+    }
+
+    /** 선적요청 응답 `freight_skipped`(①, ERP 664cf7ca) — 운임비 환산 안 된 차를 차량번호·사유로 배너에 보인다. 모르는 사유는 원문. */
+    public function test_portal_sync_banner_lists_freight_skipped_vehicles(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/shipping-requests/sync*' => Http::response(['created' => ['B1'], 'updated' => [], 'cancelled' => [], 'locked' => [],
+                'freight_skipped' => ['11' => 'no_rate', '12' => 'ledger_closed', '13' => 'odd_reason']], 200),
+            '*/api/internal/board/shippable*' => Http::response(['count' => 3, 'data' => [
+                ['vehicle_id' => 11, 'vehicle_number' => '11가1111', 'buyer' => ['id' => 10, 'name' => 'B'], 'sale_price' => 5000, 'currency' => 'USD'],
+                ['vehicle_id' => 12, 'vehicle_number' => '22나2222', 'buyer' => ['id' => 10, 'name' => 'B'], 'sale_price' => 5000, 'currency' => 'USD'],
+                ['vehicle_id' => 13, 'vehicle_number' => '33다3333', 'buyer' => ['id' => 10, 'name' => 'B'], 'sale_price' => 5000, 'currency' => 'USD'],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('portal.index')->call('setTab', 'shipping');
+        $key = $c->get('desired')[0]['key'];
+        $c->call('assignVehicle', $key, 11)->call('assignVehicle', $key, 12)->call('assignVehicle', $key, 13)->call('syncBundles')
+            ->assertSee('운임비 환산 안 된 차 3대')->assertSee('11가1111(환율 없음)')->assertSee('22나2222(2차 마감)')->assertSee('33다3333(odd_reason)');
     }
 
     /** v2 「내 선적묶음」 모니터 — /bundles 값 그대로 표시(상태·미수·환율미입력 경고). */

@@ -226,6 +226,10 @@ class SyncWonListingToCarErp implements ShouldQueue
             // ⚠️ `buyer_id: null` 만으로는 car-erp 에서 **레거시 무바이어 차와 구분이 안 된다**(뱃지 없음).
             //    바이어가 실제로 붙으면 car-erp `Vehicle::saving` 이 알아서 내린다 → board 뒤처리 불필요.
             'buyer_undecided' => (bool) $l->buyer_undecided,
+            // 2026-10-29 Jin — 「금액 다시 보내기」·「저장」 재전송은 ERP 판매측 6칸(sale_price·sale_currency·sale_exchange_rate·transport_fee·
+            //    transport_fee_usd·usd_exchange_rate)을 **덮어쓴다**(종전 fill-if-empty 는 「금액만 보내기」를 무의미하게 했다). null 은 지우지 않음.
+            //    신규 생성·첨부 전용·재고매입은 false(종전 그대로). 받는 쪽 = car-erp purchase-sync-receiver.md(`fields_overwritten[]` 응답).
+            'amounts_overwrite' => $this->resync && ! $this->attachmentsOnly && ! $l->buyer_undecided,
         ];
 
         // 서명 대상 = 직렬화된 raw body (car-erp 가 동일 바이트로 검증)

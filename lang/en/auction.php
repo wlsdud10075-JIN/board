@@ -50,6 +50,7 @@ return [
     'split_hint' => 'Freight is fixed in USD and converted to :currency with the rates. Sale price = total − freight.',
     'err_total_required' => 'Enter the total sale price before confirming the purchase. Leaving it empty creates the vehicle in the ERP with no sale data.',
     'err_usd_rate_for_freight' => 'Converting the USD freight to :currency needs the USD rate.',
+    'err_usd_rate_required' => 'Enter the USD rate to confirm — ERP uses it to convert freight (USD) into the sale currency at container shipping. Without it this vehicle gets no freight.',
     'err_freight_over_total' => 'Freight is larger than the total sale price.',
     'self_currency_hint' => 'Total, sale price and freight are in :currency (chosen below). Freight (USD) stays in dollars; selling fee is KRW.',
     'self_currency_unset' => '⚠️ No quote currency picked yet — choose one below. Sale price, rate and freight will be in that currency.',
