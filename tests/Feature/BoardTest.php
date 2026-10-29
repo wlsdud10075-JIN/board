@@ -3438,6 +3438,29 @@ class BoardTest extends TestCase
         $this->assertNotSame('999-888-77766', $raw);
     }
 
+    /**
+     * 2026-10-29 ④ 매입처(딜러) — 법인명·대표자는 그대로, 휴대폰은 **숫자만**(ERP ≤20) 보낸다. 로그엔 ***.
+     * 재고매입(buyer_undecided)이어도 비우지 않는다 — 판매측이 아니라 매입측이고 ERP 는 빈 칸만 채운다.
+     */
+    public function test_sync_payload_sends_seller_fields_phone_digits_only_and_masked_in_log(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh']);
+        Http::fake(['*/api/internal/purchase-sync' => Http::response(['vehicle_id' => 779], 200)]);
+
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'won', 'source' => 'auction', 'final_price' => 9000000, 'buyer_undecided' => true,
+            'seller_company' => '(주)성진모터스', 'seller_ceo' => '김대표', 'seller_phone' => '010-2000-1111',
+        ]);
+
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        Http::assertSent(fn ($r) => $r['seller_company'] === '(주)성진모터스'
+            && $r['seller_ceo'] === '김대표'
+            && $r['seller_phone'] === '01020001111');
+        $this->assertSame('***', IntegrationEvent::first()->request_payload['seller_phone']);
+        $this->assertNotSame('010-2000-1111', \DB::table('purchase_listings')->where('id', $l->id)->value('seller_phone'));
+    }
+
     public function test_offer_display_uses_confirmed_currency_and_snapshot_rate(): void
     {
         // EUR 확정 딜 — 표시는 € 금액, 환율은 offer_rate(전달 시점 스냅샷) 고정: 라이브 환율 줘도 불변

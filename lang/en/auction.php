@@ -119,6 +119,12 @@ return [
     'stock_purchase_price' => 'Purchase price',
     'stock_purchase_no_sale' => 'No sale amount yet. It lands as General stock in the ERP, and stays in Awaiting payment until the purchase amount is paid.',
 
+    'seller_info' => 'Seller (dealer)',
+    'seller_info_hint' => 'Company · CEO · mobile → ERP purchase source & dealer notification (fills empty fields only)',
+    'seller_company_placeholder' => 'Company name',
+    'seller_ceo_placeholder' => 'CEO',
+    'seller_phone_placeholder' => 'Mobile (010-0000-0000)',
+
     'attach' => [
         'title' => 'Dealer vehicle attachments',
         'hint' => 'Photos/documents received from the dealer after purchase (max :max). Sent to the car-erp attachments tab on win.',
@@ -131,7 +137,7 @@ return [
     ],
 
     'payee_extract' => [
-        'searching' => 'Reading accounts and owner from the attached photos… (about 20s)',
+        'searching' => 'Reading details from the attached photos… (about 20s)',
         'title' => 'Account candidates (read from attachments — pick the right one)',
         'owner_title' => 'Owner candidates (read from the vehicle registration)',
         'apply_owner' => 'Use as owner',
@@ -141,12 +147,17 @@ return [
         'dismiss' => 'Dismiss',
         'confirm_hint' => 'Review, then press save to apply',
         'owner_mismatch' => 'Account holder differs from the registration owner — please verify',
-        'find' => '📷 Find account & owner in images',
+        'find' => '📷 Find info in images',
+        'find_sub' => 'Account · Owner · Seller · Contact',
+        'seller_title' => 'Seller candidates (read from the business registration)',
+        'apply_seller' => 'Use as seller',
+        'phone_title' => 'Contact candidates (read from the business card)',
+        'apply_phone' => 'Use as contact',
         'finding' => 'Reading images…',
         'phone_like' => 'Looks like a phone number — verify if it is a phone-linked account',
-        'not_found' => 'No account or owner found in the attachments. Please enter them below.',
-        'failed' => 'Could not read account details. Please enter them below.',
-        'wait' => 'Reading account details from the attached photos. Please review the candidates before confirming.',
+        'not_found' => 'Nothing found in the attachments. Please enter the details below.',
+        'failed' => 'Could not read the images. Please enter the details below.',
+        'wait' => 'Reading details from the attached photos. Please review the candidates before confirming.',
         'skip' => 'Confirm without account details',
         'slow' => 'Still reading — the queue may be busy. This will re-check automatically. If urgent, type the details below or use "Confirm without account details".',
         'under_searching' => 'Reading… results appear above the "Payment details" section (about 20s).',

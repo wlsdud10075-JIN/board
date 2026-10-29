@@ -98,8 +98,9 @@ class ExtractPayeeFromPhotos implements ShouldQueue
         }
 
         $result = $extractor->merge($perPhoto);
-        // 계좌가 없어도 소유자만 읽었으면 결과로 남긴다(등록증 사진엔 계좌가 없다 — 2026-10-22).
-        $found = $result['candidates'] !== [] || $result['registration_owners'] !== [];
+        // 계좌가 없어도 소유자만 읽었으면 결과로 남긴다(등록증 사진엔 계좌가 없다 — 2026-10-22). 매입처·연락처만 읽혀도 같다(2026-10-29 ④).
+        $found = $result['candidates'] !== [] || $result['registration_owners'] !== []
+            || $result['seller_companies'] !== [] || $result['seller_phones'] !== [];
         $l->forceFill([
             'payee_suggestions' => $found ? $result : null,
             'payee_extraction_status' => $found ? 'done' : 'none',
@@ -153,7 +154,7 @@ class ExtractPayeeFromPhotos implements ShouldQueue
             'target' => 'ollama',
             'event_type' => 'payee_extract',
             'purchase_listing_id' => $l->id,
-            'request_payload' => ['status' => $status, 'candidates' => $found, 'photo_errors' => $failed],
+            'request_payload' => ['status' => $status, 'candidates' => $found, 'photo_errors' => $failed],   // 매입처·휴대폰도 값은 안 남긴다
         ]);
     }
 }

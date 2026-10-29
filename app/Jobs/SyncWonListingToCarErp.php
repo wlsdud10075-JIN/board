@@ -198,6 +198,12 @@ class SyncWonListingToCarErp implements ShouldQueue
             'selling_fee_payee_name' => $l->selling_fee_payee_name,
             'selling_fee_payee_bank' => $l->selling_fee_payee_bank,
             'selling_fee_payee_account' => $l->selling_fee_payee_account,
+            // 매입처(딜러) — 2026-10-29 ④. ERP `purchase_from`(「법인명/대표자」 합성은 ERP)·`deregistration_notice_phone` **빈 칸만**
+            //    (receiver 「딜러 서류 OCR 동봉」, 버전 상향 없음). 휴대폰은 숫자만(≤20). 재고매입·첨부 전용 재전송에서도 비우지 않는다 —
+            //    판매측이 아니라 매입측(payee_* 와 같은 취급)이고 ERP 가 빈 칸만 채워 재전송에 실려도 안전하다.
+            'seller_company' => $l->seller_company,
+            'seller_ceo' => $l->seller_ceo,
+            'seller_phone' => $l->seller_phone !== null ? (substr((string) preg_replace('/\D/', '', $l->seller_phone), 0, 20) ?: null) : null,
             'attachments' => $attachments,
             // v3 매입측(KRW)
             'purchase_price_krw' => $purchasePriceKrw,
@@ -234,6 +240,9 @@ class SyncWonListingToCarErp implements ShouldQueue
         }
         if ($logged['selling_fee_payee_account'] !== null) {
             $logged['selling_fee_payee_account'] = '***';
+        }
+        if ($logged['seller_phone'] !== null) {
+            $logged['seller_phone'] = '***';   // 딜러 휴대폰 — 계좌와 같은 마스킹(2026-10-28 Jin)
         }
         IntegrationEvent::create([
             'direction' => 'outbound',

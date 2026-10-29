@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Jobs\ExtractPayeeFromPhotos;
 use App\Jobs\SyncWonListingToCarErp;
+use App\Models\BoardAuditLog;
 use App\Models\InspectionPhoto;
 use App\Models\IntegrationEvent;
 use App\Models\PurchaseListing;
@@ -515,5 +516,96 @@ class PayeeExtractionTest extends TestCase
         imagejpeg($im);
 
         return (string) ob_get_clean();
+    }
+
+    // ───────────────────────── 2026-10-29 ④ — 매입처(사업자등록증)·연락처(명함) 후보 ─────────────────────────
+
+    /** 사업자등록증 → 법인명·대표자 후보. 계좌가 없어도 merge 결과에 남는다. */
+    public function test_business_registration_yields_seller_candidate(): void
+    {
+        $e = new PayeeExtractor;
+        $r = $e->parseOne('{"doc_type":"사업자등록증","accounts":[],"registration_owner":"","business_name":"(주)성진모터스","ceo_name":"김대표","mobile_phones":[]}', 3);
+
+        $this->assertSame(['company' => '(주)성진모터스', 'ceo' => '김대표', 'source_photo_ids' => [3]], $r['seller']);
+        $m = $e->merge([$r]);
+        $this->assertCount(1, $m['seller_companies']);
+        $this->assertSame([], $m['seller_phones']);
+    }
+
+    /** 명함 → 휴대폰만 후보(01X). 고객센터·유선·짧은 번호는 버린다. 여러 개면 전부(Q4-5). 같은 번호는 근거 사진만 누적. */
+    public function test_business_card_mobile_numbers_become_phone_candidates(): void
+    {
+        $e = new PayeeExtractor;
+        $r = $e->parseOne('{"doc_type":"명함","accounts":[],"registration_owner":"","business_name":"","ceo_name":"","mobile_phones":["010-2000-1111","1566-2566","02-555-1234","010 3000 2222","0103000222"]}', 8);
+
+        $this->assertSame(['01020001111', '01030002222'], $r['phones']);
+        $this->assertNull($r['seller']);   // 명함에 적힌 상호는 매입처로 안 쓴다(사업자등록증만)
+
+        $m = $e->merge([$r, $e->parseOne('{"doc_type":"명함","mobile_phones":["010-2000-1111"]}', 9)]);
+        $this->assertCount(2, $m['seller_phones']);
+        $this->assertSame('010-2000-1111', $m['seller_phones'][0]['number']);
+        $this->assertSame([8, 9], $m['seller_phones'][0]['source_photo_ids']);
+    }
+
+    /** 🚨 자동차등록증·통장에서 나온 상호·번호는 매입처·연락처로 쓰지 않는다(2026-10-22 소유자 칸에 딜러 상호가 섞인 사고의 반대 방향). */
+    public function test_seller_fields_from_registration_or_bankbook_are_ignored(): void
+    {
+        $e = new PayeeExtractor;
+        $r = $e->parseOne('{"doc_type":"자동차등록증","registration_owner":"김석희","business_name":"번영모터스","ceo_name":"배한규","mobile_phones":["010-1111-2222"]}', 1);
+        $this->assertNull($r['seller']);
+        $this->assertSame([], $r['phones']);
+        $this->assertSame('김석희', $r['registration_owner']);
+
+        $b = $e->parseOne('{"doc_type":"통장","accounts":[{"bank":"IBK기업은행","number":"010-2000-1111","holder":"박창준","label":"평생계좌"}],"mobile_phones":["010-2000-1111"]}', 2);
+        $this->assertSame([], $b['phones']);
+        $this->assertCount(1, $b['candidates']);   // 평생계좌는 계좌 쪽이 맡는다
+    }
+
+    /** 명함만 있어도(계좌·소유자 0) Job 은 done 으로 결과를 남긴다 — 빼먹으면 none 으로 버려진다. 로그엔 번호가 안 남는다. */
+    public function test_job_marks_done_when_only_seller_candidates_found(): void
+    {
+        Storage::fake('public');
+        Storage::disk('public')->put('sales/photos/a.jpg', $this->jpeg());
+        $l = $this->mkListing();
+        $l->salesAttachments()->update(['s3_path' => 'sales/photos/a.jpg']);
+        $this->fakeOllama(['{"doc_type":"명함","accounts":[],"registration_owner":"","business_name":"","ceo_name":"","mobile_phones":["010-7777-8888"]}']);
+
+        (new ExtractPayeeFromPhotos($l->id))->handle(new PayeeExtractor, app(OllamaClient::class));
+
+        $l->refresh();
+        $this->assertSame('done', $l->payee_extraction_status);
+        $this->assertSame('010-7777-8888', $l->payee_suggestions['seller_phones'][0]['number']);
+        $this->assertSame(1, $l->payeeSuggestionCount());
+        $this->assertNull($l->seller_phone);   // 🚫 자동 기입 없음
+        $this->assertStringNotContainsString('7777', json_encode(IntegrationEvent::first()->request_payload));
+    }
+
+    /** [매입처에 적용]·[연락처에 적용] 도 입력칸까지만. 저장하면 컬럼에 들어가고, 휴대폰은 at-rest 암호화 + 감사로그 *** 다. */
+    public function test_apply_seller_and_phone_fill_inputs_then_save_encrypts_phone(): void
+    {
+        $l = $this->mkListing(['payee_extraction_status' => 'done', 'payee_suggestions' => [
+            'candidates' => [], 'registration_owners' => [],
+            'seller_companies' => [['company' => '(주)성진모터스', 'ceo' => '김대표', 'source_photo_ids' => [1]]],
+            'seller_phones' => [['number' => '010-2000-1111', 'source_photo_ids' => [1]]],
+        ]]);
+        $this->actingAs($this->mkUser('manager'));
+
+        $t = Volt::test('auction.index')
+            ->call('openDetail', $l->id)
+            ->call('applySeller', 0)
+            ->call('applySellerPhone', 0)
+            ->assertSet('seller_company', '(주)성진모터스')
+            ->assertSet('seller_ceo', '김대표')
+            ->assertSet('seller_phone', '010-2000-1111');
+        $this->assertNull($l->fresh()->seller_company);   // 저장은 아직 아니다
+
+        $t->call('savePayee')->assertHasNoErrors();
+        $l->refresh();
+        $this->assertSame('(주)성진모터스', $l->seller_company);
+        $this->assertSame('김대표', $l->seller_ceo);
+        $this->assertSame('010-2000-1111', $l->seller_phone);
+        $this->assertNotSame('010-2000-1111', \DB::table('purchase_listings')->where('id', $l->id)->value('seller_phone'));
+        $this->assertSame('***', BoardAuditLog::where('field', 'seller_phone')->latest('id')->value('new_value'));
+        $this->assertSame('(주)성진모터스', BoardAuditLog::where('field', 'seller_company')->latest('id')->value('new_value'));
     }
 }

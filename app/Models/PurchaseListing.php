@@ -33,6 +33,7 @@ class PurchaseListing extends Model
         'buyer_name', 'payee_name', 'payee_bank', 'payee_account',
         'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account',
         'payee_suggestions', 'payee_extraction_status', 'payee_extraction_at',
+        'seller_company', 'seller_ceo', 'seller_phone',   // 매입처(딜러) — 2026-10-29 ④
         'inspection_memo', 'inspection_note', 'inspection_request', 'lock_at', 'car_erp_vehicle_id',
         'car_erp_buyer_id', 'car_erp_buyer_name', 'car_erp_consignee_id', 'buyer_undecided',
     ];
@@ -55,7 +56,8 @@ class PurchaseListing extends Model
             'offer_rate' => 'integer',
             'payee_account' => 'encrypted',   // 계좌번호 at-rest 암호화 (§6e)
             'selling_fee_payee_account' => 'encrypted',   // 매도비 계좌번호 at-rest 암호화
-            'payee_suggestions' => 'encrypted:json',   // 계좌 후보(확정 전) — 실계좌라 같이 암호화
+            'payee_suggestions' => 'encrypted:json',   // 계좌 후보(확정 전) — 실계좌라 같이 암호화(매입처·휴대폰 후보도 여기)
+            'seller_phone' => 'encrypted',   // 딜러 휴대폰 at-rest 암호화 — 계좌와 같은 취급(2026-10-28 Jin, 전화 미보유 원칙의 범위한정 예외)
             'payee_extraction_at' => 'datetime',
             'lock_at' => 'datetime',
             'inspection_started_at' => 'datetime',
@@ -418,6 +420,15 @@ class PurchaseListing extends Model
      *    그래서 **시각으로도 끊는다** — 사람이 손을 못 쓰게 되는 상태를 만들지 않는 게 우선이다.
      */
     /** 화면용 — 큐에 들어가 아직 결과가 없다(시간 무관). 확정 잠금은 아래 `payeeExtractionInFlight()`(5분 창) 그대로. */
+    /** 추출 후보 총수(계좌·소유자·매입처·연락처) — 드로어의 「후보 있음/없음」 판정은 전부 이 수를 본다. */
+    public function payeeSuggestionCount(): int
+    {
+        $s = (array) ($this->payee_suggestions ?? []);
+
+        return count((array) ($s['candidates'] ?? [])) + count((array) ($s['registration_owners'] ?? []))
+            + count((array) ($s['seller_companies'] ?? [])) + count((array) ($s['seller_phones'] ?? []));
+    }
+
     public function payeeExtractionPending(): bool
     {
         return $this->payee_extraction_status === 'pending';
@@ -480,6 +491,8 @@ class PurchaseListing extends Model
         'owner_name', 'payee_name', 'payee_bank', 'payee_account',
         // 매도비 입금 계좌·컨사이니 — 2026-10-24 ERP 감사 대조로 추가(돈이 나가는 계좌인데 기록이 없었다. 계좌는 *** 마스킹).
         'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account', 'car_erp_consignee_id',
+        // 매입처(딜러) — 2026-10-29 ④. 휴대폰은 *** 마스킹(BoardAudit::MASKED).
+        'seller_company', 'seller_ceo', 'seller_phone',
         'vehicle_number', 'vin', 'car_erp_vehicle_id', 'region', 'inspection_note', 'inspection_request', 'inspection_memo',
         'encar_url', 'encar_dealer', 'auction_venue', 'lot_number',
         // 재고매입 = 바이어 없이 ERP 로 넘어간다 → 나중에 반드시 "누가 왜"를 묻게 된다.
