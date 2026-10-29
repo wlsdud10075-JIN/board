@@ -8,7 +8,7 @@ return [
     ],
 
     'menu' => [
-        'listings' => 'Purchases',
+        'listings' => 'Purchases (Invoice)',
         'forwarding' => 'Awaiting forward',
         'verdicts' => 'Buyer Replies',
         'portal' => 'My Finance (Portal)',
@@ -22,7 +22,7 @@ return [
 
     'crumb' => [
         'dashboard' => 'Dashboard',
-        'listings' => 'Purchases',
+        'listings' => 'Purchases (Invoice)',
         'forwarding' => 'Awaiting forward',
         'verdicts' => 'Buyer Replies',
         'portal' => 'Finance · Receivables · Shipping',

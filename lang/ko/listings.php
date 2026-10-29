@@ -2,7 +2,7 @@
 
 return [
     // 헤더
-    'heading' => '매입예정',
+    'heading' => '매입예정(Invoice)',
     'own_only_note' => '🔒 본인(:name) 리스트만 표시 — 서버/DB 레벨 격리',
 
     // 환율
@@ -64,7 +64,9 @@ return [
         'owner' => '담당자',             // 등록자(created_by) — 전체가 보이는 사람에게만(2026-10-23 Jin)
         'inspection_state' => '검차상태',    // ssancar.com 폴러 마지막 판정 한 줄(현지확인대기 차만)
         'status' => '상태',
+        'invoice' => 'Invoice',             // 송금인(여권/ID) 입력·ERP 전송 상태(2026-10-29 ②)
     ],
+    'invoice_state' => ['none' => '미입력', 'entered' => '입력됨', 'synced' => 'ERP 전송됨'],
 
     // 추가 폼
     'add_form' => [

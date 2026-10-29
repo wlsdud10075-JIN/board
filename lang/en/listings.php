@@ -2,7 +2,7 @@
 
 return [
     // Header
-    'heading' => 'Purchases',
+    'heading' => 'Purchases (Invoice)',
     'own_only_note' => '🔒 Showing only your (:name) list — server/DB-level isolation',
 
     // Exchange rate
@@ -63,8 +63,10 @@ return [
         'verdict' => 'Buyer reply',
         'owner' => 'Salesperson',
         'inspection_state' => 'Inspection',
+        'invoice' => 'Invoice',
         'status' => 'Status',
     ],
+    'invoice_state' => ['none' => 'Not entered', 'entered' => 'Entered', 'synced' => 'Sent to ERP'],
 
     // Add form
     'add_form' => [

@@ -1449,7 +1449,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             @php $showOwner = auth()->user()->canSeeAll(); @endphp
             <table class="tbl tbl-center">
                 <thead>
-                    <tr><th class="w-px whitespace-nowrap">{{ __('listings.table.vehicle') }}</th><th>{{ __('listings.table.source') }}</th>@if ($showOwner)<th>{{ __('listings.table.owner') }}</th>@endif<th>{{ __('listings.table.total') }}</th><th>{{ __('listings.table.inspection_request') }}</th><th>{{ __('listings.table.inspection_note') }}</th><th>{{ __('listings.table.buyer') }}</th><th>{{ __('listings.table.verdict') }}</th><th>{{ __('listings.table.status') }}</th><th>{{ __('listings.table.inspection_state') }}</th></tr>
+                    <tr><th class="w-px whitespace-nowrap">{{ __('listings.table.vehicle') }}</th><th>{{ __('listings.table.source') }}</th>@if ($showOwner)<th>{{ __('listings.table.owner') }}</th>@endif<th>{{ __('listings.table.total') }}</th><th>{{ __('listings.table.inspection_request') }}</th><th>{{ __('listings.table.inspection_note') }}</th><th>{{ __('listings.table.buyer') }}</th><th>{{ __('listings.table.verdict') }}</th><th>{{ __('listings.table.status') }}</th><th>{{ __('listings.table.inspection_state') }}</th><th>{{ __('listings.table.invoice') }}</th></tr>
                 </thead>
                 <tbody>
                     @forelse ($this->listings as $l)
@@ -1469,9 +1469,12 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <td><span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span></td>
                             {{-- 검차상태 — 현지확인대기 차가 왜 아직 전달대기로 안 넘어갔나(ssancar 폴러 마지막 판정). 그 외 상태는 빈 칸. 상태 칸 오른쪽(Jin). --}}
                             <td class="max-w-[260px] whitespace-normal text-[11px] leading-snug text-gray-500">@if ($hold = $l->ssancarHoldHint())@if (! empty($hold['alert']))<span class="font-semibold text-red-600">⚠ {{ __($hold['key'], $hold['params']) }}</span>@else{{ __($hold['key'], $hold['params']) }}@endif @else<span class="text-gray-300">—</span>@endif</td>
+                            {{-- Invoice(송금인) — 미입력 / 입력됨 / ERP 전송됨 (2026-10-29 ②, 추가 쿼리 0). --}}
+                            @php $inv = $l->invoiceState(); @endphp
+                            <td class="whitespace-nowrap"><span class="badge {{ ['none' => 'badge-gray', 'entered' => 'badge-blue', 'synced' => 'badge-green'][$inv] }}">{{ __('listings.invoice_state.'.$inv) }}</span></td>
                         </tr>
                     @empty
-                        <tr><td colspan="{{ $showOwner ? 10 : 9 }}" class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</td></tr>
+                        <tr><td colspan="{{ $showOwner ? 11 : 10 }}" class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -1492,6 +1495,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <div class="flex flex-wrap items-center gap-1">
                             <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span>
                             @if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@endif
+                            @php $inv = $l->invoiceState(); @endphp<span class="badge {{ ['none' => 'badge-gray', 'entered' => 'badge-blue', 'synced' => 'badge-green'][$inv] }}">📄 {{ __('listings.invoice_state.'.$inv) }}</span>
                             {{-- 바이어는 항상 한 줄(없으면 —) — 모바일에서 「안 보인다」로 읽혔다(2026-10-24 Jin). --}}
                             <span class="min-w-0 max-w-full truncate text-xs text-gray-600">🧑 {{ __('listings.table.buyer') }}: {{ $l->buyerDisplay() ?: '—' }}</span>
                             @if (auth()->user()->canSeeAll() && $l->creator)<span class="truncate text-xs text-gray-500">👤 {{ $l->creator->name }}</span>@endif

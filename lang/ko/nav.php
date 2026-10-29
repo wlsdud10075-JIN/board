@@ -8,7 +8,7 @@ return [
     ],
 
     'menu' => [
-        'listings' => '매입예정',
+        'listings' => '매입예정(Invoice)',
         'forwarding' => '전달 대기',
         'verdicts' => '바이어 회신',
         'portal' => '내 정산·미수 (포털)',
@@ -22,7 +22,7 @@ return [
 
     'crumb' => [
         'dashboard' => '대시보드',
-        'listings' => '매입예정',
+        'listings' => '매입예정(Invoice)',
         'forwarding' => '전달 대기',
         'verdicts' => '바이어 회신',
         'portal' => '내 정산·미수·선적',
