@@ -192,6 +192,9 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 `transport_fee_usd`(정수 달러 → ERP `vehicles.transport_fee_usd`) · `usd_exchange_rate`(board `offer_rate_usd` → ERP 판매 탭 환율 칸 위 메모). 판매통화와 무관하게 실린다. 재고매입·첨부 전용 재전송은 둘 다 null. ERP 는 빈 칸일 때만 채운다(재전송 already_set) — 운임비 USD 를 비우면 나중에 컨테이너 1/N 이 들어간다.
 ⚠️ 1/N 은 **USD 메모 칸만** 채운다 — 판매통화 `transport_fee`(미수·총판매가·CFR 정산 「운임 미확정」 판정에 쓰이는 실제 금액)는 비어 남는다. **2026-10-22 Jin 결정 A안 = 그대로 둔다**: 컨테이너 차는 판매가만 보내고, 운임 확정 뒤 실무자가 ERP 에서 판매통화 운임비를 넣는다(그 전까지 미수 과소·정산 대기). 후속 후보 = ERP 가 1/N 적재 시 `usd_exchange_rate` 로 판매통화 운임비 환산(미착수).
 
+**매입처(딜러) 3필드 (2026-10-29 ④, 버전 그대로 optional — 받는 쪽 권위 = car-erp `purchase-sync-receiver.md` 「딜러 서류 OCR 동봉」, dev `c0fe2889`)**:
+`seller_company`(≤100) · `seller_ceo`(≤50) · `seller_phone`(**숫자만** ≤20, Job 이 하이픈을 떼고 보낸다). ERP 는 `purchase_from`(「법인명/대표자」 합성·형식은 ERP 소유 — 🚫 board 가 합친 문자열을 보내지 않는다)·`deregistration_notice_phone`(국내딜러 알림톡 3종 공용 번호)을 **빈 칸만** 채운다(재전송 `fields_skipped` 키 = ERP 컬럼명). 재고매입·첨부 전용 재전송에서도 **비우지 않는다**(판매측이 아니라 매입측 — `payee_*` 와 같은 취급). 로그(`integration_events`)는 `seller_phone` 을 `***` 로. 값의 출처 = `/auction` 드로어 「매입처」 칸(사업자등록증·명함 OCR 후보 [적용] 또는 직접 입력, §14-15c).
+
 **HMAC 서명 (계약 — car-erp 가 동일하게 검증)**:
 - 헤더 `X-Board-Signature: sha256=<hex>`.
 - 서명대상 = **직렬화된 raw request body** (`json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)`). car-erp 는 **수신 raw body 그대로** `hash_hmac('sha256', $rawBody, $secret)` 로 재계산해 `hash_equals` 비교 — **재직렬화 금지**(바이트 달라지면 불일치). 비밀키 = `CAR_ERP_HMAC_SECRET` (양쪽 공유).
@@ -724,6 +727,16 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
 - `/auction` 드로어의 결과 상자(`#payee-status`, 입금정보 칸 위)는 「찾기」 버튼(첨부 섹션 맨 아래)에서 ~450px 위라 **눌러도 아무 변화가 없는 것처럼** 보였다(헤드리스 실측: 스크롤은 안 튀고, 상자가 시야 밖). → ① 버튼 바로 아래 같은 상태 줄(`under_searching`/`under_slow`/`under_found`(누르면 위로)/`under_none`/`under_failed`) ② 결과 도착 시 `#payee-status` 로 자동 스크롤 — Alpine `x-init` + `window.__payeeWaiting`(「찾는 중」을 한 번 그렸을 때만, 드로어 열자마자 후보가 있으면 안 움직임) ③ **pending 은 시간 무관하게 「찾는 중」** — 5분 넘으면 `payeeExtractionSlow()` 로 문구만 「오래 걸림」·폴링 15초(종전엔 「실패」로 그려 사용자가 포기했는데 Job 은 뒤에 끝나 후보가 저장됐다). 「실패」는 `status=failed` 만.
 - ⚠️ 확정 잠금 `payeeExtractionInFlight()`(5분 창)은 **그대로** — 화면용 `payeeExtractionPending()`/`Slow()` 와 분리. 잠금까지 시간 무관으로 바꾸면 Job 이 유실된 차를 영영 확정 못 한다(탈출구 「계좌 없이 확정하기」는 있지만). 가드 = `test_payee_extract_status_shows_under_button_and_slow_instead_of_failed`.
 - 헤드리스 실측 방법(재사용): scratchpad `drawer_scroll.mjs`(Edge CDP, 로그인→드로어→scrollTop 전후) — 레포 밖.
+
+### 14-15c. 매입처·연락처 후보 — 사업자등록증 법인명·대표자 + 명함 휴대폰 (2026-10-29 ④, Jin 2026-10-28 결정, dev)
+구매확정 첨부 5장을 이미 읽는 **같은 Job**(`ExtractPayeeFromPhotos`, 호출 횟수 증가 0)이 프롬프트 키 3개(`business_name`·`ceo_name`·`mobile_phones[]`)를 더 받아 후보를 낸다. 사람이 `/auction` 드로어에서 [매입처에 적용]·[연락처에 적용] → 「매입처 (딜러)」 칸 3개(`seller_company`·`seller_ceo`·`seller_phone`) → 구매확정 시 연동 B 동봉(§12). ERP 가 구입처 「법인명/대표자」 합성·국내딜러 알림톡 번호 기입(빈 칸만).
+- **판정은 코드가(`PayeeExtractor`)**: 법인명·대표자는 **`doc_type` 이 사업자등록증인 사진만**(빈 doc_type = 분류 실패 → 허용, 사람이 본다). 명함·자동차등록증·통장에서 나온 상호는 버린다 — 2026-10-22 「소유자 칸에 딜러 상호가 섞인」 사고의 반대 방향. 휴대폰은 자동차등록증·통장 **밖**에서만(통장 사진의 010 번호는 평생계좌일 수 있어 `accounts[]` 쪽이 맡는다). 휴대폰 인정 = 숫자만 추려 `010+8자리` 또는 `01[16789]+7~8자리`(`mobileDigits`) — 1566/1588 고객센터·02 유선·자릿수 틀린 오독은 조용히 버린다. 대표자명은 소유자와 같은 `cleanOwner` 필터(숫자 포함·관청명 거절).
+- 후보 구조 = `payee_suggestions.seller_companies[]`({company, ceo, source_photo_ids}, 주식회사·(주)·공백을 걷어낸 키로 dedupe) · `seller_phones[]`({number: 010-0000-0000 표기, source_photo_ids}). 여러 명함·여러 번호 = **전부 후보**(Q4-5). `payee_suggestions` 는 이미 `encrypted:json` 이라 후보 단계 번호도 암호화. 운영에 저장돼 있던 옛 suggestions 엔 두 키가 없다 → 읽는 쪽은 전부 `?? []`.
+- 🚨 **「후보 있음/없음」 판정은 `PurchaseListing::payeeSuggestionCount()` 하나로**(계좌+소유자+매입처+연락처). 종전엔 블레이드 3곳이 `empty(candidates) && empty(owners)` 를 각각 들고 있어 새 배열을 빼먹으면 매입처만 찾은 결과가 「찾지 못했습니다」로 그려진다. Job 의 `$found` 도 같은 네 배열을 본다(안 넣으면 명함만 있는 사진이 `none` 으로 버려진다).
+- 보관·마스킹 = 계좌와 동일: `seller_phone` cast `encrypted`(text 컬럼), `BoardAudit::MASKED`, 연동 B 로그 `***`, 추출 로그는 건수만. **화면엔 적은 대로 보인다**(복호 가능한 암호화, 마스킹은 로그에만 — Jin). 전송 시점에만 숫자화하므로 드로어 저장·Job 두 경로가 안 갈린다. board 「전화 미보유 원칙」의 범위한정 예외(CLAUDE.md PII 스탠스).
+- 버튼 = **「📷 이미지에서 정보 찾기」**(`payee_extract.find`, 아래 작은 글씨 「계좌 · 소유자 · 매입처 · 연락처」). `searching`·`not_found`·`failed`·`wait` 도 「계좌·소유자」→「정보」. 항목별 후보에서 고르는 UX·「계좌 없이 확정하기」 탈출구·추출 중 확정 잠금은 그대로.
+- ⚠️ **프롬프트 실검증 미완**(2026-10-29): `PROMPT` 를 바꿨는데 이 PC 샘플 폴더엔 사업자등록증·명함이 없다 — 가짜 응답 테스트로는 이 계열 회귀가 안 잡힌다(§14-15). 운영 전 사업자등록증 1장·명함 1장을 받아 GPU PC 에 1회 호출해 `business_name`/`ceo_name`/`mobile_phones` 가 실제로 채워지는지 볼 것. 프롬프트 함정(이중 부정 금지)은 그대로 지켰다.
+- 가드 = `PayeeExtractionTest` 매입처 5건(`test_business_registration_yields_seller_candidate` 등) + `BoardTest::test_sync_payload_sends_seller_fields_phone_digits_only_and_masked_in_log`.
 
 ### 14-16. ERP 로 넘어간 차에 **사진을 나중에 추가** (2026-09-11 Jin)
 

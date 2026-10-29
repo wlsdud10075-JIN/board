@@ -246,7 +246,7 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
 - **환율**: board 가 car-erp `/rates`(네이버 전신환매입률) 받아씀 — 값 일치. [board-exchange-rate-source]
 - **입금정보**: `payee_name·payee_bank·payee_account`(**`payee_account` = `encrypted` 캐스트**). 입력 = `/listings`(영업 선택) → `/auction` 드로어 자동표시 → 연동 B 로 car-erp 전달. 은행 datalist + 계좌 동적 마스킹(`Alpine.store('koreanBanks')`).
 - **사진·서류 보유 (범위한정 예외)**: 영업이 board 에 차량 사진 + 서류(**주소·RRN 마스킹본**) 업로드 → 낙찰 시 연동 B `attachments[]` 로 car-erp 첨부탭. 격리 = 전용 S3 prefix(`sales/photos`·`sales/documents`), **실행파일 차단(`App\Support\UploadGuard`)**, **서류는 바이어 전송 제외(`share_to_buyer=false`)**. `inspection_photos.kind`(inspection/sales_photo/sales_document). [board-vehicle-attachments]
-- **PII 스탠스**: RRN·전화 미보유 원칙 유지. 계좌·서류는 위 *범위한정 예외*(암호화·마스킹본·표시 최소화).
+- **PII 스탠스**: RRN·전화 미보유 원칙 유지. 계좌·서류는 위 *범위한정 예외*(암호화·마스킹본·표시 최소화). **딜러 휴대폰(`seller_phone`, 2026-10-28 Jin)도 같은 줄의 예외** — 사업자 연락처라 바이어·소유자 개인정보와 성격이 다르지만 계좌와 동일하게 `encrypted` + 감사·전송 로그 `***`(화면엔 그대로). 용도 = ERP 국내딜러 알림톡 번호(§14-15c).
 
 ## ⏭️ 남은 작업 (미완)
 
