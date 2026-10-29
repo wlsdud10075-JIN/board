@@ -49,6 +49,7 @@ class InspectionQueueTest extends TestCase
     {
         config(['services.ssancar_inspection' => [
             'url' => 'https://ssc.test/page/api_inspect_queue.php', 'hmac_secret' => 'hs', 'webhook_secret' => 'ws', 'tenant' => 'heymanboard',
+            'schedule_p1' => true,   // P1 긴급 버튼 게이트(운영 기본 off)
         ]]);
     }
 
@@ -395,7 +396,9 @@ class InspectionQueueTest extends TestCase
             'inspection_urgent_decision_note' => '내일도 충분'])->save();
         Volt::test('listings.index')->call('openEdit', $l->id)->assertSee(__('listings.drawer.urgent_btn'))->assertSee('내일도 충분')->assertSee(today()->addDay()->format('m-d'))->assertSee(__('listings.table.work_date'));
 
-        config(['services.ssancar_inspection.url' => '']);   // 연동 꺼진 박스 — 버튼 없음
+        config(['services.ssancar_inspection.schedule_p1' => false]);   // P1 게이트 off(운영 기본) — 수신은 되지만 버튼·오늘 안내 없음
+        Volt::test('listings.index')->call('openEdit', $l->id)->assertDontSee(__('listings.drawer.urgent_btn'))->assertSee('내일도 충분');
+        config(['services.ssancar_inspection.schedule_p1' => true, 'services.ssancar_inspection.url' => '']);   // 연동 꺼진 박스 — 버튼 없음
         Volt::test('listings.index')->call('openEdit', $l->id)->assertDontSee(__('listings.drawer.urgent_btn'));
     }
 

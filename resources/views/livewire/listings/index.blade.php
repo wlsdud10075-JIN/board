@@ -469,6 +469,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $u = Auth::user();
 
         return \App\Support\SsancarInspection::configured()
+            && config('services.ssancar_inspection.schedule_p1')   // ssancar 가 P1 을 받기 전엔 버튼 자체를 숨긴다(옛 ssancar 는 urgent 무시 → pending 영구 잔류)
             && PurchaseListing::isInspectionTarget($l->status, $l->origin, false)
             && $l->ssancar_inspected_wr_id === null
             && ! in_array($l->inspection_urgent_decision, ['pending', 'approved'], true)
@@ -1981,7 +1982,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                         </div>
                                     </div>
                                 </div>
-                            @elseif ($e->inspectionDueToday() && $e->ssancar_inspected_wr_id === null && $e->inspection_skipped_at === null)
+                            @elseif ($e->inspectionDueToday() && $e->ssancar_inspected_wr_id === null && $e->inspection_skipped_at === null && $e->inspection_urgent_decision !== 'approved' && config('services.ssancar_inspection.schedule_p1'))
                                 <div class="mt-1 text-[11px] text-gray-500">{{ __('listings.drawer.urgent_today') }}</div>
                             @endif
                             @if ($this->forwardable($e))

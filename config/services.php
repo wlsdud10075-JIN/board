@@ -57,6 +57,10 @@ return [
         'hmac_secret' => env('SSANCAR_INSPECTION_HMAC_SECRET'),         // board → ssancar (보내는 쪽)
         'webhook_secret' => env('SSANCAR_INSPECTION_WEBHOOK_SECRET'),   // ssancar → board (받는 쪽)
         'tenant' => env('SSANCAR_INSPECTION_TENANT'),
+        // 검차 스케줄 P1 「긴급 검차 요청」 버튼 게이트(2026-10-29) — 기본 off. ssancar P1~P5 운영 배포 때 두 박스 .env 에서 켠다.
+        //   board 가 먼저 master 에 올라가면 옛 ssancar 는 `urgent` 를 무시해 응답에 `urgent_decision` 이 없다 → board 의 낙관적 pending 이 영원히 남아
+        //   버튼이 숨겨진다. 수신(work_date·urgent_decided)은 게이트 없이 항상 받는다(먼저 올라가도 무해).
+        'schedule_p1' => (bool) env('SSANCAR_INSPECTION_SCHEDULE_P1', false),
     ],
 
     'car_erp' => [
