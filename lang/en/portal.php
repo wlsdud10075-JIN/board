@@ -199,6 +199,7 @@ return [
     'flash_bl_already_issued' => 'Management already issued the B/L; cannot undo.',
     'ship_fx_missing' => ':count vehicle(s) missing FX rate — cannot confirm full payment (required before B/L)',
     'ship_fully_paid' => 'Fully paid',
+    'ship_unpaid_krw_tip' => 'KRW total :krw (with exchange rates)',
     'ship_unpaid' => 'Unpaid',
     'fx_missing_short' => 'FX missing',
     'change_request_hint' => 'Bundle in progress by management — no auto-change. Request a change/cancel and management will handle it.',

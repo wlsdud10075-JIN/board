@@ -204,6 +204,7 @@ return [
     'ship_fx_missing' => '환율 미입력 :count대 — 완납 판정 불가(B/L 발급 전 입력 필요)',
     'ship_fully_paid' => '완납',
     'ship_unpaid' => '미수',
+    'ship_unpaid_krw_tip' => '원화 합계 :krw원 (환율 적용분)',
     'fx_missing_short' => '환율 미입력',
     'change_request_hint' => '관리가 착수한 묶음 — 자동 변경 불가. 변경/취소는 요청하면 관리가 처리합니다.',
     'change_request_ph' => '변경/취소 사유',

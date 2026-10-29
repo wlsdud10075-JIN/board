@@ -1533,6 +1533,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                         $fxMissing = (int) ($bd['fx_missing_count'] ?? 0);
                         $fullyPaid = (bool) ($bd['fully_paid'] ?? false);
                         $ratio = $bd['unpaid_ratio'] ?? null;   // 0~1 또는 null
+                        // 판매 통화 그대로의 미수(2026-10-29 Jin, ERP dev ffed97aa `unpaid_by_currency` {USD: 5000, …}) — 환율 없는 차도 포함. 키 없으면(옛 ERP) 원화 표시 폴백.
+                        $byCur = $bd['unpaid_by_currency'] ?? null;
+                        $fmtCur = fn (string $c, $v) => $c.' '.number_format((float) $v, in_array($c, ['KRW', 'JPY'], true) ? 0 : 2);
                         $busy = $st === 'in_progress';
                         $batchId = $bd['batch_id'] ?? null;
                         $vIds = collect($bvehicles)->pluck('vehicle_id')->map(fn ($i) => (int) $i)->all();
@@ -1573,9 +1576,17 @@ new #[Layout('components.layouts.app')] class extends Component {
                                         @php $fill = $ratio === null ? 0 : max(0, min(100, (float) $ratio * 100)); @endphp
                                         <div class="h-full rounded-full bg-amber-500" style="width: {{ $fill }}%"></div>
                                     </div>
-                                    <span class="shrink-0 text-[12px] font-semibold text-gray-600">
-                                        {{ __('portal.ship_unpaid') }}: {{ $unpaidKrw === null ? __('portal.fx_missing_short') : $this->abbrevKrw($unpaidKrw) }}
-                                    </span>
+                                    @if (is_array($byCur) && $byCur !== [])
+                                        {{-- 미수 USD 5,000.00 · EUR 3,000.00 (40%) — ERP 선적요청 카드와 같은 형태, 원화 합계는 툴팁(2026-10-29 Jin) --}}
+                                        <span class="shrink-0 text-[12px] font-semibold text-gray-600"
+                                              title="{{ $unpaidKrw === null ? __('portal.fx_missing_short') : __('portal.ship_unpaid_krw_tip', ['krw' => number_format((float) $unpaidKrw)]) }}">
+                                            {{ __('portal.ship_unpaid') }}: {{ collect($byCur)->map(fn ($v, $c) => $fmtCur((string) $c, $v))->implode(' · ') }}@if ($ratio !== null) <span class="font-normal text-gray-400">({{ round((float) $ratio * 100) }}%)</span>@endif
+                                        </span>
+                                    @else
+                                        <span class="shrink-0 text-[12px] font-semibold text-gray-600">
+                                            {{ __('portal.ship_unpaid') }}: {{ $unpaidKrw === null ? __('portal.fx_missing_short') : $this->abbrevKrw($unpaidKrw) }}
+                                        </span>
+                                    @endif
                                 </div>
                             @endif
                         </div>

@@ -6486,6 +6486,7 @@ class BoardTest extends TestCase
                 'shipping_method' => 'RORO', 'buyer' => ['id' => 5, 'name' => 'BuyerZ'],
                 'vehicles' => [['vehicle_id' => 1, 'vehicle_number' => 'CAR001']],
                 'unpaid_total_krw' => 3000000, 'fx_missing_count' => 1, 'fully_paid' => false, 'unpaid_ratio' => 0.4,
+                'unpaid_by_currency' => ['USD' => 5000, 'EUR' => 3000.5],   // 2026-10-29 판매 통화 그대로(ERP ffed97aa)
             ]]], 200),
             '*/api/internal/board/shippable*' => Http::response(['count' => 0, 'data' => []], 200),
             '*' => Http::response(['count' => 0, 'data' => []], 200),
@@ -6495,7 +6496,24 @@ class BoardTest extends TestCase
         Volt::test('portal.index')->call('setTab', 'shipping')
             ->assertSee('BuyerZ')->assertSee('CAR001')
             ->assertSee('요청됨')              // 선적단계 뱃지
-            ->assertSee('환율 미입력');        // fx_missing 경고(완납판정 불가)
+            ->assertSee('환율 미입력')         // fx_missing 경고(완납판정 불가)
+            ->assertSee('USD 5,000.00')->assertSee('EUR 3,000.50')->assertSee('(40%)')   // 판매 통화 그대로(Jin 2026-10-29), 원화는 툴팁
+            ->assertSee('3,000,000');
+    }
+
+    /** 옛 ERP 응답(`unpaid_by_currency` 없음)은 종전 원화 표시로 폴백 — 배포 순서 무관. */
+    public function test_portal_bundle_unpaid_falls_back_to_krw_without_currency_map(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
+                'batch_id' => 'B9', 'ship_status' => 'requested', 'shipping_method' => 'RORO', 'buyer' => ['id' => 5, 'name' => 'BuyerOld'],
+                'vehicles' => [['vehicle_id' => 1, 'vehicle_number' => 'CAR009']], 'unpaid_total_krw' => 1200000, 'fully_paid' => false, 'unpaid_ratio' => 0.2,
+            ]]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+        Volt::test('portal.index')->call('setTab', 'shipping')->assertSee('BuyerOld')->assertSee('120만');
     }
 
     /** 선적묶음 상태별 접기/펼치기 그룹 — 상태 헤더별로 묶여 표시(요청됨/완료 등), 카드는 각 그룹 하위. */

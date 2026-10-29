@@ -496,6 +496,8 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
   (`test_portal_plan_restores_forwarder_and_freight_from_bundles`). 안 살면 다음 sync 가 **빈 값으로 덮는다**.
 - **surrender 미수 가드는 안 만든다**(Jin 2026-08-11) — 선적 계획은 계획일 뿐이고 B/L 요청은 별도 행위다.
 
+- 🔁 **2026-10-29 Jin — 묶음 카드 미수를 판매 통화 그대로**(ERP dev `ffed97aa`): `GET /bundles` 묶음에 `unpaid_by_currency` {USD: 5000, EUR: 3000}(통화별 Σ, 과입금 0, 미수 없으면 `{}`, **환율 없는 차도 포함**) + 차량 행(`/shippable`·`bundles.vehicles[]`)에 `unpaid`(판매 통화 미수). board 카드 = 「미수: USD 5,000.00 · EUR 3,000.50 (40%)」(KRW·JPY 는 소수 없음), 원화 합계는 툴팁(`ship_unpaid_krw_tip`). **키가 없으면(옛 ERP) 종전 원화 표시 폴백** — 배포 순서 무관(`test_portal_bundle_unpaid_falls_back_to_krw_without_currency_map`). 게이지·완납·환율 미입력 경고는 종전 원화 키 그대로. 계획(pool) 차의 행 `unpaid` 는 아직 안 쓴다(묶음 카드만 — Jin 지시 범위).
+
 ### 14-9. 딜러 차량 첨부는 **올리는 곳과 보는 곳이 다르다** (2026-08-12)
 
 - **처음 올리는 곳 = `/auction`(구매·경매) 드로어**(구매확정과 함께 나간다). **ERP 로 넘어간 뒤 추가하는 곳
