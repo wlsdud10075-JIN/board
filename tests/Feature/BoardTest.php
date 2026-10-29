@@ -283,16 +283,16 @@ class BoardTest extends TestCase
         $c = Volt::test('listings.index')->call('openEdit', $l->id);
 
         // 통화 없이 판매가만 → 막는다(ERP 가 조용히 보류하는 대신 여기서 사유를 말한다).
-        $c->set('e_sale_price', '8590')->set('e_sale_currency', '')->call('resendToErp')
+        $c->set('e_sale_total', '8590')->set('e_sale_currency', '')->call('resendToErp')
             ->assertHasErrors('e_sale_currency');
         Bus::assertNotDispatched(SyncWonListingToCarErp::class);
 
         // 외화인데 환율이 없으면 그것도 막는다.
-        $c->set('e_sale_currency', 'USD')->set('e_sale_rate', '')->call('resendToErp')
-            ->assertHasErrors('e_sale_rate');
+        $c->set('e_sale_currency', 'USD')->set('e_rate_usd', '')->call('resendToErp')
+            ->assertHasErrors('e_rate_usd');
 
         // 세트가 갖춰지면 저장 + resync 발사.
-        $c->set('e_sale_rate', '1380')->call('resendToErp')->assertHasNoErrors();
+        $c->set('e_rate_usd', '1380')->call('resendToErp')->assertHasNoErrors();   // 운임비 USD 없음 → 판매가 = 총판매가
 
         $l->refresh();
         $this->assertSame('8590.00', (string) $l->sale_price);
@@ -4506,12 +4506,13 @@ class BoardTest extends TestCase
         $this->actingAs($sales);
 
         Volt::test('listings.index')->call('openEdit', $l->id)
-            ->assertSee(__('listings.resync.transport_fee'))
-            ->set('e_transport_fee', '1,800')
+            ->assertSee(__('listings.resync.transport_fee_usd'))
+            ->set('e_sale_total', '7500')->set('e_rate_usd', '1487')->set('e_transport_fee_usd', '1,800')   // 총판매가 고정 — 운임비 USD 1,800 × 1487 ÷ 1487(EUR) = 1,800 EUR, 판매가 5,700
             ->call('resendToErp')->assertHasNoErrors();
 
         $this->assertSame(1800.0, (float) $l->fresh()->transport_fee);
-        Http::assertSent(fn ($req) => ($b = json_decode($req->body(), true)) && (float) $b['transport_fee'] === 1800.0 && (float) $b['sale_price'] === 5700.0);
+        $this->assertSame(1800, (int) $l->fresh()->transport_fee_usd);
+        Http::assertSent(fn ($req) => ($b = json_decode($req->body(), true)) && (float) $b['transport_fee'] === 1800.0 && (float) $b['sale_price'] === 5700.0 && (int) $b['transport_fee_usd'] === 1800 && (int) $b['usd_exchange_rate'] === 1487);
     }
 
     /** 「저장」 — 금액 칸이 하나라도 바뀌면 금액+첨부 재전송, 금액은 그대로인데 사진만 새로 있으면 첨부 전용, 둘 다 없으면 안 보낸다(2026-10-16 Jin). */
@@ -4529,12 +4530,12 @@ class BoardTest extends TestCase
         Bus::assertNotDispatched(SyncWonListingToCarErp::class);
 
         // 판매가만 적고 통화 없이 저장 → 세트 검증 에러(버튼과 같은 규칙), 전송 없음
-        Volt::test('listings.index')->call('openEdit', $l->id)->set('e_sale_price', '5700')->call('update')->assertHasErrors('e_sale_currency');
+        Volt::test('listings.index')->call('openEdit', $l->id)->set('e_sale_total', '5700')->call('update')->assertHasErrors('e_sale_currency');
         Bus::assertNotDispatched(SyncWonListingToCarErp::class);
 
         // 판매가·통화·환율 + 운임비 + 사진 1장 → 금액+첨부 재전송(attachmentsOnly 아님)
         Volt::test('listings.index')->call('openEdit', $l->id)
-            ->set('e_sale_price', '5700')->set('e_sale_currency', 'EUR')->set('e_sale_rate', '1487')->set('e_transport_fee', '1800')
+            ->set('e_sale_total', '7500')->set('e_sale_currency', 'EUR')->set('e_rate_eur', '1487')->set('e_rate_usd', '1487')->set('e_transport_fee_usd', '1800')
             ->set('eSalesFiles', [UploadedFile::fake()->image('p1.jpg')])
             ->call('update')->assertHasNoErrors();
         $l->refresh();
@@ -8090,8 +8091,8 @@ class BoardTest extends TestCase
 
         Volt::test('listings.index')->call('openEdit', $l->id)
             ->assertSee(__('listings.resync.stock_purchase'))
-            ->set('e_sale_price', '8590')->set('e_sale_currency', 'USD')->set('e_sale_rate', '1380')
-            ->call('resendToErp')->assertHasErrors('e_sale_price');
+            ->set('e_sale_total', '8590')->set('e_sale_currency', 'USD')->set('e_rate_usd', '1380')
+            ->call('resendToErp')->assertHasErrors('e_sale_total');
 
         $this->assertNull($l->fresh()->sale_price);            // 컬럼도 안 건드린다
         Bus::assertNotDispatched(SyncWonListingToCarErp::class);

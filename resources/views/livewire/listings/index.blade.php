@@ -506,10 +506,12 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->e_remitter_name = $l->remitter_name ?? '';
         $this->e_remitter_id = $l->remitter_id ?? '';
         $this->invoiceNote = null;
-        $this->e_sale_price = $l->sale_price !== null ? (string) $l->sale_price : null;
+        // 금액 칸 프리필 — /auction openDetail 과 같은 규칙(총판매가 = 판매가 + 운임비, 환율은 저장값 ?: 견적통화면 offer_rate).
         $this->e_sale_currency = $l->offer_currency ?: null;
-        $this->e_sale_rate = $l->offer_rate ? (string) $l->offer_rate : null;
-        $this->e_transport_fee = $l->transport_fee !== null ? (string) (0 + $l->transport_fee) : null;
+        $this->e_sale_total = $l->sale_price !== null ? (string) (0 + round((float) $l->sale_price + (float) $l->transport_fee, 2)) : null;
+        $this->e_transport_fee_usd = $l->transport_fee_usd !== null ? (string) (0 + $l->transport_fee_usd) : null;
+        $this->e_rate_usd = $l->offer_rate_usd !== null ? (string) $l->offer_rate_usd : ($l->offer_currency === 'USD' && $l->offer_rate ? (string) $l->offer_rate : null);
+        $this->e_rate_eur = $l->offer_rate_eur !== null ? (string) $l->offer_rate_eur : ($l->offer_currency === 'EUR' && $l->offer_rate ? (string) $l->offer_rate : null);
         $this->resyncResult = null;
         $this->attachResult = null;   // 앞 차의 결과 카드가 다음 차 드로어에 남으면 안 된다
         $this->syncSince = null;
@@ -522,14 +524,17 @@ new #[Layout('components.layouts.app')] class extends Component {
     // 나중에 여기서 판매가·통화·환율을 채워 다시 밀면 car-erp 가 **빈 칸만** 채운다(fill-if-empty).
     // 🚫 이미 값이 있으면 ERP 가 덮지 않는다 — 고치려면 ERP 에서. board 가 원장을 되돌리지 않는다.
 
-    public ?string $e_sale_price = null;
+    // 2026-10-29 Jin — /auction 구매 탭과 **같은 칸·같은 공식**: 사람이 적는 건 총판매가·운임비 USD·환율 USD/EUR·통화, 판매가·운임비(견적통화)는 계산(resendSplit).
+    //    종전(판매가·환율·운임비 직접 입력)은 구매 탭과 칸이 달라 같은 차를 두 화면에서 다르게 적게 됐다. payload 키는 그대로(sale_price·transport_fee·transport_fee_usd·usd_exchange_rate).
+    public ?string $e_sale_total = null;
 
     public ?string $e_sale_currency = null;
 
-    public ?string $e_sale_rate = null;
+    public ?string $e_transport_fee_usd = null;
 
-    /** 운임비(판매통화 기준) — ERP 가 fill-if-empty 로 받는다(2026-10-16 Jin: 칸이 없어 ERP 에서 손으로 넣고 있었다). */
-    public ?string $e_transport_fee = null;
+    public ?string $e_rate_usd = null;
+
+    public ?string $e_rate_eur = null;
 
     /** 마지막 재전송 결과 — car-erp 응답의 fields_filled/fields_skipped. 200 만 보고 "반영됨"이라 하지 않는다. */
     public ?array $resyncResult = null;
@@ -551,7 +556,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->resetErrorBag();   // 고쳐서 다시 눌렀는데 옛 에러가 남아 있으면 뭘 고쳤는지 알 수 없다
 
         if (! $l->car_erp_vehicle_id) {
-            $this->addError('e_sale_price', __('listings.resync.not_synced_yet'));
+            $this->addError('e_sale_total', __('listings.resync.not_synced_yet'));
 
             return;
         }
@@ -559,7 +564,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         // (200 인데 fields_filled 가 빈 채로 돌아온다), board 컬럼에만 판매가가 남아 화면과 원장이 갈린다.
         // 판매가·바이어는 ERP 차량관리에서 지정한다 — 거기엔 매입 등록 락 게이트가 있고 여기엔 없다.
         if ($l->buyer_undecided) {
-            $this->addError('e_sale_price', __('listings.resync.stock_purchase'));
+            $this->addError('e_sale_total', __('listings.resync.stock_purchase'));
 
             return;
         }
@@ -577,42 +582,96 @@ new #[Layout('components.layouts.app')] class extends Component {
     }
 
     /**
-     * 「금액 다시 보내기」 칸(판매가·통화·환율·운임비)을 모델에 적용한다 — 버튼과 「저장」이 **같은 규칙**을 쓴다(2026-10-16 Jin).
-     * 저장하지 않는다(호출자가 save). 반환 = 바뀐 컬럼 목록(빈 배열 = 보낼 금액 변경 없음) / null = 검증 실패(에러 붙임).
-     * ⚠️ 환율이 없으면 car-erp 가 판매가를 **통째로 보류**한다 → 판매가가 있으면 통화·(KRW 외)환율을 세트로 요구한다.
+     * 쪼개기 계산 — /auction `selfSplit()` 과 같은 공식(2026-10-22 Jin: 운임비 USD·총판매가 고정, 환율 차이는 판매가가 흡수).
+     *   운임비(견적통화) = 운임비 USD(USD 견적이면 그대로, 아니면 × 환율 USD ÷ 견적통화 환율) · 판매가 = 총판매가 − 운임비 · 환율 = 견적통화의 환율(KRW=1).
+     * 화면 표시(읽기 전용 두 칸)와 적용(applyResendAmounts)이 이 하나를 쓴다.
+     *
+     * @return array{sale: ?float, freight: ?float, rate: ?int, total: ?float, fusd: ?int, usd: ?int, eur: ?int, currency: ?string}
+     */
+    public function resendSplit(): array
+    {
+        $num = fn ($v) => ($v === null || $v === '') ? null : (float) preg_replace('/[^0-9.]/', '', (string) $v);
+        $int = fn ($v) => ($v === null || $v === '') ? null : (int) preg_replace('/[^0-9]/', '', (string) $v);
+        $total = $num($this->e_sale_total);
+        $fUsd = $int($this->e_transport_fee_usd);
+        $usd = $int($this->e_rate_usd);
+        $eur = $int($this->e_rate_eur);
+        $currency = $this->e_sale_currency ?: null;
+        $rate = match ($currency) {
+            'KRW' => 1,
+            'USD' => $usd ?: null,
+            'EUR' => $eur ?: null,
+            default => null,
+        };
+        $freight = null;
+        if ($fUsd !== null) {
+            if ($currency === 'USD') {
+                $freight = round($fUsd, 2);
+            } elseif ($usd && $rate) {
+                $freight = round($fUsd * $usd / $rate, 2);
+            }
+        }
+
+        return [
+            'sale' => $total === null ? null : round($total - ($freight ?? 0), 2),
+            'freight' => $freight, 'rate' => $rate, 'total' => $total, 'fusd' => $fUsd, 'usd' => $usd, 'eur' => $eur, 'currency' => $currency,
+        ];
+    }
+
+    /**
+     * 「금액 다시 보내기」 칸(총판매가·통화·운임비 USD·환율 USD/EUR)을 모델에 적용한다 — 버튼과 「저장」이 **같은 규칙**을 쓴다(2026-10-16 Jin).
+     * 2026-10-29 Jin — /auction 구매 탭과 같은 칸·같은 계산(resendSplit). 저장하지 않는다(호출자가 save).
+     * 반환 = 바뀐 컬럼 목록(빈 배열 = 보낼 금액 변경 없음) / null = 검증 실패(에러 붙임).
+     * ⚠️ 환율이 없으면 car-erp 가 판매가를 **통째로 보류**한다 → 총판매가가 있으면 통화·(KRW 외)그 통화 환율을 세트로 요구한다.
+     *    운임비 USD 를 비-USD 견적으로 환산하려면 환율 USD 와 견적통화 환율이 둘 다 있어야 한다.
      */
     private function applyResendAmounts(PurchaseListing $l): ?array
     {
-        $price = $this->e_sale_price !== null && $this->e_sale_price !== ''
-            ? (float) preg_replace('/[^0-9.]/', '', $this->e_sale_price) : null;
-        $rate = $this->e_sale_rate !== null && $this->e_sale_rate !== ''
-            ? (int) preg_replace('/[^0-9]/', '', $this->e_sale_rate) : null;
-        $currency = $this->e_sale_currency ?: null;
-
-        if ($price !== null && $price > 0) {
-            if (! $currency) {
-                $this->addError('e_sale_currency', __('listings.resync.currency_required'));
-
-                return null;
-            }
-            // KRW 는 환율 1. 그 외는 반드시 받는다 — 비우면 ERP 가 판매가를 통째로 안 넣는다.
-            if ($currency !== 'KRW' && ! $rate) {
-                $this->addError('e_sale_rate', __('listings.resync.rate_required'));
-
-                return null;
-            }
-            $l->sale_price = $price;
-            $l->offer_currency = $currency;
-            $l->offer_rate = $currency === 'KRW' ? 1 : $rate;
+        $s = $this->resendSplit();
+        if ($s['total'] === null && $s['fusd'] === null && $s['usd'] === null && $s['eur'] === null) {
+            return [];   // 금액 칸을 아무것도 안 적었다
         }
-        // 운임비 — 판매가 없이 단독으로도 보낸다(Job 이 컬럼을 그대로 실고, ERP 는 비어 있을 때만 채운다).
-        $transport = $this->e_transport_fee !== null && $this->e_transport_fee !== ''
-            ? (float) preg_replace('/[^0-9.]/', '', $this->e_transport_fee) : null;
-        if ($transport !== null && $transport > 0) {
-            $l->transport_fee = $transport;
+        if ($s['total'] !== null && ! $s['currency']) {
+            $this->addError('e_sale_currency', __('listings.resync.currency_required'));
+
+            return null;
+        }
+        if ($s['currency'] && $s['currency'] !== 'KRW' && ! $s['rate']) {
+            $this->addError($s['currency'] === 'USD' ? 'e_rate_usd' : 'e_rate_eur', __('listings.resync.rate_required'));
+
+            return null;
+        }
+        if ($s['fusd'] !== null && $s['freight'] === null) {
+            // 운임비 USD 는 적었는데 환산할 환율이 없다(통화 미선택 또는 환율 USD 없음)
+            $this->addError($s['currency'] ? 'e_rate_usd' : 'e_sale_currency', __($s['currency'] ? 'listings.resync.usd_rate_required_for_freight' : 'listings.resync.currency_required'));
+
+            return null;
+        }
+        if ($s['sale'] !== null && $s['sale'] < 0) {
+            $this->addError('e_sale_total', __('listings.resync.freight_over_total'));
+
+            return null;
         }
 
-        return array_values(array_intersect(array_keys($l->getDirty()), ['sale_price', 'offer_currency', 'offer_rate', 'transport_fee']));
+        if ($s['total'] !== null) {
+            $l->sale_price = $s['sale'];
+            $l->offer_currency = $s['currency'];
+            $l->offer_rate = $s['rate'];
+        }
+        if ($s['freight'] !== null) {
+            $l->transport_fee = $s['freight'];
+        }
+        if ($s['fusd'] !== null) {
+            $l->transport_fee_usd = $s['fusd'];
+        }
+        if ($s['usd'] !== null) {
+            $l->offer_rate_usd = $s['usd'];
+        }
+        if ($s['eur'] !== null) {
+            $l->offer_rate_eur = $s['eur'];
+        }
+
+        return array_values(array_intersect(array_keys($l->getDirty()), ['sale_price', 'offer_currency', 'offer_rate', 'transport_fee', 'transport_fee_usd', 'offer_rate_usd', 'offer_rate_eur']));
     }
 
     /**
@@ -908,7 +967,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'drawerTab', 'e_remitter_name', 'e_remitter_id', 'invoiceNote', 'passportFile', 'e_transport_fee', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'e_inspection_request', 'eSalesFiles', 'e_sale_price', 'e_sale_currency', 'e_sale_rate', 'resyncResult', 'attachResult', 'syncSince']);
+        $this->reset(['editingId', 'drawerTab', 'e_remitter_name', 'e_remitter_id', 'invoiceNote', 'passportFile', 'e_sale_total', 'e_transport_fee_usd', 'e_rate_usd', 'e_rate_eur', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'e_inspection_request', 'eSalesFiles', 'e_sale_currency', 'resyncResult', 'attachResult', 'syncSince']);
         unset($this->editing);
     }
 
