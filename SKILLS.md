@@ -948,6 +948,13 @@ Jin 이 ERP 에서 수기 정정. **전수 조사 = heymanboard 74대 중 12대*
 - **일일 대사** `board:inspection-reconcile` 07:20 — 판정식 true 전부를 `queue.reconcile` 로, 응답 `missing_listing_ids` 중 **지금도 대상인 것만** upsert. 빈 목록은 안 보낸다.
 - 시크릿 env = `SSANCAR_INSPECTION_URL`·`_HMAC_SECRET`(보내는 쪽)·`_WEBHOOK_SECRET`(받는 쪽)·`_TENANT`(선택). 인스턴스별·방향별 별개, 운영 값은 Jin 이 직접. 로컬 시험값 출처 = `C:/xampp/htdocs/_local_shared/inspect_test_secrets.json`(레포 밖, `.env.bak-inspect-20261023` 백업). `phpunit.xml` 은 이 env 를 비운다.
 
+### 14-27. 포털 「적립금」 탭 — 본인 바이어별 통화별 잔액 + 이력 (2026-10-29 ③, Jin 2026-10-28 결정, dev)
+- 탭 `savings`(7번째) = **같은 `/by-buyer` 봉투**(`load()` 의 match 에 한 줄) — ERP 가 행마다 `savings_balances[]`({currency, balance, balance_krw}) 를 동봉한다(car-erp dev `7412e92d`, 권위 `board-portal-api.md` §4). 이력은 펼칠 때만 `GET /buyers/{id}/savings?limit=20`(`CarErpReadService::buyerSavings`) → `savingsHistory[buyer_id]` 에 봉투 그대로. 탭 전환이 비운다. 호출 = 탭 1 + 펼친 바이어당 1(분당 120 공유 버킷).
+- **적립금만**(현금 디파짓은 ssancarerp 미사용·회사 토글 필요라 범위 밖). `note` 는 ERP 가 내리지 않는다(자유 입력에 내부 사정) — 화면 각주 「사유 메모는 ERP 에서만」. `type` 은 lang 라벨 5종(`savings_type.*`), 모르는 값은 **원문**(`savingsTypeLabel`). 금액은 부호 있는 수(음수 빨강·양수 「+」).
+- 🚫 **없는 척 금지**: 잔액 0(`[]`) 바이어도 행을 그린다(「적립금 없음」). `savings_balances` **키 자체가 없으면**(ERP 미배포) 숫자를 지어내지 않고 「ERP 가 아직 적립금을 주지 않습니다」. `balance_krw: null`(환율 없는 적립분)은 괄호 생략. 이력 404(본인 바이어 아님·없는 id) = 「조회 불가 — 본인 바이어가 아니거나…」.
+- 스코프 = `/buyers` 와 같다(`salesman_email` 본인 바이어). super 대리조회는 `salesmanEmail()` 이 대상 사용자 이메일을 쓰므로 그 사람 바이어로 조회된다. ⚠️ ERP 는 이 엔드포인트에 `scope=all` 을 **적용하지 않았다** — super 본인 포털에서 전체 바이어 적립금을 보는 건 범위 밖(필요하면 ERP 요청).
+- 가드 = `test_portal_savings_tab_lists_balances_and_loads_history_on_demand` · `test_portal_savings_shows_unavailable_on_404_and_not_provided_without_key`.
+
 ### 14-26. 2026-10-24 — 사용자 검색 · 목록 바이어 · ERP 감사 대조 (dev 미배포, 마이그 `2026_10_24_000001`)
 - `/users` 검색 = ERP 미러: 이름·이메일·전화번호(하이픈 무시 `REPLACE(phone,'-','')`) **버튼·Enter 로만**(`search` 입력 ↔ `appliedSearch` 적용 분리, 메서드명 `searchNow` — `search()` 금지) + 등급·역할 필터.
 - 매입예정 「바이어」 = `buyerDisplay()` = `buyer_name`(전달 단계) ?: `car_erp_buyer_name`(`/auction` 에서 고른 ERP 바이어 **이름 스냅샷**, id 와 항상 같이 저장). 셀프검차매입은 전달 단계가 없어 바이어가 「—」였다. 모바일 카드는 바이어 줄을 항상 그린다(없으면 —).
