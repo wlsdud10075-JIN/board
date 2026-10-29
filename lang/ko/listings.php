@@ -2,7 +2,7 @@
 
 return [
     // 헤더
-    'heading' => '매입예정',
+    'heading' => '매입예정(Invoice)',
     'own_only_note' => '🔒 본인(:name) 리스트만 표시 — 서버/DB 레벨 격리',
 
     // 환율
@@ -64,7 +64,9 @@ return [
         'owner' => '담당자',             // 등록자(created_by) — 전체가 보이는 사람에게만(2026-10-23 Jin)
         'inspection_state' => '검차상태',    // ssancar.com 폴러 마지막 판정 한 줄(현지확인대기 차만)
         'status' => '상태',
+        'invoice' => 'Invoice',             // 송금인(여권/ID) 입력·ERP 전송 상태(2026-10-29 ②)
     ],
+    'invoice_state' => ['none' => '미입력', 'entered' => '입력됨', 'synced' => 'ERP 전송됨'],
 
     // 추가 폼
     'add_form' => [
@@ -238,8 +240,18 @@ return [
         'currency' => '통화',
         'rate' => '환율',
         'transport_fee' => '운임비',
+        // 2026-10-29 Jin — 구매 탭과 같은 칸(총판매가·운임비 USD·환율 USD/EUR → 판매가·운임비 계산)
+        'sale_total' => '총판매가',
+        'transport_fee_usd' => '운임비 USD',
+        'rate_usd' => '환율 USD',
+        'rate_eur' => '환율 EUR',
+        'auto' => '(자동)',
+        'split_hint' => '판매가 = 총판매가 − 운임비(:currency 기준). 운임비 USD 는 환율 USD ÷ :currency 환율로 환산합니다. 총판매가는 고정, 환율 차이는 판매가가 흡수합니다.',
+        'split_hint_nocur' => '통화를 고르면 판매가·운임비가 그 통화 기준으로 계산됩니다.',
+        'usd_rate_required_for_freight' => '운임비 USD 를 환산하려면 환율 USD 가 필요합니다.',
+        'freight_over_total' => '운임비가 총판매가를 넘습니다 — 판매가가 음수가 됩니다.',
         'auto_sent' => '바뀐 금액(:fields)과 첨부 :count건을 ERP 로 전송 요청했습니다.',
-        'changed_field' => ['sale_price' => '판매가', 'offer_currency' => '통화', 'offer_rate' => '환율', 'transport_fee' => '운임비'],
+        'changed_field' => ['sale_price' => '판매가', 'offer_currency' => '통화', 'offer_rate' => '환율', 'transport_fee' => '운임비', 'transport_fee_usd' => '운임비 USD', 'offer_rate_usd' => '환율 USD', 'offer_rate_eur' => '환율 EUR'],
         'btn' => '금액만 ERP 로 보내기',
         'not_synced_yet' => '아직 ERP 로 전송되지 않은 차량입니다. 구매확정 후에 사용할 수 있습니다.',
         'currency_required' => '통화를 선택하세요 — 통화가 없으면 ERP 가 판매가를 넣지 않습니다.',
@@ -265,6 +277,59 @@ return [
             'buyer_not_sent' => '바이어를 함께 보내지 않음',
         ],
         'stock_purchase' => '재고매입(바이어 미정) 차량입니다 — 판매가와 바이어는 ERP 차량관리에서 지정하세요. 여기서 보내면 ERP 에 반영되지 않습니다.',
+    ],
+
+    // Invoice 탭 — 송금인(여권/ID) (2026-10-29 ②)
+    'invoice' => [
+        'hint' => '여권 또는 ID 카드의 이름과 문서 번호입니다. ERP 송금인 칸과 COMMERCIAL INVOICE 에 쓰입니다. 어느 상태에서든 수정할 수 있습니다.',
+        'name' => 'Name',
+        'name_hint' => '문서 표기 그대로 (SURNAME GIVEN NAMES)',
+        'name_ph' => 'SURNAME GIVEN NAMES',
+        'id' => 'ID (Passport / ID Card No.)',
+        'id_hint' => '여권번호 또는 ID 카드 번호 — 개인번호 아님',
+        'id_ph' => 'AB1234567',
+        'save' => '송금인 저장',
+        'saved' => '저장했습니다. 값이 바뀌어 ERP 에는 다시 보내야 합니다.',
+        'saved_unchanged' => '바뀐 내용이 없습니다.',
+        'saved_cleared_note' => '저장했습니다. 비운 칸은 ERP 로 전파되지 않습니다 — ERP 의 기존 값은 그대로 남습니다(지우기는 ERP 화면에서).',
+        'state_none' => '미입력',
+        'state_entered' => 'ERP 미전송',
+        'state_no_erp_vehicle' => 'ERP 차량 없음 — 구매확정 시 함께 전송됩니다',
+        'state_synced' => 'ERP 전송됨 · :at',
+        // OCR
+        'ocr_title' => '여권 / ID 카드에서 읽기',
+        'ocr_hint' => '사진 1장 — 읽은 뒤 바로 삭제됩니다',
+        'ocr_pick' => '📷 사진 선택 (카메라)',
+        'ocr_uploading' => '올리는 중…',
+        'ocr_run' => '읽기',
+        'ocr_running' => '읽는 중… (약 5~15초)',
+        'ocr_slow' => '아직 읽는 중 — 오래 걸리고 있습니다. 아래에 직접 입력해도 됩니다.',
+        'ocr_disabled' => 'OCR 이 설정돼 있지 않습니다 — 아래에 직접 입력하세요.',
+        'ocr_none' => '이름·번호를 읽지 못했습니다 — 더 밝고 똑바른 사진으로 다시 하거나 직접 입력하세요.',
+        'ocr_failed' => 'OCR 불가(서버 응답 없음) — 아래에 직접 입력하세요.',
+        'ocr_candidates' => '읽은 값 (맞는 것을 적용하세요)',
+        'ocr_discarded' => '이미지는 읽은 뒤 삭제되며 어디에도 보관하지 않습니다.',
+        'ocr_dismiss' => '후보 지우기',
+        'apply_name' => 'Name 에 적용',
+        'apply_id' => 'ID 에 적용',
+        'src_both' => 'MRZ·인쇄 일치',
+        'src_mrz' => 'MRZ',
+        'src_printed' => '인쇄 칸',
+        'warn_name_mismatch' => 'MRZ 와 인쇄 칸의 이름이 다릅니다 — 성·이름 순서를 확인하세요.',
+        'warn_id_mismatch' => 'MRZ 와 인쇄 칸의 번호가 다릅니다 — 보통 MRZ 쪽이 맞습니다.',
+        'warn_mrz_check_failed' => 'MRZ 검증 실패(흐림·누락) — 인쇄 칸 값만 후보입니다.',
+        // ERP 전송·다운로드
+        'send' => 'ERP 로 전송',
+        'send_needs_save' => '먼저 송금인을 저장하세요.',
+        'send_done' => 'ERP 송금인 칸에 저장했습니다.',
+        'send_overwritten' => 'ERP 의 기존 송금인 값을 덮어썼습니다.',
+        'send_same' => 'ERP 값과 같습니다 — 바뀐 것 없음.',
+        'send_failed' => 'ERP 전송 실패 — :reason',
+        'send_403' => 'ERP 가 이 차를 이 영업의 차로 보지 않습니다(담당·매핑 확인).',
+        'download' => '인보이스 다운로드',
+        'download_needs_name' => 'Name 을 저장해야 인보이스를 만들 수 있습니다.',
+        'no_template' => '이 인스턴스엔 인보이스 양식이 없습니다.',
+        'downloaded' => ':name 을 만들었습니다. 주소·전화·브랜드는 ERP 값이 있을 때만 채워집니다.',
     ],
 
     'attach_view' => [
@@ -293,6 +358,9 @@ return [
 
     'drawer' => [
         'title' => ':number · 매입예정 수정',
+        // 탭 4개(2026-10-29 ②)
+        'tab' => ['basic' => '기본', 'inspection' => '검차', 'attach' => '첨부', 'invoice' => 'Invoice'],
+        'inspection_past' => '검차 단계는 지났습니다 — 현재 상태 :status. 검차 사진·영상은 「첨부」와 전달 화면에서 봅니다.',
         'money_moved' => '금액·입금계좌·차량첨부는 이후 단계(견적·전달 / 구매확정)에서 입력합니다.',
         'summary_locked' => '식별값(차량번호·VIN)·출처는 수정 불가',
         'method_auction' => '경매',

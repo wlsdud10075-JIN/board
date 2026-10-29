@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Services\BizmAlimtalkService;
 use App\Services\BoardAudit;
 use App\Services\CarErpReadService;
+use App\Services\CommercialInvoiceBuilder;
 use App\Services\ExchangeRateService;
 use App\Services\ListingEnrichment;
 use App\Services\RegionInspectionNotifier;
@@ -40,6 +41,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use Livewire\Volt\Volt;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 use Tests\TestCase;
 
 class BoardTest extends TestCase
@@ -92,6 +94,163 @@ class BoardTest extends TestCase
      * ⇒ 연동 B 로 ERP 에 넘어가면(**synced**) board 어디서도 다시 볼 수 없었다.
      * 매입예정 드로어가 그 조회처다 — 본인 차를 **전 상태**로 열 수 있는 유일한 화면이라서.
      */
+    /**
+     * 2026-10-29 ② Invoice 탭 — 송금인 저장은 **전 상태**(synced·시간잠금 포함)에서 되고 `update()` 락과 무관하다.
+     * 정규화 = 이름 대문자·공백 1 / ID 대문자 영숫자. ID 는 at-rest 암호화 + 감사 ***. 값이 바뀌면 remitter_synced_at 이 비워진다.
+     */
+    public function test_listings_invoice_tab_saves_remitter_in_any_status_and_resets_sync(): void
+    {
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 188, 'remitter_name' => 'OLD NAME', 'remitter_synced_at' => now()]);
+        $this->actingAs($kim);
+
+        $t = Volt::test('listings.index')->call('openEdit', $l->id)
+            ->assertSet('drawerTab', 'basic')->assertSee(__('listings.drawer.tab.invoice'))
+            ->assertSee('ERP 전송됨')
+            ->call('$set', 'drawerTab', 'invoice')->assertSet('drawerTab', 'invoice')
+            ->set('e_remitter_name', '  eriksson   anna maria ')->set('e_remitter_id', 'l898-902 c3')
+            ->call('saveRemitter')->assertHasNoErrors()
+            ->assertSet('e_remitter_name', 'ERIKSSON ANNA MARIA')->assertSet('e_remitter_id', 'L898902C3');
+
+        $l->refresh();
+        $this->assertSame('ERIKSSON ANNA MARIA', $l->remitter_name);
+        $this->assertSame('L898902C3', $l->remitter_id);
+        $this->assertNull($l->remitter_synced_at);   // 값이 바뀌었으니 「미전송」으로
+        $this->assertSame('entered', $l->invoiceState());
+        $this->assertNotSame('L898902C3', \DB::table('purchase_listings')->where('id', $l->id)->value('remitter_id'));
+        $this->assertSame('***', BoardAuditLog::where('field', 'remitter_id')->latest('id')->value('new_value'));
+        $this->assertSame('ERIKSSON ANNA MARIA', BoardAuditLog::where('field', 'remitter_name')->latest('id')->value('new_value'));
+
+        // 기본 「저장」(update) 도 Invoice 탭 입력을 같은 경로로 저장한다 — 별도 버튼만 저장하면 사용자가 입력을 잃는다(advisor 2026-10-29)
+        $t->set('e_remitter_id', 'zz 9')->call('update')->assertHasNoErrors();
+        $this->assertSame('ZZ9', $l->fresh()->remitter_id);
+        $t->call('openEdit', $l->id)->set('e_remitter_id', 'L898902C3')->call('saveRemitter');   // update() 는 드로어를 닫는다
+
+        // 같은 값 재저장 = 변경 없음(전송 시각도 안 건드림), 비우면 ERP 값은 남는다는 안내
+        $t->call('saveRemitter')->assertSee('바뀐 내용이 없습니다');
+        $l->forceFill(['remitter_synced_at' => now()])->saveQuietly();
+        $t->call('openEdit', $l->id)->set('e_remitter_id', '')->call('saveRemitter')->assertSee('ERP 로 전파되지 않습니다');
+        $this->assertNull($l->fresh()->remitter_id);
+    }
+
+    /** [ERP 로 전송] = 전용 엔드포인트(덮어쓰기). 성공이면 remitter_synced_at, 403 은 사람 말. ERP 차량 없으면 안 보낸다. */
+    public function test_listings_send_remitter_uses_dedicated_endpoint_and_marks_synced(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake(['*/api/internal/board/vehicles/188/remitter*' => Http::response(['vehicle_id' => 188, 'updated' => ['remitter_name', 'remitter_id'], 'had_previous' => true], 200)]);
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 188, 'remitter_name' => 'JOHN DOE', 'remitter_id' => 'AB1234567']);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')->call('openEdit', $l->id)->call('sendRemitter')->assertSee('덮어썼습니다');
+        $this->assertNotNull($l->fresh()->remitter_synced_at);
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/vehicles/188/remitter') && $r['remitter_name'] === 'JOHN DOE' && $r['remitter_id'] === 'AB1234567' && $r['salesman_email'] === $kim->email);
+
+        // 403 = 담당 불일치 — 전송 시각을 찍지 않는다
+        Http::fake(['*/vehicles/189/remitter*' => Http::response(['message' => 'forbidden'], 403)]);
+        $l2 = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 189, 'remitter_name' => 'JANE ROE']);
+        Volt::test('listings.index')->call('openEdit', $l2->id)->call('sendRemitter')->assertSee('이 영업의 차로 보지 않습니다');
+        $this->assertNull($l2->fresh()->remitter_synced_at);
+
+        // ERP 차량 없음 — 호출 0
+        $l3 = $this->mkListing($kim, ['status' => 'accepted', 'remitter_name' => 'NO ERP']);
+        Volt::test('listings.index')->call('openEdit', $l3->id)->call('sendRemitter')->assertSee('구매확정 시 함께');
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), '/remitter') && ! str_contains($r->url(), '/188/') && ! str_contains($r->url(), '/189/'));
+    }
+
+    /** purchase-sync 동봉 — 이름이 있을 때만 remitter_name·remitter_id, 로그는 ID ***, 2xx 면 remitter_synced_at. 이름 없으면 둘 다 null. */
+    public function test_sync_payload_carries_remitter_when_named_and_masks_id(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh']);
+        Http::fake(['*/api/internal/purchase-sync' => Http::response(['vehicle_id' => 780], 200)]);
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'won', 'final_price' => 9000000, 'remitter_name' => 'JOHN DOE', 'remitter_id' => 'AB1234567']);
+
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        Http::assertSent(fn ($r) => $r['remitter_name'] === 'JOHN DOE' && $r['remitter_id'] === 'AB1234567');
+        $this->assertSame('***', IntegrationEvent::first()->request_payload['remitter_id']);
+        $this->assertNotNull($l->fresh()->remitter_synced_at);
+
+        $l2 = $this->mkListing($this->mkUser('sales'), ['status' => 'won', 'final_price' => 9000000, 'remitter_id' => 'ORPHAN']);
+        (new SyncWonListingToCarErp($l2->id))->handle();
+        Http::assertSent(fn ($r) => $r['remitter_id'] === null && $r['remitter_name'] === null || $r['remitter_name'] === 'JOHN DOE');
+        $this->assertNull($l2->fresh()->remitter_synced_at);
+    }
+
+    /** 인보이스 다운로드 — 양식에 값만 채운 xlsx. 주소·전화는 ERP /buyers/{id}, 브랜드는 /vehicles/{id}(404 면 빈 칸). 감사 download 1행. */
+    public function test_listings_invoice_download_fills_template_from_listing_and_erp(): void
+    {
+        $this->carErpReadConfig();
+        config(['board.invoice_template' => 'invoice-heyman.xlsx']);
+        Http::fake([
+            '*/api/internal/board/buyers/7*' => Http::response(['id' => 7, 'name' => 'ATLAS', 'country' => 'Albania', 'address' => 'Rr. Durresi 12, Tirana', 'phone' => '+355 69 123 4567'], 200),
+            // Brand/Model = 기존 /sales 행(portalMeta) — 새 엔드포인트 없음(Jin 2026-10-29). 188 은 없고 189 만 있는 응답 → 188 은 빈 칸.
+            '*/api/internal/board/sales*' => Http::response(['count' => 1, 'data' => [
+                ['vehicle_id' => 189, 'vehicle_number' => '99라9999', 'brand' => 'HYUNDAI', 'model_type' => 'SONATA'],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, [
+            'status' => 'synced', 'car_erp_vehicle_id' => 188, 'vehicle_number' => '12가3456', 'vin' => 'KMHXX00XXAB123456',
+            'remitter_name' => 'ERIKSSON ANNA MARIA', 'remitter_id' => 'L898902C3',
+            'sale_price' => 8700, 'transport_fee' => 1250, 'offer_currency' => 'EUR', 'offer_rate' => 1500, 'offer_rate_usd' => 1400,
+        ]);
+        $this->actingAs($kim);
+
+        $t = Volt::test('listings.index')->call('openEdit', $l->id)->call('downloadInvoice')->assertFileDownloaded();
+        $this->assertSame('commercial_invoice', BoardAuditLog::where('action', 'download')->latest('id')->value('field'));
+
+        // 빌더 단독 — 셀 매핑 고정
+        $bytes = (new CommercialInvoiceBuilder)->build($l->fresh(), ['address' => 'Rr. Durresi 12, Tirana', 'phone' => '+355 69 123 4567']);
+        $tmp = tempnam(sys_get_temp_dir(), 'inv').'.xlsx';
+        file_put_contents($tmp, $bytes);
+        $ws = IOFactory::load($tmp)->getActiveSheet();
+        @unlink($tmp);
+        $this->assertSame('ERIKSSON ANNA MARIA', $ws->getCell('E5')->getValue());
+        $this->assertSame('L898902C3', $ws->getCell('E6')->getValue());
+        $this->assertSame('Rr. Durresi 12, Tirana', $ws->getCell('E7')->getValue());
+        $this->assertSame('+355 69 123 4567', $ws->getCell('E8')->getValue());
+        $this->assertEquals(1500, $ws->getCell('E9')->getValue());    // EUR 견적 → Euro Rate = offer_rate
+        $this->assertEquals(1400, $ws->getCell('E10')->getValue());
+        $this->assertSame('12가3456', $ws->getCell('A18')->getValue());
+        $this->assertNull($ws->getCell('B18')->getValue());           // 브랜드 — /sales 에 그 차가 없으면 빈 칸(「-」 아님)
+
+        // /sales 에 있는 차 = brand·model_type 가 B18/C18 로
+        $svc = app(CarErpReadService::class);
+        $meta = $svc->vehicleMeta($kim->email, 189);
+        $this->assertTrue($meta['ok']);
+        $this->assertSame('HYUNDAI', data_get($meta['data'], 'brand'));
+        $this->assertSame(404, $svc->vehicleMeta($kim->email, 188)['status']);
+        $this->assertSame('KMHXX00XXAB123456', $ws->getCell('D18')->getValue());
+        $this->assertEquals(8700, $ws->getCell('E18')->getValue());
+        $this->assertEquals(1250, $ws->getCell('F18')->getValue());
+        $this->assertSame('=SUM(E18:F25)-E26', $ws->getCell('E27')->getValue());   // HEYMAN 원본 +E26 → −E26 통일
+        $this->assertSame('="MU"& RIGHT(D18, 6)', $ws->getCell('E4')->getValue());
+        $this->assertNull($ws->getCell('G1')->getValue());
+        $this->assertSame('SHINHAN BANK', $ws->getCell('E13')->getValue());   // 회사 블록 리터럴 유지
+    }
+
+    /** 목록 「Invoice」 칸·/manage 2칸 — 미입력/입력됨/ERP 전송됨 판정은 invoiceState() 하나. */
+    public function test_listings_invoice_column_and_manage_fields(): void
+    {
+        $kim = $this->mkUser('sales');
+        $this->mkListing($kim, ['vehicle_number' => '11가1111']);
+        $this->mkListing($kim, ['vehicle_number' => '22나2222', 'remitter_name' => 'JOHN DOE']);
+        $this->mkListing($kim, ['vehicle_number' => '33다3333', 'remitter_name' => 'JANE ROE', 'remitter_synced_at' => now()]);
+        $this->actingAs($kim);
+        Volt::test('listings.index')->assertSee('미입력')->assertSee('입력됨')->assertSee('ERP 전송됨')->assertSee('매입예정(Invoice)');
+
+        $admin = $this->mkUser('manager');
+        $l = $this->mkListing($kim, ['remitter_name' => 'JOHN DOE', 'remitter_synced_at' => now()]);
+        $this->actingAs($admin);
+        Volt::test('manage.index')->call('openEdit', $l->id)->assertSet('remitter_name', 'JOHN DOE')
+            ->set('remitter_id', 'ab 12')->call('save')->assertHasNoErrors();
+        $l->refresh();
+        $this->assertSame('AB12', $l->remitter_id);
+        $this->assertNull($l->remitter_synced_at);
+    }
+
     public function test_listings_drawer_shows_dealer_attachments_even_after_synced(): void
     {
         $kim = $this->mkUser('sales');
@@ -124,16 +283,16 @@ class BoardTest extends TestCase
         $c = Volt::test('listings.index')->call('openEdit', $l->id);
 
         // 통화 없이 판매가만 → 막는다(ERP 가 조용히 보류하는 대신 여기서 사유를 말한다).
-        $c->set('e_sale_price', '8590')->set('e_sale_currency', '')->call('resendToErp')
+        $c->set('e_sale_total', '8590')->set('e_sale_currency', '')->call('resendToErp')
             ->assertHasErrors('e_sale_currency');
         Bus::assertNotDispatched(SyncWonListingToCarErp::class);
 
         // 외화인데 환율이 없으면 그것도 막는다.
-        $c->set('e_sale_currency', 'USD')->set('e_sale_rate', '')->call('resendToErp')
-            ->assertHasErrors('e_sale_rate');
+        $c->set('e_sale_currency', 'USD')->set('e_rate_usd', '')->call('resendToErp')
+            ->assertHasErrors('e_rate_usd');
 
         // 세트가 갖춰지면 저장 + resync 발사.
-        $c->set('e_sale_rate', '1380')->call('resendToErp')->assertHasNoErrors();
+        $c->set('e_rate_usd', '1380')->call('resendToErp')->assertHasNoErrors();   // 운임비 USD 없음 → 판매가 = 총판매가
 
         $l->refresh();
         $this->assertSame('8590.00', (string) $l->sale_price);
@@ -3438,6 +3597,29 @@ class BoardTest extends TestCase
         $this->assertNotSame('999-888-77766', $raw);
     }
 
+    /**
+     * 2026-10-29 ④ 매입처(딜러) — 법인명·대표자는 그대로, 휴대폰은 **숫자만**(ERP ≤20) 보낸다. 로그엔 ***.
+     * 재고매입(buyer_undecided)이어도 비우지 않는다 — 판매측이 아니라 매입측이고 ERP 는 빈 칸만 채운다.
+     */
+    public function test_sync_payload_sends_seller_fields_phone_digits_only_and_masked_in_log(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh']);
+        Http::fake(['*/api/internal/purchase-sync' => Http::response(['vehicle_id' => 779], 200)]);
+
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'won', 'source' => 'auction', 'final_price' => 9000000, 'buyer_undecided' => true,
+            'seller_company' => '(주)성진모터스', 'seller_ceo' => '김대표', 'seller_phone' => '010-2000-1111',
+        ]);
+
+        (new SyncWonListingToCarErp($l->id))->handle();
+
+        Http::assertSent(fn ($r) => $r['seller_company'] === '(주)성진모터스'
+            && $r['seller_ceo'] === '김대표'
+            && $r['seller_phone'] === '01020001111');
+        $this->assertSame('***', IntegrationEvent::first()->request_payload['seller_phone']);
+        $this->assertNotSame('010-2000-1111', \DB::table('purchase_listings')->where('id', $l->id)->value('seller_phone'));
+    }
+
     public function test_offer_display_uses_confirmed_currency_and_snapshot_rate(): void
     {
         // EUR 확정 딜 — 표시는 € 금액, 환율은 offer_rate(전달 시점 스냅샷) 고정: 라이브 환율 줘도 불변
@@ -4324,12 +4506,13 @@ class BoardTest extends TestCase
         $this->actingAs($sales);
 
         Volt::test('listings.index')->call('openEdit', $l->id)
-            ->assertSee(__('listings.resync.transport_fee'))
-            ->set('e_transport_fee', '1,800')
+            ->assertSee(__('listings.resync.transport_fee_usd'))
+            ->set('e_sale_total', '7500')->set('e_rate_usd', '1487')->set('e_transport_fee_usd', '1,800')   // 총판매가 고정 — 운임비 USD 1,800 × 1487 ÷ 1487(EUR) = 1,800 EUR, 판매가 5,700
             ->call('resendToErp')->assertHasNoErrors();
 
         $this->assertSame(1800.0, (float) $l->fresh()->transport_fee);
-        Http::assertSent(fn ($req) => ($b = json_decode($req->body(), true)) && (float) $b['transport_fee'] === 1800.0 && (float) $b['sale_price'] === 5700.0);
+        $this->assertSame(1800, (int) $l->fresh()->transport_fee_usd);
+        Http::assertSent(fn ($req) => ($b = json_decode($req->body(), true)) && (float) $b['transport_fee'] === 1800.0 && (float) $b['sale_price'] === 5700.0 && (int) $b['transport_fee_usd'] === 1800 && (int) $b['usd_exchange_rate'] === 1487);
     }
 
     /** 「저장」 — 금액 칸이 하나라도 바뀌면 금액+첨부 재전송, 금액은 그대로인데 사진만 새로 있으면 첨부 전용, 둘 다 없으면 안 보낸다(2026-10-16 Jin). */
@@ -4347,12 +4530,12 @@ class BoardTest extends TestCase
         Bus::assertNotDispatched(SyncWonListingToCarErp::class);
 
         // 판매가만 적고 통화 없이 저장 → 세트 검증 에러(버튼과 같은 규칙), 전송 없음
-        Volt::test('listings.index')->call('openEdit', $l->id)->set('e_sale_price', '5700')->call('update')->assertHasErrors('e_sale_currency');
+        Volt::test('listings.index')->call('openEdit', $l->id)->set('e_sale_total', '5700')->call('update')->assertHasErrors('e_sale_currency');
         Bus::assertNotDispatched(SyncWonListingToCarErp::class);
 
         // 판매가·통화·환율 + 운임비 + 사진 1장 → 금액+첨부 재전송(attachmentsOnly 아님)
         Volt::test('listings.index')->call('openEdit', $l->id)
-            ->set('e_sale_price', '5700')->set('e_sale_currency', 'EUR')->set('e_sale_rate', '1487')->set('e_transport_fee', '1800')
+            ->set('e_sale_total', '7500')->set('e_sale_currency', 'EUR')->set('e_rate_eur', '1487')->set('e_rate_usd', '1487')->set('e_transport_fee_usd', '1800')
             ->set('eSalesFiles', [UploadedFile::fake()->image('p1.jpg')])
             ->call('update')->assertHasNoErrors();
         $l->refresh();
@@ -6234,6 +6417,66 @@ class BoardTest extends TestCase
             ->call('setTab', 'settlements')->assertSee('7,000,000')->assertSee('지급 완료');
     }
 
+    /**
+     * 적립금 탭(2026-10-29 ③) — by-buyer 의 `savings_balances[]` 를 바이어별로 그리고, 「이력」을 누르면 `/buyers/{id}/savings?limit=20` 1회.
+     * 잔액 0(빈 배열) 바이어도 행을 그린다. `balance_krw: null` 은 괄호를 생략한다. 이력의 type 은 lang 라벨, 모르는 값은 원문. note 는 안 온다.
+     */
+    public function test_portal_savings_tab_lists_balances_and_loads_history_on_demand(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/by-buyer*' => Http::response(['data' => [
+                ['buyer_id' => 7, 'buyer' => 'BuyerSav', 'vehicle_count' => 2, 'savings_balances' => [
+                    ['currency' => 'USD', 'balance' => 70, 'balance_krw' => 91000],
+                    ['currency' => 'JPY', 'balance' => 5000, 'balance_krw' => null],
+                ]],
+                ['buyer_id' => 8, 'buyer' => 'BuyerZero', 'vehicle_count' => 1, 'savings_balances' => []],
+            ]], 200),
+            '*/api/internal/board/buyers/7/savings*' => Http::response([
+                'buyer_id' => 7, 'balances' => [['currency' => 'USD', 'balance' => 70, 'balance_krw' => 91000]],
+                'history' => [
+                    ['id' => 31, 'type' => 'ADJUSTMENT', 'amount' => 5, 'currency' => 'USD', 'date' => '2026-10-29', 'vehicle_number' => null],
+                    ['id' => 30, 'type' => 'USED', 'amount' => -30, 'currency' => 'USD', 'date' => '2026-10-28', 'vehicle_number' => '33다3333'],
+                    ['id' => 29, 'type' => 'BONUS_X', 'amount' => 95, 'currency' => 'USD', 'date' => '2026-10-27', 'vehicle_number' => null],
+                ],
+            ], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $t = Volt::test('portal.index')->call('setTab', 'savings')
+            ->assertSee('BuyerSav')->assertSee('USD 70.00')->assertSee('91,000')
+            ->assertSee('JPY 5,000.00')
+            ->assertSee('BuyerZero')->assertSee('적립금 없음')   // 잔액 0 도 행을 그린다
+            ->assertDontSee('33다3333');                       // 이력은 아직 안 불렀다
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), '/buyers/7/savings'));
+
+        $t->call('toggleSavings', 7)
+            ->assertSee('33다3333')->assertSee('조정')->assertSee('사용')->assertSee('-30.00')->assertSee('+5.00')
+            ->assertSee('BONUS_X');   // 모르는 종류는 원문
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/api/internal/board/buyers/7/savings') && $r['limit'] == 20);
+
+        $t->call('toggleSavings', 7)->assertDontSee('33다3333');   // 접기
+    }
+
+    /** 적립금 이력 404(본인 바이어 아님·없는 id) 와 ERP 미배포(`savings_balances` 키 없음)는 숫자를 지어내지 않고 그렇다고 말한다. */
+    public function test_portal_savings_shows_unavailable_on_404_and_not_provided_without_key(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/by-buyer*' => Http::response(['data' => [
+                ['buyer_id' => 9, 'buyer' => 'BuyerOld', 'vehicle_count' => 1],   // 옛 ERP 응답 — 키 없음
+            ]], 200),
+            '*/api/internal/board/buyers/9/savings*' => Http::response(['message' => 'Not found'], 404),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('portal.index')->call('setTab', 'savings')
+            ->assertSee('BuyerOld')->assertSee('ERP 가 아직 적립금을 주지 않습니다')
+            ->call('toggleSavings', 9)->assertSee('조회 불가')->assertSee('본인 바이어가 아니거나');
+    }
+
     /** v2 「내 선적묶음」 모니터 — /bundles 값 그대로 표시(상태·미수·환율미입력 경고). */
     public function test_portal_shipping_v2_bundles_monitor(): void
     {
@@ -6244,6 +6487,7 @@ class BoardTest extends TestCase
                 'shipping_method' => 'RORO', 'buyer' => ['id' => 5, 'name' => 'BuyerZ'],
                 'vehicles' => [['vehicle_id' => 1, 'vehicle_number' => 'CAR001']],
                 'unpaid_total_krw' => 3000000, 'fx_missing_count' => 1, 'fully_paid' => false, 'unpaid_ratio' => 0.4,
+                'unpaid_by_currency' => ['USD' => 5000, 'EUR' => 3000.5],   // 2026-10-29 판매 통화 그대로(ERP ffed97aa)
             ]]], 200),
             '*/api/internal/board/shippable*' => Http::response(['count' => 0, 'data' => []], 200),
             '*' => Http::response(['count' => 0, 'data' => []], 200),
@@ -6253,7 +6497,24 @@ class BoardTest extends TestCase
         Volt::test('portal.index')->call('setTab', 'shipping')
             ->assertSee('BuyerZ')->assertSee('CAR001')
             ->assertSee('요청됨')              // 선적단계 뱃지
-            ->assertSee('환율 미입력');        // fx_missing 경고(완납판정 불가)
+            ->assertSee('환율 미입력')         // fx_missing 경고(완납판정 불가)
+            ->assertSee('USD 5,000.00')->assertSee('EUR 3,000.50')->assertSee('(40%)')   // 판매 통화 그대로(Jin 2026-10-29), 원화는 툴팁
+            ->assertSee('3,000,000');
+    }
+
+    /** 옛 ERP 응답(`unpaid_by_currency` 없음)은 종전 원화 표시로 폴백 — 배포 순서 무관. */
+    public function test_portal_bundle_unpaid_falls_back_to_krw_without_currency_map(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/bundles*' => Http::response(['count' => 1, 'data' => [[
+                'batch_id' => 'B9', 'ship_status' => 'requested', 'shipping_method' => 'RORO', 'buyer' => ['id' => 5, 'name' => 'BuyerOld'],
+                'vehicles' => [['vehicle_id' => 1, 'vehicle_number' => 'CAR009']], 'unpaid_total_krw' => 1200000, 'fully_paid' => false, 'unpaid_ratio' => 0.2,
+            ]]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+        Volt::test('portal.index')->call('setTab', 'shipping')->assertSee('BuyerOld')->assertSee('120만');
     }
 
     /** 선적묶음 상태별 접기/펼치기 그룹 — 상태 헤더별로 묶여 표시(요청됨/완료 등), 카드는 각 그룹 하위. */
@@ -7830,8 +8091,8 @@ class BoardTest extends TestCase
 
         Volt::test('listings.index')->call('openEdit', $l->id)
             ->assertSee(__('listings.resync.stock_purchase'))
-            ->set('e_sale_price', '8590')->set('e_sale_currency', 'USD')->set('e_sale_rate', '1380')
-            ->call('resendToErp')->assertHasErrors('e_sale_price');
+            ->set('e_sale_total', '8590')->set('e_sale_currency', 'USD')->set('e_rate_usd', '1380')
+            ->call('resendToErp')->assertHasErrors('e_sale_total');
 
         $this->assertNull($l->fresh()->sale_price);            // 컬럼도 안 건드린다
         Bus::assertNotDispatched(SyncWonListingToCarErp::class);

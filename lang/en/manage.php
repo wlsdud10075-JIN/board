@@ -82,6 +82,10 @@ return [
     'payee_bank' => 'Bank',
     'payee_name' => 'Account holder',
     'payee_account' => 'Account no. (encrypted)',
+    'remitter_info' => 'Remitter (passport / ID)',
+    'remitter_info_sub' => 'Invoice name & document no. — changes need resending to ERP',
+    'remitter_name' => 'Name (SURNAME GIVEN)',
+    'remitter_id' => 'Passport / ID no. (encrypted)',
 
     // Actions
     'save' => 'Save (logged to audit)',

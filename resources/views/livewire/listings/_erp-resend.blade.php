@@ -18,14 +18,16 @@
     <div class="section-title-sm mt-4">{{ __('listings.resync.title') }}
         <span class="text-[11px] font-normal text-gray-400">{{ __('listings.resync.hint') }}</span>
     </div>
-    <div class="mt-1 grid grid-cols-4 gap-2">
+    {{-- 2026-10-29 Jin — /auction 구매 탭과 같은 칸·같은 공식. 사람이 적는 것 = 총판매가·통화·운임비 USD·환율 USD/EUR, 판매가·운임비(견적통화)는 계산(resendSplit). --}}
+    @php $sp = $this->resendSplit(); @endphp
+    <div class="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-5">
         <div>
-            <label class="label-base">{{ __('listings.resync.sale_price') }}</label>
-            <input type="text" inputmode="decimal" wire:model="e_sale_price" class="input-base text-right text-[12px]">
+            <label class="label-base">{{ __('listings.resync.sale_total') }}</label>
+            <input type="text" inputmode="decimal" wire:model.live.debounce.400ms="e_sale_total" class="input-base text-right text-[12px]">
         </div>
         <div>
             <label class="label-base">{{ __('listings.resync.currency') }}</label>
-            <select wire:model="e_sale_currency" class="input-base text-[12px]">
+            <select wire:model.live="e_sale_currency" class="input-base text-[12px]">
                 <option value="">—</option>
                 @foreach (['KRW', 'USD', 'EUR'] as $cur)
                     <option value="{{ $cur }}">{{ $cur }}</option>
@@ -33,18 +35,34 @@
             </select>
         </div>
         <div>
-            <label class="label-base">{{ __('listings.resync.rate') }}</label>
-            <input type="text" inputmode="numeric" wire:model="e_sale_rate" class="input-base text-right text-[12px]">
+            <label class="label-base">{{ __('listings.resync.transport_fee_usd') }}</label>
+            <input type="text" inputmode="numeric" wire:model.live.debounce.400ms="e_transport_fee_usd" class="input-base text-right text-[12px]">
         </div>
         <div>
-            {{-- 운임비(판매통화 기준) — ERP fill-if-empty(`PurchaseSyncController::fillEmptyFields` transport_fee). 단독 전송 가능. --}}
-            <label class="label-base">{{ __('listings.resync.transport_fee') }}</label>
-            <input type="text" inputmode="decimal" wire:model="e_transport_fee" class="input-base text-right text-[12px]">
+            <label class="label-base">{{ __('listings.resync.rate_usd') }}</label>
+            <input type="text" inputmode="numeric" wire:model.live.debounce.400ms="e_rate_usd" class="input-base text-right text-[12px]">
+        </div>
+        <div>
+            <label class="label-base">{{ __('listings.resync.rate_eur') }}</label>
+            <input type="text" inputmode="numeric" wire:model.live.debounce.400ms="e_rate_eur" class="input-base text-right text-[12px]">
         </div>
     </div>
-    @error('e_sale_price') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+    <div class="mt-1.5 grid grid-cols-2 gap-2">
+        <div>
+            <label class="label-base">{{ __('listings.resync.transport_fee') }} <span class="text-gray-400">{{ __('listings.resync.auto') }}</span></label>
+            <div class="input-base bg-gray-100 text-right text-[12px] text-gray-700">{{ $sp['freight'] !== null ? number_format($sp['freight'], 2) : '—' }}</div>
+        </div>
+        <div>
+            <label class="label-base">{{ __('listings.resync.sale_price') }} <span class="text-gray-400">{{ __('listings.resync.auto') }}</span></label>
+            <div class="input-base bg-gray-100 text-right text-[12px] font-semibold text-gray-800">{{ $sp['sale'] !== null ? number_format($sp['sale'], 2) : '—' }}</div>
+        </div>
+    </div>
+    <p class="mt-1 text-[11px] text-gray-500">{{ $sp['currency'] ? __('listings.resync.split_hint', ['currency' => $sp['currency']]) : __('listings.resync.split_hint_nocur') }}</p>
+    @error('e_sale_total') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+    @error('e_transport_fee_usd') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+    @error('e_rate_usd') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+    @error('e_rate_eur') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
     @error('e_sale_currency') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-    @error('e_sale_rate') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
     <button type="button" wire:click="resendToErp" wire:loading.attr="disabled" wire:target="resendToErp"
         class="btn-outline btn-sm mt-2">↻ {{ __('listings.resync.btn') }}</button>

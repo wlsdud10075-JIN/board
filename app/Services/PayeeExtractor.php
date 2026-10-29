@@ -28,11 +28,14 @@ class PayeeExtractor
      *    (종전 「사업자등록증 상호」까지 물어 운영 값에 딜러 상호가 섞였다) — 소유자 칸 후보로 쓴다.
      */
     public const PROMPT = <<<'TXT'
-이 이미지에서 계좌번호와 자동차등록증 소유자를 찾아 JSON만 출력하라. 설명 금지.
+이 이미지에서 계좌번호, 자동차등록증 소유자, 사업자등록증의 상호·대표자, 명함의 휴대폰 번호를 찾아 JSON만 출력하라. 설명 금지.
 형식:
 {"doc_type":"",
  "accounts":[{"bank":"","number":"","holder":"","label":""}],
- "registration_owner":""}
+ "registration_owner":"",
+ "business_name":"",
+ "ceo_name":"",
+ "mobile_phones":[""]}
 
 규칙:
 - accounts = 이미지에 보이는 **계좌번호를 하나도 빠뜨리지 말고 전부** 담아라. 한 칸에 번호가 두 줄이면 두 개로 나눠 담아라.
@@ -43,6 +46,8 @@ class PayeeExtractor
 - 명함·문의처의 연락처, 1566-/1588- 고객센터 번호, 금액(원), 차대번호, 문서번호는 계좌가 아니다.
 - 계좌가 하나도 없으면 accounts 는 [].
 - registration_owner = 자동차등록증의 「소유자 ⑨ 성명(명칭)」 칸에 적힌 이름. 자동차등록증이 아니면 "".
+- business_name = 사업자등록증의 「상호(법인명)」 칸에 적힌 이름 그대로. ceo_name = 「대표자」(또는 「성명」) 칸의 이름 그대로. 사업자등록증이 아니면 둘 다 "".
+- mobile_phones = 명함·안내문에 보이는 휴대폰 번호(010 으로 시작)를 **하나도 빠뜨리지 말고 전부** 담아라. 숫자와 하이픈만. 없으면 [].
 - doc_type = 이 이미지의 종류 하나(자동차등록증, 통장, 사업자등록증, 명함, 차량사진, 기타).
 TXT;
 
@@ -122,17 +127,35 @@ TXT;
     /**
      * 모델 응답(JSON 문자열) 1장분을 후보/거절로 가른다.
      *
-     * @return array{candidates: list<array>, rejected: list<array>, registration_owner: string, doc_type: string}
+     * @return array{candidates: list<array>, rejected: list<array>, registration_owner: string, doc_type: string, seller: ?array, phones: list<string>}
      */
     public function parseOne(string $raw, int $photoId): array
     {
         $data = $this->decode($raw);
-        $out = ['candidates' => [], 'rejected' => [], 'registration_owner' => '', 'doc_type' => ''];
+        $out = ['candidates' => [], 'rejected' => [], 'registration_owner' => '', 'doc_type' => '', 'seller' => null, 'phones' => [], 'photo_id' => $photoId];
         if ($data === null) {
             return $out;
         }
         $out['registration_owner'] = $this->cleanOwner((string) ($data['registration_owner'] ?? ''));
         $out['doc_type'] = trim((string) ($data['doc_type'] ?? ''));
+        // 매입처(법인명·대표자) = **사업자등록증으로 판정된 사진만**(doc_type 비면 분류 실패로 보고 허용). 명함·등록증·통장에서 나온
+        //    상호는 버린다 — 2026-10-22 소유자 칸에 딜러 상호가 섞인 사고의 반대 방향. 휴대폰 = 자동차등록증·통장 **밖**에서만
+        //    (통장 사진의 번호는 평생계좌일 수 있어 accounts 쪽이 맡는다). 판정은 코드가(프롬프트 아님).
+        if ($this->isBusinessRegistration($out['doc_type'])) {
+            $company = $this->cleanCompany((string) ($data['business_name'] ?? ''));
+            $ceo = $this->cleanOwner((string) ($data['ceo_name'] ?? ''));
+            if ($company !== '' || $ceo !== '') {
+                $out['seller'] = ['company' => $company, 'ceo' => $ceo, 'source_photo_ids' => [$photoId]];
+            }
+        }
+        if (! $this->isRegistration($out['doc_type']) && ! str_contains($out['doc_type'], '통장')) {
+            foreach ((array) ($data['mobile_phones'] ?? []) as $p) {
+                $m = $this->mobileDigits((string) $p);
+                if ($m !== null && ! in_array($m, $out['phones'], true)) {
+                    $out['phones'][] = $m;
+                }
+            }
+        }
 
         // 새 형식 = accounts[](전부). 옛 형식(car_account/fee_account + found)도 읽는다 — 배포 직후 큐에 남은 응답·표본 대조용.
         if (is_array($data['accounts'] ?? null)) {
@@ -241,13 +264,82 @@ TXT;
             }
         }
 
+        // 매입처 후보 — 같은 법인명·대표자는 하나로(근거 사진만 누적). 연락처 후보 — 번호(숫자) 기준 중복 제거. 사람이 고른다(Q4-5).
+        $sellers = [];
+        $phones = [];
+        foreach ($perPhoto as $r) {
+            if (($r['seller'] ?? null) !== null) {
+                $key = $this->companyKey($r['seller']['company']).'|'.$this->companyKey($r['seller']['ceo']);
+                if (isset($sellers[$key])) {
+                    $sellers[$key]['source_photo_ids'] = array_values(array_unique(array_merge($sellers[$key]['source_photo_ids'], $r['seller']['source_photo_ids'])));
+                } else {
+                    $sellers[$key] = $r['seller'];
+                }
+            }
+            foreach ($r['phones'] ?? [] as $d) {
+                $phones[$d] ??= ['number' => $this->formatMobile($d), 'source_photo_ids' => []];
+            }
+        }
+        // 연락처 근거 사진 — parseOne 은 사진 id 를 phones 에 안 싣는다(문자열 목록) → 여기서 다시 매긴다.
+        foreach ($perPhoto as $r) {
+            foreach ($r['phones'] ?? [] as $d) {
+                $pid = $r['photo_id'] ?? null;
+                if ($pid !== null && ! in_array($pid, $phones[$d]['source_photo_ids'], true)) {
+                    $phones[$d]['source_photo_ids'][] = $pid;
+                }
+            }
+        }
+
         return [
             'extracted_at' => now()->toIso8601String(),
             'registration_owner' => $owner,
             'registration_owners' => $owners,
             'candidates' => array_values($candidates),
             'rejected' => $rejected,
+            'seller_companies' => array_values($sellers),
+            'seller_phones' => array_values($phones),
         ];
+    }
+
+    /** 모델이 낸 doc_type 이 사업자등록증인가(빈 값 = 분류 실패 → 허용, 사람이 본다). */
+    public function isBusinessRegistration(string $docType): bool
+    {
+        $t = str_replace(' ', '', $docType);
+
+        return $t === '' || str_contains($t, '사업자등록증');
+    }
+
+    /** 법인명(상호) 정리 — 따옴표·공백만 걷고, 2자 미만·관청/칸 이름은 버린다. 숫자는 허용(상호에 들어간다). */
+    private function cleanCompany(string $s): string
+    {
+        $s = trim((string) preg_replace('/^[\s"\x27`“”‘’]+|[\s"\x27`“”‘’]+$/u', '', $s));
+        if (mb_strlen($s) < 2 || preg_match('/(등록사업소|세무서|상호\(법인명\)|^상호$|^법인명$|^성명$|^대표자$)/u', $s)) {
+            return '';
+        }
+
+        return $s;
+    }
+
+    /** 비교용 — 주식회사·(주)·공백을 걷어낸 키. */
+    private function companyKey(string $s): string
+    {
+        return str_replace(['주식회사', '(주)', '㈜', ' '], '', $s);
+    }
+
+    /** 휴대폰으로 인정하는 숫자열 — 010 은 11자리만, 011·016~019 는 10~11자리. 고객센터·유선·자릿수 틀린 번호(오독)는 null. */
+    public function mobileDigits(string $s): ?string
+    {
+        $d = $this->digits($s);
+
+        return preg_match('/^(010\d{8}|01[16789]\d{7,8})$/', $d) ? $d : null;
+    }
+
+    /** 010-0000-0000 표기 — 화면·입력칸용(전송은 숫자만). */
+    public function formatMobile(string $digits): string
+    {
+        return strlen($digits) === 11
+            ? substr($digits, 0, 3).'-'.substr($digits, 3, 4).'-'.substr($digits, 7)
+            : substr($digits, 0, 3).'-'.substr($digits, 3, 3).'-'.substr($digits, 6);
     }
 
     /**

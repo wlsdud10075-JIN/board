@@ -34,6 +34,10 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $selling_fee_payee_name = '';
     public string $selling_fee_payee_bank = '';
     public string $selling_fee_payee_account = '';
+    // 매입처(딜러) — 사업자등록증 법인명·대표자 + 명함 휴대폰(2026-10-29 ④). 후보 [적용] 또는 직접 입력, 저장은 applyPayee.
+    public string $seller_company = '';
+    public string $seller_ceo = '';
+    public string $seller_phone = '';
 
     /**
      * 차값 — **셀프검차매입이 금액을 넣을 수 있는 유일한 지점**(2026-08-10 Jin).
@@ -284,6 +288,10 @@ new #[Layout('components.layouts.app')] class extends Component {
             'selling_fee_payee_name' => 'nullable|string|max:60',
             'selling_fee_payee_bank' => 'nullable|string|max:40',
             'selling_fee_payee_account' => 'nullable|string|max:40',
+            // 매입처 — ERP 길이(company ≤100 · ceo ≤50 · phone 숫자만 ≤20). 휴대폰은 숫자·하이픈·공백만(화면엔 적은 대로, 전송 때 숫자만).
+            'seller_company' => 'nullable|string|max:100',
+            'seller_ceo' => 'nullable|string|max:50',
+            'seller_phone' => ['nullable', 'string', 'max:25', 'regex:/^[0-9\-\s]+$/'],
             'car_cost' => 'nullable|numeric|min:0',
             // 매도비 — 출처 무관 공통(차값과 별개 금액이라 상한을 걸지 않는다).
             'selling_fee' => 'nullable|numeric|min:0',
@@ -413,6 +421,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->selling_fee_payee_name = $l->selling_fee_payee_name ?? '';
         $this->selling_fee_payee_bank = $l->selling_fee_payee_bank ?? '';
         $this->selling_fee_payee_account = $l->selling_fee_payee_account ?? '';
+        $this->seller_company = $l->seller_company ?? '';
+        $this->seller_ceo = $l->seller_ceo ?? '';
+        $this->seller_phone = $l->seller_phone ?? '';
         $this->car_cost = $l->car_cost !== null ? (string) $l->car_cost : null;
         $this->discount_rate = $l->discount_rate !== null ? (string) $l->discount_rate : null;
         $this->sale_discount = $l->sale_discount_amount !== null ? (string) $l->sale_discount_amount : null;
@@ -563,6 +574,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->selling_fee_payee_name = $this->selling_fee_payee_name ?: null;
         $l->selling_fee_payee_bank = $this->selling_fee_payee_bank ?: null;
         $l->selling_fee_payee_account = $this->selling_fee_payee_account ?: null;
+        $l->seller_company = trim($this->seller_company) ?: null;
+        $l->seller_ceo = trim($this->seller_ceo) ?: null;
+        $l->seller_phone = trim($this->seller_phone) ?: null;
         $l->buyer_undecided = $this->buyerUndecided;
         // 재고매입이면 바이어를 컬럼에도 안 남긴다 — 화면엔 안 보이는데 값만 남아 있으면
         // 나중에 그게 실려 나갈 자리가 생긴다(Job 이 한 번 더 막지만, 두 곳이 어긋날 이유가 없다).
@@ -672,8 +686,34 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
     }
 
+    /** 매입처 후보(법인명·대표자)를 입력칸에 옮긴다 — 계좌 후보와 같이 **저장은 아니다**. */
+    public function applySeller(int $index): void
+    {
+        $l = PurchaseListing::findOrFail($this->detailId);
+        $s = ($l->payee_suggestions['seller_companies'] ?? [])[$index] ?? null;
+        if (! $s) {
+            return;
+        }
+        if (($s['company'] ?? '') !== '') {
+            $this->seller_company = $s['company'];
+        }
+        if (($s['ceo'] ?? '') !== '') {
+            $this->seller_ceo = $s['ceo'];
+        }
+    }
+
+    /** 연락처 후보(휴대폰)를 입력칸에 옮긴다 — **저장은 아니다**. */
+    public function applySellerPhone(int $index): void
+    {
+        $l = PurchaseListing::findOrFail($this->detailId);
+        $p = ($l->payee_suggestions['seller_phones'] ?? [])[$index] ?? null;
+        if ($p && ($p['number'] ?? '') !== '') {
+            $this->seller_phone = $p['number'];
+        }
+    }
+
     /**
-     * [이미지에서 계좌·소유자 찾기] — 이미 올라간 사진으로도 돌린다(2026-10-22 Jin).
+     * [이미지에서 정보 찾기] — 이미 올라간 사진으로도 돌린다(2026-10-22 Jin). 2026-10-29 ④ 매입처·연락처까지 같은 Job.
      * 종전 [계좌정보 찾기]는 `savePayee` 라 **새 사진이 있을 때만** 추출이 돌았다 → 올려 둔 사진으로는 눌러도 아무 일이 없었다.
      * 새로 고른 사진이 있으면 저장(→ storeSalesFiles 가 추출 발사), 없으면 기존 사진으로 발사. 입력칸 값은 저장하지 않는다.
      */
@@ -1190,12 +1230,12 @@ new #[Layout('components.layouts.app')] class extends Component {
                              wire:poll.{{ $d->payeeExtractionSlow() ? '15s' : '5s' }}>{{ $d->payeeExtractionSlow() ? __('auction.payee_extract.slow') : __('auction.payee_extract.searching') }}</div>
                     {{-- 못 찾았거나 실패했으면 **그렇다고 말해준다** — 아무것도 안 그리면 사용자는 계속 기다린다
                          (2026-09-10 Jin 실사용: 화면이 멈춘 줄 알고 3분을 기다렸다). 「실패」는 Job 이 failed 를 찍었을 때만(pending 은 위에서 처리). --}}
-                    @elseif (empty($d->payee_suggestions['candidates']) && empty($d->payee_suggestions['registration_owners']) && in_array($d->payee_extraction_status, ['none', 'failed'], true))
+                    @elseif ($d->payeeSuggestionCount() === 0 && in_array($d->payee_extraction_status, ['none', 'failed'], true))
                         <div id="payee-status" x-data x-init="if (window.__payeeWaiting) { window.__payeeWaiting = false; $nextTick(() => $el.scrollIntoView({ behavior: 'smooth', block: 'center' })) }"
                              class="mb-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs font-semibold text-amber-800">
                             ⚠ {{ $d->payee_extraction_status === 'none' ? __('auction.payee_extract.not_found') : __('auction.payee_extract.failed') }}
                         </div>
-                    @elseif (!empty($d->payee_suggestions['candidates']) || !empty($d->payee_suggestions['registration_owners']))
+                    @elseif ($d->payeeSuggestionCount() > 0)
                         <div id="payee-status" x-data x-init="if (window.__payeeWaiting) { window.__payeeWaiting = false; $nextTick(() => $el.scrollIntoView({ behavior: 'smooth', block: 'center' })) }"
                              class="mb-2 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-2">
                             {{-- 소유자 후보(자동차등록증) — 2026-10-22 Jin. 누르면 소유자 칸에만 들어간다(저장 전). --}}
@@ -1209,8 +1249,32 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     </div>
                                 @endforeach
                             @endif
+                            {{-- 매입처 후보(사업자등록증 법인명·대표자) · 연락처 후보(명함 휴대폰) — 2026-10-29 ④. 누르면 아래 「매입처」 칸에만 들어간다(저장 전). --}}
+                            @php $above = !empty($d->payee_suggestions['registration_owners']); @endphp
+                            @if (!empty($d->payee_suggestions['seller_companies']))
+                                <div class="text-[11px] font-semibold text-blue-800 {{ $above ? 'mt-2 border-t border-blue-100 pt-1.5' : '' }}">{{ __('auction.payee_extract.seller_title') }}</div>
+                                @foreach ($d->payee_suggestions['seller_companies'] as $si => $sc)
+                                    <div class="mt-1 flex items-center gap-2">
+                                        <span class="text-xs text-gray-800">{{ $sc['company'] ?? '' }}@if (($sc['ceo'] ?? '') !== '') <span class="text-gray-500">/ {{ $sc['ceo'] }}</span>@endif</span>
+                                        <button type="button" wire:click="applySeller({{ $si }})"
+                                                class="rounded border border-blue-300 bg-white px-2 py-0.5 text-[11px] text-blue-700">{{ __('auction.payee_extract.apply_seller') }}</button>
+                                    </div>
+                                @endforeach
+                                @php $above = true; @endphp
+                            @endif
+                            @if (!empty($d->payee_suggestions['seller_phones']))
+                                <div class="text-[11px] font-semibold text-blue-800 {{ $above ? 'mt-2 border-t border-blue-100 pt-1.5' : '' }}">{{ __('auction.payee_extract.phone_title') }}</div>
+                                @foreach ($d->payee_suggestions['seller_phones'] as $pi => $ph)
+                                    <div class="mt-1 flex items-center gap-2">
+                                        <span class="font-mono text-xs text-gray-800">{{ $ph['number'] ?? '' }}</span>
+                                        <button type="button" wire:click="applySellerPhone({{ $pi }})"
+                                                class="rounded border border-blue-300 bg-white px-2 py-0.5 text-[11px] text-blue-700">{{ __('auction.payee_extract.apply_phone') }}</button>
+                                    </div>
+                                @endforeach
+                                @php $above = true; @endphp
+                            @endif
                             @if (!empty($d->payee_suggestions['candidates']))
-                            <div class="text-[11px] font-semibold text-blue-800 {{ !empty($d->payee_suggestions['registration_owners']) ? 'mt-2 border-t border-blue-100 pt-1.5' : '' }}">{{ __('auction.payee_extract.title') }}</div>
+                            <div class="text-[11px] font-semibold text-blue-800 {{ $above ? 'mt-2 border-t border-blue-100 pt-1.5' : '' }}">{{ __('auction.payee_extract.title') }}</div>
                             @foreach ($d->payee_suggestions['candidates'] as $i => $c)
                                 <div class="mt-1.5 flex gap-2 border-t border-blue-100 pt-1.5 first:border-0 first:pt-0">
                                     @php $srcId = $c['source_photo_ids'][0] ?? null; @endphp
@@ -1284,6 +1348,18 @@ new #[Layout('components.layouts.app')] class extends Component {
                                x-on:input="$el.value = $store.koreanBanks.applyMask($refs.feeBankAuc.value, $el.value)">
                     </div>
                     @error('selling_fee_payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+
+                    {{-- 매입처(딜러) — 사업자등록증 법인명·대표자 + 명함 휴대폰(2026-10-29 ④). 후보 [적용] 또는 직접 입력.
+                         ERP `purchase_from`(「법인명/대표자」 합성은 ERP)·국내딜러 알림톡 번호로 간다 — **빈 칸만** 채우니 구매확정 전에. --}}
+                    <div class="section-title-sm mt-3">{{ __('auction.seller_info') }} <span class="text-[11px] font-normal text-gray-400">{{ __('auction.seller_info_hint') }}</span></div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <input wire:model.blur="seller_company" class="input-base" placeholder="{{ __('auction.seller_company_placeholder') }}" maxlength="100">
+                        <input wire:model.blur="seller_ceo" class="input-base" placeholder="{{ __('auction.seller_ceo_placeholder') }}" maxlength="50">
+                    </div>
+                    <input wire:model.blur="seller_phone" class="input-base mt-2 font-mono" placeholder="{{ __('auction.seller_phone_placeholder') }}" maxlength="25" inputmode="tel" autocomplete="off">
+                    @error('seller_company') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    @error('seller_ceo') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    @error('seller_phone') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                 @endif
 
                 {{-- 딜러 차량 첨부 (매입 후 받은 사진·서류 → 낙찰 시 연동 B 로 car-erp 첨부탭). 서류는 바이어 전송 제외(§28) --}}
@@ -1340,9 +1416,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <span wire:loading.remove wire:target="extractFromImages">{{ __('auction.payee_extract.find') }}</span>
                             <span wire:loading wire:target="extractFromImages">{{ __('auction.payee_extract.finding') }}</span>
                         </button>
+                        <p class="mt-0.5 text-center text-[10px] text-gray-400">{{ __('auction.payee_extract.find_sub') }}</p>
                         {{-- 버튼 바로 아래 상태 줄 — 결과 상자(#payee-status)는 위쪽 입금정보 칸에 있어 여기서 안 보인다. --}}
                         @php
-                            $payeeFound = count((array) ($d->payee_suggestions['candidates'] ?? [])) + count((array) ($d->payee_suggestions['registration_owners'] ?? []));
+                            $payeeFound = $d->payeeSuggestionCount();
                         @endphp
                         @if (in_array($d->status, ['accepted', 'won'], true))
                             @if ($d->payeeExtractionPending())

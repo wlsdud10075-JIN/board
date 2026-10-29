@@ -82,6 +82,10 @@ return [
     'payee_bank' => '은행',
     'payee_name' => '예금주',
     'payee_account' => '계좌번호 (암호화)',
+    'remitter_info' => '송금인 (여권/ID)',
+    'remitter_info_sub' => 'Invoice Name·문서번호 — 바꾸면 ERP 재전송 필요',
+    'remitter_name' => 'Name (SURNAME GIVEN)',
+    'remitter_id' => 'Passport / ID No. (암호화)',
 
     // 액션
     'save' => '저장 (감사로그 기록)',

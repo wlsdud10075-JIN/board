@@ -3,7 +3,10 @@
 use App\Models\BoardAuditLog;
 use App\Models\InspectionPhoto;
 use App\Models\PromotionRequest;
+use App\Jobs\ExtractPassportFromImage;
 use App\Jobs\SyncWonListingToCarErp;
+use App\Services\CarErpReadService;
+use App\Services\CommercialInvoiceBuilder;
 use App\Models\PurchaseListing;
 use App\Services\ExchangeRateService;
 use App\Support\TimeGate;
@@ -153,6 +156,14 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $e_auction_venue = '';
     public string $e_lot_number = '';
     public string $e_inspection_request = '';
+    // ── 드로어 탭(2026-10-29 ②) — 기본·검차·첨부·Invoice. 비활성 탭도 DOM 에 두고 hidden 으로만 가린다.
+    public string $drawerTab = 'basic';
+    // ── Invoice 탭 — 송금인(여권/ID) Name·문서번호. 전 상태 편집(update() 의 editable() 락 밖).
+    public string $e_remitter_name = '';
+    public string $e_remitter_id = '';
+    public ?string $invoiceNote = null;
+    /** 여권/ID 사진 1장(Livewire 임시 업로드) — OCR 로 넘긴 직후 지운다. */
+    public $passportFile = null;
 
     // ── 환율 (§6a 라이브) ──
     public int $krwPerUsd = 0;
@@ -491,10 +502,16 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->e_auction_venue = $l->auction_venue ?? '';
         $this->e_lot_number = $l->lot_number ?? '';
         $this->e_inspection_request = $l->inspection_request ?? '';
-        $this->e_sale_price = $l->sale_price !== null ? (string) $l->sale_price : null;
+        $this->drawerTab = 'basic';
+        $this->e_remitter_name = $l->remitter_name ?? '';
+        $this->e_remitter_id = $l->remitter_id ?? '';
+        $this->invoiceNote = null;
+        // 금액 칸 프리필 — /auction openDetail 과 같은 규칙(총판매가 = 판매가 + 운임비, 환율은 저장값 ?: 견적통화면 offer_rate).
         $this->e_sale_currency = $l->offer_currency ?: null;
-        $this->e_sale_rate = $l->offer_rate ? (string) $l->offer_rate : null;
-        $this->e_transport_fee = $l->transport_fee !== null ? (string) (0 + $l->transport_fee) : null;
+        $this->e_sale_total = $l->sale_price !== null ? (string) (0 + round((float) $l->sale_price + (float) $l->transport_fee, 2)) : null;
+        $this->e_transport_fee_usd = $l->transport_fee_usd !== null ? (string) (0 + $l->transport_fee_usd) : null;
+        $this->e_rate_usd = $l->offer_rate_usd !== null ? (string) $l->offer_rate_usd : ($l->offer_currency === 'USD' && $l->offer_rate ? (string) $l->offer_rate : null);
+        $this->e_rate_eur = $l->offer_rate_eur !== null ? (string) $l->offer_rate_eur : ($l->offer_currency === 'EUR' && $l->offer_rate ? (string) $l->offer_rate : null);
         $this->resyncResult = null;
         $this->attachResult = null;   // 앞 차의 결과 카드가 다음 차 드로어에 남으면 안 된다
         $this->syncSince = null;
@@ -507,14 +524,17 @@ new #[Layout('components.layouts.app')] class extends Component {
     // 나중에 여기서 판매가·통화·환율을 채워 다시 밀면 car-erp 가 **빈 칸만** 채운다(fill-if-empty).
     // 🚫 이미 값이 있으면 ERP 가 덮지 않는다 — 고치려면 ERP 에서. board 가 원장을 되돌리지 않는다.
 
-    public ?string $e_sale_price = null;
+    // 2026-10-29 Jin — /auction 구매 탭과 **같은 칸·같은 공식**: 사람이 적는 건 총판매가·운임비 USD·환율 USD/EUR·통화, 판매가·운임비(견적통화)는 계산(resendSplit).
+    //    종전(판매가·환율·운임비 직접 입력)은 구매 탭과 칸이 달라 같은 차를 두 화면에서 다르게 적게 됐다. payload 키는 그대로(sale_price·transport_fee·transport_fee_usd·usd_exchange_rate).
+    public ?string $e_sale_total = null;
 
     public ?string $e_sale_currency = null;
 
-    public ?string $e_sale_rate = null;
+    public ?string $e_transport_fee_usd = null;
 
-    /** 운임비(판매통화 기준) — ERP 가 fill-if-empty 로 받는다(2026-10-16 Jin: 칸이 없어 ERP 에서 손으로 넣고 있었다). */
-    public ?string $e_transport_fee = null;
+    public ?string $e_rate_usd = null;
+
+    public ?string $e_rate_eur = null;
 
     /** 마지막 재전송 결과 — car-erp 응답의 fields_filled/fields_skipped. 200 만 보고 "반영됨"이라 하지 않는다. */
     public ?array $resyncResult = null;
@@ -536,7 +556,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->resetErrorBag();   // 고쳐서 다시 눌렀는데 옛 에러가 남아 있으면 뭘 고쳤는지 알 수 없다
 
         if (! $l->car_erp_vehicle_id) {
-            $this->addError('e_sale_price', __('listings.resync.not_synced_yet'));
+            $this->addError('e_sale_total', __('listings.resync.not_synced_yet'));
 
             return;
         }
@@ -544,7 +564,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         // (200 인데 fields_filled 가 빈 채로 돌아온다), board 컬럼에만 판매가가 남아 화면과 원장이 갈린다.
         // 판매가·바이어는 ERP 차량관리에서 지정한다 — 거기엔 매입 등록 락 게이트가 있고 여기엔 없다.
         if ($l->buyer_undecided) {
-            $this->addError('e_sale_price', __('listings.resync.stock_purchase'));
+            $this->addError('e_sale_total', __('listings.resync.stock_purchase'));
 
             return;
         }
@@ -562,42 +582,96 @@ new #[Layout('components.layouts.app')] class extends Component {
     }
 
     /**
-     * 「금액 다시 보내기」 칸(판매가·통화·환율·운임비)을 모델에 적용한다 — 버튼과 「저장」이 **같은 규칙**을 쓴다(2026-10-16 Jin).
-     * 저장하지 않는다(호출자가 save). 반환 = 바뀐 컬럼 목록(빈 배열 = 보낼 금액 변경 없음) / null = 검증 실패(에러 붙임).
-     * ⚠️ 환율이 없으면 car-erp 가 판매가를 **통째로 보류**한다 → 판매가가 있으면 통화·(KRW 외)환율을 세트로 요구한다.
+     * 쪼개기 계산 — /auction `selfSplit()` 과 같은 공식(2026-10-22 Jin: 운임비 USD·총판매가 고정, 환율 차이는 판매가가 흡수).
+     *   운임비(견적통화) = 운임비 USD(USD 견적이면 그대로, 아니면 × 환율 USD ÷ 견적통화 환율) · 판매가 = 총판매가 − 운임비 · 환율 = 견적통화의 환율(KRW=1).
+     * 화면 표시(읽기 전용 두 칸)와 적용(applyResendAmounts)이 이 하나를 쓴다.
+     *
+     * @return array{sale: ?float, freight: ?float, rate: ?int, total: ?float, fusd: ?int, usd: ?int, eur: ?int, currency: ?string}
+     */
+    public function resendSplit(): array
+    {
+        $num = fn ($v) => ($v === null || $v === '') ? null : (float) preg_replace('/[^0-9.]/', '', (string) $v);
+        $int = fn ($v) => ($v === null || $v === '') ? null : (int) preg_replace('/[^0-9]/', '', (string) $v);
+        $total = $num($this->e_sale_total);
+        $fUsd = $int($this->e_transport_fee_usd);
+        $usd = $int($this->e_rate_usd);
+        $eur = $int($this->e_rate_eur);
+        $currency = $this->e_sale_currency ?: null;
+        $rate = match ($currency) {
+            'KRW' => 1,
+            'USD' => $usd ?: null,
+            'EUR' => $eur ?: null,
+            default => null,
+        };
+        $freight = null;
+        if ($fUsd !== null) {
+            if ($currency === 'USD') {
+                $freight = round($fUsd, 2);
+            } elseif ($usd && $rate) {
+                $freight = round($fUsd * $usd / $rate, 2);
+            }
+        }
+
+        return [
+            'sale' => $total === null ? null : round($total - ($freight ?? 0), 2),
+            'freight' => $freight, 'rate' => $rate, 'total' => $total, 'fusd' => $fUsd, 'usd' => $usd, 'eur' => $eur, 'currency' => $currency,
+        ];
+    }
+
+    /**
+     * 「금액 다시 보내기」 칸(총판매가·통화·운임비 USD·환율 USD/EUR)을 모델에 적용한다 — 버튼과 「저장」이 **같은 규칙**을 쓴다(2026-10-16 Jin).
+     * 2026-10-29 Jin — /auction 구매 탭과 같은 칸·같은 계산(resendSplit). 저장하지 않는다(호출자가 save).
+     * 반환 = 바뀐 컬럼 목록(빈 배열 = 보낼 금액 변경 없음) / null = 검증 실패(에러 붙임).
+     * ⚠️ 환율이 없으면 car-erp 가 판매가를 **통째로 보류**한다 → 총판매가가 있으면 통화·(KRW 외)그 통화 환율을 세트로 요구한다.
+     *    운임비 USD 를 비-USD 견적으로 환산하려면 환율 USD 와 견적통화 환율이 둘 다 있어야 한다.
      */
     private function applyResendAmounts(PurchaseListing $l): ?array
     {
-        $price = $this->e_sale_price !== null && $this->e_sale_price !== ''
-            ? (float) preg_replace('/[^0-9.]/', '', $this->e_sale_price) : null;
-        $rate = $this->e_sale_rate !== null && $this->e_sale_rate !== ''
-            ? (int) preg_replace('/[^0-9]/', '', $this->e_sale_rate) : null;
-        $currency = $this->e_sale_currency ?: null;
-
-        if ($price !== null && $price > 0) {
-            if (! $currency) {
-                $this->addError('e_sale_currency', __('listings.resync.currency_required'));
-
-                return null;
-            }
-            // KRW 는 환율 1. 그 외는 반드시 받는다 — 비우면 ERP 가 판매가를 통째로 안 넣는다.
-            if ($currency !== 'KRW' && ! $rate) {
-                $this->addError('e_sale_rate', __('listings.resync.rate_required'));
-
-                return null;
-            }
-            $l->sale_price = $price;
-            $l->offer_currency = $currency;
-            $l->offer_rate = $currency === 'KRW' ? 1 : $rate;
+        $s = $this->resendSplit();
+        if ($s['total'] === null && $s['fusd'] === null && $s['usd'] === null && $s['eur'] === null) {
+            return [];   // 금액 칸을 아무것도 안 적었다
         }
-        // 운임비 — 판매가 없이 단독으로도 보낸다(Job 이 컬럼을 그대로 실고, ERP 는 비어 있을 때만 채운다).
-        $transport = $this->e_transport_fee !== null && $this->e_transport_fee !== ''
-            ? (float) preg_replace('/[^0-9.]/', '', $this->e_transport_fee) : null;
-        if ($transport !== null && $transport > 0) {
-            $l->transport_fee = $transport;
+        if ($s['total'] !== null && ! $s['currency']) {
+            $this->addError('e_sale_currency', __('listings.resync.currency_required'));
+
+            return null;
+        }
+        if ($s['currency'] && $s['currency'] !== 'KRW' && ! $s['rate']) {
+            $this->addError($s['currency'] === 'USD' ? 'e_rate_usd' : 'e_rate_eur', __('listings.resync.rate_required'));
+
+            return null;
+        }
+        if ($s['fusd'] !== null && $s['freight'] === null) {
+            // 운임비 USD 는 적었는데 환산할 환율이 없다(통화 미선택 또는 환율 USD 없음)
+            $this->addError($s['currency'] ? 'e_rate_usd' : 'e_sale_currency', __($s['currency'] ? 'listings.resync.usd_rate_required_for_freight' : 'listings.resync.currency_required'));
+
+            return null;
+        }
+        if ($s['sale'] !== null && $s['sale'] < 0) {
+            $this->addError('e_sale_total', __('listings.resync.freight_over_total'));
+
+            return null;
         }
 
-        return array_values(array_intersect(array_keys($l->getDirty()), ['sale_price', 'offer_currency', 'offer_rate', 'transport_fee']));
+        if ($s['total'] !== null) {
+            $l->sale_price = $s['sale'];
+            $l->offer_currency = $s['currency'];
+            $l->offer_rate = $s['rate'];
+        }
+        if ($s['freight'] !== null) {
+            $l->transport_fee = $s['freight'];
+        }
+        if ($s['fusd'] !== null) {
+            $l->transport_fee_usd = $s['fusd'];
+        }
+        if ($s['usd'] !== null) {
+            $l->offer_rate_usd = $s['usd'];
+        }
+        if ($s['eur'] !== null) {
+            $l->offer_rate_eur = $s['eur'];
+        }
+
+        return array_values(array_intersect(array_keys($l->getDirty()), ['sale_price', 'offer_currency', 'offer_rate', 'transport_fee', 'transport_fee_usd', 'offer_rate_usd', 'offer_rate_eur']));
     }
 
     /**
@@ -709,9 +783,191 @@ new #[Layout('components.layouts.app')] class extends Component {
         ];
     }
 
+    /** ERP 호출용 영업 이메일 — 연동 B 와 같은 규칙(등록자 기준: 매핑 오버라이드 ?: 로그인 이메일). 관리·super 가 열어도 그 영업의 차로 묻는다. */
+    private function erpEmailFor(PurchaseListing $l): string
+    {
+        return $l->creator?->car_erp_salesman_email ?: ($l->creator?->email ?? '');
+    }
+
+    /**
+     * 📷 여권/ID 사진 → OCR Job. 이미지는 로컬 `local` 디스크(`passport-ocr/{id}/…`)에 잠깐 두고 Job 이 읽은 뒤 지운다 — S3·첨부에 올리지 않는다.
+     * Livewire 임시 파일(운영은 S3 일 수 있다)도 **복사 직후 즉시 삭제**(자동 정리는 24시간 뒤).
+     */
+    public function extractPassport(): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        if (! config('board.payee_extract.enabled')) {
+            try {
+                $this->passportFile?->delete();   // 꺼진 박스에서도 여권 사진을 임시 디스크에 남기지 않는다
+            } catch (\Throwable) {
+            }
+            $this->passportFile = null;
+            $this->addError('passportFile', __('listings.invoice.ocr_disabled'));
+
+            return;
+        }
+        $this->validate(['passportFile' => 'required|image|max:20480']);
+        $ext = strtolower($this->passportFile->getClientOriginalExtension() ?: 'jpg');
+        $rel = 'passport-ocr/'.$l->id.'/'.\Illuminate\Support\Str::uuid().'.'.$ext;
+        Storage::disk(ExtractPassportFromImage::DISK)->put($rel, $this->passportFile->get());
+        try {
+            $this->passportFile->delete();
+        } catch (\Throwable) {
+            // 임시 파일 삭제 실패는 치명이 아니다(Livewire 가 24시간 뒤 지운다)
+        }
+        $this->passportFile = null;
+        $l->forceFill(['passport_ocr_status' => 'pending', 'passport_ocr_at' => now(), 'passport_suggestions' => null])->saveQuietly();
+        ExtractPassportFromImage::dispatch($l->id, $rel);
+        $this->invoiceNote = null;
+        unset($this->editing);
+    }
+
+    /** OCR 후보 → 입력칸(저장 아님). */
+    public function applyPassportName(int $i): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        $v = data_get($l->passport_suggestions, "names.$i.value");
+        if (is_string($v) && $v !== '') {
+            $this->e_remitter_name = $v;
+        }
+    }
+
+    public function applyPassportId(int $i): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        $v = data_get($l->passport_suggestions, "ids.$i.value");
+        if (is_string($v) && $v !== '') {
+            $this->e_remitter_id = $v;
+        }
+    }
+
+    public function dismissPassportSuggestions(): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        $l->forceFill(['passport_suggestions' => null, 'passport_ocr_status' => null])->saveQuietly();
+        unset($this->editing);
+    }
+
+    /**
+     * [ERP 로 전송] — **저장된** 송금인을 전용 엔드포인트로(덮어쓰기 + ERP 감사). ERP 차량이 없으면(won 전) 안 보낸다 — 구매확정 때 purchase-sync 가 싣는다.
+     * 응답 `updated[]`·`had_previous` 를 사람 말로. 403 = ERP 가 이 차를 이 영업의 차로 보지 않는다(매핑·담당 불일치).
+     */
+    public function sendRemitter(): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        if ($l->car_erp_vehicle_id === null) {
+            $this->invoiceNote = __('listings.invoice.state_no_erp_vehicle');
+
+            return;
+        }
+        if (trim((string) $l->remitter_name) === '') {
+            $this->invoiceNote = __('listings.invoice.send_needs_save');
+
+            return;
+        }
+        $r = app(CarErpReadService::class)->setRemitter($this->erpEmailFor($l), (int) $l->car_erp_vehicle_id, $l->remitter_name, $l->remitter_id);
+        if (! ($r['ok'] ?? false)) {
+            $this->invoiceNote = __('listings.invoice.send_failed', ['reason' => ($r['status'] ?? 0) === 403 ? __('listings.invoice.send_403') : (string) ($r['message'] ?? $r['reason'] ?? 'HTTP '.($r['status'] ?? 0))]);
+
+            return;
+        }
+        $l->forceFill(['remitter_synced_at' => now()])->saveQuietly();
+        $updated = (array) data_get($r['data'], 'updated', []);
+        $this->invoiceNote = $updated === []
+            ? __('listings.invoice.send_same')
+            : __(data_get($r['data'], 'had_previous') ? 'listings.invoice.send_overwritten' : 'listings.invoice.send_done');
+        unset($this->editing, $this->listings);
+    }
+
+    /**
+     * [인보이스 다운로드] — board 전용 COMMERCIAL INVOICE(xlsx). Address·Phone 은 ERP `GET /buyers/{id}`, Brand/Model 은 `GET /vehicles/{id}` 를
+     * **그 순간만** 읽고 저장하지 않는다(실패·404 = 빈 칸, 세관 서류라 「-」 금지). 다운로드도 감사 1행(action=download).
+     */
+    public function downloadInvoice()
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        if (CommercialInvoiceBuilder::templatePath() === null) {
+            $this->invoiceNote = __('listings.invoice.no_template');
+
+            return null;
+        }
+        if (trim((string) $l->remitter_name) === '') {
+            $this->invoiceNote = __('listings.invoice.download_needs_name');
+
+            return null;
+        }
+        $erp = [];
+        $svc = app(CarErpReadService::class);
+        $email = $this->erpEmailFor($l);
+        if ($l->car_erp_buyer_id) {
+            $b = $svc->buyer($email, (int) $l->car_erp_buyer_id, Auth::user()->isSuper());
+            if ($b['ok'] ?? false) {
+                $erp['address'] = data_get($b['data'], 'address');
+                $erp['phone'] = data_get($b['data'], 'phone');
+            }
+        }
+        if ($l->car_erp_vehicle_id) {
+            $v = $svc->vehicleMeta($email, (int) $l->car_erp_vehicle_id);
+            if ($v['ok'] ?? false) {
+                $erp['brand'] = data_get($v['data'], 'brand');
+                $erp['model'] = data_get($v['data'], 'model_type');
+            }
+        }
+        $bytes = app(CommercialInvoiceBuilder::class)->build($l, $erp);
+        $name = CommercialInvoiceBuilder::fileName($l);
+        BoardAuditLog::create([
+            'user_id' => Auth::id(), 'purchase_listing_id' => $l->id, 'action' => 'download', 'field' => 'commercial_invoice',
+            'old_value' => null, 'new_value' => $name, 'ip_address' => BoardAuditLog::currentIp(),
+        ]);
+        $this->invoiceNote = __('listings.invoice.downloaded', ['name' => $name]);
+
+        return response()->streamDownload(fn () => print ($bytes), $name, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
+    }
+
+    /**
+     * 송금인 저장 — **전 상태**(Jin 2026-10-28: ERP 로 보낸 차·구매대기 차 다 가능). `update()` 는 editable() 락을 타므로 별도 경로.
+     * 소유권은 SalesmanScope(findOrFail). 정규화는 모델 static 한 곳(이름 대문자·공백 1 / ID 대문자 영숫자). 값이 바뀌면 ERP 전송 시각을 비운다.
+     * 비우기는 ERP 에 전파되지 않는다(스펙: 빈 문자열 무시) — 그 경우 안내만.
+     */
+    /** 입력칸 → 모델(정규화·변경 시 전송 시각 리셋·입력칸 되쓰기). 저장은 호출자가. 반환 = 바뀌었나. `update()`·`saveRemitter()` 공용. */
+    private function applyRemitter(PurchaseListing $l): bool
+    {
+        $name = PurchaseListing::normalizeRemitterName($this->e_remitter_name);
+        $id = PurchaseListing::normalizeRemitterId($this->e_remitter_id);
+        $changed = $name !== $l->remitter_name || $id !== $l->remitter_id;
+        if ($changed) {
+            $l->remitter_name = $name;
+            $l->remitter_id = $id;
+            $l->remitter_synced_at = null;
+        }
+        $this->e_remitter_name = $name ?? '';
+        $this->e_remitter_id = $id ?? '';
+
+        return $changed;
+    }
+
+    public function saveRemitter(): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        $this->validate(['e_remitter_name' => 'nullable|string|max:100', 'e_remitter_id' => 'nullable|string|max:64']);
+        $wasSynced = $l->remitter_synced_at !== null;
+        $name = PurchaseListing::normalizeRemitterName($this->e_remitter_name);
+        $id = PurchaseListing::normalizeRemitterId($this->e_remitter_id);
+        $changed = $this->applyRemitter($l);
+        if ($changed) {
+            $l->save();
+        }
+        $this->invoiceNote = $changed
+            ? (($wasSynced && ($name === null || $id === null)) ? __('listings.invoice.saved_cleared_note') : __('listings.invoice.saved'))
+            : __('listings.invoice.saved_unchanged');
+        unset($this->editing, $this->listings);
+    }
+
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'e_transport_fee', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'e_inspection_request', 'eSalesFiles', 'e_sale_price', 'e_sale_currency', 'e_sale_rate', 'resyncResult', 'attachResult', 'syncSince']);
+        $this->reset(['editingId', 'drawerTab', 'e_remitter_name', 'e_remitter_id', 'invoiceNote', 'passportFile', 'e_sale_total', 'e_transport_fee_usd', 'e_rate_usd', 'e_rate_eur', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'e_inspection_request', 'eSalesFiles', 'e_sale_currency', 'resyncResult', 'attachResult', 'syncSince']);
         unset($this->editing);
     }
 
@@ -747,6 +1003,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             'e_auction_venue' => 'nullable|string|max:100',
             'e_lot_number' => 'nullable|string|max:50',
             'e_inspection_request' => 'nullable|string|max:255',
+            'e_remitter_name' => 'nullable|string|max:100',
+            'e_remitter_id' => 'nullable|string|max:64',
             'eSalesFiles.*' => 'file|max:204800',
         ]);
 
@@ -778,6 +1036,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->discount_rate = ($this->e_discount_rate === null || $this->e_discount_rate === '') ? null : (float) $this->e_discount_rate;
         $l->shipping_usd = $this->e_shipping_usd ?: null;
         $l->inspection_request = $this->e_inspection_request ?: null;
+        $this->applyRemitter($l);   // Invoice 탭 칸도 기본 「저장」에 같이(별도 버튼만 저장하면 사용자가 입력을 잃는다)
         $l->final_price = $l->totalKrw($this->usdRate(), $this->eurRate()) ?? $l->final_price;
         if ($l->source === 'encar') {
             $l->encar_url = $this->e_encar_url ?: null;
@@ -1449,7 +1708,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             @php $showOwner = auth()->user()->canSeeAll(); @endphp
             <table class="tbl tbl-center">
                 <thead>
-                    <tr><th class="w-px whitespace-nowrap">{{ __('listings.table.vehicle') }}</th><th>{{ __('listings.table.source') }}</th>@if ($showOwner)<th>{{ __('listings.table.owner') }}</th>@endif<th>{{ __('listings.table.total') }}</th><th>{{ __('listings.table.inspection_request') }}</th><th>{{ __('listings.table.inspection_note') }}</th><th>{{ __('listings.table.buyer') }}</th><th>{{ __('listings.table.verdict') }}</th><th>{{ __('listings.table.status') }}</th><th>{{ __('listings.table.inspection_state') }}</th></tr>
+                    <tr><th class="w-px whitespace-nowrap">{{ __('listings.table.vehicle') }}</th><th>{{ __('listings.table.source') }}</th>@if ($showOwner)<th>{{ __('listings.table.owner') }}</th>@endif<th>{{ __('listings.table.total') }}</th><th>{{ __('listings.table.inspection_request') }}</th><th>{{ __('listings.table.inspection_note') }}</th><th>{{ __('listings.table.buyer') }}</th><th>{{ __('listings.table.verdict') }}</th><th>{{ __('listings.table.status') }}</th><th>{{ __('listings.table.inspection_state') }}</th><th>{{ __('listings.table.invoice') }}</th></tr>
                 </thead>
                 <tbody>
                     @forelse ($this->listings as $l)
@@ -1469,9 +1728,12 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <td><span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span></td>
                             {{-- 검차상태 — 현지확인대기 차가 왜 아직 전달대기로 안 넘어갔나(ssancar 폴러 마지막 판정). 그 외 상태는 빈 칸. 상태 칸 오른쪽(Jin). --}}
                             <td class="max-w-[260px] whitespace-normal text-[11px] leading-snug text-gray-500">@if ($hold = $l->ssancarHoldHint())@if (! empty($hold['alert']))<span class="font-semibold text-red-600">⚠ {{ __($hold['key'], $hold['params']) }}</span>@else{{ __($hold['key'], $hold['params']) }}@endif @else<span class="text-gray-300">—</span>@endif</td>
+                            {{-- Invoice(송금인) — 미입력 / 입력됨 / ERP 전송됨 (2026-10-29 ②, 추가 쿼리 0). --}}
+                            @php $inv = $l->invoiceState(); @endphp
+                            <td class="whitespace-nowrap"><span class="badge {{ ['none' => 'badge-gray', 'entered' => 'badge-blue', 'synced' => 'badge-green'][$inv] }}">{{ __('listings.invoice_state.'.$inv) }}</span></td>
                         </tr>
                     @empty
-                        <tr><td colspan="{{ $showOwner ? 10 : 9 }}" class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</td></tr>
+                        <tr><td colspan="{{ $showOwner ? 11 : 10 }}" class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -1492,6 +1754,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <div class="flex flex-wrap items-center gap-1">
                             <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span>
                             @if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@endif
+                            @php $inv = $l->invoiceState(); @endphp<span class="badge {{ ['none' => 'badge-gray', 'entered' => 'badge-blue', 'synced' => 'badge-green'][$inv] }}">📄 {{ __('listings.invoice_state.'.$inv) }}</span>
                             {{-- 바이어는 항상 한 줄(없으면 —) — 모바일에서 「안 보인다」로 읽혔다(2026-10-24 Jin). --}}
                             <span class="min-w-0 max-w-full truncate text-xs text-gray-600">🧑 {{ __('listings.table.buyer') }}: {{ $l->buyerDisplay() ?: '—' }}</span>
                             @if (auth()->user()->canSeeAll() && $l->creator)<span class="truncate text-xs text-gray-500">👤 {{ $l->creator->name }}</span>@endif
@@ -1518,7 +1781,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         <p class="mt-2 text-xs text-gray-400">{{ __('listings.list.row_hint') }}</p>
     </div>
 
-    {{-- 편집 드로어 (본인 글 수정) --}}
+    {{-- 편집 드로어 (본인 글 수정) — 2026-10-29 ② 탭 4개(기본·검차·첨부·Invoice, Jin 「내용 자체에 각 탭을 나눠서」).
+         ⚠️ 비활성 탭도 DOM 에 두고 `hidden` 으로만 가린다 — wire:model 칸이 마운트돼 있어야 검증 에러가 칸에 붙고,
+            update() 는 네 탭의 칸을 한 번에 저장한다. 저장·닫기·삭제 버튼과 오류 묶음은 탭 밖(맨 아래) 공통. --}}
     @if ($this->editing)
         @php $e = $this->editing; $canEdit = $this->editable($e); @endphp
         <div class="fixed inset-0 z-40 bg-black/40" wire:click="closeEdit"></div>
@@ -1539,61 +1804,113 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <div class="card-sm mb-3 border-amber-200 bg-amber-50 text-[13px] text-amber-800">{{ __('listings.drawer.locked_notice') }}</div>
                 @endunless
 
-                <div class="card-sm mb-3 border-blue-100 bg-blue-50/50 text-[11px] text-gray-500">{{ __('listings.drawer.money_moved') }}</div>
+                {{-- 탭 pill — 폰은 가로 스크롤. Invoice 미입력이면 빨간 점. --}}
+                <div class="-mx-1 mb-3 flex gap-1 overflow-x-auto px-1 pb-1" role="tablist">
+                    @foreach (['basic', 'inspection', 'attach', 'invoice'] as $t)
+                        <button type="button" role="tab" wire:click="$set('drawerTab', '{{ $t }}')" aria-selected="{{ $drawerTab === $t ? 'true' : 'false' }}"
+                            class="shrink-0 whitespace-nowrap rounded-md border px-3 py-1.5 text-[12px] font-semibold {{ $drawerTab === $t ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">
+                            {{ __('listings.drawer.tab.'.$t) }}@if ($t === 'invoice' && $e->invoiceState() === 'none')<span class="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-red-500 align-middle" title="{{ __('listings.invoice_state.none') }}"></span>@endif
+                        </button>
+                    @endforeach
+                </div>
 
-                {{-- 급해서 매입가만 보낸 차의 판매 금액 보완 + ERP 재전송(이미 연동된 차만). --}}
-                @include('livewire.listings._erp-resend')
+                {{-- ① 기본 — 차량·출처·링크·검차 요청사항 + 금액 다시 보내기(금액 계열) + 진행 정보 --}}
+                <div class="{{ $drawerTab === 'basic' ? '' : 'hidden' }}" role="tabpanel">
+                    <div class="card-sm mb-3 border-blue-100 bg-blue-50/50 text-[11px] text-gray-500">{{ __('listings.drawer.money_moved') }}</div>
 
-                {{-- 구매·경매에서 올린 딜러 첨부를 여기서 다시 본다(전 상태 — synced 포함). 읽기 전용. --}}
-                @include('livewire.listings._sales-attachments')
+                    {{-- 급해서 매입가만 보낸 차의 판매 금액 보완 + ERP 재전송(이미 연동된 차만). --}}
+                    @include('livewire.listings._erp-resend')
 
-                <label class="label-base mt-3">{{ __('listings.add_form.region') }}</label>
-                <x-region-input model="e_region" :placeholder="__('listings.add_form.region_ph')" :disabled="! $canEdit" />
-                @error('e_region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    <label class="label-base mt-3">{{ __('listings.add_form.region') }}</label>
+                    <x-region-input model="e_region" :placeholder="__('listings.add_form.region_ph')" :disabled="! $canEdit" />
+                    @error('e_region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                <label class="label-base mt-3">{{ __('listings.add_form.owner') }} <span class="text-gray-400">{{ __('listings.add_form.owner_hint') }}</span></label>
-                <input class="input-base" wire:model="e_owner_name" placeholder="{{ __('listings.add_form.owner_ph') }}" maxlength="60" @unless ($canEdit) disabled @endunless>
-                @error('e_owner_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    <label class="label-base mt-3">{{ __('listings.add_form.owner') }} <span class="text-gray-400">{{ __('listings.add_form.owner_hint') }}</span></label>
+                    <input class="input-base" wire:model="e_owner_name" placeholder="{{ __('listings.add_form.owner_ph') }}" maxlength="60" @unless ($canEdit) disabled @endunless>
+                    @error('e_owner_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                @if (config('services.respond_io.api_token'))
-                    <label class="label-base mt-3">{{ __('listings.drawer.contact_label') }} <span class="text-gray-400">{{ __('listings.drawer.contact_hint') }}</span></label>
-                    <input class="input-base" wire:model="e_respond_contact_id" placeholder="{{ __('listings.drawer.contact_ph') }}" @unless ($canEdit) disabled @endunless>
-                    @error('e_respond_contact_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                @endif
-                @if ($e->encar_id || $e->c_no || $e->ssancar_ref)
-                    <div class="mt-1 flex flex-wrap gap-1.5 text-[11px]">
-                        <span class="text-gray-400">{{ __('listings.drawer.origin_prefix') }}</span>
-                        @if ($e->encar_id)<span class="badge badge-encar">encar #{{ $e->encar_id }}</span>@endif
-                        @if ($e->c_no)<span class="badge badge-blue">c_no {{ $e->c_no }}</span>@endif
-                        @if ($e->ssancar_ref)<span class="badge badge-gray">{{ $e->ssancar_ref }}</span>@endif
+                    @if (config('services.respond_io.api_token'))
+                        <label class="label-base mt-3">{{ __('listings.drawer.contact_label') }} <span class="text-gray-400">{{ __('listings.drawer.contact_hint') }}</span></label>
+                        <input class="input-base" wire:model="e_respond_contact_id" placeholder="{{ __('listings.drawer.contact_ph') }}" @unless ($canEdit) disabled @endunless>
+                        @error('e_respond_contact_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    @endif
+                    @if ($e->encar_id || $e->c_no || $e->ssancar_ref)
+                        <div class="mt-1 flex flex-wrap gap-1.5 text-[11px]">
+                            <span class="text-gray-400">{{ __('listings.drawer.origin_prefix') }}</span>
+                            @if ($e->encar_id)<span class="badge badge-encar">encar #{{ $e->encar_id }}</span>@endif
+                            @if ($e->c_no)<span class="badge badge-blue">c_no {{ $e->c_no }}</span>@endif
+                            @if ($e->ssancar_ref)<span class="badge badge-gray">{{ $e->ssancar_ref }}</span>@endif
+                        </div>
+                    @endif
+
+                    @if ($e->source === 'encar')
+                        <label class="label-base mt-3">{{ __('listings.drawer.encar_url') }}</label>
+                        <input class="input-base" wire:model="e_encar_url" placeholder="{{ __('listings.drawer.encar_url_ph') }}" @unless ($canEdit) disabled @endunless>
+                        <label class="label-base mt-3">{{ __('listings.add_form.c_no') }} <span class="text-gray-400">{{ __('listings.add_form.c_no_hint') }}</span></label>
+                        <input class="input-base" wire:model="e_c_no" placeholder="{{ __('listings.drawer.c_no_ph') }}" @unless ($canEdit) disabled @endunless>
+                        @error('e_c_no') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    @else
+                        <label class="label-base mt-3">{{ __('listings.add_form.auction_venue') }}</label>
+                        <input class="input-base" wire:model="e_auction_venue" @unless ($canEdit) disabled @endunless>
+                        <label class="label-base mt-3">{{ __('listings.add_form.lot_number') }}</label>
+                        <input class="input-base" wire:model="e_lot_number" @unless ($canEdit) disabled @endunless>
+                    @endif
+
+                    @if ($e->origin !== \App\Models\PurchaseListing::ORIGIN_SELF_INSPECTION)
+                        <label class="label-base mt-3">{{ __('listings.add_form.inspection_request') }} <span class="text-gray-400">{{ __('listings.add_form.inspection_request_hint') }}</span></label>
+                        <input class="input-base" wire:model="e_inspection_request" maxlength="255" placeholder="{{ __('listings.add_form.inspection_request_ph') }}" @unless ($canEdit) disabled @endunless>
+                        @error('e_inspection_request') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                    @endif
+
+                    {{-- 읽기전용 진행 정보 (현지확인·경매에서 채워짐) --}}
+                    <div class="mt-4 grid grid-cols-2 gap-3 text-xs text-gray-500">
+                        <div>{{ __('listings.drawer.local_total') }}<br><b class="text-sm text-gray-800">{{ $e->final_price ? number_format($e->final_price).__('common.won_currency') : __('listings.drawer.local_total_pending') }}</b></div>
+                        <div>{{ __('listings.drawer.status') }}<br><span class="badge {{ $e->statusBadge() }}">{{ $e->statusLabel() }}</span></div>
+                        <div>{{ __('listings.drawer.buyer') }}<br>@if ($e->verdictLabel())<span class="badge {{ $e->verdictBadge() }}">{{ $e->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</div>
+                        <div>{{ __('listings.drawer.buyer_name') }}<br><b class="text-gray-800">{{ $e->buyer_name ?: '—' }}</b></div>
                     </div>
-                @endif
+                </div>
 
-                @if ($e->source === 'encar')
-                    <label class="label-base mt-3">{{ __('listings.drawer.encar_url') }}</label>
-                    <input class="input-base" wire:model="e_encar_url" placeholder="{{ __('listings.drawer.encar_url_ph') }}" @unless ($canEdit) disabled @endunless>
-                    <label class="label-base mt-3">{{ __('listings.add_form.c_no') }} <span class="text-gray-400">{{ __('listings.add_form.c_no_hint') }}</span></label>
-                    <input class="input-base" wire:model="e_c_no" placeholder="{{ __('listings.drawer.c_no_ph') }}" @unless ($canEdit) disabled @endunless>
-                    @error('e_c_no') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                @else
-                    <label class="label-base mt-3">{{ __('listings.add_form.auction_venue') }}</label>
-                    <input class="input-base" wire:model="e_auction_venue" @unless ($canEdit) disabled @endunless>
-                    <label class="label-base mt-3">{{ __('listings.add_form.lot_number') }}</label>
-                    <input class="input-base" wire:model="e_lot_number" @unless ($canEdit) disabled @endunless>
-                @endif
+                {{-- ② 검차 — 현지확인대기 차가 왜 아직 안 넘어갔나(폴러 마지막 판정) + 사진만으로 넘기기 + 검차 결과 메모(읽기) --}}
+                <div class="{{ $drawerTab === 'inspection' ? '' : 'hidden' }}" role="tabpanel">
+                    @if ($e->status === 'draft' && ($hold = $e->ssancarHoldHint()))
+                        <div class="card-sm border-gray-200 bg-gray-50 text-[12px] text-gray-600">
+                            <div class="{{ ! empty($hold['alert']) ? 'font-semibold text-red-600' : '' }}">{{ ! empty($hold['alert']) ? '⚠' : '🔎' }} {{ __($hold['key'], $hold['params']) }}</div>
+                            @if ($e->inspection_skip_photo_url)
+                                <a href="{{ $e->inspection_skip_photo_url }}" target="_blank" rel="noopener" class="mt-1 inline-block text-[11px] text-blue-600 underline">{{ __('listings.drawer.skip_photo') }}</a>
+                            @endif
+                            @if ($this->reinspectable($e))
+                                <button type="button" class="btn-outline btn-sm mt-2 w-full justify-center"
+                                    wire:click="requestReinspection" wire:confirm="{{ __('listings.drawer.reinspect_confirm') }}">
+                                    🔁 {{ __('listings.drawer.reinspect_btn') }}
+                                </button>
+                            @endif
+                            @if ($this->forwardable($e))
+                                <button type="button" class="btn-outline btn-sm mt-2 w-full justify-center"
+                                    wire:click="forwardWithPhotos" wire:confirm="{{ __('listings.drawer.forward_photos_confirm') }}">
+                                    📨 {{ __('listings.drawer.forward_photos_btn') }}
+                                </button>
+                            @elseif ($canEdit && ! $e->hasAnyForwardMedia())
+                                <div class="mt-1 text-[11px] text-gray-400">{{ __('listings.drawer.forward_no_media') }}</div>
+                            @endif
+                        </div>
+                    @else
+                        <p class="text-[12px] text-gray-500">{{ __('listings.drawer.inspection_past', ['status' => $e->statusLabel()]) }}</p>
+                    @endif
+                    @if ($e->inspection_note)
+                        <div class="mt-3 text-[11px] text-gray-400">{{ __('listings.table.inspection_note') }}</div>
+                        <div class="text-[13px] text-gray-700">{{ $e->inspection_note }}</div>
+                    @endif
+                </div>
 
-                @if ($e->origin !== \App\Models\PurchaseListing::ORIGIN_SELF_INSPECTION)
-                    <label class="label-base mt-3">{{ __('listings.add_form.inspection_request') }} <span class="text-gray-400">{{ __('listings.add_form.inspection_request_hint') }}</span></label>
-                    <input class="input-base" wire:model="e_inspection_request" maxlength="255" placeholder="{{ __('listings.add_form.inspection_request_ph') }}" @unless ($canEdit) disabled @endunless>
-                    @error('e_inspection_request') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                @endif
+                {{-- ③ 첨부 — 구매·경매에서 올린 딜러 첨부(전 상태 — synced 포함). 읽기 + 추가. --}}
+                <div class="{{ $drawerTab === 'attach' ? '' : 'hidden' }}" role="tabpanel">
+                    @include('livewire.listings._sales-attachments')
+                </div>
 
-                {{-- 읽기전용 진행 정보 (현지확인·경매에서 채워짐) --}}
-                <div class="mt-4 grid grid-cols-2 gap-3 text-xs text-gray-500">
-                    <div>{{ __('listings.drawer.local_total') }}<br><b class="text-sm text-gray-800">{{ $e->final_price ? number_format($e->final_price).__('common.won_currency') : __('listings.drawer.local_total_pending') }}</b></div>
-                    <div>{{ __('listings.drawer.status') }}<br><span class="badge {{ $e->statusBadge() }}">{{ $e->statusLabel() }}</span></div>
-                    <div>{{ __('listings.drawer.buyer') }}<br>@if ($e->verdictLabel())<span class="badge {{ $e->verdictBadge() }}">{{ $e->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</div>
-                    <div>{{ __('listings.drawer.buyer_name') }}<br><b class="text-gray-800">{{ $e->buyer_name ?: '—' }}</b></div>
+                {{-- ④ Invoice — 송금인(여권/ID) Name·문서번호 → ERP · COMMERCIAL INVOICE --}}
+                <div class="{{ $drawerTab === 'invoice' ? '' : 'hidden' }}" role="tabpanel">
+                    @include('livewire.listings._invoice')
                 </div>
 
                 @if ($errors->any())
@@ -1601,30 +1918,6 @@ new #[Layout('components.layouts.app')] class extends Component {
                         @foreach ($errors->all() as $message)
                             <p>⚠ {{ $message }}</p>
                         @endforeach
-                    </div>
-                @endif
-
-                {{-- 현지확인대기 차 — 왜 아직 안 넘어갔나(폴러 마지막 판정, 현지확인 행과 같은 문구) + 사진만으로 넘기기 (2026-10-13 Jin) --}}
-                @if ($e->status === 'draft' && ($hold = $e->ssancarHoldHint()))
-                    <div class="card-sm mt-4 border-gray-200 bg-gray-50 text-[12px] text-gray-600">
-                        <div class="{{ ! empty($hold['alert']) ? 'font-semibold text-red-600' : '' }}">{{ ! empty($hold['alert']) ? '⚠' : '🔎' }} {{ __($hold['key'], $hold['params']) }}</div>
-                        @if ($e->inspection_skip_photo_url)
-                            <a href="{{ $e->inspection_skip_photo_url }}" target="_blank" rel="noopener" class="mt-1 inline-block text-[11px] text-blue-600 underline">{{ __('listings.drawer.skip_photo') }}</a>
-                        @endif
-                        @if ($this->reinspectable($e))
-                            <button type="button" class="btn-outline btn-sm mt-2 w-full justify-center"
-                                wire:click="requestReinspection" wire:confirm="{{ __('listings.drawer.reinspect_confirm') }}">
-                                🔁 {{ __('listings.drawer.reinspect_btn') }}
-                            </button>
-                        @endif
-                        @if ($this->forwardable($e))
-                            <button type="button" class="btn-outline btn-sm mt-2 w-full justify-center"
-                                wire:click="forwardWithPhotos" wire:confirm="{{ __('listings.drawer.forward_photos_confirm') }}">
-                                📨 {{ __('listings.drawer.forward_photos_btn') }}
-                            </button>
-                        @elseif ($canEdit && ! $e->hasAnyForwardMedia())
-                            <div class="mt-1 text-[11px] text-gray-400">{{ __('listings.drawer.forward_no_media') }}</div>
-                        @endif
                     </div>
                 @endif
 

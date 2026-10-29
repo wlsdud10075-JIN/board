@@ -43,6 +43,9 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $payee_name = '';
     public string $payee_bank = '';
     public string $payee_account = '';
+    // 송금인(여권/ID) — 2026-10-29 ②. 남의 차 정정은 여기뿐(매입예정 드로어는 본인 글만).
+    public string $remitter_name = '';
+    public string $remitter_id = '';
     public string $encar_url = '';
     public string $encar_dealer = '';
     public string $auction_venue = '';
@@ -146,6 +149,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->payee_name = $l->payee_name ?? '';
         $this->payee_bank = $l->payee_bank ?? '';
         $this->payee_account = $l->payee_account ?? '';
+        $this->remitter_name = $l->remitter_name ?? '';
+        $this->remitter_id = $l->remitter_id ?? '';
         $this->encar_url = $l->encar_url ?? '';
         $this->encar_dealer = $l->encar_dealer ?? '';
         $this->auction_venue = $l->auction_venue ?? '';
@@ -184,6 +189,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             'payee_name' => 'nullable|string|max:60',
             'payee_bank' => 'nullable|string|max:40',
             'payee_account' => 'nullable|string|max:40',
+            'remitter_name' => 'nullable|string|max:100',
+            'remitter_id' => 'nullable|string|max:64',
             'encar_url' => 'nullable|string|max:255',
             'encar_dealer' => 'nullable|string|max:100',
             'auction_venue' => 'nullable|string|max:100',
@@ -216,6 +223,14 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->payee_name = $this->payee_name ?: null;
         $l->payee_bank = $this->payee_bank ?: null;
         $l->payee_account = $this->payee_account ?: null;
+        // 송금인 — 바뀌면 ERP 전송 시각을 되돌린다(옛 값이 ERP 에 있는데 「전송됨」으로 남지 않게).
+        $rn = PurchaseListing::normalizeRemitterName($this->remitter_name);
+        $ri = PurchaseListing::normalizeRemitterId($this->remitter_id);
+        if ($rn !== $l->remitter_name || $ri !== $l->remitter_id) {
+            $l->remitter_synced_at = null;
+        }
+        $l->remitter_name = $rn;
+        $l->remitter_id = $ri;
         if ($this->source === 'encar') {
             $l->encar_url = $this->encar_url ?: null;
             $l->encar_dealer = $this->encar_dealer ?: null;
@@ -515,6 +530,15 @@ new #[Layout('components.layouts.app')] class extends Component {
                 </div>
                 <input class="input-base mt-2 font-mono" wire:model="payee_account" placeholder="{{ __('manage.payee_account') }}">
                 @error('payee_account') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+
+                {{-- 송금인(여권/ID) — 관리자 정정 경로(2026-10-29 ②). 저장 시 대문자 정규화, 바뀌면 ERP 전송 시각 리셋. --}}
+                <div class="section-title-sm mt-4">{{ __('manage.remitter_info') }} <span class="text-[11px] font-normal text-gray-400">{{ __('manage.remitter_info_sub') }}</span></div>
+                <div class="grid grid-cols-2 gap-2">
+                    <input class="input-base uppercase" wire:model="remitter_name" placeholder="{{ __('manage.remitter_name') }}" maxlength="100">
+                    <input class="input-base font-mono uppercase" wire:model="remitter_id" placeholder="{{ __('manage.remitter_id') }}" maxlength="64">
+                </div>
+                @error('remitter_name') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                @error('remitter_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 <div class="mt-5 flex gap-2">
                     <button class="btn-primary flex-1 justify-center" wire:click="save">{{ __('manage.save') }}</button>

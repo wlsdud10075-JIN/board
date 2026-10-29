@@ -15,7 +15,8 @@
         "league/flysystem-aws-s3-v3": "^3.0",
         "livewire/flux": "^2.0",
         "livewire/volt": "^1.6.7",
-        "minishlink/web-push": "^9.0"
+        "minishlink/web-push": "^9.0",
+        "phpoffice/phpspreadsheet": "^5.10"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

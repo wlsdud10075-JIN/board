@@ -12,7 +12,7 @@ use App\Models\PurchaseListing;
 class BoardAudit
 {
     /** 민감 필드(계좌번호 등) — 감사로그엔 값 대신 마스킹만 기록(§6e). */
-    private const MASKED = ['payee_account', 'selling_fee_payee_account'];
+    private const MASKED = ['payee_account', 'selling_fee_payee_account', 'seller_phone', 'remitter_id'];
 
     /**
      * 진짜 바뀌었나 — 숫자는 숫자로 비교한다(「12100.00」→「12100」 재저장은 변경 아님). ERP 는 이런 소음이 감사의 83% 였다
