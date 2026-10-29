@@ -4530,6 +4530,10 @@ class BoardTest extends TestCase
 
         $this->assertSame(1800.0, (float) $l->fresh()->transport_fee);
         $this->assertSame(1800, (int) $l->fresh()->transport_fee_usd);
+        // 2026-10-29 Jin — 덮어쓰기 전송은 board 감사로그에도 남는다(행위자·ERP id·6칸)
+        $row = BoardAuditLog::where('action', 'erp_overwrite_send')->latest('id')->first();
+        $this->assertSame($sales->id, $row->user_id);
+        $this->assertSame(385, json_decode($row->new_value, true)['erp_vehicle_id']);
         // 2026-10-29 Jin — 재전송 금액은 ERP 를 덮어쓴다(`amounts_overwrite: true`). 신규 생성·첨부 전용은 false.
         Http::assertSent(fn ($req) => ($b = json_decode($req->body(), true)) && (float) $b['transport_fee'] === 1800.0 && (float) $b['sale_price'] === 5700.0 && (int) $b['transport_fee_usd'] === 1800 && (int) $b['usd_exchange_rate'] === 1487 && $b['amounts_overwrite'] === true);
     }

@@ -577,6 +577,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
 
         $this->syncSince = $this->lastSyncEventId($l->id);
+        $this->logAmountsOverwriteSend($l);
         SyncWonListingToCarErp::dispatch($l->id, resync: true);
         $this->resyncResult = $this->latestSyncFields($l->id, $this->syncSince);
     }
@@ -782,6 +783,24 @@ new #[Layout('components.layouts.app')] class extends Component {
             'added' => isset($body['attachments_added']) ? (int) $body['attachments_added'] : null,
             'failed' => isset($body['attachments_failed']) ? (int) $body['attachments_failed'] : null,
         ];
+    }
+
+    /**
+     * 금액 덮어쓰기 전송 기록(2026-10-29 Jin — 「board 와 ERP 양쪽에 로그」). integration_events 에는 payload·ERP 응답(fields_overwritten·skipped)이
+     * 남지만 **누가 눌렀는지**가 없다(Job 은 큐에서 돈다) → 보낼 때마다 감사 행 1개: 행위자·매물·ERP vehicle_id·보낸 6칸 값. 값이 안 바뀐 재전송도 남긴다.
+     * ERP 쪽은 칸별 변경 행 + 「board 재전송 금액 덮어쓰기 (이메일)」 출처 행. 대조 키 = 매물 id + 시각.
+     */
+    private function logAmountsOverwriteSend(PurchaseListing $l): void
+    {
+        BoardAuditLog::create([
+            'user_id' => Auth::id(), 'purchase_listing_id' => $l->id, 'action' => 'erp_overwrite_send', 'field' => 'erp_amounts_overwrite',
+            'old_value' => null,
+            'new_value' => json_encode([
+                'erp_vehicle_id' => $l->car_erp_vehicle_id, 'sale_price' => $l->sale_price, 'currency' => $l->offer_currency, 'rate' => $l->offer_rate,
+                'transport_fee' => $l->transport_fee, 'transport_fee_usd' => $l->transport_fee_usd, 'usd_rate' => $l->offer_rate_usd,
+            ], JSON_UNESCAPED_UNICODE),
+            'ip_address' => BoardAuditLog::currentIp(),
+        ]);
     }
 
     /** ERP 호출용 영업 이메일 — 연동 B 와 같은 규칙(등록자 기준: 매핑 오버라이드 ?: 로그인 이메일). 관리·super 가 열어도 그 영업의 차로 묻는다. */
@@ -1054,6 +1073,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         //    둘 다 없으면 보내지 않는다. ERP 에 없는 차(미연동)는 보내지 않는다(낙찰 때 같이 간다).
         $flash = __('listings.drawer.updated_flash', ['number' => \App\Support\Plate::show($l->vehicle_number)]);
         if ($l->car_erp_vehicle_id && $amountChanged !== []) {
+            $this->logAmountsOverwriteSend($l);
             SyncWonListingToCarErp::dispatch($l->id, resync: true);
             $labels = array_map(fn ($f) => __('listings.resync.changed_field.'.$f), $amountChanged);
             $flash .= ' '.__('listings.resync.auto_sent', ['fields' => implode('·', $labels), 'count' => $stored['stored']]);
