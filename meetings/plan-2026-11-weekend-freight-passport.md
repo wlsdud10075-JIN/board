@@ -4,13 +4,15 @@
 
 | # | 항목 | 결정 | ERP 문서 | ERP 코드 | board 코드 | 남은 입력 |
 |---|---|---|---|---|---|---|
-| ① | 컨테이너 운임비 USD → 판매통화 운임비(총판매가·면장은 ERP cascade) | ✅ | `board-portal-api.md` §5 | 주말(1줄) | **없음**(SKILLS §12 문구 교체만) | — |
-| ② | 여권/ID 카드 Name·문서번호 → ERP 송금인 2칸 + 「송금증이름」 검색 + **board 전용 COMMERCIAL INVOICE(xlsx)** + 매입예정 드로어 탭 4개 + 메뉴 「매입예정(Invoice)」 | ✅ | §14 + receiver 「송금인 동봉」 + §4 `GET /buyers/{id}`(주소·전화) | 주말 | 주말(가장 큼) | — (양식·샘플 수령 완료) |
-| ③ | 포털 「적립금」 탭(본인 바이어별 잔액+이력) | ✅ | §4(`/by-buyer` `savings_balances[]`, `GET /buyers/{id}/savings`) | 주말 | 주말 | — |
-| ④ | 딜러 서류 OCR(사업자등록증 법인명·대표자, 명함 휴대폰) → purchase-sync `seller_*` 3필드 | ✅ | receiver 「딜러 서류 OCR 동봉」 | 주말 | 주말 | — |
+| ① | 컨테이너 운임비 USD → 판매통화 운임비(총판매가·면장은 ERP cascade) | ✅ | `board-portal-api.md` §5 | **dev `664cf7ca`**(응답 `freight_skipped{}` 추가) | **없음**(SKILLS §12 문구 교체 완료) | board 선적 계획에 `freight_skipped` 사유 표시(미구현) |
+| ② | 여권/ID 카드 Name·문서번호 → ERP 송금인 2칸 + 「송금증이름」 검색 + **board 전용 COMMERCIAL INVOICE(xlsx)** + 매입예정 드로어 탭 4개 + 메뉴 「매입예정(Invoice)」 | ✅ | §14 + receiver 「송금인 동봉」 + §4 `GET /buyers/{id}`(주소·전화) | **dev `ec19b348`** | **dev `9fa5ec3`·`19fa23b`·`91c6488`**(SKILLS §14-28) | Brand/Model = ERP `GET /vehicles/{id}` (a) 안 Jin 확인 대기(그 전엔 빈 칸) |
+| ③ | 포털 「적립금」 탭(본인 바이어별 잔액+이력) | ✅ | §4(`/by-buyer` `savings_balances[]`, `GET /buyers/{id}/savings`) | **dev `7412e92d`** | **dev `40d54b7`**(SKILLS §14-27) | — |
+| ④ | 딜러 서류 OCR(사업자등록증 법인명·대표자, 명함 휴대폰) → purchase-sync `seller_*` 3필드 | ✅ | receiver 「딜러 서류 OCR 동봉」 | **dev `4c88f02b`** | **dev `5cb7a03`**(SKILLS §14-15c) | 프롬프트 실검증(사업자등록증·명함 샘플 1장씩 — 아직 없음) |
 | ⑤ | super 전체 바이어 선택 | ✅ | §4 | **배포됨** `2349598f` | **배포됨** `f525c3b` | super 계정 `/users` 매핑 = ERP super 이메일 |
 
-**배포 순서(주말)**: ERP 먼저(②·③·④ 엔드포인트가 그 전엔 404/무시) → board. ① 은 ERP 단독. 양쪽 master 머지는 각자 Jin 허락.
+> ✅ **2026-10-29 양쪽 dev 구현 완료**(Jin 「ERP 와 연계된 것부터 진행」 — 주말보다 앞당김). 운영 배포는 ERP 먼저 → board, 각자 Jin 허락.
+
+**배포 순서**: ERP 먼저(②·③·④ 엔드포인트가 그 전엔 404/무시) → board. ① 은 ERP 단독. 양쪽 master 머지는 각자 Jin 허락.
 
 ### board 구현 순서(제안) — 의존 적은 것부터
 1. **④ 추출 확장** — `PayeeExtractor` 프롬프트·파싱에 법인명·대표자·휴대폰 추가(`doc_type` 사업자등록증·명함 활용) · `purchase_listings` 컬럼 3개(`seller_phone` encrypted) 마이그 · `BoardAudit::MASKED` 에 `seller_phone` · `/auction` 드로어 후보 섹션 2개(매입처·연락처) + [적용] · 버튼 이름 「📷 이미지에서 정보 찾기」(`payee_extract.find` 등 문구 5개) · `SyncWonListingToCarErp` payload `seller_company`·`seller_ceo`·`seller_phone`(숫자만) · integration_events payload 마스킹 확인 · 테스트.
