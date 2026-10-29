@@ -123,7 +123,8 @@ class InspectionQueueTest extends TestCase
                 && $d['event'] === 'queue.upsert' && $d['listing_id'] === $l->id && $d['plate'] === $l->vehicle_number
                 && $d['region'] === '경기 안산시' && $d['inspection_request'] === '하부 사진' && isset($d['event_id'], $d['created_at'])
                 && str_ends_with($d['created_at'], '+09:00')
-                && ! str_contains($body, '홍길동') && ! array_key_exists('car_cost', $d) && ! array_key_exists('owner_name', $d);
+                && ! str_contains($body, '홍길동') && ! array_key_exists('car_cost', $d) && ! array_key_exists('owner_name', $d)
+                && ! array_key_exists('urgent', $d) && ! array_key_exists('address', $d);   // P1 — 일상 upsert 엔 긴급 플래그·주소가 없다
         });
         $this->assertDatabaseHas('integration_events', ['target' => 'ssancar_inspection', 'event_type' => 'queue.upsert', 'purchase_listing_id' => $l->id]);
     }
@@ -317,6 +318,151 @@ class InspectionQueueTest extends TestCase
         $this->actingAs($kim);
         Volt::test('notify.bell')->call('refresh')->assertSet('unread', 1)
             ->call('openPanel')->assertSee(__('nav.bell.holds'))->assertSee('하부 부식');
+    }
+
+    // ───────────── P1 검차 예정일 · 긴급 요청 (2026-10-29, 스펙 §10-10) ─────────────
+
+    /** upsert 응답의 `work_date`·`urgent_decision` 을 받아 적는다(키 없으면 그대로). 일상 재발송(지역 수정)은 기각된 긴급이 있어도 `urgent` 를 싣지 않는다. */
+    public function test_upsert_response_stores_schedule_and_routine_resend_has_no_urgent(): void
+    {
+        $this->configure();
+        // 첫 upsert(생성) = 예정일·결정 null 응답 / 재발송(지역 수원) = 옛 ssancar 응답(키 없음) → 저장값 그대로여야 한다.
+        Http::fake(fn ($req) => str_contains($req->body(), '수원')
+            ? Http::response(['ok' => true, 'status' => 'queued'], 200)
+            : Http::response(['ok' => true, 'listing_id' => 1, 'status' => 'queued', 'wr_id' => null, 'work_date' => '2026-11-02', 'urgent_decision' => null], 200));
+        $l = $this->mkListing();
+        $l->refresh();
+        $this->assertSame('2026-11-02', $l->inspection_work_date->toDateString());
+        $this->assertNull($l->inspection_urgent_decision);
+
+        $l->forceFill(['inspection_urgent_decision' => 'rejected'])->save();
+        $l->update(['region' => '경기 수원시']);   // 큐 필드 변경 = 재발송
+        Http::assertSent(fn ($r) => ($d = json_decode($r->body(), true)) && ($d['region'] ?? null) === '경기 수원시'
+            && ! array_key_exists('urgent', $d) && ! array_key_exists('urgent_note', $d));
+        $l->refresh();
+        $this->assertSame('2026-11-02', $l->inspection_work_date->toDateString());
+        $this->assertSame('rejected', $l->inspection_urgent_decision);
+    }
+
+    /** 드로어 「긴급 검차 요청」 = upsert `urgent:true`(+사유) · 낙관적 pending → 응답이 덮는다 · 보류 차는 `reason=reinspect` 와 한 번에. */
+    public function test_urgent_request_sends_flag_and_note_and_reinspects_held_car(): void
+    {
+        $kim = $this->mkUser();
+        $l = $this->mkListing(['created_by_user_id' => $kim->id]);   // 설정 전 → 생성 upsert 안 나감
+        $this->configure();
+        Http::fake(['*' => Http::response(['ok' => true, 'listing_id' => $l->id, 'status' => 'queued', 'wr_id' => null, 'work_date' => '2026-11-02', 'urgent_decision' => 'pending'], 200)]);
+        $this->actingAs($kim);
+
+        Volt::test('listings.index')->call('openEdit', $l->id)->assertSee(__('listings.drawer.urgent_btn'))
+            ->set('e_urgent_note', '바이어 오늘 결정')->call('requestUrgent')->assertHasNoErrors();
+        Http::assertSent(fn ($r) => ($d = json_decode($r->body(), true)) && $d['event'] === 'queue.upsert'
+            && $d['urgent'] === true && $d['urgent_note'] === '바이어 오늘 결정' && ! array_key_exists('reason', $d));
+        $l->refresh();
+        $this->assertSame('pending', $l->inspection_urgent_decision);
+        $this->assertNotNull($l->inspection_urgent_requested_at);
+        $this->assertSame('바이어 오늘 결정', $l->inspection_urgent_note);
+        $this->assertSame('2026-11-02', $l->inspection_work_date->toDateString());
+        // 요청 중엔 버튼 대신 「승인 대기」(ssancar 가 pending·approved 는 무시한다)
+        Volt::test('listings.index')->call('openEdit', $l->id)->assertDontSee(__('listings.drawer.urgent_btn'))->assertSee('업무관리자 승인 대기');
+
+        // 기각된 뒤 보류까지 걸린 차 — 긴급 한 번에 재검차(reason=reinspect) + 패스·검차중 칸 비움
+        $l->forceFill(['inspection_urgent_decision' => 'rejected', 'inspection_skipped_at' => now(), 'inspection_skip_reason' => 'no_car',
+            'inspection_started_at' => now(), 'ssancar_inspector_name' => '김검차'])->save();
+        Volt::test('listings.index')->call('openEdit', $l->id)->assertSee(__('listings.drawer.urgent_btn'))->call('requestUrgent')->assertHasNoErrors();
+        Http::assertSent(fn ($r) => ($d = json_decode($r->body(), true)) && ($d['reason'] ?? null) === 'reinspect' && $d['urgent'] === true && ! array_key_exists('urgent_note', $d));
+        $l->refresh();
+        $this->assertNull($l->inspection_skipped_at);
+        $this->assertNull($l->ssancar_inspector_name);
+        $this->assertNull($l->inspection_urgent_decided_by);
+    }
+
+    /** 버튼 게이트 — 오늘 목록(work_date <= 오늘, 이월 포함)·요청 중·승인·연동 꺼짐이면 숨김, 기각이면 다시 보임(사유 표시). */
+    public function test_urgent_button_hidden_when_due_today_or_decided_and_shown_after_rejection(): void
+    {
+        $kim = $this->mkUser();
+        $l = $this->mkListing(['created_by_user_id' => $kim->id]);
+        $this->configure();
+        Bus::fake([SendInspectionQueueEvent::class]);
+        $this->actingAs($kim);
+
+        $l->forceFill(['inspection_work_date' => today()->toDateString()])->save();
+        Volt::test('listings.index')->call('openEdit', $l->id)->assertDontSee(__('listings.drawer.urgent_btn'))->assertSee(__('listings.drawer.urgent_today'));
+        $l->forceFill(['inspection_work_date' => today()->subDay()->toDateString()])->save();   // 이월 차 = 아직 오늘 목록(iq_due <=)
+        Volt::test('listings.index')->call('openEdit', $l->id)->assertDontSee(__('listings.drawer.urgent_btn'));
+        $l->forceFill(['inspection_work_date' => today()->addDay()->toDateString(), 'inspection_urgent_decision' => 'approved'])->save();
+        Volt::test('listings.index')->call('openEdit', $l->id)->assertDontSee(__('listings.drawer.urgent_btn'))->assertDontSee(__('listings.drawer.urgent_today'));
+        $l->forceFill(['inspection_urgent_decision' => 'rejected', 'inspection_urgent_decided_by' => '박관리', 'inspection_urgent_decided_at' => now(),
+            'inspection_urgent_decision_note' => '내일도 충분'])->save();
+        Volt::test('listings.index')->call('openEdit', $l->id)->assertSee(__('listings.drawer.urgent_btn'))->assertSee('내일도 충분')->assertSee(today()->addDay()->format('m-d'))->assertSee(__('listings.table.work_date'));
+
+        config(['services.ssancar_inspection.url' => '']);   // 연동 꺼진 박스 — 버튼 없음
+        Volt::test('listings.index')->call('openEdit', $l->id)->assertDontSee(__('listings.drawer.urgent_btn'));
+    }
+
+    /** 웹훅 — 모든 이벤트의 `work_date` 를 받아 적고, `inspection.urgent_decided` 는 칸 갱신 + 등록 영업 웹푸시 + 종. 큐 재발송은 없다. */
+    public function test_webhook_work_date_and_urgent_decided_update_fields_push_and_bell(): void
+    {
+        $kim = $this->mkUser();
+        $l = $this->mkListing(['created_by_user_id' => $kim->id]);
+        $this->configure();
+        Bus::fake([SendInspectionQueueEvent::class]);
+        config(['board.push.vapid_public' => 'pub', 'board.push.vapid_private' => 'priv', 'board.push.vapid_subject' => 'mailto:t@t.test']);
+        $sent = [];
+        app()->instance(WebPushService::class, new class($sent) extends WebPushService
+        {
+            public function __construct(private array &$sent) {}
+
+            protected function deliver(PushSubscription $sub, string $json): ?bool
+            {
+                $this->sent[] = json_decode($json, true);
+
+                return true;
+            }
+        });
+        PushSubscription::create(['user_id' => $kim->id, 'endpoint' => 'https://push.example/y',
+            'endpoint_hash' => PushSubscription::hashEndpoint('https://push.example/y'), 'p256dh' => 'k', 'auth_token' => 'a']);
+        $kim->forceFill(['portal_seen_at' => now()->subHour()])->save();
+
+        $this->hook(['event' => 'inspection.started', 'event_id' => 'w1', 'listing_id' => $l->id, 'at' => now()->toIso8601String(), 'work_date' => '2026-11-03',
+            'inspector' => ['mb_id' => 'k1', 'name' => '김검차']])->assertOk();
+        $this->assertSame('2026-11-03', $l->fresh()->inspection_work_date->toDateString());
+        $this->assertCount(0, $sent);   // 시작은 푸시 없음
+
+        $l->forceFill(['inspection_urgent_decision' => 'pending', 'inspection_urgent_requested_at' => now()])->save();
+        $this->hook(['event' => 'inspection.urgent_decided', 'event_id' => 'w2', 'listing_id' => $l->id, 'plate' => $l->vehicle_number, 'at' => now()->toIso8601String(),
+            'work_date' => today()->toDateString(), 'approved' => true, 'by' => ['mb_id' => 'm1', 'name' => '박관리'], 'note' => null])->assertJson(['status' => 'applied']);
+        $l->refresh();
+        $this->assertSame('approved', $l->inspection_urgent_decision);
+        $this->assertSame('박관리', $l->inspection_urgent_decided_by);
+        $this->assertNull($l->inspection_urgent_decision_note);
+        $this->assertTrue($l->inspectionDueToday());
+        $this->assertCount(1, $sent);
+        $this->assertStringContainsString(__('nav.bell.push_title_urgent_approved'), $sent[0]['title']);
+        $this->assertStringContainsString($l->vehicle_number, $sent[0]['title']);
+
+        $this->actingAs($kim);
+        Volt::test('notify.bell')->call('refresh')->assertSet('unread', 1)
+            ->call('openPanel')->assertSee(__('nav.bell.urgents'))->assertSee('박관리')->assertSee(__('nav.bell.urgent_chip_approved'));
+
+        $this->hook(['event' => 'inspection.urgent_decided', 'event_id' => 'w3', 'listing_id' => $l->id, 'at' => now()->toIso8601String(), 'work_date' => '2026-11-03',
+            'approved' => false, 'by' => ['mb_id' => 'm1', 'name' => '박관리'], 'note' => '내일 처리'])->assertOk();
+        $l->refresh();
+        $this->assertSame('rejected', $l->inspection_urgent_decision);
+        $this->assertSame('내일 처리', $l->inspection_urgent_decision_note);
+        $this->assertSame('2026-11-03', $l->inspection_work_date->toDateString());   // 기각 = 예정일 그대로
+        $this->assertCount(2, $sent);
+        $this->assertStringContainsString('내일 처리', $sent[1]['body']);
+        Bus::assertNotDispatched(SendInspectionQueueEvent::class);
+    }
+
+    /** 목록 「검차 예정일」 칸 — 현지확인대기 차만 날짜, 그 외는 —. */
+    public function test_list_shows_work_date_column(): void
+    {
+        $kim = $this->mkUser();
+        $l = $this->mkListing(['created_by_user_id' => $kim->id]);
+        $l->forceFill(['inspection_work_date' => '2026-11-05'])->save();
+        $this->actingAs($kim);
+        Volt::test('listings.index')->assertSee(__('listings.table.work_date'))->assertSee('11-05');
     }
 
     // ───────────── B4 일일 대사 ─────────────

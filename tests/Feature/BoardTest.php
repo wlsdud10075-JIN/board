@@ -1778,6 +1778,7 @@ class BoardTest extends TestCase
             ->set('selling_fee', '440000')
             ->set('quoteCurrency', 'KRW')
             ->set('sale_total', '400000')
+            ->set('rate_usd', '1400')   // 2026-10-29 환율 USD 필수(통화 무관) — 이 테스트의 관심사는 매도비 규칙
             ->call('conclude', $l->id, 'won')
             ->assertHasNoErrors();
 

@@ -41,6 +41,9 @@ new class extends Component
     /** 검차 보류(ssancar 검차원 패스) — **board DB** 에서 센다(ERP 아님). 내가 등록한 현지확인대기 차만(2026-10-23 Jin). */
     public array $holds = [];
 
+    /** 긴급 검차 결정(ssancar 업무관리자 승인·기각, P1 2026-10-29) — board DB. 내가 등록한 현지확인대기 차만. */
+    public array $urgents = [];
+
     /** 마지막 열람 시각(ISO8601) — 미읽음 판정 기준. 패널을 열 때 now 로 갱신된다. */
     public ?string $seenAt = null;
 
@@ -110,6 +113,16 @@ new class extends Component
             ->orderByDesc('inspection_skipped_at');
     }
 
+    /** 내 긴급 검차 결정 — 결정 시각 최신순(P1). 보류와 같은 꼴(board 값). 차가 draft 를 벗어나면(검차돼 전달대기) 자연히 빠진다. */
+    private function urgentQuery()
+    {
+        return \App\Models\PurchaseListing::query()
+            ->where('created_by_user_id', Auth::id())
+            ->where('status', 'draft')
+            ->whereNotNull('inspection_urgent_decided_at')
+            ->orderByDesc('inspection_urgent_decided_at');
+    }
+
     /** 폴링(30초) — 배지 갱신 + 새로 끝난 결과 토스트. 패널이 열려 있으면 목록은 건드리지 않는다(읽는 중 하이라이트가 사라진다). */
     public function refresh(): void
     {
@@ -118,6 +131,16 @@ new class extends Component
         $holdFresh = $this->holdQuery()->where('inspection_skipped_at', '>', Carbon::parse($this->pollFrom))->count();
         if ($holdFresh > 0) {
             $this->dispatch('forward-arrived', type: 'rejected', msg: __('nav.bell.toast_hold', ['count' => $holdFresh]));
+        }
+        // 긴급 검차 결정(P1) — 승인 = 초록(확인과 같은 무게), 기각 = 빨간(거절과 같은 무게).
+        $holdUnread += $this->urgentQuery()->where('inspection_urgent_decided_at', '>', Carbon::parse($this->seenAt))->count();
+        $urgentFresh = $this->urgentQuery()->where('inspection_urgent_decided_at', '>', Carbon::parse($this->pollFrom))->get();
+        $urgentOk = $urgentFresh->where('inspection_urgent_decision', 'approved')->count();
+        if ($urgentOk > 0) {
+            $this->dispatch('forward-arrived', type: 'done', msg: __('nav.bell.toast_urgent_approved', ['count' => $urgentOk]));
+        }
+        if ($urgentFresh->count() - $urgentOk > 0) {
+            $this->dispatch('forward-arrived', type: 'rejected', msg: __('nav.bell.toast_urgent_rejected', ['count' => $urgentFresh->count() - $urgentOk]));
         }
 
         $lines = $this->lines($this->seenAt);
@@ -156,6 +179,16 @@ new class extends Component
             'text' => ($h = $l->ssancarHoldHint()) ? __($h['key'], $h['params']) : '',
             'at' => $l->inspection_skipped_at->timezone(config('app.timezone'))->format('m-d H:i'),
             'new' => $l->inspection_skipped_at->gt($seen),
+        ])->all();
+        $this->urgents = $this->urgentQuery()->limit(20)->get()->map(fn ($l) => [
+            'id' => $l->id,
+            'plate' => $l->vehicle_number,
+            'approved' => $l->inspection_urgent_decision === 'approved',
+            'text' => $l->inspection_urgent_decision === 'approved'
+                ? __('nav.bell.urgent_approved_body', ['date' => $l->inspection_work_date?->format('m-d') ?? '—', 'by' => $l->inspection_urgent_decided_by ?: '—'])
+                : __('nav.bell.urgent_rejected_body', ['by' => $l->inspection_urgent_decided_by ?: '—', 'note' => $l->inspection_urgent_decision_note ? ' · '.$l->inspection_urgent_decision_note : '']),
+            'at' => $l->inspection_urgent_decided_at->timezone(config('app.timezone'))->format('m-d H:i'),
+            'new' => $l->inspection_urgent_decided_at->gt($seen),
         ])->all();
         // 패널도 전체 이력을 끌어오지 않는다 — 최근 PANEL_WINDOW_DAYS 일(ERP `since` = updated_at 기준)만.
         //   진행 중(open) 라인도 같은 호출에서 나오므로 그보다 오래 방치된 open 요청은 여기 안 보인다(포털 칩엔 보인다).
@@ -258,6 +291,21 @@ new class extends Component
                             </div>
                             <p class="mt-0.5 text-[12px] text-red-700">{{ $h['text'] }}</p>
                             <p class="mt-0.5 text-[11px] text-gray-400">{{ $h['at'] }}@if ($h['new'])<span class="ml-1 rounded bg-red-600 px-1 text-[10px] font-bold text-white">{{ __('nav.bell.new') }}</span>@endif</p>
+                        </a>
+                    @endforeach
+                @endif
+
+                {{-- 긴급 검차 결정(P1, 2026-10-29) — ssancar 업무관리자가 승인(초록)·기각(빨강). board 값이라 ERP 가 죽어도 보인다. --}}
+                @if ($urgents)
+                    <div class="px-3 pt-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">{{ __('nav.bell.urgents') }}</div>
+                    @foreach ($urgents as $g)
+                        <a wire:key="bell-u-{{ $g['id'] }}" href="{{ route('listings') }}" wire:navigate class="block border-b border-gray-50 px-3 py-2 hover:bg-gray-50 {{ $g['new'] ? ($g['approved'] ? 'bg-green-50/60' : 'bg-red-50/60') : '' }}">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-[13px] font-semibold text-gray-800">{{ \App\Support\Plate::show($g['plate']) }}</span>
+                                <span class="badge {{ $g['approved'] ? 'badge-green' : 'badge-red' }} shrink-0 whitespace-nowrap">{{ $g['approved'] ? __('nav.bell.urgent_chip_approved') : __('nav.bell.urgent_chip_rejected') }}</span>
+                            </div>
+                            <p class="mt-0.5 text-[12px] {{ $g['approved'] ? 'text-green-700' : 'text-red-700' }}">{{ $g['text'] }}</p>
+                            <p class="mt-0.5 text-[11px] text-gray-400">{{ $g['at'] }}@if ($g['new'])<span class="ml-1 rounded bg-red-600 px-1 text-[10px] font-bold text-white">{{ __('nav.bell.new') }}</span>@endif</p>
                         </a>
                     @endforeach
                 @endif

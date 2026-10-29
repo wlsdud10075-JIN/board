@@ -19,7 +19,8 @@ use Illuminate\Support\Carbon;
  */
 class SsancarInspectionWebhookController extends Controller
 {
-    private const EVENTS = ['inspection.started', 'inspection.completed', 'inspection.skipped', 'inspection.reopened', 'inspection.media_updated'];
+    private const EVENTS = ['inspection.started', 'inspection.completed', 'inspection.skipped', 'inspection.reopened', 'inspection.media_updated',
+        'inspection.urgent_decided'];   // P1(2026-10-29) — 긴급 요청 승인·기각(ssancar 업무관리자)
 
     public function __invoke(Request $request): JsonResponse
     {
@@ -97,23 +98,51 @@ class SsancarInspectionWebhookController extends Controller
                 $l->inspection_skip_memo = null;
                 $l->inspection_skip_photo_url = null;
                 break;
+            case 'inspection.urgent_decided':
+                // P1 — ssancar 업무관리자의 긴급 결정. 승인이면 work_date 가 오늘(영업일)로 같이 온다. 결정자는 이름만 저장.
+                $l->inspection_urgent_decision = $request->boolean('approved') ? 'approved' : 'rejected';
+                $l->inspection_urgent_decided_at = $at;
+                $l->inspection_urgent_decided_by = ($by = $request->input('by.name')) ? mb_substr((string) $by, 0, 60) : null;
+                $l->inspection_urgent_decision_note = ($n = $request->input('note')) ? mb_substr((string) $n, 0, 255) : null;
+                break;
             case 'inspection.media_updated':
                 return ['ignored_event', $l->id, null];   // 미디어는 폴러가 본다
+        }
+        // P1 — 모든 이벤트가 `work_date`(검차 예정일, ssancar 소유 값)를 실어 온다. 키가 있을 때만 받아 적는다(YYYY-MM-DD 아니면 비움).
+        if ($request->has('work_date')) {
+            $wd = $request->input('work_date');
+            $l->inspection_work_date = (is_string($wd) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $wd)) ? $wd : null;
         }
         $l->save();   // 큐 필드가 아니라 판정식·재발송은 안 걸린다
 
         if ($event === 'inspection.skipped') {
-            $this->pushSkipped($l);
+            $this->pushToCreator($l, 'board-hold-'.$l->id, function () use ($l) {
+                $h = $l->ssancarHoldHint();
+
+                return [__('nav.bell.push_title_hold'), $h ? __($h['key'], $h['params']) : ''];
+            });
+        } elseif ($event === 'inspection.urgent_decided') {
+            // 보류 알림(board-hold-)과 다른 tag — 서로 덮어쓰지 않게.
+            $this->pushToCreator($l, 'board-urgent-'.$l->id, function () use ($l) {
+                $by = $l->inspection_urgent_decided_by ?: '—';
+                if ($l->inspection_urgent_decision === 'approved') {
+                    return [__('nav.bell.push_title_urgent_approved'), __('nav.bell.urgent_approved_body', ['date' => $l->inspection_work_date?->format('m-d') ?? '—', 'by' => $by])];
+                }
+
+                return [__('nav.bell.push_title_urgent_rejected'), __('nav.bell.urgent_rejected_body', ['by' => $by, 'note' => $l->inspection_urgent_decision_note ? ' · '.$l->inspection_urgent_decision_note : ''])];
+            });
         }
 
         return ['applied', $l->id, null];
     }
 
     /**
-     * 패스 → 등록한 영업에게 웹푸시(진동·소리, 2026-10-23 Jin — 알림톡 말고). 종 배지는 종 컴포넌트가 board DB 에서 센다.
-     * 푸시 실패가 웹훅 응답을 깨지 않는다(ssancar 재시도 유발 금지).
+     * 등록한 영업에게 웹푸시(진동·소리, 2026-10-23 Jin — 알림톡 말고). 종 배지는 종 컴포넌트가 board DB 에서 센다.
+     * 푸시 실패가 웹훅 응답을 깨지 않는다(ssancar 재시도 유발 금지). 제목·본문은 **수신자 로케일**로 만든다 → `$text` 는 로케일을 바꾼 뒤 부른다.
+     *
+     * @param  callable(): array{0:string,1:string}  $text  [제목, 본문]
      */
-    private function pushSkipped(PurchaseListing $l): void
+    private function pushToCreator(PurchaseListing $l, string $tag, callable $text): void
     {
         $u = $l->creator;
         if (! $u || ! $u->is_active || ! WebPushService::configured()) {
@@ -122,12 +151,12 @@ class SsancarInspectionWebhookController extends Controller
         $prev = app()->getLocale();
         try {
             app()->setLocale($u->locale ?: $prev);
-            $h = $l->ssancarHoldHint();
+            [$title, $body] = $text();
             app(WebPushService::class)->sendToUser($u, [
-                'title' => __('nav.bell.push_title_hold').' — '.Plate::show($l->vehicle_number),
-                'body' => $h ? __($h['key'], $h['params']) : '',
+                'title' => $title.' — '.Plate::show($l->vehicle_number),
+                'body' => $body,
                 'url' => route('listings'),
-                'tag' => 'board-hold-'.$l->id,
+                'tag' => $tag,
                 'sticky' => true,
             ]);
         } catch (\Throwable $e) {
