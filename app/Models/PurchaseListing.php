@@ -309,7 +309,7 @@ class PurchaseListing extends Model
      * 재료는 폴러가 남긴 마지막 판정(`ssancar_checked_at`·소스별 개수)뿐이다. 화면에서 ssancar 를 직접 묻지 않는다.
      *
      * @return array{key:string, params:array, alert?:bool}|null lang 키(inspection.hold_*) + 치환값. draft 아니면 null.
-     *                                                           `alert` = 영업이 손을 써야 하는 경우(검차 보류·지역 미지정) — 화면이 빨간 굵은 글씨 + ⚠ 로 띄운다(2026-10-24 Jin).
+     *   `alert` = 영업이 손을 써야 하는 경우(검차 보류·지역 미지정) — 화면이 빨간 굵은 글씨 + ⚠ 로 띄운다(2026-10-24 Jin).
      */
     public function ssancarHoldHint(): ?array
     {

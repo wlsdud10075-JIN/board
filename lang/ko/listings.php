@@ -269,6 +269,25 @@ return [
         'stock_purchase' => '재고매입(바이어 미정) 차량입니다 — 판매가와 바이어는 ERP 차량관리에서 지정하세요. 여기서 보내면 ERP 에 반영되지 않습니다.',
     ],
 
+    // Invoice 탭 — 송금인(여권/ID) (2026-10-29 ②)
+    'invoice' => [
+        'hint' => '여권 또는 ID 카드의 이름과 문서 번호입니다. ERP 송금인 칸과 COMMERCIAL INVOICE 에 쓰입니다. 어느 상태에서든 수정할 수 있습니다.',
+        'name' => 'Name',
+        'name_hint' => '문서 표기 그대로 (SURNAME GIVEN NAMES)',
+        'name_ph' => 'SURNAME GIVEN NAMES',
+        'id' => 'ID (Passport / ID Card No.)',
+        'id_hint' => '여권번호 또는 ID 카드 번호 — 개인번호 아님',
+        'id_ph' => 'AB1234567',
+        'save' => '송금인 저장',
+        'saved' => '저장했습니다. 값이 바뀌어 ERP 에는 다시 보내야 합니다.',
+        'saved_unchanged' => '바뀐 내용이 없습니다.',
+        'saved_cleared_note' => '저장했습니다. 비운 칸은 ERP 로 전파되지 않습니다 — ERP 의 기존 값은 그대로 남습니다(지우기는 ERP 화면에서).',
+        'state_none' => '미입력',
+        'state_entered' => 'ERP 미전송',
+        'state_no_erp_vehicle' => 'ERP 차량 없음 — 구매확정 시 함께 전송됩니다',
+        'state_synced' => 'ERP 전송됨 · :at',
+    ],
+
     'attach_view' => [
         'title' => '딜러 차량 첨부',
         'hint' => '지금 올라가 있는 것 (삭제는 「경매/구매」 화면에서)',
@@ -295,6 +314,9 @@ return [
 
     'drawer' => [
         'title' => ':number · 매입예정 수정',
+        // 탭 4개(2026-10-29 ②)
+        'tab' => ['basic' => '기본', 'inspection' => '검차', 'attach' => '첨부', 'invoice' => 'Invoice'],
+        'inspection_past' => '검차 단계는 지났습니다 — 현재 상태 :status. 검차 사진·영상은 「첨부」와 전달 화면에서 봅니다.',
         'money_moved' => '금액·입금계좌·차량첨부는 이후 단계(견적·전달 / 구매확정)에서 입력합니다.',
         'summary_locked' => '식별값(차량번호·VIN)·출처는 수정 불가',
         'method_auction' => '경매',

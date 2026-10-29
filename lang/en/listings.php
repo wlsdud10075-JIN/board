@@ -269,6 +269,24 @@ return [
         'stock_purchase' => 'This is a stock purchase (no buyer yet) — assign the sale price and buyer in ERP vehicle management. Sending from here has no effect in the ERP.',
     ],
 
+    'invoice' => [
+        'hint' => 'Name and document number from the passport or ID card. Used for the ERP remitter field and the COMMERCIAL INVOICE. Editable in any status.',
+        'name' => 'Name',
+        'name_hint' => 'As printed (SURNAME GIVEN NAMES)',
+        'name_ph' => 'SURNAME GIVEN NAMES',
+        'id' => 'ID (Passport / ID card no.)',
+        'id_hint' => 'Passport number or ID card number — not the personal number',
+        'id_ph' => 'AB1234567',
+        'save' => 'Save remitter',
+        'saved' => 'Saved. The value changed, so it must be sent to ERP again.',
+        'saved_unchanged' => 'Nothing changed.',
+        'saved_cleared_note' => 'Saved. Cleared fields are not propagated — the existing ERP value stays (clear it in ERP).',
+        'state_none' => 'Not entered',
+        'state_entered' => 'Not sent to ERP',
+        'state_no_erp_vehicle' => 'No ERP vehicle yet — sent together at purchase confirmation',
+        'state_synced' => 'Sent to ERP · :at',
+    ],
+
     'attach_view' => [
         'title' => 'Dealer vehicle attachments',
         'hint' => 'Already uploaded (delete on the auction/purchase screen)',
@@ -294,6 +312,8 @@ return [
     ],
 
     'drawer' => [
+        'tab' => ['basic' => 'Basic', 'inspection' => 'Inspection', 'attach' => 'Files', 'invoice' => 'Invoice'],
+        'inspection_past' => 'Inspection stage is over — current status :status. Inspection photos/videos are under "Files" and the forwarding screen.',
         'title' => ':number · Edit purchase',
         'money_moved' => 'Amount, payout account, and vehicle attachments are entered in later steps (Quote/Forward · Purchase confirm).',
         'summary_locked' => 'Identifiers (vehicle no. · VIN) and source cannot be edited',

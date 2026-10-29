@@ -92,6 +92,60 @@ class BoardTest extends TestCase
      * ⇒ 연동 B 로 ERP 에 넘어가면(**synced**) board 어디서도 다시 볼 수 없었다.
      * 매입예정 드로어가 그 조회처다 — 본인 차를 **전 상태**로 열 수 있는 유일한 화면이라서.
      */
+    /**
+     * 2026-10-29 ② Invoice 탭 — 송금인 저장은 **전 상태**(synced·시간잠금 포함)에서 되고 `update()` 락과 무관하다.
+     * 정규화 = 이름 대문자·공백 1 / ID 대문자 영숫자. ID 는 at-rest 암호화 + 감사 ***. 값이 바뀌면 remitter_synced_at 이 비워진다.
+     */
+    public function test_listings_invoice_tab_saves_remitter_in_any_status_and_resets_sync(): void
+    {
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 188, 'remitter_name' => 'OLD NAME', 'remitter_synced_at' => now()]);
+        $this->actingAs($kim);
+
+        $t = Volt::test('listings.index')->call('openEdit', $l->id)
+            ->assertSet('drawerTab', 'basic')->assertSee(__('listings.drawer.tab.invoice'))
+            ->assertSee('ERP 전송됨')
+            ->call('$set', 'drawerTab', 'invoice')->assertSet('drawerTab', 'invoice')
+            ->set('e_remitter_name', '  eriksson   anna maria ')->set('e_remitter_id', 'l898-902 c3')
+            ->call('saveRemitter')->assertHasNoErrors()
+            ->assertSet('e_remitter_name', 'ERIKSSON ANNA MARIA')->assertSet('e_remitter_id', 'L898902C3');
+
+        $l->refresh();
+        $this->assertSame('ERIKSSON ANNA MARIA', $l->remitter_name);
+        $this->assertSame('L898902C3', $l->remitter_id);
+        $this->assertNull($l->remitter_synced_at);   // 값이 바뀌었으니 「미전송」으로
+        $this->assertSame('entered', $l->invoiceState());
+        $this->assertNotSame('L898902C3', \DB::table('purchase_listings')->where('id', $l->id)->value('remitter_id'));
+        $this->assertSame('***', BoardAuditLog::where('field', 'remitter_id')->latest('id')->value('new_value'));
+        $this->assertSame('ERIKSSON ANNA MARIA', BoardAuditLog::where('field', 'remitter_name')->latest('id')->value('new_value'));
+
+        // 같은 값 재저장 = 변경 없음(전송 시각도 안 건드림), 비우면 ERP 값은 남는다는 안내
+        $t->call('saveRemitter')->assertSee('바뀐 내용이 없습니다');
+        $l->forceFill(['remitter_synced_at' => now()])->saveQuietly();
+        $t->call('openEdit', $l->id)->set('e_remitter_id', '')->call('saveRemitter')->assertSee('ERP 로 전파되지 않습니다');
+        $this->assertNull($l->fresh()->remitter_id);
+    }
+
+    /** 목록 「Invoice」 칸·/manage 2칸 — 미입력/입력됨/ERP 전송됨 판정은 invoiceState() 하나. */
+    public function test_listings_invoice_column_and_manage_fields(): void
+    {
+        $kim = $this->mkUser('sales');
+        $this->mkListing($kim, ['vehicle_number' => '11가1111']);
+        $this->mkListing($kim, ['vehicle_number' => '22나2222', 'remitter_name' => 'JOHN DOE']);
+        $this->mkListing($kim, ['vehicle_number' => '33다3333', 'remitter_name' => 'JANE ROE', 'remitter_synced_at' => now()]);
+        $this->actingAs($kim);
+        Volt::test('listings.index')->assertSee('미입력')->assertSee('입력됨')->assertSee('ERP 전송됨')->assertSee('매입예정(Invoice)');
+
+        $admin = $this->mkUser('manager');
+        $l = $this->mkListing($kim, ['remitter_name' => 'JOHN DOE', 'remitter_synced_at' => now()]);
+        $this->actingAs($admin);
+        Volt::test('manage.index')->call('openEdit', $l->id)->assertSet('remitter_name', 'JOHN DOE')
+            ->set('remitter_id', 'ab 12')->call('save')->assertHasNoErrors();
+        $l->refresh();
+        $this->assertSame('AB12', $l->remitter_id);
+        $this->assertNull($l->remitter_synced_at);
+    }
+
     public function test_listings_drawer_shows_dealer_attachments_even_after_synced(): void
     {
         $kim = $this->mkUser('sales');
