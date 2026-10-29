@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\BoardAuditLog;
 use App\Models\IntegrationEvent;
 use App\Models\PurchaseListing;
 use App\Services\WebPushService;
@@ -100,6 +101,7 @@ class SsancarInspectionWebhookController extends Controller
                 break;
             case 'inspection.urgent_decided':
                 // P1 — ssancar 업무관리자의 긴급 결정. 승인이면 work_date 가 오늘(영업일)로 같이 온다. 결정자는 이름만 저장.
+                $prevDecision = $l->inspection_urgent_decision;
                 $l->inspection_urgent_decision = $request->boolean('approved') ? 'approved' : 'rejected';
                 $l->inspection_urgent_decided_at = $at;
                 $l->inspection_urgent_decided_by = ($by = $request->input('by.name')) ? mb_substr((string) $by, 0, 60) : null;
@@ -114,6 +116,16 @@ class SsancarInspectionWebhookController extends Controller
             $l->inspection_work_date = (is_string($wd) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $wd)) ? $wd : null;
         }
         $l->save();   // 큐 필드가 아니라 판정식·재발송은 안 걸린다
+
+        if ($event === 'inspection.urgent_decided') {
+            // 결정도 변경 이력에(Jin 2026-10-29 「board 에서 일어나는 모든 건 로그」). 변경자 없음 = 「시스템」, 결정자 이름은 값에.
+            BoardAuditLog::create([
+                'user_id' => null, 'purchase_listing_id' => $l->id, 'action' => 'inspection_urgent_decided', 'field' => 'inspection_urgent_decision',
+                'old_value' => $prevDecision ?? null,
+                'new_value' => json_encode(['decision' => $l->inspection_urgent_decision, 'by' => $l->inspection_urgent_decided_by,
+                    'note' => $l->inspection_urgent_decision_note, 'work_date' => $l->inspection_work_date?->toDateString()], JSON_UNESCAPED_UNICODE),
+            ]);
+        }
 
         if ($event === 'inspection.skipped') {
             $this->pushToCreator($l, 'board-hold-'.$l->id, function () use ($l) {

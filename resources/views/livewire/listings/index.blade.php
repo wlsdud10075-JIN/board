@@ -494,6 +494,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                 'inspection_skip_photo_url' => null, 'inspection_started_at' => null, 'ssancar_inspector_name' => null];
         }
         $l->forceFill($fill)->save();
+        // board 에서 일어나는 일은 전부 감사 행으로(Jin 2026-10-29 — ERP 와 같은 원칙). 누가·언제·사유·그때 예정일. 결정은 웹훅 수신 때 별도 행.
+        BoardAuditLog::create([
+            'user_id' => Auth::id(), 'purchase_listing_id' => $l->id, 'action' => 'inspection_urgent_request', 'field' => 'inspection_urgent_request',
+            'old_value' => null,
+            'new_value' => json_encode(['note' => $fill['inspection_urgent_note'], 'work_date' => $l->inspection_work_date?->toDateString(),
+                'reinspect' => $wasSkipped], JSON_UNESCAPED_UNICODE),
+        ]);
         \App\Jobs\SendInspectionQueueEvent::dispatch($l->id, 'upsert', $wasSkipped ? 'reinspect' : null, urgent: true)->afterCommit();
 
         unset($this->listings, $this->tabCounts, $this->editing);

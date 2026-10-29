@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Jobs\SendInspectionQueueEvent;
+use App\Models\BoardAuditLog;
 use App\Models\IntegrationEvent;
 use App\Models\PurchaseListing;
 use App\Models\PushSubscription;
@@ -363,6 +364,9 @@ class InspectionQueueTest extends TestCase
         $this->assertNotNull($l->inspection_urgent_requested_at);
         $this->assertSame('바이어 오늘 결정', $l->inspection_urgent_note);
         $this->assertSame('2026-11-02', $l->inspection_work_date->toDateString());
+        // 감사 행(Jin 2026-10-29 「board 에서 일어나는 모든 건 로그」) — 누가·사유
+        $this->assertDatabaseHas('board_audit_logs', ['user_id' => $kim->id, 'purchase_listing_id' => $l->id, 'action' => 'inspection_urgent_request', 'field' => 'inspection_urgent_request']);
+        $this->assertStringContainsString('바이어 오늘 결정', BoardAuditLog::where('action', 'inspection_urgent_request')->latest('id')->value('new_value'));
         // 요청 중엔 버튼 대신 「승인 대기」(ssancar 가 pending·approved 는 무시한다)
         Volt::test('listings.index')->call('openEdit', $l->id)->assertDontSee(__('listings.drawer.urgent_btn'))->assertSee('업무관리자 승인 대기');
 
@@ -455,6 +459,13 @@ class InspectionQueueTest extends TestCase
         $this->assertSame('2026-11-03', $l->inspection_work_date->toDateString());   // 기각 = 예정일 그대로
         $this->assertCount(2, $sent);
         $this->assertStringContainsString('내일 처리', $sent[1]['body']);
+        // 결정 감사 행 2개(승인·기각) — 변경자 없음(시스템), 결정자·사유는 값에
+        $rows = BoardAuditLog::where('purchase_listing_id', $l->id)->where('action', 'inspection_urgent_decided')->orderBy('id')->get();
+        $this->assertCount(2, $rows);
+        $this->assertNull($rows[0]->user_id);
+        $this->assertSame('pending', $rows[0]->old_value);
+        $this->assertStringContainsString('"approved"', $rows[0]->new_value);
+        $this->assertStringContainsString('내일 처리', $rows[1]->new_value);
         Bus::assertNotDispatched(SendInspectionQueueEvent::class);
     }
 
