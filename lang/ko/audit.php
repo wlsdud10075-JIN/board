@@ -55,6 +55,7 @@ return [
         'selling_fee' => '매도비',
         'transport_fee' => '운임비',
         'transport_fee_usd' => '운임비USD',
+        'erp_amounts_overwrite' => 'ERP 금액 덮어쓰기 전송',   // 2026-10-29 — 누가 언제 보냈나(값 JSON), 결과는 전송 표 응답
         'offer_rate_usd' => 'USD환율',
         'offer_rate_eur' => 'EUR환율',
         'buyer_undecided' => '바이어미정',

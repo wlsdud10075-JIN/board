@@ -55,6 +55,7 @@ return [
         'selling_fee' => 'Selling fee',
         'transport_fee' => 'Transport fee',
         'transport_fee_usd' => 'Transport fee USD',
+        'erp_amounts_overwrite' => 'ERP amounts overwrite sent',
         'offer_rate_usd' => 'USD rate',
         'offer_rate_eur' => 'EUR rate',
         'buyer_undecided' => 'Buyer undecided',
