@@ -235,7 +235,7 @@ return [
     // Edit drawer
     'resync' => [
         'title' => '💰 Resend the amount',
-        'hint' => 'Saving also sends changed amounts to ERP · this button sends amounts right away',
+        'hint' => 'Saving also sends changed amounts to ERP · this button sends amounts right away · board amounts overwrite the ERP sale fields',
         'sale_price' => 'Sale price',
         'currency' => 'Currency',
         'rate' => 'FX rate',
@@ -255,8 +255,9 @@ return [
         'not_synced_yet' => 'This vehicle has not been sent to ERP yet. Available after purchase confirmation.',
         'currency_required' => 'Select a currency — without it ERP will not store the sale price.',
         'rate_required' => 'Enter the FX rate — without it ERP withholds the sale price entirely.',
-        'filled' => 'Applied in ERP: :fields',
-        'nothing_filled' => 'Nothing was filled in ERP — the fields may already have values, or were withheld due to a missing FX rate.',
+        'filled' => 'Filled in ERP: :fields',
+        'overwritten' => 'Changed in ERP: :fields',
+        'nothing_filled' => 'Nothing changed in ERP — same values, or withheld for a missing rate.',
         'queued' => 'Queued for the ERP — the result will appear here in a few seconds.',
         // Keys the ERP returns, in plain words. Unknown values fall back to the raw key.
         'field' => [

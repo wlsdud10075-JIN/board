@@ -235,7 +235,7 @@ return [
     // 편집 드로어
     'resync' => [
         'title' => '💰 금액 다시 보내기',
-        'hint' => '저장하면 바뀐 금액이 함께 ERP 로 갑니다 · 이 버튼은 금액만 즉시 보내기',
+        'hint' => '저장하면 바뀐 금액이 함께 ERP 로 갑니다 · 이 버튼은 금액만 즉시 보내기 · board 금액이 ERP 판매측을 덮어씁니다',
         'sale_price' => '판매가',
         'currency' => '통화',
         'rate' => '환율',
@@ -256,8 +256,9 @@ return [
         'not_synced_yet' => '아직 ERP 로 전송되지 않은 차량입니다. 구매확정 후에 사용할 수 있습니다.',
         'currency_required' => '통화를 선택하세요 — 통화가 없으면 ERP 가 판매가를 넣지 않습니다.',
         'rate_required' => '환율을 입력하세요 — 환율이 없으면 ERP 가 판매가를 통째로 보류합니다.',
-        'filled' => 'ERP 에 반영됨: :fields',
-        'nothing_filled' => 'ERP 에 채워진 항목이 없습니다 — 이미 값이 있거나 환율이 없어 보류됐을 수 있습니다.',
+        'filled' => 'ERP 에 채움: :fields',
+        'overwritten' => 'ERP 값을 바꿈: :fields',
+        'nothing_filled' => 'ERP 에 바뀐 항목이 없습니다 — 같은 값이거나 환율이 없어 보류됐을 수 있습니다.',
         'queued' => 'ERP 로 전송 요청했습니다 — 결과가 오면 여기에 표시됩니다 (몇 초).',
         // ERP 가 돌려주는 키를 사람 말로. 🚫 목록에 없으면 원문을 그대로 보여준다(사유를 버리면 추적 불가).
         'field' => [
@@ -266,6 +267,8 @@ return [
             'sale_exchange_rate' => '환율',
             'sale_date' => '판매일',
             'transport_fee' => '운임비',
+            'transport_fee_usd' => '운임비 USD',
+            'usd_exchange_rate' => '환율 USD',
             'buyer_id' => '바이어',
             'consignee_id' => '컨사이니',
         ],

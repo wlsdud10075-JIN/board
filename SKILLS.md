@@ -195,6 +195,9 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 **매입처(딜러) 3필드 (2026-10-29 ④, 버전 그대로 optional — 받는 쪽 권위 = car-erp `purchase-sync-receiver.md` 「딜러 서류 OCR 동봉」, dev `c0fe2889`)**:
 `seller_company`(≤100) · `seller_ceo`(≤50) · `seller_phone`(**숫자만** ≤20, Job 이 하이픈을 떼고 보낸다). ERP 는 `purchase_from`(「법인명/대표자」 합성·형식은 ERP 소유 — 🚫 board 가 합친 문자열을 보내지 않는다)·`deregistration_notice_phone`(국내딜러 알림톡 3종 공용 번호)을 **빈 칸만** 채운다(재전송 `fields_skipped` 키 = ERP 컬럼명). 재고매입·첨부 전용 재전송에서도 **비우지 않는다**(판매측이 아니라 매입측 — `payee_*` 와 같은 취급). 로그(`integration_events`)는 `seller_phone` 을 `***` 로. 값의 출처 = `/auction` 드로어 「매입처」 칸(사업자등록증·명함 OCR 후보 [적용] 또는 직접 입력, §14-15c).
 
+**재전송 금액 덮어쓰기 `amounts_overwrite` (2026-10-29 Jin 결정 — 「금액만 보내기가 빈 칸만 채우면 소용이 없다」, 받는 쪽 = car-erp `purchase-sync-receiver.md`, ERP 구현 대기)**:
+`/listings` 드로어 「금액만 ERP 로 보내기」·「저장」 금액 변경 재전송(`SyncWonListingToCarErp(resync: true, attachmentsOnly: false)`, 재고매입 제외)에만 `amounts_overwrite: true`. ERP 는 판매측 6칸(`sale_price`·`sale_currency`·`sale_exchange_rate`·`transport_fee`·`transport_fee_usd`·`usd_exchange_rate`)을 board 값으로 **덮어쓴다**(null 은 지우지 않음) + ERP 감사 + 응답 `fields_overwritten[]`(값이 있었는데 바뀐 칸, `fields_filled` 와 별개). 바이어·컨사이니·payee_*·매입측·첨부는 종전 규칙(락 게이트 우회 방지). 신규 생성(won 첫 전송)·첨부 전용은 false = 종전 fill-if-empty. 플래그 없는 옛 ERP 는 무시 → 배포 순서 무관. 결과 배너 = 「ERP 값을 바꿈: …」/「ERP 에 채움: …」/「바뀐 항목 없음」. **2026-08-18 fill-if-empty(§14-12)의 「절대 안 덮음」은 이 경로에 한해 뒤집힘** — 운임비 1/N 환산은 여전히 빈 칸만.
+
 **송금인 Name·ID 동봉 (2026-10-29 ②, 버전 그대로 optional — 받는 쪽 권위 = car-erp `purchase-sync-receiver.md` 「송금인 Name·ID 동봉」, dev `ec19b348`)**:
 `remitter_name`(≤100)·`remitter_id`(≤64) — **이름이 있을 때만 둘을 싣는다**(ERP: 이름 필수). 신규·재전송 **빈 칸만**(`fields_skipped.remitter_*=already_set`). 로그는 `remitter_id` `***`. 2xx 면 board `remitter_synced_at` 기록.
 ⚠️ **두 경로 규칙이 다르다** — 여기(purchase-sync) = 빈 칸만 / 드로어 [ERP 로 전송](`POST /vehicles/{id}/remitter`, §14-28) = **덮어쓰기 + ERP 감사**. 지우기는 어느 경로로도 전파되지 않는다(ERP 화면에서).
@@ -603,6 +606,7 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
   *"빈 값 → 첫 입력은 최초 set 이므로 통과"* 이고 주석이 **"영업이 판매가·바이어 처음 입력하는 정상 흐름 보호"** 다.
 - ✅ **ERP 구현 완료**(회신 2026-08-18, dev→3사 배포 대기). `sale_date` = **수신일(`now()`)** — 신규 생성 경로가
   이미 그랬고 멱등 경로에 같은 로직을 이식했다. **board 무변경 동작**, `contract_version` 상향 없음(v3 필드 그대로).
+- ⚠️ **2026-10-29 Jin — `/listings` 드로어 재전송은 `amounts_overwrite: true` 로 판매측 6칸을 덮어쓴다(§12). 아래 「절대 안 덮음」은 플래그 없는 경로(신규·첨부 전용)에만 남는다.**
 - 규칙 = ①빈 칸만 ②이미 값 있으면 **절대 안 덮음**(`already_set`) ③판매 3종+`sale_date` 는 **세트**, 환율 없으면
   통째 보류(`missing_exchange_rate`) ④컨사이니는 차량 바이어 하위일 때만(`buyer_mismatch`).
 - 🚨 **응답 `fields_filled` · `fields_skipped` 를 반드시 읽을 것** — **200 만 보고 "반영됨"으로 기록하면 안 된다**.

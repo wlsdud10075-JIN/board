@@ -766,7 +766,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         // 운영 큐는 비동기(database)라 버튼을 누른 직후엔 아직 응답이 없다. 그때 **직전 전송 결과**를
         // 이번 것처럼 보여주면 조용한 오표시가 된다 → "보냈고, 결과는 곧" 이라고 말한다.
         if ($ev === null || (int) $ev->id <= $since) {
-            return ['pending' => true, 'status' => null, 'filled' => [], 'skipped' => [], 'added' => null, 'failed' => null];
+            return ['pending' => true, 'status' => null, 'filled' => [], 'overwritten' => [], 'skipped' => [], 'added' => null, 'failed' => null];
         }
 
         $body = json_decode((string) ($ev->response_body ?? ''), true);
@@ -775,6 +775,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'pending' => false,
             'status' => $ev->response_status ?? null,
             'filled' => (array) ($body['fields_filled'] ?? []),
+            'overwritten' => (array) ($body['fields_overwritten'] ?? []),   // 2026-10-29 덮어쓰기 — 값이 있었는데 바뀐 칸(ERP 가 돌려준다)
             'skipped' => (array) ($body['fields_skipped'] ?? []),
             // 🚨 **cap 초과는 실패로 안 잡힌다** — 수신측은 10건에 닿으면 조용히 `break` 한다(`failed` 증가 없음).
             //    그래서 "보낸 장수 vs 붙은 장수"를 비교해야 잘린 걸 알 수 있다.

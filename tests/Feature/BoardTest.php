@@ -3615,7 +3615,8 @@ class BoardTest extends TestCase
 
         Http::assertSent(fn ($r) => $r['seller_company'] === '(주)성진모터스'
             && $r['seller_ceo'] === '김대표'
-            && $r['seller_phone'] === '01020001111');
+            && $r['seller_phone'] === '01020001111'
+            && $r['amounts_overwrite'] === false);   // 신규 생성 = 덮어쓰기 아님
         $this->assertSame('***', IntegrationEvent::first()->request_payload['seller_phone']);
         $this->assertNotSame('010-2000-1111', \DB::table('purchase_listings')->where('id', $l->id)->value('seller_phone'));
     }
@@ -4512,7 +4513,8 @@ class BoardTest extends TestCase
 
         $this->assertSame(1800.0, (float) $l->fresh()->transport_fee);
         $this->assertSame(1800, (int) $l->fresh()->transport_fee_usd);
-        Http::assertSent(fn ($req) => ($b = json_decode($req->body(), true)) && (float) $b['transport_fee'] === 1800.0 && (float) $b['sale_price'] === 5700.0 && (int) $b['transport_fee_usd'] === 1800 && (int) $b['usd_exchange_rate'] === 1487);
+        // 2026-10-29 Jin — 재전송 금액은 ERP 를 덮어쓴다(`amounts_overwrite: true`). 신규 생성·첨부 전용은 false.
+        Http::assertSent(fn ($req) => ($b = json_decode($req->body(), true)) && (float) $b['transport_fee'] === 1800.0 && (float) $b['sale_price'] === 5700.0 && (int) $b['transport_fee_usd'] === 1800 && (int) $b['usd_exchange_rate'] === 1487 && $b['amounts_overwrite'] === true);
     }
 
     /** 「저장」 — 금액 칸이 하나라도 바뀌면 금액+첨부 재전송, 금액은 그대로인데 사진만 새로 있으면 첨부 전용, 둘 다 없으면 안 보낸다(2026-10-16 Jin). */
