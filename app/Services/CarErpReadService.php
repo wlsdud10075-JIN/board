@@ -208,6 +208,38 @@ class CarErpReadService
     }
 
     /**
+     * 바이어 1명(서류 생성용, 2026-10-29 ②) — `{id, name, country, address, phone}`. §3 「연락처·주소 PII 금지」의 **문서 생성용 예외**(권위 §4 `GET /buyers/{id}`,
+     * car-erp dev `cc4023e5`). 비면 null(「-」 ❌), 비활성 바이어도 읽힘, 남의 바이어·없는 id = 404, ERP 가 접근 기록 1행. **board 저장 0 — 생성 시점에만 읽는다.**
+     */
+    public function buyer(string $email, int $buyerId, bool $all = false): array
+    {
+        return $this->get('/buyers/'.$buyerId, $this->buyerScopeQuery($email, $all));
+    }
+
+    /**
+     * 차량 1대 메타(서류 생성용, 2026-10-29 ② — ERP (a) 안, Jin 확인 대기) — `{id, vehicle_number, vin, brand, model_type}`. 본인 스코프. 없으면 404.
+     * ERP 배포 전엔 404 → 호출측은 빈 칸 폴백(인보이스 B18/C18).
+     */
+    public function vehicleMeta(string $email, int $vehicleId): array
+    {
+        return $this->get('/vehicles/'.$vehicleId, ['salesman_email' => $email]);
+    }
+
+    /**
+     * 송금인 전용 엔드포인트(2026-10-29 ②, 권위 = `board-portal-api.md` §14, car-erp dev `ec19b348`) — **덮어쓰기 + ERP 감사**. 응답 `{vehicle_id, updated[], had_previous}`,
+     * 같은 값이면 `updated: []`. `remitter_id` 빈 문자열은 무시(비우기는 ERP 화면). 남의 차·없는 차 = **403**, 이름 없음·길이 초과 = 422.
+     * purchase-sync 동봉분은 **빈 칸만**(규칙이 다르다 — SKILLS §12).
+     */
+    public function setRemitter(string $email, int $vehicleId, string $name, ?string $id): array
+    {
+        return $this->post('/vehicles/'.$vehicleId.'/remitter', ['salesman_email' => $email], array_filter([
+            'salesman_email' => $email,
+            'remitter_name' => $name,
+            'remitter_id' => $id,
+        ], fn ($v) => $v !== null && $v !== ''));
+    }
+
+    /**
      * 적립금 이력(2026-10-29 ③, 권위 = car-erp `board-portal-api.md` §4) — `{buyer_id, balances[{currency,balance,balance_krw}], history[{id,type,amount,currency,date,vehicle_number}]}`.
      * `note` 는 ERP 가 내리지 않는다(자유 입력에 내부 사정이 섞인다). 본인 바이어가 아니면 **404**(IDOR = ERP). `scope=all` 은 이 엔드포인트엔 없다.
      * 통화별 잔액은 `/by-buyer` 행 `savings_balances[]` 로 같이 온다 — 이력은 펼칠 때만 부른다(분당 120 공유 버킷).

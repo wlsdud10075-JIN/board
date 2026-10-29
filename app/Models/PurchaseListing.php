@@ -438,6 +438,13 @@ class PurchaseListing extends Model
         return $this->remitter_synced_at !== null ? 'synced' : 'entered';
     }
 
+    /** 여권 OCR 이 5분 넘게 pending — 화면 문구만 「오래 걸림」(계좌추출 `payeeExtractionSlow` 와 같은 규칙). */
+    public function passportOcrSlow(): bool
+    {
+        return $this->passport_ocr_status === 'pending' && $this->passport_ocr_at !== null
+            && $this->passport_ocr_at->lte(now()->subMinutes(self::PAYEE_EXTRACT_WAIT_MINUTES));
+    }
+
     /** 송금인 이름 정규화 — 문서 표기(라틴 대문자), 연속 공백 1개, ≤100(ERP). 빈 값은 null. */
     public static function normalizeRemitterName(?string $s): ?string
     {

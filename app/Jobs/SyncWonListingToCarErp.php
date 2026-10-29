@@ -204,6 +204,10 @@ class SyncWonListingToCarErp implements ShouldQueue
             'seller_company' => $l->seller_company,
             'seller_ceo' => $l->seller_ceo,
             'seller_phone' => $l->seller_phone !== null ? (substr((string) preg_replace('/\D/', '', $l->seller_phone), 0, 20) ?: null) : null,
+            // 송금인(여권/ID) — 2026-10-29 ②. 이름이 있을 때만 둘을 싣는다(ERP: remitter_name 필수·빈 칸만·`fields_skipped.remitter_*=already_set`).
+            //    확정 전에 적어 둔 값이 won 과 함께 간다. 덮어쓰기는 전용 엔드포인트(드로어 [ERP 로 전송]) 몫.
+            'remitter_name' => $l->remitter_name !== null && $l->remitter_name !== '' ? $l->remitter_name : null,
+            'remitter_id' => $l->remitter_name !== null && $l->remitter_name !== '' ? $l->remitter_id : null,
             'attachments' => $attachments,
             // v3 매입측(KRW)
             'purchase_price_krw' => $purchasePriceKrw,
@@ -244,6 +248,9 @@ class SyncWonListingToCarErp implements ShouldQueue
         if ($logged['seller_phone'] !== null) {
             $logged['seller_phone'] = '***';   // 딜러 휴대폰 — 계좌와 같은 마스킹(2026-10-28 Jin)
         }
+        if ($logged['remitter_id'] !== null) {
+            $logged['remitter_id'] = '***';   // 여권/ID 문서번호 — RRN 급
+        }
         IntegrationEvent::create([
             'direction' => 'outbound',
             'target' => 'car_erp',
@@ -265,6 +272,9 @@ class SyncWonListingToCarErp implements ShouldQueue
         }
 
         $l->car_erp_vehicle_id = (int) $vehicleId;
+        if ($payload['remitter_name'] !== null && $l->remitter_synced_at === null) {
+            $l->remitter_synced_at = now();   // 동봉분이 ERP 에 닿았다(빈 칸만 채워졌어도 「전송됨」 — 덮어쓰기는 드로어 버튼)
+        }
         if ($l->status === 'won') {
             $l->status = 'synced';   // won→synced (TRANSITIONS 허용). 이미 synced 면 그대로 둔다(resync).
         }

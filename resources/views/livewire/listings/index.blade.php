@@ -3,7 +3,10 @@
 use App\Models\BoardAuditLog;
 use App\Models\InspectionPhoto;
 use App\Models\PromotionRequest;
+use App\Jobs\ExtractPassportFromImage;
 use App\Jobs\SyncWonListingToCarErp;
+use App\Services\CarErpReadService;
+use App\Services\CommercialInvoiceBuilder;
 use App\Models\PurchaseListing;
 use App\Services\ExchangeRateService;
 use App\Support\TimeGate;
@@ -159,6 +162,8 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $e_remitter_name = '';
     public string $e_remitter_id = '';
     public ?string $invoiceNote = null;
+    /** 여권/ID 사진 1장(Livewire 임시 업로드) — OCR 로 넘긴 직후 지운다. */
+    public $passportFile = null;
 
     // ── 환율 (§6a 라이브) ──
     public int $krwPerUsd = 0;
@@ -719,6 +724,144 @@ new #[Layout('components.layouts.app')] class extends Component {
         ];
     }
 
+    /** ERP 호출용 영업 이메일 — 연동 B 와 같은 규칙(등록자 기준: 매핑 오버라이드 ?: 로그인 이메일). 관리·super 가 열어도 그 영업의 차로 묻는다. */
+    private function erpEmailFor(PurchaseListing $l): string
+    {
+        return $l->creator?->car_erp_salesman_email ?: ($l->creator?->email ?? '');
+    }
+
+    /**
+     * 📷 여권/ID 사진 → OCR Job. 이미지는 로컬 `local` 디스크(`passport-ocr/{id}/…`)에 잠깐 두고 Job 이 읽은 뒤 지운다 — S3·첨부에 올리지 않는다.
+     * Livewire 임시 파일(운영은 S3 일 수 있다)도 **복사 직후 즉시 삭제**(자동 정리는 24시간 뒤).
+     */
+    public function extractPassport(): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        if (! config('board.payee_extract.enabled')) {
+            $this->addError('passportFile', __('listings.invoice.ocr_disabled'));
+
+            return;
+        }
+        $this->validate(['passportFile' => 'required|image|max:20480']);
+        $ext = strtolower($this->passportFile->getClientOriginalExtension() ?: 'jpg');
+        $rel = 'passport-ocr/'.$l->id.'/'.\Illuminate\Support\Str::uuid().'.'.$ext;
+        Storage::disk(ExtractPassportFromImage::DISK)->put($rel, $this->passportFile->get());
+        try {
+            $this->passportFile->delete();
+        } catch (\Throwable) {
+            // 임시 파일 삭제 실패는 치명이 아니다(Livewire 가 24시간 뒤 지운다)
+        }
+        $this->passportFile = null;
+        $l->forceFill(['passport_ocr_status' => 'pending', 'passport_ocr_at' => now(), 'passport_suggestions' => null])->saveQuietly();
+        ExtractPassportFromImage::dispatch($l->id, $rel);
+        $this->invoiceNote = null;
+        unset($this->editing);
+    }
+
+    /** OCR 후보 → 입력칸(저장 아님). */
+    public function applyPassportName(int $i): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        $v = data_get($l->passport_suggestions, "names.$i.value");
+        if (is_string($v) && $v !== '') {
+            $this->e_remitter_name = $v;
+        }
+    }
+
+    public function applyPassportId(int $i): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        $v = data_get($l->passport_suggestions, "ids.$i.value");
+        if (is_string($v) && $v !== '') {
+            $this->e_remitter_id = $v;
+        }
+    }
+
+    public function dismissPassportSuggestions(): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        $l->forceFill(['passport_suggestions' => null, 'passport_ocr_status' => null])->saveQuietly();
+        unset($this->editing);
+    }
+
+    /**
+     * [ERP 로 전송] — **저장된** 송금인을 전용 엔드포인트로(덮어쓰기 + ERP 감사). ERP 차량이 없으면(won 전) 안 보낸다 — 구매확정 때 purchase-sync 가 싣는다.
+     * 응답 `updated[]`·`had_previous` 를 사람 말로. 403 = ERP 가 이 차를 이 영업의 차로 보지 않는다(매핑·담당 불일치).
+     */
+    public function sendRemitter(): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        if ($l->car_erp_vehicle_id === null) {
+            $this->invoiceNote = __('listings.invoice.state_no_erp_vehicle');
+
+            return;
+        }
+        if (trim((string) $l->remitter_name) === '') {
+            $this->invoiceNote = __('listings.invoice.send_needs_save');
+
+            return;
+        }
+        $r = app(CarErpReadService::class)->setRemitter($this->erpEmailFor($l), (int) $l->car_erp_vehicle_id, $l->remitter_name, $l->remitter_id);
+        if (! ($r['ok'] ?? false)) {
+            $this->invoiceNote = __('listings.invoice.send_failed', ['reason' => ($r['status'] ?? 0) === 403 ? __('listings.invoice.send_403') : (string) ($r['message'] ?? $r['reason'] ?? 'HTTP '.($r['status'] ?? 0))]);
+
+            return;
+        }
+        $l->forceFill(['remitter_synced_at' => now()])->saveQuietly();
+        $updated = (array) data_get($r['data'], 'updated', []);
+        $this->invoiceNote = $updated === []
+            ? __('listings.invoice.send_same')
+            : __(data_get($r['data'], 'had_previous') ? 'listings.invoice.send_overwritten' : 'listings.invoice.send_done');
+        unset($this->editing, $this->listings);
+    }
+
+    /**
+     * [인보이스 다운로드] — board 전용 COMMERCIAL INVOICE(xlsx). Address·Phone 은 ERP `GET /buyers/{id}`, Brand/Model 은 `GET /vehicles/{id}` 를
+     * **그 순간만** 읽고 저장하지 않는다(실패·404 = 빈 칸, 세관 서류라 「-」 금지). 다운로드도 감사 1행(action=download).
+     */
+    public function downloadInvoice()
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        if (CommercialInvoiceBuilder::templatePath() === null) {
+            $this->invoiceNote = __('listings.invoice.no_template');
+
+            return null;
+        }
+        if (trim((string) $l->remitter_name) === '') {
+            $this->invoiceNote = __('listings.invoice.download_needs_name');
+
+            return null;
+        }
+        $erp = [];
+        $svc = app(CarErpReadService::class);
+        $email = $this->erpEmailFor($l);
+        if ($l->car_erp_buyer_id) {
+            $b = $svc->buyer($email, (int) $l->car_erp_buyer_id, Auth::user()->isSuper());
+            if ($b['ok'] ?? false) {
+                $erp['address'] = data_get($b['data'], 'address');
+                $erp['phone'] = data_get($b['data'], 'phone');
+            }
+        }
+        if ($l->car_erp_vehicle_id) {
+            $v = $svc->vehicleMeta($email, (int) $l->car_erp_vehicle_id);
+            if ($v['ok'] ?? false) {
+                $erp['brand'] = data_get($v['data'], 'brand');
+                $erp['model'] = data_get($v['data'], 'model_type');
+            }
+        }
+        $bytes = app(CommercialInvoiceBuilder::class)->build($l, $erp);
+        $name = CommercialInvoiceBuilder::fileName($l);
+        BoardAuditLog::create([
+            'user_id' => Auth::id(), 'purchase_listing_id' => $l->id, 'action' => 'download', 'field' => 'commercial_invoice',
+            'old_value' => null, 'new_value' => $name, 'ip_address' => BoardAuditLog::currentIp(),
+        ]);
+        $this->invoiceNote = __('listings.invoice.downloaded', ['name' => $name]);
+
+        return response()->streamDownload(fn () => print ($bytes), $name, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
+    }
+
     /**
      * 송금인 저장 — **전 상태**(Jin 2026-10-28: ERP 로 보낸 차·구매대기 차 다 가능). `update()` 는 editable() 락을 타므로 별도 경로.
      * 소유권은 SalesmanScope(findOrFail). 정규화는 모델 static 한 곳(이름 대문자·공백 1 / ID 대문자 영숫자). 값이 바뀌면 ERP 전송 시각을 비운다.
@@ -748,7 +891,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'drawerTab', 'e_remitter_name', 'e_remitter_id', 'invoiceNote', 'e_transport_fee', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'e_inspection_request', 'eSalesFiles', 'e_sale_price', 'e_sale_currency', 'e_sale_rate', 'resyncResult', 'attachResult', 'syncSince']);
+        $this->reset(['editingId', 'drawerTab', 'e_remitter_name', 'e_remitter_id', 'invoiceNote', 'passportFile', 'e_transport_fee', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'e_inspection_request', 'eSalesFiles', 'e_sale_price', 'e_sale_currency', 'e_sale_rate', 'resyncResult', 'attachResult', 'syncSince']);
         unset($this->editing);
     }
 

@@ -29,6 +29,9 @@ return [
     // Ollama URL 은 assistant.ollama 를 재사용한다 — 같은 호스트다(두 번째 URL 변수를 만들지 않는다).
     // ⚠️ max_px/num_ctx 는 RTX 2070(8GB) 실측 상한이다. 1500px 는 비전 토큰이 4096 을 넘겨 HTTP 400.
     //    GPU 증설 시 max_px=1500 / num_ctx=6144 로 올리면 예금주 오독·매도비 오분류가 개선된다.
+    // board 전용 COMMERCIAL INVOICE 양식 — 인스턴스 분기는 아래 `instances.*.invoice_template`, 이건 로컬(APP_NAME=board)용 폴백(2026-10-29 ②).
+    'invoice_template' => env('BOARD_INVOICE_TEMPLATE'),
+
     'payee_extract' => [
         'enabled' => filter_var(env('BOARD_PAYEE_EXTRACT_ENABLED', false), FILTER_VALIDATE_BOOL),
         'model' => env('BOARD_PAYEE_EXTRACT_MODEL', 'qwen2.5vl:7b'),
@@ -150,6 +153,7 @@ return [
             'apple_icon' => 'icons/heyman-180.png',
             'title' => 'HeymanBoard',
             'tenant' => 'heymanboard',   // 검차 큐 연동 X-Board-Tenant
+            'invoice_template' => 'invoice-heyman.xlsx',   // resources/templates/ — COMMERCIAL INVOICE 양식(회사 계좌 블록 포함)
         ],
         'board-ssancar' => [
             'favicon' => 'favicon-ssancar.ico',
@@ -157,6 +161,7 @@ return [
             'apple_icon' => 'icons/ssancar-180.png',
             'title' => 'SsancarBoard',
             'tenant' => 'ssancarboard',
+            'invoice_template' => 'invoice-ssancar.xlsx',
         ],
     ],
 ];
