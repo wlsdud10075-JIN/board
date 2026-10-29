@@ -738,6 +738,11 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $l = PurchaseListing::findOrFail($this->editingId);
         if (! config('board.payee_extract.enabled')) {
+            try {
+                $this->passportFile?->delete();   // 꺼진 박스에서도 여권 사진을 임시 디스크에 남기지 않는다
+            } catch (\Throwable) {
+            }
+            $this->passportFile = null;
             $this->addError('passportFile', __('listings.invoice.ocr_disabled'));
 
             return;
@@ -867,22 +872,34 @@ new #[Layout('components.layouts.app')] class extends Component {
      * 소유권은 SalesmanScope(findOrFail). 정규화는 모델 static 한 곳(이름 대문자·공백 1 / ID 대문자 영숫자). 값이 바뀌면 ERP 전송 시각을 비운다.
      * 비우기는 ERP 에 전파되지 않는다(스펙: 빈 문자열 무시) — 그 경우 안내만.
      */
-    public function saveRemitter(): void
+    /** 입력칸 → 모델(정규화·변경 시 전송 시각 리셋·입력칸 되쓰기). 저장은 호출자가. 반환 = 바뀌었나. `update()`·`saveRemitter()` 공용. */
+    private function applyRemitter(PurchaseListing $l): bool
     {
-        $l = PurchaseListing::findOrFail($this->editingId);
-        $this->validate(['e_remitter_name' => 'nullable|string|max:100', 'e_remitter_id' => 'nullable|string|max:64']);
         $name = PurchaseListing::normalizeRemitterName($this->e_remitter_name);
         $id = PurchaseListing::normalizeRemitterId($this->e_remitter_id);
-        $wasSynced = $l->remitter_synced_at !== null;
         $changed = $name !== $l->remitter_name || $id !== $l->remitter_id;
         if ($changed) {
             $l->remitter_name = $name;
             $l->remitter_id = $id;
             $l->remitter_synced_at = null;
-            $l->save();
         }
         $this->e_remitter_name = $name ?? '';
         $this->e_remitter_id = $id ?? '';
+
+        return $changed;
+    }
+
+    public function saveRemitter(): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        $this->validate(['e_remitter_name' => 'nullable|string|max:100', 'e_remitter_id' => 'nullable|string|max:64']);
+        $wasSynced = $l->remitter_synced_at !== null;
+        $name = PurchaseListing::normalizeRemitterName($this->e_remitter_name);
+        $id = PurchaseListing::normalizeRemitterId($this->e_remitter_id);
+        $changed = $this->applyRemitter($l);
+        if ($changed) {
+            $l->save();
+        }
         $this->invoiceNote = $changed
             ? (($wasSynced && ($name === null || $id === null)) ? __('listings.invoice.saved_cleared_note') : __('listings.invoice.saved'))
             : __('listings.invoice.saved_unchanged');
@@ -927,6 +944,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             'e_auction_venue' => 'nullable|string|max:100',
             'e_lot_number' => 'nullable|string|max:50',
             'e_inspection_request' => 'nullable|string|max:255',
+            'e_remitter_name' => 'nullable|string|max:100',
+            'e_remitter_id' => 'nullable|string|max:64',
             'eSalesFiles.*' => 'file|max:204800',
         ]);
 
@@ -958,6 +977,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->discount_rate = ($this->e_discount_rate === null || $this->e_discount_rate === '') ? null : (float) $this->e_discount_rate;
         $l->shipping_usd = $this->e_shipping_usd ?: null;
         $l->inspection_request = $this->e_inspection_request ?: null;
+        $this->applyRemitter($l);   // Invoice 탭 칸도 기본 「저장」에 같이(별도 버튼만 저장하면 사용자가 입력을 잃는다)
         $l->final_price = $l->totalKrw($this->usdRate(), $this->eurRate()) ?? $l->final_price;
         if ($l->source === 'encar') {
             $l->encar_url = $this->e_encar_url ?: null;

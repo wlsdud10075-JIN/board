@@ -121,6 +121,11 @@ class BoardTest extends TestCase
         $this->assertSame('***', BoardAuditLog::where('field', 'remitter_id')->latest('id')->value('new_value'));
         $this->assertSame('ERIKSSON ANNA MARIA', BoardAuditLog::where('field', 'remitter_name')->latest('id')->value('new_value'));
 
+        // 기본 「저장」(update) 도 Invoice 탭 입력을 같은 경로로 저장한다 — 별도 버튼만 저장하면 사용자가 입력을 잃는다(advisor 2026-10-29)
+        $t->set('e_remitter_id', 'zz 9')->call('update')->assertHasNoErrors();
+        $this->assertSame('ZZ9', $l->fresh()->remitter_id);
+        $t->call('openEdit', $l->id)->set('e_remitter_id', 'L898902C3')->call('saveRemitter');   // update() 는 드로어를 닫는다
+
         // 같은 값 재저장 = 변경 없음(전송 시각도 안 건드림), 비우면 ERP 값은 남는다는 안내
         $t->call('saveRemitter')->assertSee('바뀐 내용이 없습니다');
         $l->forceFill(['remitter_synced_at' => now()])->saveQuietly();
