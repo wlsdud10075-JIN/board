@@ -344,5 +344,28 @@
 </div>
 
 @fluxScripts
+{{-- 드로어 검증 에러로 스크롤(2026-10-29 Jin): 구매확정·저장 버튼은 드로어 맨 아래, 에러는 그 칸(위쪽)에 붙어 화면이 버튼에 멈춰 있었다.
+     Livewire 요청이 끝난 뒤 열린 드로어(.fixed.inset-y-0.right-0 = 스크롤 컨테이너) 안의 첫 에러 문구가 시야 밖이면 그 자리로 부드럽게 스크롤한다.
+     전 화면 공통(auction·listings·manage 드로어 구조가 같다). 에러가 이미 보이면 움직이지 않는다. --}}
+<script>
+document.addEventListener('livewire:init', () => {
+    if (window.__drawerErrorScroll) return;
+    window.__drawerErrorScroll = true;
+    Livewire.hook('commit', ({ succeed }) => {
+        succeed(() => {
+            requestAnimationFrame(() => {
+                const panel = document.querySelector('div.fixed.inset-y-0.right-0');
+                if (!panel) return;
+                const err = panel.querySelector('p.text-red-600, .text-red-700, .border-red-200');
+                if (!err) return;
+                const r = err.getBoundingClientRect();
+                if (r.top < 0 || r.bottom > window.innerHeight) {
+                    err.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            });
+        });
+    });
+});
+</script>
 </body>
 </html>
