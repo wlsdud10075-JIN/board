@@ -269,6 +269,7 @@ return [
             'transport_fee' => '운임비',
             'transport_fee_usd' => '운임비 USD',
             'usd_exchange_rate' => '환율 USD',
+            'amounts' => '판매 금액(6칸)',   // ERP 안전장치 — 덮어쓰기 통째로 건너뜀(2026-10-29 Jin)
             'buyer_id' => '바이어',
             'consignee_id' => '컨사이니',
         ],
@@ -278,6 +279,8 @@ return [
             'invalid_or_inactive' => 'ERP 에 없거나 사용중지된 대상',
             'buyer_mismatch' => '그 바이어 소속이 아님',
             'buyer_not_sent' => '바이어를 함께 보내지 않음',
+            'ledger_closed' => '2차 마감 차 — ERP 에서 수정하세요',
+            'settlement_locked' => '정산 확정·지급 차 — 판매가·환율은 ERP 에서 수정하세요',
         ],
         'stock_purchase' => '재고매입(바이어 미정) 차량입니다 — 판매가와 바이어는 ERP 차량관리에서 지정하세요. 여기서 보내면 ERP 에 반영되지 않습니다.',
     ],

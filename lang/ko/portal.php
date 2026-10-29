@@ -239,6 +239,8 @@ return [
     'sync_updated' => '갱신 :count',
     'sync_cancelled' => '취소 :count',
     'sync_locked' => '처리중(잠금) :count',
+    'sync_freight_skipped' => '운임비 환산 안 된 차 :count대 — ERP 에서 환율을 채우고 선적요청을 다시 누르면 들어갑니다:',
+    'freight_reason' => ['no_rate' => '환율 없음', 'ledger_closed' => '2차 마감'],
     'flash_bl_requested' => 'B/L 요청이 전송됐습니다. car-erp 관리에게 알람이 갑니다.',
     'flash_change_requested' => '변경요청이 전송됐습니다. 관리가 확인 후 처리합니다.',
     'flash_change_note_required' => '변경/취소 사유를 입력하세요.',

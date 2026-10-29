@@ -831,6 +831,13 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 return;
             }
+            // 2026-10-29 Jin — 환율 USD 는 **판매측 락이 걸리는 차 전부 필수**(통화·운임비 USD 무관). ERP 가 컨테이너 선적요청 때 운임비 USD 1/N 을
+            //    판매통화로 환산하는 데 `usd_exchange_rate` 를 쓴다 — 비어 있으면 그 차만 `freight_skipped: no_rate` 로 운임비가 빠진다(①).
+            if (! $stock && $sells && ($this->rate_usd === null || $this->rate_usd === '')) {
+                $this->addError('rate_usd', __('auction.err_usd_rate_required'));
+
+                return;
+            }
 
             // 매입 등록 락 (§4-0) — 연동 B 는 car-erp 저장 게이트를 안 타므로 **여기가 유일한 상류 차단점**이다.
             // 바이어 필수 (2026-08-10 Jin): 안 고르면 buyer_id 가 null 로 나가 **락 판정 자체가 성립하지 않는다**

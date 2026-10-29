@@ -785,11 +785,26 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
         $this->shipNote = null;
+        // 운임비 환산 안 된 차(2026-10-29 ①, ERP `freight_skipped{vehicle_id: no_rate|ledger_closed}`) — 차량번호로 바꿔 배너에 보인다(ERP 응답 전 묶음·pool 에서 번호 매핑).
+        $vno = [];
+        foreach ((array) $this->shippablePool as $vv) {
+            $vno[(int) data_get($vv, 'vehicle_id')] = data_get($vv, 'vehicle_number');
+        }
+        foreach ((array) $this->bundles as $bb) {
+            foreach ((array) data_get($bb, 'vehicles', []) as $vv) {
+                $vno[(int) data_get($vv, 'vehicle_id')] = data_get($vv, 'vehicle_number');
+            }
+        }
+        $freightSkipped = [];
+        foreach ((array) ($res['data']['freight_skipped'] ?? []) as $vid => $why) {
+            $freightSkipped[] = ['vehicle_number' => $vno[(int) $vid] ?? '#'.$vid, 'reason' => (string) $why];
+        }
         $this->syncResult = [
             'created' => count($res['data']['created'] ?? []),
             'updated' => count($res['data']['updated'] ?? []),
             'cancelled' => count($res['data']['cancelled'] ?? []),
             'locked' => count($res['data']['locked'] ?? []),
+            'freight_skipped' => $freightSkipped,
         ];
         $this->load();
     }
@@ -1392,6 +1407,12 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @if ($syncResult['locked']) <span class="text-blue-600">{{ __('portal.sync_locked', ['count' => $syncResult['locked']]) }}</span> @endif
                 </div>
                 <div class="mt-1 text-[12px] text-green-600">📨 {{ __('portal.ship_done_alarm') }}</div>
+                @if (! empty($syncResult['freight_skipped']))
+                    {{-- 컨테이너 운임비 USD 1/N 을 판매통화로 못 바꾼 차(①) — 환율이 없는 차. ERP 에서 환율을 채우고 선적요청을 다시 누르면 들어간다. --}}
+                    <div class="mt-1.5 text-[12px] font-semibold text-amber-700">⚠ {{ __('portal.sync_freight_skipped', ['count' => count($syncResult['freight_skipped'])]) }}
+                        <span class="font-normal">{{ collect($syncResult['freight_skipped'])->map(fn ($f) => \App\Support\Plate::show($f['vehicle_number']).'('.(__('portal.freight_reason.'.$f['reason']) === 'portal.freight_reason.'.$f['reason'] ? $f['reason'] : __('portal.freight_reason.'.$f['reason'])).')')->implode(' · ') }}</span>
+                    </div>
+                @endif
             </div>
             <button @click="show = false" class="self-start text-green-400 hover:text-green-700" title="{{ __('common.close') }}">✕</button>
         </div>

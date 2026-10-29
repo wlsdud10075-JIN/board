@@ -50,6 +50,7 @@ return [
     'split_hint' => '운임비는 USD 로 고정하고, 환율로 :currency 운임비를 계산합니다. 판매가 = 총판매가 − 운임비.',
     'err_total_required' => '총판매가를 넣어야 구매확정할 수 있습니다. 비우면 ERP 판매정보가 빈 채로 생깁니다.',
     'err_usd_rate_for_freight' => '운임비(USD)를 :currency 로 바꾸려면 USD 환율이 필요합니다.',
+    'err_usd_rate_required' => '환율 USD 를 넣어야 구매확정할 수 있습니다 — 컨테이너 선적 때 ERP 가 운임비(USD)를 판매통화로 환산하는 데 씁니다. 비우면 그 차만 운임비가 빠집니다.',
     'err_freight_over_total' => '운임비가 총판매가보다 큽니다.',
     'self_currency_hint' => '총판매가·판매가·운임비는 아래에서 고른 :currency 기준입니다. 운임비 (USD) 는 달러 그대로, 매도비는 원화입니다.',
     'self_currency_unset' => '⚠️ 견적통화를 아직 안 골랐습니다 — 아래에서 고르세요. 판매가·환율·운임비가 그 통화 기준이 됩니다.',
