@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\WebPushService;
 use App\Support\SsancarInspection;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
 use Livewire\Volt\Volt;
@@ -505,5 +506,23 @@ class InspectionQueueTest extends TestCase
         Http::fake();
         $this->artisan('board:inspection-reconcile')->assertSuccessful();
         Http::assertNothingSent();
+    }
+
+    /** 호출 예외(연결 실패·타임아웃)도 전송 표에 실패 행으로 남는다(2026-10-30 Jin) — cron 에선 화면 출력이 /dev/null 로 사라진다. */
+    public function test_reconcile_records_failure_row_when_call_throws(): void
+    {
+        $this->mkListing();
+        $this->configure();
+        Http::fake(fn () => throw new ConnectionException('cURL error 28: timed out'));
+        Bus::fake([SendInspectionQueueEvent::class]);
+
+        $this->artisan('board:inspection-reconcile')->assertSuccessful();   // 스케줄러를 실패로 물들이지 않는다
+
+        $row = IntegrationEvent::where('target', 'ssancar_inspection')->where('event_type', 'queue.reconcile')->latest('id')->first();
+        $this->assertNotNull($row);
+        $this->assertNull($row->response_status);
+        $this->assertStringContainsString('ConnectionException', $row->error);
+        $this->assertStringContainsString('timed out', $row->error);
+        Bus::assertNotDispatched(SendInspectionQueueEvent::class);
     }
 }
