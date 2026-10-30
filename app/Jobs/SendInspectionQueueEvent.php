@@ -31,8 +31,10 @@ class SendInspectionQueueEvent implements ShouldQueue
     /**
      * @param  'upsert'|'withdraw'  $action
      * @param  ?string  $reason  withdraw = deleted|not_inspection_target|closed_in_board|status_override · upsert = reinspect(재검차) 또는 null
+     * @param  bool  $urgent  영업 「긴급 검차 요청」(P1, 2026-10-29) — **드로어 버튼 디스패치에만** true. 행 값으로 정하지 않는다:
+     *                        지역 수정 등 일상 재발송이 기각된 긴급을 조용히 다시 pending 으로 올리면 안 된다(ssancar 는 rejected 면 다시 받는다).
      */
-    public function __construct(public int $listingId, public string $action, public ?string $reason = null)
+    public function __construct(public int $listingId, public string $action, public ?string $reason = null, public bool $urgent = false)
     {
         $this->eventId = (string) Str::uuid();
     }
@@ -70,6 +72,9 @@ class SendInspectionQueueEvent implements ShouldQueue
                 'source_url' => $l->encar_url,
                 'created_at' => $l->created_at?->timezone('Asia/Seoul')->toIso8601String(),
                 'reason' => $this->reason,
+                // P1 — 긴급 요청(선택 필드). `address` 는 보내지 않는다(Jin 2026-10-29 — 엔카 차 주소는 ssancar 가 source_url 로 수집).
+                'urgent' => $this->urgent ? true : null,
+                'urgent_note' => $this->urgent ? $l->inspection_urgent_note : null,
             ], fn ($v) => $v !== null)
             : [
                 'event' => 'queue.withdraw',
@@ -99,6 +104,26 @@ class SendInspectionQueueEvent implements ShouldQueue
             'response_body' => mb_substr((string) $response->body(), 0, 2000),
             'error' => SsancarInspection::ok($response) ? null : ($response->failed() ? 'HTTP '.$response->status() : 'not_ok_body'),
         ]);
+
+        // P1 — upsert 응답의 검차 예정일·긴급 결정을 받아 적는다(ssancar 가 정한 값 그대로. 키가 없으면 그대로 둔다 — 옛 ssancar·`status:unknown` 응답).
+        //   긴급 결정은 행의 실제 값이라, ssancar 가 플래그를 무시했으면(완료·이미 승인 등) 옛 값이 돌아와 화면의 낙관적 pending 을 되돌린다.
+        if ($this->action === 'upsert' && SsancarInspection::ok($response)) {
+            $d = (array) $response->json();
+            $dirty = false;
+            if (array_key_exists('work_date', $d)) {
+                $wd = $d['work_date'];
+                $l->inspection_work_date = (is_string($wd) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $wd)) ? $wd : null;
+                $dirty = true;
+            }
+            if (array_key_exists('urgent_decision', $d)) {
+                $ud = $d['urgent_decision'];
+                $l->inspection_urgent_decision = is_string($ud) && $ud !== '' ? mb_substr($ud, 0, 10) : null;
+                $dirty = true;
+            }
+            if ($dirty) {
+                $l->save();   // 큐 필드가 아니라 재발송·감사 모두 안 걸린다
+            }
+        }
 
         // 400 = 본문 오류 — 다시 보내도 같다(재시도 안 함, 로그만). 401·5xx·연결 실패는 재시도.
         if ($response->status() === 400) {

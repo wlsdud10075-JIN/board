@@ -56,6 +56,8 @@ return [
         'transport_fee' => 'Transport fee',
         'transport_fee_usd' => 'Transport fee USD',
         'erp_amounts_overwrite' => 'ERP amounts overwrite sent',
+        'inspection_urgent_request' => 'Urgent inspection requested',
+        'inspection_urgent_decision' => 'Urgent inspection decision',
         'offer_rate_usd' => 'USD rate',
         'offer_rate_eur' => 'EUR rate',
         'buyer_undecided' => 'Buyer undecided',

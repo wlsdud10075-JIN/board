@@ -56,6 +56,8 @@ return [
         'transport_fee' => '운임비',
         'transport_fee_usd' => '운임비USD',
         'erp_amounts_overwrite' => 'ERP 금액 덮어쓰기 전송',   // 2026-10-29 — 누가 언제 보냈나(값 JSON), 결과는 전송 표 응답
+        'inspection_urgent_request' => '긴급 검차 요청',       // 2026-10-29 P1 — 영업이 눌렀다(사유·그때 예정일·재검차 동반 여부)
+        'inspection_urgent_decision' => '긴급 검차 결정',      // ssancar.com 업무관리자 승인·기각 수신(변경자 = 시스템, 결정자는 값에)
         'offer_rate_usd' => 'USD환율',
         'offer_rate_eur' => 'EUR환율',
         'buyer_undecided' => '바이어미정',

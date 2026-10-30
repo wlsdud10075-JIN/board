@@ -156,6 +156,8 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $e_auction_venue = '';
     public string $e_lot_number = '';
     public string $e_inspection_request = '';
+
+    public string $e_urgent_note = '';   // 「긴급 검차 요청」 사유(선택, P1 2026-10-29) — 보내는 순간만 쓰고 비운다
     // ── 드로어 탭(2026-10-29 ②) — 기본·검차·첨부·Invoice. 비활성 탭도 DOM 에 두고 hidden 으로만 가린다.
     public string $drawerTab = 'basic';
     // ── Invoice 탭 — 송금인(여권/ID) Name·문서번호. 전 상태 편집(update() 의 editable() 락 밖).
@@ -453,6 +455,57 @@ new #[Layout('components.layouts.app')] class extends Component {
         unset($this->listings, $this->tabCounts);
         session()->flash('ok', __('listings.drawer.reinspect_flash', ['number' => \App\Support\Plate::show($l->vehicle_number)]));
         $this->closeEdit();
+    }
+
+    /**
+     * 「긴급 검차 요청」(검차 스케줄 자동화 P1, 2026-10-29 Jin) — 오늘 목록이 확정된 뒤엔 끼워넣기가 금지라, 영업의 「당장」은
+     * upsert `urgent` 플래그로만 접수되고 **ssancar.com 업무관리자가 승인**해야 오늘 목록에 들어간다(board 엔 승인 UI 없음).
+     * 조건 = 재검차와 같은 사람·상태 + 연동 켜짐 + 검차 완료 아님 + 요청 중/승인 아님(ssancar 가 그 둘은 무시한다) + **아직 오늘 목록 아님**
+     * (`inspectionDueToday`, 오늘이면 긴급이 뜻이 없다 → 버튼 대신 안내). 기각(rejected)은 다시 요청할 수 있다. 보류(skipped)는 재검차와
+     * 한 번에 — ssancar 는 `reason=reinspect` 재진입을 urgent 처리보다 먼저 하므로 upsert 하나로 되살리고 긴급을 건다.
+     */
+    public function urgentRequestable(PurchaseListing $l): bool
+    {
+        $u = Auth::user();
+
+        return \App\Support\SsancarInspection::configured()
+            && config('services.ssancar_inspection.schedule_p1')   // ssancar 가 P1 을 받기 전엔 버튼 자체를 숨긴다(옛 ssancar 는 urgent 무시 → pending 영구 잔류)
+            && PurchaseListing::isInspectionTarget($l->status, $l->origin, false)
+            && $l->ssancar_inspected_wr_id === null
+            && ! in_array($l->inspection_urgent_decision, ['pending', 'approved'], true)
+            && ! $l->inspectionDueToday()
+            && ($l->created_by_user_id === $u->id || $u->isManager() || $u->hasFullAccess())
+            && $this->editable($l);
+    }
+
+    public function requestUrgent(): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);
+        abort_unless($this->urgentRequestable($l), 403);
+        $this->validate(['e_urgent_note' => 'nullable|string|max:255']);
+
+        $wasSkipped = $l->inspection_skipped_at !== null;
+        // 낙관적 pending — upsert 응답의 `urgent_decision`(행의 실제 값)이 곧 덮는다. 지난 결정은 비운다(새 요청).
+        $fill = ['inspection_urgent_requested_at' => now(), 'inspection_urgent_note' => trim($this->e_urgent_note) ?: null,
+            'inspection_urgent_decision' => 'pending', 'inspection_urgent_decided_at' => null, 'inspection_urgent_decided_by' => null,
+            'inspection_urgent_decision_note' => null];
+        if ($wasSkipped) {   // 재검차 요청과 같은 비움(검차 시작·검차원 포함 — 「검차중」 잔류 방지)
+            $fill += ['inspection_skipped_at' => null, 'inspection_skip_reason' => null, 'inspection_skip_memo' => null,
+                'inspection_skip_photo_url' => null, 'inspection_started_at' => null, 'ssancar_inspector_name' => null];
+        }
+        $l->forceFill($fill)->save();
+        // board 에서 일어나는 일은 전부 감사 행으로(Jin 2026-10-29 — ERP 와 같은 원칙). 누가·언제·사유·그때 예정일. 결정은 웹훅 수신 때 별도 행.
+        BoardAuditLog::create([
+            'user_id' => Auth::id(), 'purchase_listing_id' => $l->id, 'action' => 'inspection_urgent_request', 'field' => 'inspection_urgent_request',
+            'old_value' => null,
+            'new_value' => json_encode(['note' => $fill['inspection_urgent_note'], 'work_date' => $l->inspection_work_date?->toDateString(),
+                'reinspect' => $wasSkipped], JSON_UNESCAPED_UNICODE),
+        ]);
+        \App\Jobs\SendInspectionQueueEvent::dispatch($l->id, 'upsert', $wasSkipped ? 'reinspect' : null, urgent: true)->afterCommit();
+
+        unset($this->listings, $this->tabCounts, $this->editing);
+        $this->e_urgent_note = '';
+        session()->flash('ok', __('listings.drawer.urgent_flash', ['number' => \App\Support\Plate::show($l->vehicle_number)]));
     }
 
     /**
@@ -987,7 +1040,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'drawerTab', 'e_remitter_name', 'e_remitter_id', 'invoiceNote', 'passportFile', 'e_sale_total', 'e_transport_fee_usd', 'e_rate_usd', 'e_rate_eur', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'e_inspection_request', 'eSalesFiles', 'e_sale_currency', 'resyncResult', 'attachResult', 'syncSince']);
+        $this->reset(['editingId', 'drawerTab', 'e_remitter_name', 'e_remitter_id', 'invoiceNote', 'passportFile', 'e_sale_total', 'e_transport_fee_usd', 'e_rate_usd', 'e_rate_eur', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'e_inspection_request', 'e_urgent_note', 'eSalesFiles', 'e_sale_currency', 'resyncResult', 'attachResult', 'syncSince']);
         unset($this->editing);
     }
 
@@ -1729,7 +1782,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             @php $showOwner = auth()->user()->canSeeAll(); @endphp
             <table class="tbl tbl-center">
                 <thead>
-                    <tr><th class="w-px whitespace-nowrap">{{ __('listings.table.vehicle') }}</th><th>{{ __('listings.table.source') }}</th>@if ($showOwner)<th>{{ __('listings.table.owner') }}</th>@endif<th>{{ __('listings.table.total') }}</th><th>{{ __('listings.table.inspection_request') }}</th><th>{{ __('listings.table.inspection_note') }}</th><th>{{ __('listings.table.buyer') }}</th><th>{{ __('listings.table.verdict') }}</th><th>{{ __('listings.table.status') }}</th><th>{{ __('listings.table.inspection_state') }}</th><th>{{ __('listings.table.invoice') }}</th></tr>
+                    <tr><th class="w-px whitespace-nowrap">{{ __('listings.table.vehicle') }}</th><th>{{ __('listings.table.source') }}</th>@if ($showOwner)<th>{{ __('listings.table.owner') }}</th>@endif<th>{{ __('listings.table.total') }}</th><th>{{ __('listings.table.inspection_request') }}</th><th>{{ __('listings.table.inspection_note') }}</th><th>{{ __('listings.table.buyer') }}</th><th>{{ __('listings.table.verdict') }}</th><th>{{ __('listings.table.status') }}</th><th>{{ __('listings.table.inspection_state') }}</th><th>{{ __('listings.table.work_date') }}</th><th>{{ __('listings.table.invoice') }}</th></tr>
                 </thead>
                 <tbody>
                     @forelse ($this->listings as $l)
@@ -1749,12 +1802,14 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <td><span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span></td>
                             {{-- 검차상태 — 현지확인대기 차가 왜 아직 전달대기로 안 넘어갔나(ssancar 폴러 마지막 판정). 그 외 상태는 빈 칸. 상태 칸 오른쪽(Jin). --}}
                             <td class="max-w-[260px] whitespace-normal text-[11px] leading-snug text-gray-500">@if ($hold = $l->ssancarHoldHint())@if (! empty($hold['alert']))<span class="font-semibold text-red-600">⚠ {{ __($hold['key'], $hold['params']) }}</span>@else{{ __($hold['key'], $hold['params']) }}@endif @else<span class="text-gray-300">—</span>@endif</td>
+                            {{-- 검차 예정일(P1, 2026-10-29) — ssancar 가 정한 날(현지확인대기 차만). 오늘 목록이면 초록. 긴급 요청·결정은 드로어·종에서. --}}
+                            <td class="whitespace-nowrap text-[12px]">@if ($l->status === 'draft' && $l->inspection_work_date)<span class="{{ $l->inspectionDueToday() ? 'font-semibold text-green-700' : 'text-gray-700' }}">{{ $l->inspection_work_date->format('m-d') }}</span>@if ($l->inspectionDueToday()) <span class="text-[10px] text-green-700">{{ __('listings.drawer.work_date_today') }}</span>@endif @else<span class="text-gray-300">—</span>@endif</td>
                             {{-- Invoice(송금인) — 미입력 / 입력됨 / ERP 전송됨 (2026-10-29 ②, 추가 쿼리 0). --}}
                             @php $inv = $l->invoiceState(); @endphp
                             <td class="whitespace-nowrap"><span class="badge {{ ['none' => 'badge-gray', 'entered' => 'badge-blue', 'synced' => 'badge-green'][$inv] }}">{{ __('listings.invoice_state.'.$inv) }}</span></td>
                         </tr>
                     @empty
-                        <tr><td colspan="{{ $showOwner ? 11 : 10 }}" class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</td></tr>
+                        <tr><td colspan="{{ $showOwner ? 12 : 11 }}" class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -1791,6 +1846,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @if ($hold = $l->ssancarHoldHint())
                         {{-- 영업이 손을 써야 하는 문구(보류·지역 미지정)는 빨간 굵은 글씨 + ⚠ — 폰 카드에서 회색 문구와 구분이 안 됐다(2026-10-24 Jin). --}}
                         <div class="mt-1 text-[11px] leading-snug {{ ! empty($hold['alert']) ? 'font-semibold text-red-600' : 'text-gray-400' }}">{{ ! empty($hold['alert']) ? '⚠' : '↳' }} {{ __($hold['key'], $hold['params']) }}</div>
+                    @endif
+                    @if ($l->status === 'draft' && $l->inspection_work_date)
+                        <div class="mt-1 text-[11px] {{ $l->inspectionDueToday() ? 'font-semibold text-green-700' : 'text-gray-500' }}">📅 {{ __('listings.table.work_date') }}: {{ $l->inspection_work_date->format('m-d') }}@if ($l->inspectionDueToday()) · {{ __('listings.drawer.work_date_today') }}@endif</div>
                     @endif
                 </div>
             @empty
@@ -1905,6 +1963,34 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     wire:click="requestReinspection" wire:confirm="{{ __('listings.drawer.reinspect_confirm') }}">
                                     🔁 {{ __('listings.drawer.reinspect_btn') }}
                                 </button>
+                            @endif
+                            {{-- 검차 예정일 + 긴급 요청(P1, 2026-10-29) — 예정일은 ssancar 가 정한 값(board 계산 없음). 긴급 승인·기각은 ssancar.com 업무관리자. --}}
+                            @if ($e->inspection_work_date)
+                                <div class="mt-2 text-[12px] text-gray-700">📅 {{ __('listings.table.work_date') }}: <b>{{ $e->inspection_work_date->format('m-d') }}</b>@if ($e->inspectionDueToday()) <span class="badge badge-green">{{ __('listings.drawer.work_date_today') }}</span>@endif</div>
+                            @endif
+                            @if ($e->inspection_urgent_decision === 'pending')
+                                <div class="mt-1 text-[12px] font-semibold text-amber-700">⏳ {{ __('listings.drawer.urgent_pending', ['at' => $e->inspection_urgent_requested_at?->timezone(config('app.timezone'))->format('m-d H:i') ?? '—']) }}</div>
+                            @elseif ($e->inspection_urgent_decision === 'approved')
+                                <div class="mt-1 text-[12px] font-semibold text-green-700">✅ {{ __('listings.drawer.urgent_approved', ['by' => $e->inspection_urgent_decided_by ?: '—', 'at' => $e->inspection_urgent_decided_at?->timezone(config('app.timezone'))->format('m-d H:i') ?? '—']) }}</div>
+                            @elseif ($e->inspection_urgent_decision === 'rejected')
+                                <div class="mt-1 text-[12px] font-semibold text-red-600">⛔ {{ __('listings.drawer.urgent_rejected', ['by' => $e->inspection_urgent_decided_by ?: '—', 'at' => $e->inspection_urgent_decided_at?->timezone(config('app.timezone'))->format('m-d H:i') ?? '—', 'note' => $e->inspection_urgent_decision_note ? ' · '.$e->inspection_urgent_decision_note : '']) }}</div>
+                            @endif
+                            @if ($this->urgentRequestable($e))
+                                <div x-data="{ open: false }" class="mt-2">
+                                    <button type="button" class="btn-outline btn-sm w-full justify-center" x-show="!open" @click="open = true">🚨 {{ __('listings.drawer.urgent_btn') }}</button>
+                                    <div x-show="open" x-cloak>
+                                        <input class="input-base" wire:model="e_urgent_note" maxlength="255" placeholder="{{ __('listings.drawer.urgent_note_ph') }}">
+                                        @error('e_urgent_note') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                                        <p class="mt-1 text-[11px] text-gray-500">{{ __('listings.drawer.urgent_hint') }}</p>
+                                        <div class="mt-1.5 flex gap-2">
+                                            <button type="button" class="btn-primary btn-sm flex-1 justify-center" wire:click="requestUrgent" wire:loading.attr="disabled" wire:target="requestUrgent"
+                                                wire:confirm="{{ __('listings.drawer.urgent_confirm') }}">🚨 {{ __('listings.drawer.urgent_send') }}</button>
+                                            <button type="button" class="btn-outline btn-sm" @click="open = false">{{ __('common.cancel') }}</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            @elseif ($e->inspectionDueToday() && $e->ssancar_inspected_wr_id === null && $e->inspection_skipped_at === null && $e->inspection_urgent_decision !== 'approved' && config('services.ssancar_inspection.schedule_p1'))
+                                <div class="mt-1 text-[11px] text-gray-500">{{ __('listings.drawer.urgent_today') }}</div>
                             @endif
                             @if ($this->forwardable($e))
                                 <button type="button" class="btn-outline btn-sm mt-2 w-full justify-center"

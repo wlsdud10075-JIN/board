@@ -67,6 +67,9 @@ class PurchaseListing extends Model
             'lock_at' => 'datetime',
             'inspection_started_at' => 'datetime',
             'inspection_skipped_at' => 'datetime',
+            'inspection_work_date' => 'date',   // ssancar 가 정한 검차 예정일(P1, 2026-10-29) — board 는 계산하지 않는다
+            'inspection_urgent_requested_at' => 'datetime',
+            'inspection_urgent_decided_at' => 'datetime',
             'ssancar_media_seen_at' => 'datetime',
             'ssancar_checked_at' => 'datetime',
             'ssancar_insp_photos' => 'integer',
@@ -647,6 +650,15 @@ class PurchaseListing extends Model
     public static function isInspectionTarget(?string $status, ?string $origin, bool $trashed): bool
     {
         return $status === 'draft' && $origin !== 'self_inspection' && ! $trashed;
+    }
+
+    /**
+     * 검차 예정일이 **오늘 목록**인가 — ssancar 「그날 목록」 = `work_date <= 그날`(`iq_due`, 이월 차 포함)이라 `<=` 로 본다(P1, 2026-10-29).
+     * 오늘 목록인 차에 긴급 요청은 뜻이 없다 → 드로어가 버튼 대신 「이미 오늘 목록」을 보인다.
+     */
+    public function inspectionDueToday(): bool
+    {
+        return $this->inspection_work_date !== null && $this->inspection_work_date->lte(today());
     }
 
     // ─────────────────────── 관계 ───────────────────────

@@ -63,6 +63,7 @@ return [
         'verdict' => '바이어 회신',          // 수락/거절/회신대기 칩 — 종전엔 「바이어」 칸에 들어 있었다(2026-10-13 Jin 분리)
         'owner' => '담당자',             // 등록자(created_by) — 전체가 보이는 사람에게만(2026-10-23 Jin)
         'inspection_state' => '검차상태',    // ssancar.com 폴러 마지막 판정 한 줄(현지확인대기 차만)
+        'work_date' => '검차 예정일',        // ssancar.com 이 정한 날(P1, 2026-10-29) — board 계산 없음
         'status' => '상태',
         'invoice' => 'Invoice',             // 송금인(여권/ID) 입력·ERP 전송 상태(2026-10-29 ②)
     ],
@@ -398,5 +399,17 @@ return [
         'forward_photos_confirm' => '검차 영상 없이 지금 있는 사진으로 전달대기로 넘깁니다. 바이어 링크에는 현재 사진이 들어가고, 영상이 나중에 올라오면 같은 링크에서 보입니다. 이 차는 현지확인 목록에서 빠집니다. 진행할까요?',
         'forward_photos_flash' => ':number 전달대기로 넘겼습니다 — 「전달 대기」 화면에서 바이어에게 보내세요.',
         'forward_no_media' => '전달할 사진·영상이 아직 없습니다.',
+        // 검차 예정일 · 긴급 검차 요청(검차 스케줄 자동화 P1, 2026-10-29 Jin) — 승인·기각은 ssancar.com 업무관리자
+        'work_date_today' => '오늘',
+        'urgent_btn' => '긴급 검차 요청 (오늘)',
+        'urgent_note_ph' => '사유 (선택) — 예: 바이어가 오늘 결정해야 함',
+        'urgent_hint' => 'ssancar.com 업무관리자가 승인하면 오늘 검차 목록에 들어갑니다. 기각되면 예정일은 그대로입니다. 결과는 종·휴대폰 알림으로 옵니다.',
+        'urgent_send' => '요청 보내기',
+        'urgent_confirm' => 'ssancar.com 업무관리자에게 이 차의 오늘 검차를 요청할까요? 승인 전엔 예정일이 바뀌지 않습니다.',
+        'urgent_flash' => ':number 긴급 검차를 요청했습니다 — 승인·기각 결과는 종과 휴대폰 알림으로 옵니다.',
+        'urgent_pending' => '긴급 요청 중 (:at) — ssancar.com 업무관리자 승인 대기',
+        'urgent_approved' => '긴급 승인 (:by · :at) — 오늘 검차 목록에 들어갔습니다',
+        'urgent_rejected' => '긴급 기각 (:by · :at):note — 예정일 그대로. 다시 요청할 수 있습니다',
+        'urgent_today' => '이미 오늘 검차 목록에 있는 차입니다 — 긴급 요청이 필요 없습니다.',
     ],
 ];
