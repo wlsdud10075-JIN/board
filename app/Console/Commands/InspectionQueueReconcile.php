@@ -7,6 +7,7 @@ use App\Models\IntegrationEvent;
 use App\Models\PurchaseListing;
 use App\Support\SsancarInspection;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -37,6 +38,7 @@ class InspectionQueueReconcile extends Command
             ->orderBy('id')->pluck('id')->all();
         if ($ids === []) {
             $this->info('대상 0대 — 빈 목록은 보내지 않음');
+            Log::info('inspection-reconcile: 대상 0대 — 빈 목록은 보내지 않음');   // 침묵 방지(2026-10-30) — 「안 보냈다」와 「안 돌았다」를 가른다
 
             return self::SUCCESS;
         }
@@ -51,6 +53,18 @@ class InspectionQueueReconcile extends Command
         try {
             $response = SsancarInspection::post($payload);
         } catch (\Throwable $e) {
+            // 2026-10-30 Jin — 호출 실패도 전송 표에 남긴다(종전엔 화면 출력만 → cron 에선 /dev/null 로 사라져 「안 돌았는지 못 보냈는지」를 알 수 없었다).
+            IntegrationEvent::create([
+                'direction' => 'outbound',
+                'target' => 'ssancar_inspection',
+                'event_type' => 'queue.reconcile',
+                'external_event_id' => $payload['event_id'],
+                'request_payload' => ['count' => $payload['count'], 'generated_at' => $payload['generated_at']],
+                'response_status' => null,
+                'response_body' => null,
+                'error' => 'exception: '.class_basename($e).' — '.mb_substr($e->getMessage(), 0, 300),
+            ]);
+            report($e);
             $this->error('호출 실패: '.class_basename($e));
 
             return self::SUCCESS;   // 다음 날 다시 — 스케줄러를 실패로 물들이지 않는다
