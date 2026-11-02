@@ -7,14 +7,15 @@ return [
     'title' => 'My Settlement / Receivables / Shipping (Portal)',
     'viewing_other_readonly' => ":name's portal — view only. Only a system admin can send requests on their behalf.",
     'viewing_other' => ":name's portal — a system administrator may act on their behalf. Requests are sent to car-erp under :name's name.",
+    'viewing_other_manager' => "Portal of :name (your salesperson) — you can send requests and shipping requests on their behalf. Requests go to car-erp under :name's name. Settlement items are hidden.",
     'viewing_self' => 'Your information only (:name) — car-erp ledger (read-only). Edits and shipping operations are in car-erp.',
     'footer_note' => 'Read-only (car-erp ledger). For edits to amounts, settlement, or shipping operations, contact the car-erp owner. Shipping requests are sent to car-erp managers as an alert.',
 
     // View by user (super)
     'view_by_user' => 'View by user',
     'view_by_user_hint' => "Click a name to display that user's settlement, receivables, and shipping (admins and work managers — only system admins can act on their behalf)",
-    'view_by_user_hint_manager' => "Click a name to display the designated salesperson's receivables, inventory, sales and shipping (read-only · settlement items hidden)",
-    'settlement_hidden_notice' => 'Designated-salesperson view — settlement items (settlement tab, monthly payouts, in-progress settlements, margin rate) are hidden.',
+    'view_by_user_hint_manager' => "Only salespeople who shared with you are listed — click a name to see their receivables, inventory, sales and shipping and act on their behalf (settlement items hidden)",
+    'settlement_hidden_notice' => 'Team-salesperson view — settlement items (settlement tab, monthly payouts, in-progress settlements, margin rate) are hidden. Requests go out under that salesperson\'s name.',
     'view_self_btn' => 'Me',
 
     // Tabs

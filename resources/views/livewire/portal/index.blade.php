@@ -394,11 +394,20 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     /**
      * 업무관리자가 남의 포털을 보는 중이면 **쓰기 전부 차단**(조회 전용) — 요청은 그 영업 명의로 ERP·알림톡까지 나간다.
-     * super 는 대신 실행 허용(2026-08-18 §14-10). 쓰기 진입점마다 이걸 먼저 본다.
+     * super 는 대신 실행 허용(2026-08-18 §14-10). **담당 관리(영업이 공유한 관리)도 대신 실행**(2026-11-02 Jin — 「계약금·매입잔금·대표계약금
+     * 이런 것도 보낼 수 있고」, ERP 관리와 같은 맥락) — 정산만 숨긴다. 쓰기 진입점마다 이걸 먼저 본다.
      */
     public function proxyWriteBlocked(): bool
     {
-        return $this->isViewingOther() && ! Auth::user()->isSuper();
+        return $this->isViewingOther() && ! Auth::user()->isSuper() && ! $this->actingAsTeamManager();
+    }
+
+    /** 담당 관리로서 공유받은 영업을 보는 중인가(viewingUser 가 non-null 이면 이미 지정 목록 안의 영업이다). */
+    public function actingAsTeamManager(): bool
+    {
+        $me = Auth::user();
+
+        return $this->isViewingOther() && $me->isManager() && ! $me->hasFullAccess();
     }
 
     /** super — 열람 대상 변경(이름 클릭). null=본인. 비-super 는 무시(본인 격리). 목록 밖 id 도 무시. */
@@ -1398,7 +1407,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     <div class="mb-4">
         <h1 class="text-xl font-bold text-gray-800">{{ __('portal.title') }}</h1>
         @if ($this->isViewingOther())
-            <p class="mt-0.5 text-xs text-gray-500">👁️ {!! __(auth()->user()->isSuper() ? 'portal.viewing_other' : 'portal.viewing_other_readonly', ['name' => '<b class="text-[var(--color-primary-text)]">'.e($this->viewingName()).'</b>']) !!}</p>
+            <p class="mt-0.5 text-xs text-gray-500">👁️ {!! __(auth()->user()->isSuper() ? 'portal.viewing_other' : ($this->actingAsTeamManager() ? 'portal.viewing_other_manager' : 'portal.viewing_other_readonly'), ['name' => '<b class="text-[var(--color-primary-text)]">'.e($this->viewingName()).'</b>']) !!}</p>
         @else
             <p class="mt-0.5 text-xs text-gray-500">🔒 {{ __('portal.viewing_self', ['name' => auth()->user()->name]) }}</p>
         @endif

@@ -23,14 +23,6 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $respond_agent_email = '';      // 연동 A 승격 라우팅(respond.io 상담원 이메일이 로그인과 다를 때)
     public string $password = '';
 
-    /**
-     * 관리(role=manager)에게 지정하는 담당 영업 id 목록(2026-11-02 Jin, car-erp `manager_salesman` 미러) — 그 관리는 `/portal` 에서
-     * 지정된 영업의 포털을 **조회 전용·정산 제외**로 본다. 🚨 지정은 super·업무관리자만 — 관리 role 이 스스로에게 영업을 붙이면
-     * 영업 ERP 원장 열람 권한을 자기 손으로 여는 것이라, `is_super` 와 같은 자리에서 서버가 막는다(화면 숨김은 가드가 아니다).
-     *
-     * @var list<int>
-     */
-    public array $managed_salesman_ids = [];
 
     /** 검색어(이름·이메일·전화번호) — ERP 사용자관리와 같은 규칙: **버튼·Enter 로만** 돈다(타이핑마다 LIKE 왕복 안 함). */
     public string $search = '';
@@ -110,22 +102,9 @@ new #[Layout('components.layouts.app')] class extends Component {
             || ($target->isWorkManager() && ! $actor->hasFullAccess());
     }
 
-    /** 담당 영업 지정 권한 = super·업무관리자(위 등급 지정과 같은 선). */
-    public function canAssignSalesmen(): bool
-    {
-        return (bool) Auth::user()?->hasFullAccess();
-    }
-
-    /** 지정 후보 = 활성 영업. */
-    #[Computed]
-    public function salesCandidates()
-    {
-        return User::where('role', 'sales')->where('is_active', true)->orderBy('name')->get(['id', 'name', 'email']);
-    }
-
     public function openCreate(): void
     {
-        $this->reset(['editingId', 'name', 'email', 'phone', 'region', 'password', 'is_super', 'is_work_manager', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email', 'managed_salesman_ids']);
+        $this->reset(['editingId', 'name', 'email', 'phone', 'region', 'password', 'is_super', 'is_work_manager', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email']);
         $this->role = 'sales';
         $this->is_active = true;
         $this->showForm = true;
@@ -152,7 +131,6 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->car_erp_salesman_id = $u->car_erp_salesman_id !== null ? (string) $u->car_erp_salesman_id : null;
         $this->car_erp_salesman_email = $u->car_erp_salesman_email ?? '';
         $this->respond_agent_email = $u->respond_agent_email ?? '';
-        $this->managed_salesman_ids = $u->isManager() ? $u->managedSalesmanUsers()->pluck('users.id')->map(fn ($v) => (int) $v)->all() : [];
         $this->password = '';
         $this->showForm = true;
         $this->resetErrorBag();
@@ -160,7 +138,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function close(): void
     {
-        $this->reset(['showForm', 'editingId', 'name', 'email', 'phone', 'region', 'password', 'is_super', 'is_work_manager', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email', 'managed_salesman_ids']);
+        $this->reset(['showForm', 'editingId', 'name', 'email', 'phone', 'region', 'password', 'is_super', 'is_work_manager', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email']);
         $this->role = 'sales';
         $this->is_active = true;
     }
@@ -234,7 +212,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             $data['email_verified_at'] = now();
             $target = User::create($data);
         }
-        $this->syncManagedSalesmen($target);
+        $this->detachStaleSharing($target);
 
         unset($this->users);
         session()->flash('ok', __('users.saved'));
@@ -242,30 +220,27 @@ new #[Layout('components.layouts.app')] class extends Component {
     }
 
     /**
-     * 담당 영업 지정 반영 — 관리 role 이 아니면 전부 해제, 관리면 super·업무관리자가 보낸 목록으로 sync(후보 밖 id 는 버림).
-     * 관리 role 액터는 목록을 못 바꾼다(프로퍼티를 밀어넣어도 무시 — `is_super` 와 같은 서버 가드). 바뀌면 감사 행 1건(Jin 「모든 건 로그」).
+     * 관리↔영업 공유 연결(`manager_salesman`, 영업이 /settings/profile 에서 찍는다 — 2026-11-02 Jin)은 role 이 바뀌면 뜻을 잃는다 → 해제.
+     * 관리가 아니게 된 계정은 담당 영업 연결을, 영업이 아니게 된 계정은 공유한 관리 연결을 끊는다. 바뀐 게 있으면 감사 행(Jin 「모든 건 로그」).
      */
-    private function syncManagedSalesmen(User $target): void
+    private function detachStaleSharing(User $target): void
     {
-        $before = $target->managedSalesmanUsers()->pluck('users.id')->map(fn ($v) => (int) $v)->sort()->values()->all();
-        if (! $target->isManager()) {
-            $after = [];
-        } elseif ($this->canAssignSalesmen()) {
-            $allowed = $this->salesCandidates->pluck('id')->map(fn ($v) => (int) $v)->all();
-            $after = collect($this->managed_salesman_ids)->map(fn ($v) => (int) $v)->filter(fn ($id) => in_array($id, $allowed, true))->unique()->sort()->values()->all();
-        } else {
-            $after = $before;   // 관리 role 액터 — 종전 지정 보존
+        $gone = [];
+        if (! $target->isManager() && ($n = $target->managedSalesmanUsers()->count()) > 0) {
+            $gone['managed_salesmen'] = $n;
+            $target->managedSalesmanUsers()->detach();
         }
-        if ($after === $before) {
-            return;
+        if (! $target->isSales() && ($n = $target->managingUsers()->count()) > 0) {
+            $gone['shared_managers'] = $n;
+            $target->managingUsers()->detach();
         }
-        $target->managedSalesmanUsers()->sync($after);
-        \App\Models\BoardAuditLog::create([
-            'user_id' => Auth::id(), 'purchase_listing_id' => null, 'action' => 'user_managed_salesmen', 'field' => 'user_managed_salesmen',
-            'old_value' => json_encode(['user' => $target->name, 'ids' => $before], JSON_UNESCAPED_UNICODE),
-            'new_value' => json_encode(['user' => $target->name, 'ids' => $after,
-                'names' => User::whereIn('id', $after)->orderBy('name')->pluck('name')->all()], JSON_UNESCAPED_UNICODE),
-        ]);
+        if ($gone !== []) {
+            \App\Models\BoardAuditLog::create([
+                'user_id' => Auth::id(), 'purchase_listing_id' => null, 'action' => 'user_shared_managers', 'field' => 'user_shared_managers',
+                'old_value' => json_encode(['user' => $target->name, 'detached' => $gone], JSON_UNESCAPED_UNICODE),
+                'new_value' => json_encode(['user' => $target->name, 'role' => $target->role, 'ids' => []], JSON_UNESCAPED_UNICODE),
+            ]);
+        }
     }
 
     public function toggleActive(int $id): void
@@ -412,24 +387,6 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <input class="input-base" wire:model="respond_agent_email" type="email" placeholder="{{ __('users.ph_respond_email') }}">
                     <p class="mt-1 text-xs text-gray-400">{!! __('users.hint_respond_email') !!}</p>
                     @error('respond_agent_email') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                @endif
-
-                {{-- 관리만 담당 영업 지정(2026-11-02 Jin, car-erp 미러) — 지정은 super·업무관리자만(관리 role 은 읽기만). 포털에서 그 영업을 조회 전용·정산 제외로 본다. --}}
-                @if ($role === 'manager')
-                    <label class="label-base mt-3">{{ __('users.label_managed_salesmen') }} <span class="text-xs font-normal text-gray-400">{{ __('users.managed_salesmen_hint') }}</span></label>
-                    @if ($this->canAssignSalesmen())
-                        <div class="mt-1 grid gap-1 rounded-md border border-gray-200 bg-gray-50 p-2 sm:grid-cols-2">
-                            @forelse ($this->salesCandidates as $sc)
-                                <label class="flex items-center gap-2 text-[13px] text-gray-700">
-                                    <input type="checkbox" wire:model="managed_salesman_ids" value="{{ $sc->id }}"> {{ $sc->name }} <span class="truncate text-[11px] text-gray-400">{{ $sc->email }}</span>
-                                </label>
-                            @empty
-                                <span class="text-[12px] text-gray-400">{{ __('users.managed_salesmen_none') }}</span>
-                            @endforelse
-                        </div>
-                    @else
-                        <p class="mt-1 text-[12px] text-gray-500">{{ $managed_salesman_ids ? User::whereIn('id', $managed_salesman_ids)->orderBy('name')->pluck('name')->implode(' · ') : '—' }} <span class="text-gray-400">{{ __('users.managed_salesmen_readonly') }}</span></p>
-                    @endif
                 @endif
 
                 {{-- 검차원만 담당 지역(고정 로스터) — 지역 검차 알림톡 수신 기준 --}}

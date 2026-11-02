@@ -40,7 +40,7 @@ board 와 car-erp 는 형제 디렉터리 + **별도 DB**다. artisan/tinker 실
 **permission** (`users.permission`):
 - `super` 시스템관리자 — role 무관 전체 접근 + **기능설정** + **감사로그** + 사용자관리 중 **등급(super·업무관리자) 지정·super 계정 수정** + 포털 타인 명의 대리실행 (관리자 페이지 삭제·재전송은 2026-10-22 부터 **관리 이상** — 관리 role·업무관리자·super). car-erp super 대응.
 - `manager` **업무관리자**(2026-10-14 Jin, car-erp 의 manager 등급 미러) — role 무관 전체 화면 + **감사로그** + 사용자관리(super 계정 제외, 등급 변경 불가; **업무관리자 계정은 관리 role 이 못 건드린다** — 위 등급은 아래 등급이 수정 불가). **기능설정·등급 지정·포털 대리실행은 못 한다**(관리자 페이지 삭제·재전송은 2026-10-22 부터 허용 · **포털 남의 정보 조회는 2026-10-23 부터 허용 — 조회 전용**, 쓰기는 `proxyWriteBlocked()` 가 막는다)(Jin 결정: 대리실행은 영업 명의로 ERP 알림톡까지 나가는 쓰기, 지정은 ERP 와 같이 super 만). 판정 = `User::isWorkManager()`, super 와 묶은 바이패스 = `User::hasFullAccess()`(role 가드·영업 격리·사이드바·푸시 수신). ⚠️ `isManager()` 는 **role=관리** 라 별개 — 이름이 비슷해 헷갈린다. 컬럼이 ENUM 이라 마이그 `2026_10_14_000001` 로 값을 넓혔다.
-- `user` 일반 — `role` 기반 접근. **관리(role=manager) + 담당 영업 지정**(2026-11-02 Jin, `/users` 에서 super·업무관리자가 지정, 테이블 `manager_salesman` = car-erp 미러 — **두 박스 배포 완료 2026-11-02 master `03fbce0`**, heymanboard·ssancarboard success, db:backup ✓ 1553.4 KB / 459.1 KB, 마이그 `2026_11_02_000001` DONE, /login 200. 운영 지정 0건 — 지정은 Jin/업무관리자가 /users 에서): 지정된 영업의 `/portal` 을 **조회 전용**으로 보되 **정산 관련은 전부 숨김**(정산내역 탭·요약 탭 정산 대기 KPI·월별 정산액·진행 중 정산·차량별 마진율 — 서버에서 호출 자체를 건너뛰고 응답 키 `settle|payout|margin` 제거). ⚠️ **board 관리 ≠ ERP 관리**: ERP `canAccessSettlement` 는 관리를 포함하지만 board 는 Jin 결정으로 제외 — 「ERP 미러」 명분으로 되살리지 말 것. 업무관리자·super 의 타인 열람은 종전대로 정산 포함.
+- `user` 일반 — `role` 기반 접근. **관리(role=manager) ↔ 영업 포털 공유**(2026-11-02 Jin — 「ERP 처럼 영업이 본인 정보를 공유할 사람을 찍게」, 테이블 `manager_salesman` = car-erp 미러): **영업이 `/settings/profile` 「내 포털 공유」에서 관리를 체크**한다(지정 주체 = 영업, 2026-11-02 1차 「업무관리자가 /users 에서 지정」을 같은 날 뒤집음). 찍힌 관리는 `/portal` 사용자별 조회에서 **그 영업들만** 보고, **요청(계약금·매입잔금·대표계약금·판매대금확인)·선적요청·서류·서명을 대신 실행할 수 있다**(그 영업 명의로 ERP 전달 — super 와 같은 쓰기), 단 **정산 관련은 전부 숨김**(정산내역 탭·요약 정산 대기 KPI·월별 정산액·진행 중 정산·마진율 — 서버가 호출을 건너뛰고 응답 키 `settle|payout|margin` 제거). role 이 바뀌면 `/users` 저장 시 연결 자동 해제(감사 행). ⚠️ **board 관리 ≠ ERP 관리**: ERP `canAccessSettlement` 는 관리를 포함하지만 board 는 Jin 결정으로 제외 — 「ERP 미러」 명분으로 되살리지 말 것. 업무관리자·super 의 타인 열람은 종전대로(전체·정산 포함·업무관리자는 조회 전용). 1차 배포 `03fbce0`(/users 체크박스) → 2차 dev 에서 영업 셀프 지정으로 교체(운영 미배포).
 
 **role** (`users.role`): `sales`(영업) / `inspection`(현지확인) / `auction`(경매) / `manager`(관리). 라벨은 `User::ROLE_LABELS`.
 
@@ -59,7 +59,7 @@ board 와 car-erp 는 형제 디렉터리 + **별도 DB**다. artisan/tinker 실
 | `/verdicts` | verdicts | 영업 / 관리 / super — 바이어 회신 수락/거절 |
 | `/inspection` | inspection | 현지확인 / 관리 / super |
 | `/auction` | auction | **영업** / 경매 / 관리 / super (경매역할 사실상 폐지, 2026-06-24) |
-| `/portal` | portal | 영업 / 관리 / super — car-erp 읽기 미러(재고·미수·판매·정산·선적요청·서류·§11 신호). 타인 열람 = super·업무관리자(전체) / **담당 영업 지정받은 관리(지정 영업만·정산 숨김, 2026-11-02)** |
+| `/portal` | portal | 영업 / 관리 / super — car-erp 읽기 미러(재고·미수·판매·정산·선적요청·서류·§11 신호). 타인 열람 = super(전체·대신 실행)·업무관리자(전체·조회 전용) / **영업이 공유한 관리(그 영업만·대신 실행 가능·정산 숨김, 2026-11-02)** |
 | `/manage` | manage | 관리 / super |
 | `/users` | users | 관리 / super (2026-08-04 Jin) — 단 **super 지정·super 계정 수정/비활성화는 super 만**(화면 내 가드). 관리자는 자기 role 변경도 불가(자기잠금 방지) |
 | `/audit` | audit | **super + 업무관리자** — 감사로그(변경이력 board_audit_logs + car-erp 전송 integration_events) |

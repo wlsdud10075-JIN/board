@@ -58,7 +58,7 @@ return [
         'erp_amounts_overwrite' => 'ERP 금액 덮어쓰기 전송',   // 2026-10-29 — 누가 언제 보냈나(값 JSON), 결과는 전송 표 응답
         'inspection_urgent_request' => '긴급 검차 요청',       // 2026-10-29 P1 — 영업이 눌렀다(사유·그때 예정일·재검차 동반 여부)
         'inspection_urgent_decision' => '긴급 검차 결정',      // ssancar.com 업무관리자 승인·기각 수신(변경자 = 시스템, 결정자는 값에)
-        'user_managed_salesmen' => '관리 담당 영업 지정',      // 2026-11-02 — 매물 없는 행(차량 칸 —), 값 = 대상 관리·영업 id/이름
+        'user_shared_managers' => '포털 공유 관리 지정',       // 2026-11-02 — 영업이 /settings 에서 찍은 관리(또는 role 변경 해제), 매물 없는 행
         'offer_rate_usd' => 'USD환율',
         'offer_rate_eur' => 'EUR환율',
         'buyer_undecided' => '바이어미정',

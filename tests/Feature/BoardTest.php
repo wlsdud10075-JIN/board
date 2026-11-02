@@ -8530,38 +8530,43 @@ class BoardTest extends TestCase
         return $mgr;
     }
 
-    /** super·업무관리자는 /users 에서 관리에게 담당 영업을 지정한다(감사 행 1건). 관리 role 액터는 프로퍼티를 밀어넣어도 지정이 안 바뀐다. */
-    public function test_full_access_assigns_salesmen_to_manager_and_manager_actor_cannot(): void
+    /** 영업이 /settings/profile 에서 공유할 관리를 찍는다(감사 행 1건). 후보 밖(영업·업무관리자·비활성·없는 id)은 버린다. 영업이 아니면 카드도 저장도 없다. */
+    public function test_salesperson_picks_managers_to_share_portal_in_settings(): void
     {
-        $s1 = $this->mkUser('sales');
-        $s2 = $this->mkUser('sales');
-        $inactive = $this->mkUser('sales');
+        $m1 = $this->mkUser('manager');
+        $m2 = $this->mkUser('manager');
+        $inactive = $this->mkUser('manager');
         $inactive->update(['is_active' => false]);
-        $mgr = $this->mkUser('manager');
+        $wm = $this->mkUser('manager', null, 'manager');   // 업무관리자 — 지정 없이 전체를 보니 후보 아님
+        $sales = $this->mkUser('sales');
+        $this->actingAs($sales);
 
-        $this->actingAs($this->mkUser('manager', null, 'manager'));   // 업무관리자
-        Volt::test('users.index')->call('openEdit', $mgr->id)->assertSee(__('users.label_managed_salesmen'))
-            ->set('managed_salesman_ids', [(string) $s1->id, (string) $s2->id, (string) $inactive->id, '999999'])
-            ->call('save')->assertHasNoErrors();
-        $this->assertEqualsCanonicalizing([$s1->id, $s2->id], $mgr->managedSalesmanUsers()->pluck('users.id')->map(fn ($v) => (int) $v)->all());   // 비활성·없는 id 는 버림
-        $row = BoardAuditLog::where('action', 'user_managed_salesmen')->latest('id')->first();
-        $this->assertNotNull($row);
+        Volt::test('settings.profile')->assertSee(__('settings.sharing.heading'))->assertSee($m1->name)->assertDontSeeHtml('value="'.$wm->id.'"')
+            ->set('share_manager_ids', [(string) $m1->id, (string) $m2->id, (string) $inactive->id, (string) $wm->id, (string) $sales->id, '999999'])
+            ->call('saveSharing')->assertHasNoErrors();
+        $this->assertEqualsCanonicalizing([$m1->id, $m2->id], $sales->managingUsers()->pluck('users.id')->map(fn ($v) => (int) $v)->all());
+        $this->assertEqualsCanonicalizing([$sales->id], $m1->managedSalesmanUsers()->pluck('users.id')->map(fn ($v) => (int) $v)->all());
+        $row = BoardAuditLog::where('action', 'user_shared_managers')->latest('id')->first();
+        $this->assertSame($sales->id, $row->user_id);
         $this->assertNull($row->purchase_listing_id);
-        $this->assertStringContainsString($s1->name, $row->new_value);
+        $this->assertStringContainsString($m1->name, $row->new_value);
 
-        // 관리 role 액터 — 목록을 비워 저장해도 종전 지정 보존(자기 손으로 열람 권한을 열거나 닫지 못한다)
-        $this->actingAs($this->mkUser('manager'));
-        Volt::test('users.index')->call('openEdit', $mgr->id)->assertSee(__('users.managed_salesmen_readonly'))
-            ->set('managed_salesman_ids', [])->call('save')->assertHasNoErrors();
-        $this->assertCount(2, $mgr->managedSalesmanUsers()->get());
+        // 관리 계정에는 카드가 없고 저장도 무시
+        $this->actingAs($m1);
+        Volt::test('settings.profile')->assertDontSee(__('settings.sharing.heading'))->set('share_manager_ids', [(string) $m2->id])->call('saveSharing');
+        $this->assertCount(0, $m1->managingUsers()->get());
 
-        // 영업으로 role 을 바꾸면 지정 전부 해제
+        // /users 에서 관리 role 을 영업으로 바꾸면 담당 연결 해제(감사 행), 영업을 검차원으로 바꾸면 공유 연결 해제
         $this->actingAs($this->mkUser('sales', null, 'super'));
-        Volt::test('users.index')->call('openEdit', $mgr->id)->set('role', 'sales')->call('save')->assertHasNoErrors();
-        $this->assertCount(0, $mgr->managedSalesmanUsers()->get());
+        Volt::test('users.index')->call('openEdit', $m1->id)->set('role', 'sales')->call('save')->assertHasNoErrors();
+        $this->assertCount(0, $m1->managedSalesmanUsers()->get());
+        $this->assertCount(1, $sales->managingUsers()->get());   // m2 만 남는다
+        Volt::test('users.index')->call('openEdit', $sales->id)->set('role', 'inspection')->call('save')->assertHasNoErrors();
+        $this->assertCount(0, $sales->managingUsers()->get());
+        $this->assertSame(3, BoardAuditLog::where('action', 'user_shared_managers')->count());
     }
 
-    /** 지정받은 관리 = 지정 영업만 조회(조회 전용) + 정산 호출 0·정산 키 제거·정산내역 탭 없음. 지정 없는 관리는 선택 칸 자체가 없다. */
+    /** 공유받은 관리 = 공유한 영업만 조회 + 정산 호출 0·정산 키 제거·정산내역 탭 없음 + **대신 실행 가능**(계약금 요청이 그 영업 명의로 나간다). 공유 없는 관리는 선택 칸 자체가 없다. */
     public function test_designated_manager_views_only_designated_salesmen_without_settlement(): void
     {
         $this->carErpReadConfig();
@@ -8580,7 +8585,7 @@ class BoardTest extends TestCase
         $c = Volt::test('portal.index')->assertSee('사용자별 조회')->assertSee($mine->name)->assertDontSee($other->name)
             ->call('viewUser', $other->id)->assertSet('viewUserId', null)   // 지정 밖 = 무시
             ->call('viewUser', $mine->id)->assertSet('viewUserId', $mine->id)
-            ->assertSee('조회 전용')->assertSee(__('portal.settlement_hidden_notice'))
+            ->assertSee('대신 보낼 수 있습니다')->assertDontSee('조회 전용')->assertSee(__('portal.settlement_hidden_notice'))
             ->assertDontSee(__('portal.tab.settlements'))->assertDontSee(__('portal.kpi_settlement_pending'));
         Http::assertSent(fn ($req) => str_contains($req->url(), 'salesman_email=mine%40ce.test'));
         // 지정 영업 명의의 정산 호출 0 (관리 본인 포털 첫 로드는 본인 데이터라 정산 호출이 있을 수 있다 — 그건 대상 아님)
@@ -8596,10 +8601,12 @@ class BoardTest extends TestCase
         $this->assertArrayNotHasKey('payout_total_krw', $row);
         $this->assertSame(['USD' => 100], $row['sales_by_currency']);
 
-        $c->call('sendPurchaseRequest', 'purchase_deposit', 10)->assertSet('reqResult', ['error' => __('portal.flash_proxy_readonly')]);
-        Http::assertNotSent(fn ($req) => $req->method() === 'POST');
+        // 담당 관리는 요청을 대신 보낸다(2026-11-02 Jin) — 그 영업 명의(salesman_email)로 POST 가 나간다
+        $c->set('reqAmount.10', '1000')->call('sendPurchaseRequest', 'purchase_deposit', 10);
+        $this->assertNotSame(['error' => __('portal.flash_proxy_readonly')], $c->get('reqResult'));
+        Http::assertSent(fn ($req) => $req->method() === 'POST' && str_contains($req->url(), '/requests') && str_contains($req->body(), 'mine@ce.test'));
 
-        // 지정 없는 관리 — 선택 칸 없음·viewUser 무시
+        // 공유 없는 관리 — 선택 칸 없음·viewUser 무시
         $this->actingAs($this->mkUser('manager'));
         Volt::test('portal.index')->assertDontSee('사용자별 조회')->call('viewUser', $mine->id)->assertSet('viewUserId', null);
     }

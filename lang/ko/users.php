@@ -50,11 +50,6 @@ return [
     'work_manager_checkbox' => '업무관리자',
     'work_manager_checkbox_desc' => '(역할 무관 전체 화면 + 감사로그. 기능설정·권한 지정은 제외)',
     'active_checkbox' => '활성 계정 (로그인 허용)',
-    // 관리 담당 영업 지정(2026-11-02 Jin, car-erp manager_salesman 미러) — 포털 조회 전용·정산 제외
-    'label_managed_salesmen' => '담당 영업 지정',
-    'managed_salesmen_hint' => '(이 관리가 포털에서 볼 수 있는 영업 — 조회 전용, 정산 관련은 보이지 않음)',
-    'managed_salesmen_none' => '활성 영업 계정이 없습니다.',
-    'managed_salesmen_readonly' => '— 지정 변경은 시스템관리자·업무관리자만',
 
     // flash / 검증 메시지
     'saved' => '저장되었습니다.',
