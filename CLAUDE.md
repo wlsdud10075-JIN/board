@@ -40,7 +40,7 @@ board 와 car-erp 는 형제 디렉터리 + **별도 DB**다. artisan/tinker 실
 **permission** (`users.permission`):
 - `super` 시스템관리자 — role 무관 전체 접근 + **기능설정** + **감사로그** + 사용자관리 중 **등급(super·업무관리자) 지정·super 계정 수정** + 포털 타인 명의 대리실행 (관리자 페이지 삭제·재전송은 2026-10-22 부터 **관리 이상** — 관리 role·업무관리자·super). car-erp super 대응.
 - `manager` **업무관리자**(2026-10-14 Jin, car-erp 의 manager 등급 미러) — role 무관 전체 화면 + **감사로그** + 사용자관리(super 계정 제외, 등급 변경 불가; **업무관리자 계정은 관리 role 이 못 건드린다** — 위 등급은 아래 등급이 수정 불가). **기능설정·등급 지정·포털 대리실행은 못 한다**(관리자 페이지 삭제·재전송은 2026-10-22 부터 허용 · **포털 남의 정보 조회는 2026-10-23 부터 허용 — 조회 전용**, 쓰기는 `proxyWriteBlocked()` 가 막는다)(Jin 결정: 대리실행은 영업 명의로 ERP 알림톡까지 나가는 쓰기, 지정은 ERP 와 같이 super 만). 판정 = `User::isWorkManager()`, super 와 묶은 바이패스 = `User::hasFullAccess()`(role 가드·영업 격리·사이드바·푸시 수신). ⚠️ `isManager()` 는 **role=관리** 라 별개 — 이름이 비슷해 헷갈린다. 컬럼이 ENUM 이라 마이그 `2026_10_14_000001` 로 값을 넓혔다.
-- `user` 일반 — `role` 기반 접근.
+- `user` 일반 — `role` 기반 접근. **관리(role=manager) + 담당 영업 지정**(2026-11-02 Jin, `/users` 에서 super·업무관리자가 지정, 테이블 `manager_salesman` = car-erp 미러): 지정된 영업의 `/portal` 을 **조회 전용**으로 보되 **정산 관련은 전부 숨김**(정산내역 탭·요약 탭 정산 대기 KPI·월별 정산액·진행 중 정산·차량별 마진율 — 서버에서 호출 자체를 건너뛰고 응답 키 `settle|payout|margin` 제거). ⚠️ **board 관리 ≠ ERP 관리**: ERP `canAccessSettlement` 는 관리를 포함하지만 board 는 Jin 결정으로 제외 — 「ERP 미러」 명분으로 되살리지 말 것. 업무관리자·super 의 타인 열람은 종전대로 정산 포함.
 
 **role** (`users.role`): `sales`(영업) / `inspection`(현지확인) / `auction`(경매) / `manager`(관리). 라벨은 `User::ROLE_LABELS`.
 
@@ -59,7 +59,7 @@ board 와 car-erp 는 형제 디렉터리 + **별도 DB**다. artisan/tinker 실
 | `/verdicts` | verdicts | 영업 / 관리 / super — 바이어 회신 수락/거절 |
 | `/inspection` | inspection | 현지확인 / 관리 / super |
 | `/auction` | auction | **영업** / 경매 / 관리 / super (경매역할 사실상 폐지, 2026-06-24) |
-| `/portal` | portal | 영업 / 관리 / super — car-erp 읽기 미러(재고·미수·판매·정산·선적요청·서류·§11 신호) |
+| `/portal` | portal | 영업 / 관리 / super — car-erp 읽기 미러(재고·미수·판매·정산·선적요청·서류·§11 신호). 타인 열람 = super·업무관리자(전체) / **담당 영업 지정받은 관리(지정 영업만·정산 숨김, 2026-11-02)** |
 | `/manage` | manage | 관리 / super |
 | `/users` | users | 관리 / super (2026-08-04 Jin) — 단 **super 지정·super 계정 수정/비활성화는 super 만**(화면 내 가드). 관리자는 자기 role 변경도 불가(자기잠금 방지) |
 | `/audit` | audit | **super + 업무관리자** — 감사로그(변경이력 board_audit_logs + car-erp 전송 integration_events) |

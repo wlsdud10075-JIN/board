@@ -13,6 +13,8 @@ return [
     // View by user (super)
     'view_by_user' => 'View by user',
     'view_by_user_hint' => "Click a name to display that user's settlement, receivables, and shipping (admins and work managers — only system admins can act on their behalf)",
+    'view_by_user_hint_manager' => "Click a name to display the designated salesperson's receivables, inventory, sales and shipping (read-only · settlement items hidden)",
+    'settlement_hidden_notice' => 'Designated-salesperson view — settlement items (settlement tab, monthly payouts, in-progress settlements, margin rate) are hidden.',
     'view_self_btn' => 'Me',
 
     // Tabs

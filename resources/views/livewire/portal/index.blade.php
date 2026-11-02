@@ -114,7 +114,7 @@ new #[Layout('components.layouts.app')] class extends Component {
      * 판매는 통화 혼재라 건수만(합산 무의미). 정산 실지급·매입가는 원화 합산.
      * 미수금은 날짜 없어 제외. (car-erp 정산 바이어 추가 시 buyer 차원 확장 가능.)
      */
-    private function buildMonthly(string $email): array
+    private function buildMonthly(string $email, bool $withSettlement = true): array
     {
         $svc = $this->svc();
         $m = [];
@@ -141,7 +141,11 @@ new #[Layout('components.layouts.app')] class extends Component {
             }
         };
         $bump($svc->sales($email), 'sale_date', null, 'sales_cnt', null);
-        $this->collectPayouts($svc->payoutBatches($email), $m);
+        if ($withSettlement) {
+            $this->collectPayouts($svc->payoutBatches($email), $m);
+        } else {
+            $this->monthlySettle = [];   // 정산 숨김 — ERP 월배치를 부르지도, 상세를 남기지도 않는다
+        }
         $bump($svc->purchases($email), 'purchase_date', 'purchase_price', 'purch_cnt', 'purch_sum');
         krsort($m);   // 최근 월 먼저
 
@@ -282,6 +286,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         if (! in_array($tab, self::TABS, true)) {
             return;
         }
+        if ($tab === 'settlements' && $this->settlementHidden()) {
+            return;   // 정산 숨김 열람 — 탭 버튼도 없지만 호출이 와도 무시
+        }
         $this->tab = $tab;
         $this->syncResult = null;
         $this->shipNote = null;
@@ -319,24 +326,58 @@ new #[Layout('components.layouts.app')] class extends Component {
     #[Computed]
     public function portalUsers()
     {
-        if (! Auth::user()->hasFullAccess()) {
-            return collect();
+        $me = Auth::user();
+        if ($me->hasFullAccess()) {
+            return User::whereIn('role', ['sales', 'manager'])
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get(['id', 'name', 'role', 'email', 'car_erp_salesman_email']);
+        }
+        // 관리(role) — `/users` 에서 지정받은 담당 영업만(2026-11-02 Jin, car-erp manager_salesman 미러). 활성·영업 role 은 읽을 때 걸러 해제 없이도 안전.
+        if ($me->isManager()) {
+            return $me->managedSalesmanUsers()
+                ->where('role', 'sales')->where('is_active', true)
+                ->orderBy('name')
+                ->get(['users.id', 'users.name', 'users.role', 'users.email', 'users.car_erp_salesman_email']);
         }
 
-        return User::whereIn('role', ['sales', 'manager'])
-            ->where('is_active', true)
-            ->orderBy('name')
-            ->get(['id', 'name', 'role', 'email', 'car_erp_salesman_email']);
+        return collect();
     }
 
-    /** 현재 열람 중인 사용자 — super 가 지정했고 목록에 있는 유효 대상일 때만. 그 외(비-super 포함) null=본인. */
+    /** 현재 열람 중인 사용자 — 열람 권한자가 지정했고 목록에 있는 유효 대상일 때만. 그 외 null=본인. */
     private function viewingUser(): ?User
     {
-        if ($this->viewUserId === null || ! Auth::user()->hasFullAccess()) {
+        if ($this->viewUserId === null || ! Auth::user()->canViewOthersPortal()) {
             return null;
         }
 
         return $this->portalUsers->firstWhere('id', $this->viewUserId);
+    }
+
+    /**
+     * 정산 관련 전부 숨김(2026-11-02 Jin) — 담당 영업을 지정받은 **관리(role)** 가 남의 포털을 볼 때. super·업무관리자는 종전대로 정산 포함.
+     * 🚨 화면만 가리지 않는다 — public 프로퍼티는 스냅샷으로 브라우저에 내려가므로 `load()` 가 서버에서 정산 호출을 건너뛰고 응답 키를 걷어낸다.
+     */
+    public function settlementHidden(): bool
+    {
+        return $this->isViewingOther() && ! Auth::user()->hasFullAccess();
+    }
+
+    /** 정산·지급·마진 키를 재귀로 제거(ERP `/finance`·by-buyer 행의 settlement_pending_count·payout_*·margin_rate 등 — 이름 패턴 거부가 열거보다 안전). */
+    private function stripSettlement(mixed $v): mixed
+    {
+        if (! is_array($v)) {
+            return $v;
+        }
+        $out = [];
+        foreach ($v as $k => $x) {
+            if (is_string($k) && preg_match('/settle|payout|margin/i', $k)) {
+                continue;
+            }
+            $out[$k] = $this->stripSettlement($x);
+        }
+
+        return $out;
     }
 
     /** 화면에 표시할 열람 대상 이름(본인 또는 super 가 선택한 사용자). */
@@ -363,10 +404,13 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** super — 열람 대상 변경(이름 클릭). null=본인. 비-super 는 무시(본인 격리). 목록 밖 id 도 무시. */
     public function viewUser(?int $id): void
     {
-        if (! Auth::user()->hasFullAccess()) {
+        if (! Auth::user()->canViewOthersPortal()) {
             return;
         }
         $this->viewUserId = ($id !== null && $this->portalUsers->contains('id', $id)) ? $id : null;
+        if ($this->tab === 'settlements' && $this->settlementHidden()) {
+            $this->tab = 'finance';   // 정산내역 탭을 보던 중 지정 영업으로 바꾸면 요약으로
+        }
         // 대상이 바뀌면 선적 편집상태(이전 사용자 차량 id)를 초기화.
         $this->reset(['bundles', 'shippablePool', 'desired', 'syncResult', 'shipNote', 'changeNote', 'signResults', 'signStatus', 'reqPick', 'reqResult', 'reqNote', 'reqAmount']);
         unset($this->boardRequests, $this->chipMap);
@@ -394,9 +438,15 @@ new #[Layout('components.layouts.app')] class extends Component {
             $s = $svc->sales($email, $this->hideDoneSales ? ['거래완료'] : [], $this->salesSailing);
             $this->salesDetail = ($s['ok'] ?? false) ? (array) data_get($s['data'], 'data', []) : [];
         }
+        // 정산 숨김 열람(관리 → 지정 영업) — 응답에 섞인 정산·지급·마진 키를 서버에서 걷어낸다(스냅샷 누출 방지). 정산내역 탭은 setTab 이 막는다.
+        $hide = $this->settlementHidden();
+        if ($hide) {
+            $this->result['data'] = $this->stripSettlement($this->result['data'] ?? null);
+            $this->salesDetail = $this->stripSettlement($this->salesDetail);
+        }
         // 요약 탭 = 합계 + 월별(판매/정산/매입). 다른 탭은 월별 불필요.
-        $this->monthly = $this->tab === 'finance' ? $this->buildMonthly($email) : [];
-        if ($this->tab === 'finance') {
+        $this->monthly = $this->tab === 'finance' ? $this->buildMonthly($email, withSettlement: ! $hide) : [];
+        if ($this->tab === 'finance' && ! $hide) {
             $this->collectInProgress($email);   // 아직 안 받은 정산(월별 표와 짝) — 요약 탭에서만.
         } else {
             $this->monthlySettle = [];   // 다른 탭에서 stale 상세가 남지 않게(펼침은 요약 탭 전용).
@@ -1354,13 +1404,16 @@ new #[Layout('components.layouts.app')] class extends Component {
         @endif
     </div>
 
-    {{-- 사용자별 조회 (시스템관리자·업무관리자 — 2026-10-23) — 이름 클릭 시 그 사용자의 정산·미수·선적 표시. 대신 실행은 super 만. --}}
-    @if (auth()->user()->hasFullAccess())
+    {{-- 사용자별 조회 (시스템관리자·업무관리자 — 2026-10-23 / 담당 영업 지정 관리 — 2026-11-02, 정산 제외) — 이름 클릭 시 그 사용자의 정보 표시. 대신 실행은 super 만. --}}
+    @if (auth()->user()->canViewOthersPortal())
         <div class="card-sm mb-3" style="background:#f8f9fb">
             <div class="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
                 <span class="text-[12px] font-semibold text-gray-600">👁️ {{ __('portal.view_by_user') }}</span>
-                <span class="text-[11px] text-gray-400">{{ __('portal.view_by_user_hint') }}</span>
+                <span class="text-[11px] text-gray-400">{{ auth()->user()->hasFullAccess() ? __('portal.view_by_user_hint') : __('portal.view_by_user_hint_manager') }}</span>
             </div>
+            @if ($this->settlementHidden())
+                <p class="mb-1.5 text-[11px] font-semibold text-amber-700">🔒 {{ __('portal.settlement_hidden_notice') }}</p>
+            @endif
             <div class="flex flex-wrap gap-1">
                 <button wire:click="viewUser(null)"
                     class="rounded-md border px-2.5 py-1 text-[12px] font-semibold {{ $viewUserId === null ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">{{ __('portal.view_self_btn') }}</button>
@@ -1376,7 +1429,8 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     {{-- 탭 --}}
     <div class="mb-3 flex flex-wrap gap-1">
-        @foreach (['finance' => __('portal.tab.finance'), 'receivables' => __('portal.tab.receivables'), 'inventory' => __('portal.tab.inventory'), 'sales' => __('portal.tab.sales'), 'settlements' => __('portal.tab.settlements'), 'shipping' => '🚢 '.__('portal.tab.shipping'), 'savings' => __('portal.tab.savings')] as $key => $label)
+        @php $tabLabels = ['finance' => __('portal.tab.finance'), 'receivables' => __('portal.tab.receivables'), 'inventory' => __('portal.tab.inventory'), 'sales' => __('portal.tab.sales'), 'settlements' => __('portal.tab.settlements'), 'shipping' => '🚢 '.__('portal.tab.shipping'), 'savings' => __('portal.tab.savings')]; if ($this->settlementHidden()) { unset($tabLabels['settlements']); } @endphp
+        @foreach ($tabLabels as $key => $label)
             <button wire:click="setTab('{{ $key }}')"
                 class="rounded-md border px-3 py-1.5 text-[13px] font-semibold {{ $tab === $key ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">{{ $label }}</button>
         @endforeach
@@ -1432,11 +1486,11 @@ new #[Layout('components.layouts.app')] class extends Component {
             <div class="grid gap-3 sm:grid-cols-4">
                 <div class="card-sm"><div class="text-xs text-gray-500">{{ __('portal.kpi_unpaid_total') }}</div><div class="mt-1 text-lg font-bold text-gray-800" title="{{ isset($sum['unpaid_total_krw']) ? number_format((int) $sum['unpaid_total_krw']).__('common.won_currency') : '' }}">{{ isset($sum['unpaid_total_krw']) ? $this->abbrevKrw($sum['unpaid_total_krw']) : '—' }}</div></div>
                 <div class="card-sm"><div class="text-xs text-gray-500">{{ __('portal.kpi_purchase_unpaid_total') }}</div><div class="mt-1 text-lg font-bold text-gray-800" title="{{ isset($sum['purchase_unpaid_total']) ? number_format((int) $sum['purchase_unpaid_total']).__('common.won_currency') : '' }}">{{ isset($sum['purchase_unpaid_total']) ? $this->abbrevKrw($sum['purchase_unpaid_total']) : '—' }}</div></div>
-                <div class="card-sm"><div class="text-xs text-gray-500">{{ __('portal.kpi_settlement_pending') }}</div><div class="mt-1 text-lg font-bold text-gray-800">{{ isset($sum['settlement_pending_count']) ? __('portal.unit_count', ['count' => $sum['settlement_pending_count']]) : '—' }}</div></div>
+                @unless ($this->settlementHidden())<div class="card-sm"><div class="text-xs text-gray-500">{{ __('portal.kpi_settlement_pending') }}</div><div class="mt-1 text-lg font-bold text-gray-800">{{ isset($sum['settlement_pending_count']) ? __('portal.unit_count', ['count' => $sum['settlement_pending_count']]) : '—' }}</div></div>@endunless
                 <div class="card-sm"><div class="text-xs text-gray-500">{{ __('portal.kpi_fx_missing') }}</div><div class="mt-1 text-lg font-bold {{ ($sum['fx_missing_count'] ?? 0) ? 'text-amber-600' : 'text-gray-800' }}">{{ isset($sum['fx_missing_count']) ? __('portal.unit_count', ['count' => $sum['fx_missing_count']]) : '—' }}</div></div>
             </div>
 
-            @include('livewire.portal._settle-inprogress')
+            @unless ($this->settlementHidden())@include('livewire.portal._settle-inprogress')@endunless
 
             {{-- 월별 (판매 건수·정산 수령·매입) — 날짜 있는 리스트서 집계. 판매액은 통화혼재라 건수만.
                  월 행 클릭 = 그 달 정산 상세 펼침 = **승인된 ERP 월배치 미러**(car-erp §13).
@@ -1449,7 +1503,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <div x-show="open" x-cloak>
                     <div class="hidden overflow-x-auto sm:block">
                         <table class="tbl">
-                            <thead><tr><th>{{ __('portal.col_month') }}</th><th>{{ __('portal.col_sales_cnt') }}</th><th>{{ __('portal.col_settle_sum') }}</th><th>{{ __('portal.col_purch_cnt') }}</th><th>{{ __('portal.col_purch_sum') }}</th></tr></thead>
+                            <thead><tr><th>{{ __('portal.col_month') }}</th><th>{{ __('portal.col_sales_cnt') }}</th>@unless ($this->settlementHidden())<th>{{ __('portal.col_settle_sum') }}</th>@endunless<th>{{ __('portal.col_purch_cnt') }}</th><th>{{ __('portal.col_purch_sum') }}</th></tr></thead>
                             @forelse ($monthly as $month => $row)
                                 @php $det = $monthlySettle[$month] ?? null; @endphp
                                 <tbody wire:key="mrow-{{ $month }}" x-data="{ o: false }">
@@ -1458,7 +1512,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                             @if ($det)<span class="mr-1 inline-block w-3 text-gray-400" x-text="o ? '▼' : '▶'"></span>@endif{{ $month }}
                                         </td>
                                         <td>{{ $row['sales_cnt'] ?? 0 }}</td>
-                                        <td class="font-semibold text-gray-800">{{ number_format((float) ($row['settle_sum'] ?? 0)) }}</td>
+                                        @unless ($this->settlementHidden())<td class="font-semibold text-gray-800">{{ number_format((float) ($row['settle_sum'] ?? 0)) }}</td>@endunless
                                         <td>{{ $row['purch_cnt'] ?? 0 }}</td>
                                         <td>{{ number_format((float) ($row['purch_sum'] ?? 0)) }}</td>
                                     </tr>
@@ -1488,7 +1542,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <div class="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-gray-600">
                                     <div>{{ __('portal.m_sales') }} <b class="text-gray-800">{{ $row['sales_cnt'] ?? 0 }}</b>{{ __('portal.count_suffix') }}</div>
                                     <div>{{ __('portal.m_purchase') }} <b class="text-gray-800">{{ $row['purch_cnt'] ?? 0 }}</b>{{ __('portal.count_suffix') }}</div>
-                                    <div>{{ __('portal.m_settle') }} <b class="text-gray-800">{{ number_format((float) ($row['settle_sum'] ?? 0)) }}</b></div>
+                                    @unless ($this->settlementHidden())<div>{{ __('portal.m_settle') }} <b class="text-gray-800">{{ number_format((float) ($row['settle_sum'] ?? 0)) }}</b></div>@endunless
                                     <div>{{ __('portal.m_purch_price') }} <b class="text-gray-800">{{ number_format((float) ($row['purch_sum'] ?? 0)) }}</b></div>
                                 </div>
                                 @if ($det)

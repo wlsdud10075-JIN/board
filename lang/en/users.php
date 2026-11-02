@@ -50,6 +50,11 @@ return [
     'work_manager_checkbox' => 'Operations manager',
     'work_manager_checkbox_desc' => '(all screens regardless of role + audit log. No settings or permission grants)',
     'active_checkbox' => 'Active account (login allowed)',
+    // Manager → designated salespeople (2026-11-02, mirrors car-erp manager_salesman) — portal read-only, settlement hidden
+    'label_managed_salesmen' => 'Designated salespeople',
+    'managed_salesmen_hint' => '(salespeople this manager can view in the portal — read-only, settlement items hidden)',
+    'managed_salesmen_none' => 'No active sales accounts.',
+    'managed_salesmen_readonly' => '— only system admins and work managers can change this',
 
     // flash / validation messages
     'saved' => 'Saved.',

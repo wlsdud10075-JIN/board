@@ -58,6 +58,7 @@ return [
         'erp_amounts_overwrite' => 'ERP amounts overwrite sent',
         'inspection_urgent_request' => 'Urgent inspection requested',
         'inspection_urgent_decision' => 'Urgent inspection decision',
+        'user_managed_salesmen' => 'Manager designated salespeople',
         'offer_rate_usd' => 'USD rate',
         'offer_rate_eur' => 'EUR rate',
         'buyer_undecided' => 'Buyer undecided',

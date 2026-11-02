@@ -8520,6 +8520,106 @@ class BoardTest extends TestCase
         Http::assertNotSent(fn ($req) => $req->method() === 'POST');
     }
 
+    // ───── 관리 담당 영업 지정 → 포털 조회 전용·정산 숨김 (2026-11-02 Jin, car-erp manager_salesman 미러) ─────
+
+    private function designatedManager(array $salesIds): User
+    {
+        $mgr = $this->mkUser('manager');
+        $mgr->managedSalesmanUsers()->sync($salesIds);
+
+        return $mgr;
+    }
+
+    /** super·업무관리자는 /users 에서 관리에게 담당 영업을 지정한다(감사 행 1건). 관리 role 액터는 프로퍼티를 밀어넣어도 지정이 안 바뀐다. */
+    public function test_full_access_assigns_salesmen_to_manager_and_manager_actor_cannot(): void
+    {
+        $s1 = $this->mkUser('sales');
+        $s2 = $this->mkUser('sales');
+        $inactive = $this->mkUser('sales');
+        $inactive->update(['is_active' => false]);
+        $mgr = $this->mkUser('manager');
+
+        $this->actingAs($this->mkUser('manager', null, 'manager'));   // 업무관리자
+        Volt::test('users.index')->call('openEdit', $mgr->id)->assertSee(__('users.label_managed_salesmen'))
+            ->set('managed_salesman_ids', [(string) $s1->id, (string) $s2->id, (string) $inactive->id, '999999'])
+            ->call('save')->assertHasNoErrors();
+        $this->assertEqualsCanonicalizing([$s1->id, $s2->id], $mgr->managedSalesmanUsers()->pluck('users.id')->map(fn ($v) => (int) $v)->all());   // 비활성·없는 id 는 버림
+        $row = BoardAuditLog::where('action', 'user_managed_salesmen')->latest('id')->first();
+        $this->assertNotNull($row);
+        $this->assertNull($row->purchase_listing_id);
+        $this->assertStringContainsString($s1->name, $row->new_value);
+
+        // 관리 role 액터 — 목록을 비워 저장해도 종전 지정 보존(자기 손으로 열람 권한을 열거나 닫지 못한다)
+        $this->actingAs($this->mkUser('manager'));
+        Volt::test('users.index')->call('openEdit', $mgr->id)->assertSee(__('users.managed_salesmen_readonly'))
+            ->set('managed_salesman_ids', [])->call('save')->assertHasNoErrors();
+        $this->assertCount(2, $mgr->managedSalesmanUsers()->get());
+
+        // 영업으로 role 을 바꾸면 지정 전부 해제
+        $this->actingAs($this->mkUser('sales', null, 'super'));
+        Volt::test('users.index')->call('openEdit', $mgr->id)->set('role', 'sales')->call('save')->assertHasNoErrors();
+        $this->assertCount(0, $mgr->managedSalesmanUsers()->get());
+    }
+
+    /** 지정받은 관리 = 지정 영업만 조회(조회 전용) + 정산 호출 0·정산 키 제거·정산내역 탭 없음. 지정 없는 관리는 선택 칸 자체가 없다. */
+    public function test_designated_manager_views_only_designated_salesmen_without_settlement(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 5000, 'settlement_pending_count' => 2, 'nested' => ['payout_total_krw' => 9]], 200),
+            '*/api/internal/board/by-buyer*' => Http::response(['count' => 1, 'data' => [['buyer' => 'B1', 'vehicle_count' => 1, 'sales_by_currency' => ['USD' => 100], 'payout_total_krw' => 5, 'payout_paid_krw' => 3]]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $mine = $this->mkUser('sales');
+        $mine->update(['name' => '지정영업', 'car_erp_salesman_email' => 'mine@ce.test']);
+        $other = $this->mkUser('sales');
+        $other->update(['name' => '남의영업']);   // mkUser 기본 이름 'sales' 는 탭 키 문자열과 겹친다
+        $mgr = $this->designatedManager([$mine->id]);
+        $this->actingAs($mgr);
+
+        $c = Volt::test('portal.index')->assertSee('사용자별 조회')->assertSee($mine->name)->assertDontSee($other->name)
+            ->call('viewUser', $other->id)->assertSet('viewUserId', null)   // 지정 밖 = 무시
+            ->call('viewUser', $mine->id)->assertSet('viewUserId', $mine->id)
+            ->assertSee('조회 전용')->assertSee(__('portal.settlement_hidden_notice'))
+            ->assertDontSee(__('portal.tab.settlements'))->assertDontSee(__('portal.kpi_settlement_pending'));
+        Http::assertSent(fn ($req) => str_contains($req->url(), 'salesman_email=mine%40ce.test'));
+        // 지정 영업 명의의 정산 호출 0 (관리 본인 포털 첫 로드는 본인 데이터라 정산 호출이 있을 수 있다 — 그건 대상 아님)
+        Http::assertNotSent(fn ($req) => str_contains($req->url(), 'mine%40ce.test') && (str_contains($req->url(), 'payout-batches') || str_contains($req->url(), '/board/settlements')));
+        $data = $c->get('result')['data'];
+        $this->assertArrayNotHasKey('settlement_pending_count', $data);
+        $this->assertArrayNotHasKey('payout_total_krw', $data['nested']);
+        $this->assertSame(5000, $data['unpaid_total_krw']);
+
+        $c->call('setTab', 'settlements')->assertSet('tab', 'finance');   // 호출이 와도 무시
+        $c->call('setTab', 'sales')->assertSet('tab', 'sales');
+        $row = $c->get('result')['data']['data'][0];
+        $this->assertArrayNotHasKey('payout_total_krw', $row);
+        $this->assertSame(['USD' => 100], $row['sales_by_currency']);
+
+        $c->call('sendPurchaseRequest', 'purchase_deposit', 10)->assertSet('reqResult', ['error' => __('portal.flash_proxy_readonly')]);
+        Http::assertNotSent(fn ($req) => $req->method() === 'POST');
+
+        // 지정 없는 관리 — 선택 칸 없음·viewUser 무시
+        $this->actingAs($this->mkUser('manager'));
+        Volt::test('portal.index')->assertDontSee('사용자별 조회')->call('viewUser', $mine->id)->assertSet('viewUserId', null);
+    }
+
+    /** 업무관리자(전체 열람)는 종전대로 정산을 본다 — 정산 숨김은 관리 role 의 지정 열람에만. */
+    public function test_work_manager_still_sees_settlement_when_viewing_others(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/finance*' => Http::response(['unpaid_total_krw' => 1, 'settlement_pending_count' => 2], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $other = $this->mkUser('sales');
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
+        $c = Volt::test('portal.index')->call('viewUser', $other->id)->assertSet('viewUserId', $other->id)
+            ->assertSee(__('portal.kpi_settlement_pending'))->assertSee(__('portal.tab.settlements'))->assertDontSee(__('portal.settlement_hidden_notice'));
+        $this->assertSame(2, $c->get('result')['data']['settlement_pending_count']);
+        Http::assertSent(fn ($req) => str_contains($req->url(), 'payout-batches'));
+    }
+
     /** 등급 지정은 super 만(결정 2) — 업무관리자가 프로퍼티를 밀어넣어도 user 로 저장된다. super 계정도 못 건드린다. */
     public function test_work_manager_cannot_grant_permissions_or_touch_super(): void
     {
