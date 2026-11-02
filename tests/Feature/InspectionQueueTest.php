@@ -332,10 +332,10 @@ class InspectionQueueTest extends TestCase
         // 첫 upsert(생성) = 예정일·결정 null 응답 / 재발송(지역 수원) = 옛 ssancar 응답(키 없음) → 저장값 그대로여야 한다.
         Http::fake(fn ($req) => str_contains($req->body(), '수원')
             ? Http::response(['ok' => true, 'status' => 'queued'], 200)
-            : Http::response(['ok' => true, 'listing_id' => 1, 'status' => 'queued', 'wr_id' => null, 'work_date' => '2026-11-02', 'urgent_decision' => null], 200));
+            : Http::response(['ok' => true, 'listing_id' => 1, 'status' => 'queued', 'wr_id' => null, 'work_date' => '2027-01-05', 'urgent_decision' => null], 200));
         $l = $this->mkListing();
         $l->refresh();
-        $this->assertSame('2026-11-02', $l->inspection_work_date->toDateString());
+        $this->assertSame('2027-01-05', $l->inspection_work_date->toDateString());
         $this->assertNull($l->inspection_urgent_decision);
 
         $l->forceFill(['inspection_urgent_decision' => 'rejected'])->save();
@@ -343,7 +343,7 @@ class InspectionQueueTest extends TestCase
         Http::assertSent(fn ($r) => ($d = json_decode($r->body(), true)) && ($d['region'] ?? null) === '경기 수원시'
             && ! array_key_exists('urgent', $d) && ! array_key_exists('urgent_note', $d));
         $l->refresh();
-        $this->assertSame('2026-11-02', $l->inspection_work_date->toDateString());
+        $this->assertSame('2027-01-05', $l->inspection_work_date->toDateString());
         $this->assertSame('rejected', $l->inspection_urgent_decision);
     }
 
@@ -353,7 +353,7 @@ class InspectionQueueTest extends TestCase
         $kim = $this->mkUser();
         $l = $this->mkListing(['created_by_user_id' => $kim->id]);   // 설정 전 → 생성 upsert 안 나감
         $this->configure();
-        Http::fake(['*' => Http::response(['ok' => true, 'listing_id' => $l->id, 'status' => 'queued', 'wr_id' => null, 'work_date' => '2026-11-02', 'urgent_decision' => 'pending'], 200)]);
+        Http::fake(['*' => Http::response(['ok' => true, 'listing_id' => $l->id, 'status' => 'queued', 'wr_id' => null, 'work_date' => '2027-01-05', 'urgent_decision' => 'pending'], 200)]);
         $this->actingAs($kim);
 
         Volt::test('listings.index')->call('openEdit', $l->id)->assertSee(__('listings.drawer.urgent_btn'))
@@ -364,7 +364,7 @@ class InspectionQueueTest extends TestCase
         $this->assertSame('pending', $l->inspection_urgent_decision);
         $this->assertNotNull($l->inspection_urgent_requested_at);
         $this->assertSame('바이어 오늘 결정', $l->inspection_urgent_note);
-        $this->assertSame('2026-11-02', $l->inspection_work_date->toDateString());
+        $this->assertSame('2027-01-05', $l->inspection_work_date->toDateString());
         // 감사 행(Jin 2026-10-29 「board 에서 일어나는 모든 건 로그」) — 누가·사유
         $this->assertDatabaseHas('board_audit_logs', ['user_id' => $kim->id, 'purchase_listing_id' => $l->id, 'action' => 'inspection_urgent_request', 'field' => 'inspection_urgent_request']);
         $this->assertStringContainsString('바이어 오늘 결정', BoardAuditLog::where('action', 'inspection_urgent_request')->latest('id')->value('new_value'));

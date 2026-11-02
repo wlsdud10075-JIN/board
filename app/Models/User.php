@@ -6,6 +6,7 @@ namespace App\Models;
 use App\Models\Concerns\NormalizesRegion;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -156,6 +157,30 @@ class User extends Authenticatable // implements MustVerifyEmail
     public function canSeeAll(): bool
     {
         return $this->hasFullAccess() || $this->role !== 'sales';
+    }
+
+    /**
+     * 관리(role=manager)가 담당으로 지정받은 영업들 (2026-11-02 Jin, car-erp `manager_salesman` 미러).
+     * 용도 = `/portal` 사용자별 조회(조회 전용·**정산 숨김**). 지정은 `/users` 에서 super·업무관리자만.
+     */
+    public function managedSalesmanUsers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'manager_salesman', 'manager_user_id', 'salesman_user_id')->withTimestamps();
+    }
+
+    /** 역방향 — 이 영업을 담당하는 관리들. */
+    public function managingUsers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'manager_salesman', 'salesman_user_id', 'manager_user_id')->withTimestamps();
+    }
+
+    /**
+     * 남의 포털을 **볼** 수 있나 — super·업무관리자(전체, 정산 포함) 또는 담당 영업이 지정된 관리(지정된 영업만, 정산 제외).
+     * 대신 실행(쓰기)은 여전히 super 만(`proxyWriteBlocked`).
+     */
+    public function canViewOthersPortal(): bool
+    {
+        return $this->hasFullAccess() || ($this->isManager() && $this->managedSalesmanUsers()->exists());
     }
 
     /** respond.io 상담원 이메일 — 매핑값 우선, 없으면 로그인 이메일(연동 A 승격 라우팅). */
