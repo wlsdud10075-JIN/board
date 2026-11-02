@@ -5,9 +5,15 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
+use Livewire\WithPagination;
 
 new #[Layout('components.layouts.app')] class extends Component {
+    use WithPagination;
+
+    public const PER_PAGE_OPTIONS = [10, 30, 50, 100];
+
     public bool $showForm = false;
     public ?int $editingId = null;
     public string $name = '';
@@ -30,20 +36,63 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** 실제로 적용된 검색어 — 입력칸(`search`)과 분리해야 버튼을 누르기 전까지 목록이 안 바뀐다. */
     public string $appliedSearch = '';
 
+    /**
+     * 등급 → 하위 묶음 칩(ERP 사용자관리 미러, 2026-11-02 Jin). 「일반」 묶음 안에 역할 칩 — 누르면 등급도 같이 잡히고,
+     * 같은 칩을 다시 누르면 해제. ⚠️ 메서드명을 프로퍼티와 같게 짓지 말 것(car-erp SKILLS §8 #32) — pickPerm/pickRole.
+     */
     public string $permFilter = '';
 
     public string $roleFilter = '';
+
+    /** ⚠️ `#[Url]` 이라 `?perPage=` 로 아무 값이나 들어온다 — 화이트리스트 밖이면 10 으로. */
+    #[Url]
+    public int $perPage = 10;
 
     /** 🚨 `search()` 로 짓지 말 것 — 프로퍼티와 이름이 겹쳐 버튼이 죽는다(car-erp SKILLS §8 #32). */
     public function searchNow(): void
     {
         $this->appliedSearch = trim($this->search);
+        $this->resetPage();
+        unset($this->users);
+    }
+
+    public function pickPerm(string $perm): void
+    {
+        if ($perm !== '' && ! in_array($perm, ['super', 'manager', 'user'], true)) {
+            return;
+        }
+        $this->permFilter = ($this->permFilter === $perm && $this->roleFilter === '') ? '' : $perm;
+        $this->roleFilter = '';
+        $this->resetPage();
+        unset($this->users);
+    }
+
+    public function pickRole(string $role): void
+    {
+        if (! array_key_exists($role, User::ROLE_LABELS)) {
+            return;
+        }
+        $this->permFilter = 'user';
+        $this->roleFilter = ($this->roleFilter === $role) ? '' : $role;
+        $this->resetPage();
+        unset($this->users);
+    }
+
+    public function updatedPerPage(): void
+    {
+        if (! in_array($this->perPage, self::PER_PAGE_OPTIONS, true)) {
+            $this->perPage = 10;
+        }
+        $this->resetPage();
         unset($this->users);
     }
 
     #[Computed]
     public function users()
     {
+        if (! in_array($this->perPage, self::PER_PAGE_OPTIONS, true)) {   // `?perPage=7` 직접 진입은 updated 훅을 안 탄다
+            $this->perPage = 10;
+        }
         $term = $this->appliedSearch;
         $digits = preg_replace('/\D/', '', $term);
 
@@ -57,19 +106,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                 }
             }))
             ->when($this->permFilter !== '', fn ($q) => $q->where('permission', $this->permFilter))
-            ->when($this->roleFilter !== '', fn ($q) => $q->where('role', $this->roleFilter))
-            ->orderByDesc('permission')->orderBy('role')->orderBy('name')->orderBy('id')
-            ->get();
-    }
-
-    public function updatedPermFilter(): void
-    {
-        unset($this->users);
-    }
-
-    public function updatedRoleFilter(): void
-    {
-        unset($this->users);
+            ->when($this->roleFilter !== '', fn ($q) => $q->where('permission', 'user')->where('role', $this->roleFilter))
+            // 등급순(시스템관리자 → 업무관리자 → 일반) → 일반은 역할순 → 이름 → id(동점 tie-break — 페이지 사이 중복·누락 방지, ERP 와 같음).
+            //   ⚠️ orderBy('permission') 은 MySQL ENUM 인덱스·sqlite 문자열로 순서가 갈린다 — CASE 로 고정.
+            ->orderByRaw("CASE permission WHEN 'super' THEN 0 WHEN 'manager' THEN 1 ELSE 2 END")
+            ->orderByRaw("CASE WHEN permission = 'user' THEN CASE role WHEN 'manager' THEN 0 WHEN 'sales' THEN 1 WHEN 'inspection' THEN 2 WHEN 'auction' THEN 3 ELSE 4 END ELSE 0 END")
+            ->orderBy('name')->orderBy('id')
+            ->paginate($this->perPage);
     }
 
     public function roleLabel(string $r): string
@@ -278,24 +321,39 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="card-sm mb-3 border-red-200 bg-red-50 text-[13px] text-red-700">⚠ {{ session('err') }}</div>
     @endif
 
-    {{-- 검색 — ERP 사용자관리와 같은 모양(이름·이메일·전화번호 + 등급, 버튼·Enter 로만). 모바일은 한 줄씩 쌓인다. --}}
-    <div class="card-sm mb-3 flex flex-wrap items-center gap-2">
-        <input wire:model="search" wire:keydown.enter="searchNow" type="search" class="input-filter w-full sm:w-64"
-               placeholder="{{ __('users.search_ph') }}">
-        <button type="button" wire:click="searchNow" class="btn-primary btn-sm">{{ __('common.search') }}</button>
-        <select wire:model.live="permFilter" class="input-filter w-full sm:w-auto">
-            <option value="">{{ __('users.filter_perm_all') }}</option>
-            <option value="super">{{ __('users.filter_perm_super') }}</option>
-            <option value="manager">{{ __('users.filter_perm_manager') }}</option>
-            <option value="user">{{ __('users.filter_perm_user') }}</option>
-        </select>
-        <select wire:model.live="roleFilter" class="input-filter w-full sm:w-auto">
-            <option value="">{{ __('users.filter_role_all') }}</option>
-            @foreach (\App\Models\User::ROLE_LABELS as $rk => $rl)
-                <option value="{{ $rk }}">{{ $this->roleLabel($rk) }}</option>
-            @endforeach
-        </select>
-        <span class="text-[12px] text-gray-500">{{ __('users.count', ['count' => $this->users->count()]) }}</span>
+    {{-- 검색·필터 — ERP 사용자관리와 같은 두 줄(2026-11-02 Jin): 1줄 = 검색칸 + [검색](버튼·Enter 로만), 2줄 = 등급 칩(클릭 즉시).
+         「일반」 묶음 안에 역할 칩. 모바일은 검색칸 w-full, 칩은 줄바꿈. --}}
+    @php
+        $chipOn = 'rounded-full px-2.5 py-0.5 text-xs font-semibold bg-gray-800 text-white';
+        $chipOff = 'rounded-full px-2.5 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200';
+        $subOn = 'rounded-full px-2 py-0.5 text-[11px] font-semibold bg-violet-600 text-white';
+        $subOff = 'rounded-full px-2 py-0.5 text-[11px] font-medium bg-violet-50 text-violet-700 hover:bg-violet-100';
+    @endphp
+    <div class="card-sm mb-3 flex flex-col gap-2">
+        <div class="flex flex-wrap items-center gap-2">
+            <input wire:model="search" wire:keydown.enter="searchNow" type="search" class="input-filter w-full sm:w-72"
+                   placeholder="{{ __('users.search_ph') }}">
+            <button type="button" wire:click="searchNow" class="btn-primary btn-sm">{{ __('common.search') }}</button>
+            <span class="ml-auto flex items-center gap-2">
+                <span class="text-[12px] text-gray-500">{{ __('users.count', ['count' => $this->users->total()]) }}</span>
+                <select wire:model.live="perPage" class="input-filter">
+                    @foreach ([10, 30, 50, 100] as $n)
+                        <option value="{{ $n }}">{{ __('users.per_page', ['count' => $n]) }}</option>
+                    @endforeach
+                </select>
+            </span>
+        </div>
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <button type="button" wire:click="pickPerm('')" class="{{ $permFilter === '' ? $chipOn : $chipOff }}">{{ __('users.filter_all') }}</button>
+            <span class="flex flex-wrap items-center gap-1 rounded-lg bg-gray-50 px-1.5 py-1">
+                <button type="button" wire:click="pickPerm('user')" class="{{ $permFilter === 'user' && $roleFilter === '' ? $chipOn : $chipOff }}">{{ __('users.filter_perm_user') }}</button>
+                @foreach (\App\Models\User::ROLE_LABELS as $rk => $rl)
+                    <button type="button" wire:click="pickRole('{{ $rk }}')" class="{{ $roleFilter === $rk ? $subOn : $subOff }}">{{ $this->roleLabel($rk) }}</button>
+                @endforeach
+            </span>
+            <button type="button" wire:click="pickPerm('manager')" class="{{ $permFilter === 'manager' ? $chipOn : $chipOff }}">{{ __('users.filter_perm_manager') }}</button>
+            <button type="button" wire:click="pickPerm('super')" class="{{ $permFilter === 'super' ? $chipOn : $chipOff }}">{{ __('users.filter_perm_super') }}</button>
+        </div>
     </div>
 
     <div class="card">
@@ -345,6 +403,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             </table>
         </div>
     </div>
+    <div class="mt-3">{{ $this->users->links() }}</div>
 
     {{-- 생성/수정 드로어 --}}
     @if ($showForm)
