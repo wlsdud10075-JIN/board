@@ -349,4 +349,15 @@ return [
     'savings_col_type' => '종류',
     'savings_col_amount' => '금액',
     'savings_type' => ['EARNED' => '적립', 'USED' => '사용', 'REFUND' => '환불', 'ADJUSTMENT' => '조정', 'CANCELLED' => '취소'],
+    // 내 포털 공유(영업 → 관리, 2026-11-02 Jin) — manager_salesman. 영업은 /users 를 못 보므로 포털에서 찍는다.
+    'sharing' => [
+        'heading' => '내 포털 공유',
+        'subheading' => '체크한 관리는 내 매입예정과 포털(미수·재고·판매·선적)을 보고 계약금·매입잔금 요청과 선적요청을 내 명의로 대신 보낼 수 있습니다. 정산 관련 항목은 보이지 않습니다.',
+        'current' => '공유 중: :names',
+        'none_selected' => '공유한 관리 없음 — 관리는 내 매입예정·포털을 볼 수 없습니다',
+        'edit' => '공유 설정',
+        'none' => '공유할 수 있는 관리 계정이 없습니다.',
+        'save' => '공유 저장',
+        'saved' => '저장됨',
+    ],
 ];

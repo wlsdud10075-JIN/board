@@ -347,4 +347,15 @@ return [
     'savings_col_type' => 'Type',
     'savings_col_amount' => 'Amount',
     'savings_type' => ['EARNED' => 'Earned', 'USED' => 'Used', 'REFUND' => 'Refund', 'ADJUSTMENT' => 'Adjustment', 'CANCELLED' => 'Cancelled'],
+    // Share my portal (salesperson → managers, 2026-11-02) — manager_salesman; salespeople have no /users, so it lives here.
+    'sharing' => [
+        'heading' => 'Share my portal',
+        'subheading' => 'Checked managers can see your purchase listings and portal (receivables, inventory, sales, shipping) and send deposit/balance and shipping requests under your name. Settlement items stay hidden.',
+        'current' => 'Sharing with: :names',
+        'none_selected' => 'Not shared — managers cannot see your listings or portal',
+        'edit' => 'Edit sharing',
+        'none' => 'No manager accounts available to share with.',
+        'save' => 'Save sharing',
+        'saved' => 'Saved',
+    ],
 ];

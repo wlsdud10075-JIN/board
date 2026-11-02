@@ -89,12 +89,4 @@ return [
         'test_result' => 'Result',
     ],
 
-    // Share my portal (salesperson → managers, 2026-11-02) — manager_salesman
-    'sharing' => [
-        'heading' => 'Share my portal',
-        'subheading' => 'Checked managers can see your receivables, inventory, sales and shipping in the portal and send deposit/balance requests and shipping requests on your behalf. Settlement items stay hidden.',
-        'none' => 'No manager accounts available to share with.',
-        'save' => 'Save sharing',
-        'saved' => 'Saved',
-    ],
 ];

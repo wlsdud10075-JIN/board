@@ -35,11 +35,11 @@ class PayeeExtractionTest extends TestCase
         config(['board.payee_extract.enabled' => true]);
     }
 
-    private function mkUser(string $role): User
+    private function mkUser(string $role, string $permission = 'user'): User
     {
         return User::create([
             'name' => $role, 'email' => $role.(++$this->seq).'@t.test', 'password' => 'password',
-            'role' => $role, 'permission' => 'user', 'is_active' => true, 'email_verified_at' => now(),
+            'role' => $role, 'permission' => $permission, 'is_active' => true, 'email_verified_at' => now(),
         ]);
     }
 
@@ -240,7 +240,7 @@ class PayeeExtractionTest extends TestCase
     {
         Bus::fake();
         $l = $this->mkListing(['payee_extraction_status' => 'pending', 'payee_extraction_at' => now()]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', 'manager'));
 
         Volt::test('auction.index')
             ->call('openDetail', $l->id)
@@ -258,7 +258,7 @@ class PayeeExtractionTest extends TestCase
     {
         Bus::fake();
         $l = $this->mkListing(['payee_extraction_status' => 'failed']);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', 'manager'));
 
         Volt::test('auction.index')
             ->call('openDetail', $l->id)
@@ -275,7 +275,7 @@ class PayeeExtractionTest extends TestCase
     {
         Bus::fake();
         $l = $this->mkListing(['payee_extraction_status' => 'pending', 'payee_extraction_at' => now()]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', 'manager'));
 
         Volt::test('auction.index')
             ->call('openDetail', $l->id)
@@ -293,7 +293,7 @@ class PayeeExtractionTest extends TestCase
     {
         Bus::fake();
         $l = $this->mkListing(['payee_extraction_status' => 'pending', 'payee_extraction_at' => now(), 'payee_account' => '110-123-456789']);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', 'manager'));
 
         Volt::test('auction.index')
             ->call('openDetail', $l->id)
@@ -314,7 +314,7 @@ class PayeeExtractionTest extends TestCase
                 'holder' => '(주)수호모터스', 'source_photo_ids' => [1], 'warnings' => [],
             ]],
         ]]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', 'manager'));
 
         Volt::test('auction.index')
             ->call('openDetail', $l->id)
@@ -337,7 +337,7 @@ class PayeeExtractionTest extends TestCase
             'payee_extraction_status' => 'pending',
             'payee_extraction_at' => now()->subMinutes(PurchaseListing::PAYEE_EXTRACT_WAIT_MINUTES + 1),
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', 'manager'));
 
         Volt::test('auction.index')
             ->call('openDetail', $l->id)
@@ -418,7 +418,7 @@ class PayeeExtractionTest extends TestCase
         $l = $this->mkListing(['payee_extraction_status' => 'done', 'payee_suggestions' => [
             'registration_owner' => '오승환', 'registration_owners' => ['오승환'], 'candidates' => [],
         ]]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', 'manager'));
 
         Volt::test('auction.index')
             ->call('openDetail', $l->id)
@@ -438,7 +438,7 @@ class PayeeExtractionTest extends TestCase
     {
         Bus::fake();
         $l = $this->mkListing(['status' => 'won']);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', 'manager'));
 
         Volt::test('auction.index')
             ->call('openDetail', $l->id)
@@ -455,7 +455,7 @@ class PayeeExtractionTest extends TestCase
         Bus::fake();
         $l = $this->mkListing();
         $l->salesAttachments()->delete();
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', 'manager'));
 
         Volt::test('auction.index')
             ->call('openDetail', $l->id)
@@ -588,7 +588,7 @@ class PayeeExtractionTest extends TestCase
             'seller_companies' => [['company' => '(주)성진모터스', 'ceo' => '김대표', 'source_photo_ids' => [1]]],
             'seller_phones' => [['number' => '010-2000-1111', 'source_photo_ids' => [1]]],
         ]]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', 'manager'));
 
         $t = Volt::test('auction.index')
             ->call('openDetail', $l->id)

@@ -262,6 +262,9 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function mount(): void
     {
+        if (Auth::user()->isSales()) {
+            $this->share_manager_ids = Auth::user()->managingUsers()->pluck('users.id')->map(fn ($v) => (int) $v)->all();
+        }
         $this->load();
     }
 
@@ -323,6 +326,45 @@ new #[Layout('components.layouts.app')] class extends Component {
      * 남의 포털을 **볼** 수 있나 — super + 업무관리자(2026-10-23 Jin). 비-해당은 빈 목록.
      * ⚠️ **대신 실행(쓰기)은 super 만**(2026-10-14 Jin 결정 1 그대로) — `proxyWriteBlocked()` 가 막는다.
      */
+    /**
+     * 내 포털을 공유할 관리(role=manager) id 목록 — **영업 본인이 포털에서 찍는다**(2026-11-02 Jin 「ERP 처럼 영업이 본인 정보를 공유할 사람을 찍게」,
+     * 영업은 /users 를 못 보므로 여기). 저장 = `manager_salesman` pivot(car-erp 이름 그대로). 찍힌 관리는 이 영업의 매입예정·포털을 보고(정산 빼고)
+     * 요청·선적요청을 대신 보낸다. 업무관리자·super 는 지정 없이 전체를 보므로 후보에서 뺀다(permission=user 인 관리만).
+     *
+     * @var list<int>
+     */
+    public array $share_manager_ids = [];
+
+    /** 공유 후보 = 활성 관리(role=manager, permission=user). */
+    #[Computed]
+    public function managerCandidates()
+    {
+        return User::where('role', 'manager')->where('permission', 'user')->where('is_active', true)->orderBy('name')->get(['id', 'name', 'email']);
+    }
+
+    /** 영업만 — 후보 밖 id 는 버리고 sync. 바뀌면 감사 행(Jin 「모든 건 로그」). */
+    public function saveSharing(): void
+    {
+        $u = Auth::user();
+        if (! $u->isSales()) {
+            return;
+        }
+        $allowed = $this->managerCandidates->pluck('id')->map(fn ($v) => (int) $v)->all();
+        $after = collect($this->share_manager_ids)->map(fn ($v) => (int) $v)->filter(fn ($id) => in_array($id, $allowed, true))->unique()->sort()->values()->all();
+        $before = $u->managingUsers()->pluck('users.id')->map(fn ($v) => (int) $v)->sort()->values()->all();
+        if ($after !== $before) {
+            $u->managingUsers()->sync($after);
+            \App\Models\BoardAuditLog::create([
+                'user_id' => $u->id, 'purchase_listing_id' => null, 'action' => 'user_shared_managers', 'field' => 'user_shared_managers',
+                'old_value' => json_encode(['user' => $u->name, 'ids' => $before], JSON_UNESCAPED_UNICODE),
+                'new_value' => json_encode(['user' => $u->name, 'ids' => $after,
+                    'names' => User::whereIn('id', $after)->orderBy('name')->pluck('name')->all()], JSON_UNESCAPED_UNICODE),
+            ]);
+        }
+        $this->share_manager_ids = $after;
+        $this->dispatch('sharing-updated');
+    }
+
     #[Computed]
     public function portalUsers()
     {
@@ -1412,6 +1454,35 @@ new #[Layout('components.layouts.app')] class extends Component {
             <p class="mt-0.5 text-xs text-gray-500">🔒 {{ __('portal.viewing_self', ['name' => auth()->user()->name]) }}</p>
         @endif
     </div>
+
+    {{-- 내 포털 공유(영업만, 2026-11-02 Jin) — 체크한 관리가 내 매입예정·포털(정산 제외)을 보고 요청·선적요청을 대신 보낼 수 있다. 영업은 /users 가 없어 여기서 찍는다. --}}
+    @if (auth()->user()->isSales())
+        <div class="card-sm mb-3" style="background:#f8f9fb" x-data="{ open: {{ $share_manager_ids ? 'false' : 'true' }} }">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="min-w-0">
+                    <span class="text-[12px] font-semibold text-gray-600">🤝 {{ __('portal.sharing.heading') }}</span>
+                    <span class="ml-1 text-[11px] text-gray-500">{{ $share_manager_ids ? __('portal.sharing.current', ['names' => $this->managerCandidates->whereIn('id', $share_manager_ids)->pluck('name')->implode(' · ')]) : __('portal.sharing.none_selected') }}</span>
+                </div>
+                <button type="button" class="btn-outline btn-sm" @click="open = !open" x-text="open ? '{{ __('common.cancel') }}' : '{{ __('portal.sharing.edit') }}'"></button>
+            </div>
+            <div x-show="open" x-cloak class="mt-2">
+                <p class="text-[11px] text-gray-500">{{ __('portal.sharing.subheading') }}</p>
+                <div class="mt-2 grid gap-1 rounded-md border border-gray-200 bg-white p-2 sm:grid-cols-2">
+                    @forelse ($this->managerCandidates as $mc)
+                        <label class="flex items-center gap-2 text-[13px] text-gray-700">
+                            <input type="checkbox" wire:model="share_manager_ids" value="{{ $mc->id }}"> {{ $mc->name }} <span class="truncate text-[11px] text-gray-400">{{ $mc->email }}</span>
+                        </label>
+                    @empty
+                        <span class="text-[12px] text-gray-400">{{ __('portal.sharing.none') }}</span>
+                    @endforelse
+                </div>
+                <div class="mt-2 flex items-center gap-3" x-data="{ saved: false }" x-on:sharing-updated.window="saved = true; open = false; setTimeout(() => saved = false, 2000)">
+                    <button type="button" class="btn-primary btn-sm" wire:click="saveSharing" wire:loading.attr="disabled" wire:target="saveSharing">{{ __('portal.sharing.save') }}</button>
+                    <span x-show="saved" x-cloak class="text-[12px] text-emerald-600">{{ __('portal.sharing.saved') }}</span>
+                </div>
+            </div>
+        </div>
+    @endif
 
     {{-- 사용자별 조회 (시스템관리자·업무관리자 — 2026-10-23 / 담당 영업 지정 관리 — 2026-11-02, 정산 제외) — 이름 클릭 시 그 사용자의 정보 표시. 대신 실행은 super 만. --}}
     @if (auth()->user()->canViewOthersPortal())
