@@ -241,7 +241,7 @@ class BoardTest extends TestCase
         $this->actingAs($kim);
         Volt::test('listings.index')->assertSee('미입력')->assertSee('입력됨')->assertSee('ERP 전송됨')->assertSee('매입예정(Invoice)');
 
-        $admin = $this->mkUser('manager');
+        $admin = $this->mkUser('manager', null, 'manager');
         $l = $this->mkListing($kim, ['remitter_name' => 'JOHN DOE', 'remitter_synced_at' => now()]);
         $this->actingAs($admin);
         Volt::test('manage.index')->call('openEdit', $l->id)->assertSet('remitter_name', 'JOHN DOE')
@@ -544,7 +544,7 @@ class BoardTest extends TestCase
         $this->mkListing($kim, ['vehicle_number' => '22나2222', 'status' => 'inspected']);
         $this->mkListing($lee, ['vehicle_number' => '33다3333', 'status' => 'draft']);
 
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
         $c = Volt::test('listings.index')
             ->assertSee(__('listings.list.owner_all'))
             ->assertSee('11가1111')->assertSee('33다3333');
@@ -797,7 +797,7 @@ class BoardTest extends TestCase
         Bus::fake();
         $l = $this->mkListing($this->mkUser('sales'), ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'final_price' => 5000000]);
         $l->salesAttachments()->delete();   // 첨부 없는 상태로 만든다
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')
             ->call('openDetail', $l->id)
@@ -824,7 +824,7 @@ class BoardTest extends TestCase
         // ⚠️ 픽스처 첨부는 이미 DB 에 있어 순서와 무관하게 실린다 → **그 자리에서 올리는 파일**로 봐야
         //    저장 순서가 실제로 검증된다(이게 실패했던 진짜 경로다).
         $l->salesAttachments()->delete();
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')
             ->call('openDetail', $l->id)
@@ -1018,7 +1018,7 @@ class BoardTest extends TestCase
         $this->mkListing($kim, ['vehicle_number' => '22나2222', 'region' => '부산광역시', 'status' => 'inspected']);
         $this->mkListing($kim, ['vehicle_number' => '33다3333', 'region' => '대구광역시', 'status' => 'awaiting_buyer']);
 
-        $this->actingAs($this->mkUser('manager'));   // canAssign → 지역필터 없음
+        $this->actingAs($this->mkUser('manager', null, 'manager'));   // canAssign → 지역필터 없음
         Volt::test('inspection.index')
             ->assertSee('11가1111')
             ->assertDontSee('22나2222')
@@ -1056,7 +1056,7 @@ class BoardTest extends TestCase
         $this->assertSame('실내 냄새 확인', $l->fresh()->inspection_request);
 
         // 현지확인 화면 — 목록·드로어에 보인다
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
         Volt::test('inspection.index')->assertSee('실내 냄새 확인')
             ->call('openDrawer', $l->id)->assertSee(__('inspection.request_section'));
     }
@@ -1083,7 +1083,7 @@ class BoardTest extends TestCase
             'region' => '경기 수원시', 'status' => 'accepted', 'buyer_verdict' => 'accepted',
         ]);
 
-        $this->actingAs($this->mkUser('manager'));   // canAssign → 지역필터 없음(전체 노출)
+        $this->actingAs($this->mkUser('manager', null, 'manager'));   // canAssign → 지역필터 없음(전체 노출)
         Volt::test('inspection.index')
             ->assertSee('88아8888')
             ->assertDontSee('77사7777');
@@ -1101,7 +1101,7 @@ class BoardTest extends TestCase
             'region' => '경기 수원시', 'status' => 'accepted', 'buyer_verdict' => 'accepted',
         ]);
 
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
         Volt::test('inspection.index')->assertDontSee('77사7777');
 
         Volt::test('manage.index')
@@ -1344,7 +1344,7 @@ class BoardTest extends TestCase
         ]);
 
         $l = $this->mkListing($this->mkUser('sales'), ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')
             ->call('openDetail', $l->id)
@@ -1368,7 +1368,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
             'source' => 'encar', 'car_cost' => null, 'final_price' => null,
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->call('conclude', $l->id, 'won')
@@ -1386,7 +1386,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
             'source' => 'encar', 'car_cost' => null, 'final_price' => null,
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '12000000')
@@ -1409,7 +1409,7 @@ class BoardTest extends TestCase
             'status' => 'won', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
             'source' => 'encar', 'car_cost' => null, 'final_price' => null, 'car_erp_vehicle_id' => null,
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '9500000')
@@ -1432,7 +1432,7 @@ class BoardTest extends TestCase
             'source' => 'encar', 'car_cost' => null, 'final_price' => null,
             'expected_price_currency' => 'KRW', 'discount_rate' => 10, 'sale_discount_amount' => 500000,
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->assertDontSee(__('forwarding.sale_discount_label'))
@@ -1527,7 +1527,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'encar', 'source' => 'encar',
             'car_cost' => 10000000, 'expected_price_currency' => 'KRW',
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->assertSee(__('auction.selling_fee'))
@@ -1564,7 +1564,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
             'source' => 'encar', 'car_cost' => null, 'final_price' => null, 'expected_price_currency' => 'KRW',
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->assertSet('selling_fee', null)   // 🚫 미리 채우지 않는다(2026-09-11 — 08-10 프리필을 뒤집었다)
@@ -1631,7 +1631,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
             'source' => 'encar', 'expected_price_currency' => 'KRW',
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         // 차값만 있고 판매가가 없으면 막힌다
         Volt::test('auction.index')->call('openDetail', $l->id)
@@ -1663,7 +1663,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
             'source' => 'encar', 'expected_price_currency' => 'KRW',
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->assertSet('quoteCurrency', '')      // 미선택으로 시작 — KRW 로 흘러가지 않는다
@@ -1688,7 +1688,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
             'source' => 'encar', 'expected_price_currency' => 'KRW',
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         $c = Volt::test('auction.index')->call('openDetail', $l->id)
             ->assertSet('rate_usd', null)         // 미리 채우지 않는다
@@ -1732,7 +1732,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
             'source' => 'encar', 'expected_price_currency' => 'KRW',
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '12000000')
@@ -1752,7 +1752,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'encar',
             'source' => 'auction', 'car_cost' => null, 'final_price' => 9000000, 'sale_price' => null,
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->call('conclude', $l->id, 'won')->assertHasNoErrors();
@@ -1771,7 +1771,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
             'source' => 'encar', 'expected_price_currency' => 'KRW',
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '400000')
@@ -1793,7 +1793,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
             'source' => 'encar', 'car_cost' => null, 'final_price' => null,
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)   // 매도비는 440,000 이 미리 채워져 있다
             ->call('conclude', $l->id, 'won')
@@ -1816,7 +1816,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'encar',
             'source' => 'encar', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW', 'shipping_usd' => 1740,
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         $c = Volt::test('auction.index')->call('openDetail', $l->id)
             ->assertSee(__('auction.sale_total'))
@@ -1843,7 +1843,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'encar',
             'source' => 'encar', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW', 'shipping_usd' => 1740,
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('quoteCurrency', 'USD')->set('sale_total', '8000')->set('rate_usd', '1380')
@@ -1861,7 +1861,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'encar',
             'source' => 'encar', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW',
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         $a = $mk();
         Volt::test('auction.index')->call('openDetail', $a->id)->set('buyerId', 7)
@@ -1881,7 +1881,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'encar',
             'source' => 'encar', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW',
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         $c = Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('selling_fee', '440000')->set('rate_usd', '1400')->set('rate_eur', '1600')
@@ -1904,7 +1904,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
             'source' => 'encar', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW',
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         $c = Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('quoteCurrency', 'EUR')
@@ -1945,7 +1945,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
             'source' => 'encar', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW',
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         $c = Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('quoteCurrency', 'KRW')->set('sale_total', '20000000')
@@ -1967,7 +1967,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
             'source' => 'encar', 'car_cost' => 10000000, 'expected_price_currency' => 'KRW',
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('quoteCurrency', 'EUR')->set('rate_eur', '1580')
@@ -2014,7 +2014,7 @@ class BoardTest extends TestCase
             'car_cost' => 10000000, 'offer_currency' => 'EUR', 'offer_rate' => 1400,
             'car_erp_vehicle_id' => 99,
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->assertSet('quoteCurrency', 'EUR')
@@ -2032,7 +2032,7 @@ class BoardTest extends TestCase
             'status' => 'won', 'buyer_verdict' => 'accepted', 'source' => 'encar',
             'car_cost' => 8000000, 'car_erp_vehicle_id' => 321,
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('car_cost', '8100000')
@@ -2049,7 +2049,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction',
             'car_cost' => null, 'final_price' => 9000000,
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->call('conclude', $l->id, 'won')->assertHasNoErrors();
@@ -2089,7 +2089,7 @@ class BoardTest extends TestCase
         $l = $this->mkListing($this->mkUser('sales'), [
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000,
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('buyerId', 7)
@@ -2111,7 +2111,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction',
             'final_price' => 9000000, 'car_erp_buyer_id' => null,   // 기본값을 명시적으로 덮는다
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->call('conclude', $l->id, 'won')
@@ -2130,7 +2130,7 @@ class BoardTest extends TestCase
     {
         $this->carErpReadConfig();
         Http::fake(['*' => Http::response(['count' => 0, 'data' => []], 200)]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
         $l = $this->mkListing($this->mkUser('sales'), [
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'car_erp_buyer_id' => null,
         ]);
@@ -2147,7 +2147,7 @@ class BoardTest extends TestCase
             '*/api/internal/board/buyers*' => Http::response(['count' => 1, 'data' => [$this->buyerRow(7, true)]], 200),
             '*' => Http::response(['count' => 0, 'data' => []], 200),
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
         $l = $this->mkListing($this->mkUser('sales'), [
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'car_erp_buyer_id' => 7,
         ]);
@@ -2169,7 +2169,7 @@ class BoardTest extends TestCase
         $l = $this->mkListing($this->mkUser('sales'), [
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000,
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('buyerId', 7)
@@ -2190,7 +2190,7 @@ class BoardTest extends TestCase
         $l = $this->mkListing($this->mkUser('sales'), [
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000,
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('buyerId', 7)
@@ -2210,7 +2210,7 @@ class BoardTest extends TestCase
             '*' => Http::response(['count' => 0, 'data' => []], 200),
         ]);
         $l = $this->mkListing($this->mkUser('sales'), ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction']);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)->set('buyerId', 7)
             ->assertSee('미수율 92% / 임계 80%')          // basis 그대로(20.0 → 20 정규화 포함)
@@ -2222,7 +2222,7 @@ class BoardTest extends TestCase
     public function test_buyer_lock_hidden_when_off_or_no_basis(): void
     {
         $this->carErpReadConfig();
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
         $l = $this->mkListing($this->mkUser('sales'), ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction']);
 
         foreach ([['off', null], ['unsecured', null]] as [$mode, $kind]) {
@@ -2254,7 +2254,7 @@ class BoardTest extends TestCase
         $l = $this->mkListing($creator, ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000]);
 
         // 운영자 = 다른 관리자(대행). 조회는 운영자 신원이 아니라 작성자 신원으로 가야 함.
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
         Volt::test('auction.index')->call('openDetail', $l->id);
 
         Http::assertSent(fn ($req) => str_contains($req->url(), '/buyers')
@@ -2472,7 +2472,7 @@ class BoardTest extends TestCase
         $l = $this->mkListing($kim, ['status' => 'accepted', 'buyer_verdict' => 'accepted']);
         $l->salesAttachments()->create(['s3_path' => 's/reg.pdf', 'original_name' => 'reg.pdf', 'sort' => 1, 'kind' => InspectionPhoto::KIND_SALES_DOCUMENT]);
 
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
         Volt::test('auction.index')
             ->call('openDetail', $l->id)
             ->assertSee(__('auction.attach.title'))
@@ -3240,7 +3240,7 @@ class BoardTest extends TestCase
     public function test_manager_edit_writes_audit_log_and_overrides(): void
     {
         $l = $this->mkListing($this->mkUser('sales'), ['status' => 'draft', 'expected_price' => 1000000]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('manage.index')
             ->call('openEdit', $l->id)
@@ -3288,6 +3288,9 @@ class BoardTest extends TestCase
         foreach ([$this->mkUser('manager'), $this->mkUser('sales', null, 'manager')] as $u) {
             $l = $this->mkListing($this->mkUser('sales'));
             $synced = $this->mkListing($this->mkUser('sales'), ['status' => 'synced', 'car_erp_vehicle_id' => 77, 'buyer_verdict' => 'accepted']);
+            if ($u->isManager() && ! $u->hasFullAccess()) {   // 관리 role 은 공유받은 영업의 매물만 본다(2026-11-02) — 두 등록자를 공유
+                $u->managedSalesmanUsers()->sync([$l->created_by_user_id, $synced->created_by_user_id]);
+            }
             $this->actingAs($u);
 
             Volt::test('manage.index')->call('openEdit', $synced->id)
@@ -3360,7 +3363,7 @@ class BoardTest extends TestCase
     public function test_manager_corrects_identity_on_unsynced_listing(): void
     {
         $l = $this->mkListing($this->mkUser('sales'), ['vin' => 'OLDVIN001', 'vehicle_number' => '12가0001']);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('manage.index')
             ->call('openEdit', $l->id)
@@ -3378,7 +3381,7 @@ class BoardTest extends TestCase
     public function test_manager_cannot_correct_identity_once_synced(): void
     {
         $l = $this->mkListing($this->mkUser('sales'), ['vin' => 'SYNC0001', 'car_erp_vehicle_id' => 555]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('manage.index')
             ->call('openEdit', $l->id)
@@ -5063,7 +5066,7 @@ class BoardTest extends TestCase
             'car_cost' => 7000, 'expected_price_currency' => 'USD',
         ]);
 
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
         Volt::test('manage.index')->call('openEdit', $l->id)->assertSee('차값 ($)');
 
         // 검차 화면은 금액 미표시(견적·전달로 이동, 2026-07-06) → 구매확정 드로어에서 통화표기 확인
@@ -8062,7 +8065,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction',
             'car_cost' => 8000000, 'expected_price_currency' => 'KRW', 'car_erp_buyer_id' => null,
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('buyerUndecided', true)
@@ -8084,7 +8087,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
             'source' => 'encar', 'car_cost' => null, 'final_price' => null, 'car_erp_buyer_id' => null,
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->set('buyerUndecided', true)
@@ -8109,7 +8112,7 @@ class BoardTest extends TestCase
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction',
             'car_cost' => 7000000, 'expected_price_currency' => 'KRW', 'car_erp_buyer_id' => 55,
         ]);
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
 
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->assertSet('buyerId', 55)
@@ -8249,7 +8252,7 @@ class BoardTest extends TestCase
         }
 
         // 관리 role 은 전체가 보이지만(격리 대상 아님) 남의 글 삭제는 /manage 경로로만.
-        $this->actingAs($this->mkUser('manager'));
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
         Volt::test('listings.index')->call('openEdit', $l->id)
             ->assertDontSee(__('listings.drawer.delete'))
             ->call('deleteListing')->assertForbidden();
@@ -8530,38 +8533,68 @@ class BoardTest extends TestCase
         return $mgr;
     }
 
-    /** super·업무관리자는 /users 에서 관리에게 담당 영업을 지정한다(감사 행 1건). 관리 role 액터는 프로퍼티를 밀어넣어도 지정이 안 바뀐다. */
-    public function test_full_access_assigns_salesmen_to_manager_and_manager_actor_cannot(): void
+    /** 영업이 /portal 「내 포털 공유」에서 관리를 찍는다(감사 행 1건). 후보 밖(영업·업무관리자·비활성·없는 id)은 버린다. 영업이 아니면 카드도 저장도 없다. */
+    public function test_salesperson_picks_managers_to_share_portal(): void
     {
-        $s1 = $this->mkUser('sales');
-        $s2 = $this->mkUser('sales');
-        $inactive = $this->mkUser('sales');
+        $m1 = $this->mkUser('manager');
+        $m2 = $this->mkUser('manager');
+        $inactive = $this->mkUser('manager');
         $inactive->update(['is_active' => false]);
-        $mgr = $this->mkUser('manager');
+        $wm = $this->mkUser('manager', null, 'manager');   // 업무관리자 — 지정 없이 전체를 보니 후보 아님
+        $sales = $this->mkUser('sales');
+        $this->actingAs($sales);
 
-        $this->actingAs($this->mkUser('manager', null, 'manager'));   // 업무관리자
-        Volt::test('users.index')->call('openEdit', $mgr->id)->assertSee(__('users.label_managed_salesmen'))
-            ->set('managed_salesman_ids', [(string) $s1->id, (string) $s2->id, (string) $inactive->id, '999999'])
-            ->call('save')->assertHasNoErrors();
-        $this->assertEqualsCanonicalizing([$s1->id, $s2->id], $mgr->managedSalesmanUsers()->pluck('users.id')->map(fn ($v) => (int) $v)->all());   // 비활성·없는 id 는 버림
-        $row = BoardAuditLog::where('action', 'user_managed_salesmen')->latest('id')->first();
-        $this->assertNotNull($row);
+        Volt::test('portal.index')->assertSee(__('portal.sharing.heading'))->assertSee($m1->name)->assertDontSeeHtml('value="'.$wm->id.'"')
+            ->set('share_manager_ids', [(string) $m1->id, (string) $m2->id, (string) $inactive->id, (string) $wm->id, (string) $sales->id, '999999'])
+            ->call('saveSharing')->assertHasNoErrors();
+        $this->assertEqualsCanonicalizing([$m1->id, $m2->id], $sales->managingUsers()->pluck('users.id')->map(fn ($v) => (int) $v)->all());
+        $this->assertEqualsCanonicalizing([$sales->id], $m1->managedSalesmanUsers()->pluck('users.id')->map(fn ($v) => (int) $v)->all());
+        $row = BoardAuditLog::where('action', 'user_shared_managers')->latest('id')->first();
+        $this->assertSame($sales->id, $row->user_id);
         $this->assertNull($row->purchase_listing_id);
-        $this->assertStringContainsString($s1->name, $row->new_value);
+        $this->assertStringContainsString($m1->name, $row->new_value);
 
-        // 관리 role 액터 — 목록을 비워 저장해도 종전 지정 보존(자기 손으로 열람 권한을 열거나 닫지 못한다)
-        $this->actingAs($this->mkUser('manager'));
-        Volt::test('users.index')->call('openEdit', $mgr->id)->assertSee(__('users.managed_salesmen_readonly'))
-            ->set('managed_salesman_ids', [])->call('save')->assertHasNoErrors();
-        $this->assertCount(2, $mgr->managedSalesmanUsers()->get());
+        // 관리 계정에는 카드가 없고 저장도 무시
+        $this->actingAs($m1);
+        Volt::test('portal.index')->assertDontSee(__('portal.sharing.heading'))->set('share_manager_ids', [(string) $m2->id])->call('saveSharing');
+        $this->assertCount(0, $m1->managingUsers()->get());
 
-        // 영업으로 role 을 바꾸면 지정 전부 해제
+        // /users 에서 관리 role 을 영업으로 바꾸면 담당 연결 해제(감사 행), 영업을 검차원으로 바꾸면 공유 연결 해제
         $this->actingAs($this->mkUser('sales', null, 'super'));
-        Volt::test('users.index')->call('openEdit', $mgr->id)->set('role', 'sales')->call('save')->assertHasNoErrors();
-        $this->assertCount(0, $mgr->managedSalesmanUsers()->get());
+        Volt::test('users.index')->call('openEdit', $m1->id)->set('role', 'sales')->call('save')->assertHasNoErrors();
+        $this->assertCount(0, $m1->managedSalesmanUsers()->get());
+        $this->assertCount(1, $sales->managingUsers()->get());   // m2 만 남는다
+        Volt::test('users.index')->call('openEdit', $sales->id)->set('role', 'inspection')->call('save')->assertHasNoErrors();
+        $this->assertCount(0, $sales->managingUsers()->get());
+        $this->assertSame(3, BoardAuditLog::where('action', 'user_shared_managers')->count());
     }
 
-    /** 지정받은 관리 = 지정 영업만 조회(조회 전용) + 정산 호출 0·정산 키 제거·정산내역 탭 없음. 지정 없는 관리는 선택 칸 자체가 없다. */
+    /** 매입예정도 공유 범위(2026-11-02 Jin) — 관리는 본인 + 자기를 공유한 영업의 매물만(목록·탭 건수·등록자 필터). 공유 0명이면 본인 것만. 업무관리자·super 는 전체. */
+    public function test_manager_sees_only_shared_salesmen_listings(): void
+    {
+        $a = $this->mkUser('sales');
+        $a->update(['name' => '공유영업']);
+        $b = $this->mkUser('sales');
+        $b->update(['name' => '비공유영업']);
+        $mgr = $this->designatedManager([$a->id]);
+        $la = $this->mkListing($a, ['vehicle_number' => '11가1111']);
+        $lb = $this->mkListing($b, ['vehicle_number' => '22나2222']);
+        $lm = $this->mkListing($mgr, ['vehicle_number' => '33다3333']);
+
+        $this->actingAs($mgr);
+        Volt::test('listings.index')->assertSee('11가1111')->assertSee('33다3333')->assertDontSee('22나2222')->assertSee('공유영업')->assertDontSee('비공유영업');
+        $this->assertNull(PurchaseListing::find($lb->id));            // 스코프 밖 = 모델 조회도 못 한다(IDOR)
+        $this->assertNotNull(PurchaseListing::find($la->id));
+        $this->assertSame(2, PurchaseListing::count());
+
+        $this->actingAs($this->mkUser('manager'));                     // 공유 0명 — 본인 것만(0건)
+        $this->assertSame(0, PurchaseListing::count());
+
+        $this->actingAs($this->mkUser('manager', null, 'manager'));    // 업무관리자 — 전체
+        $this->assertSame(3, PurchaseListing::count());
+    }
+
+    /** 공유받은 관리 = 공유한 영업만 조회 + 정산 호출 0·정산 키 제거·정산내역 탭 없음 + **대신 실행 가능**(계약금 요청이 그 영업 명의로 나간다). 공유 없는 관리는 선택 칸 자체가 없다. */
     public function test_designated_manager_views_only_designated_salesmen_without_settlement(): void
     {
         $this->carErpReadConfig();
@@ -8580,7 +8613,7 @@ class BoardTest extends TestCase
         $c = Volt::test('portal.index')->assertSee('사용자별 조회')->assertSee($mine->name)->assertDontSee($other->name)
             ->call('viewUser', $other->id)->assertSet('viewUserId', null)   // 지정 밖 = 무시
             ->call('viewUser', $mine->id)->assertSet('viewUserId', $mine->id)
-            ->assertSee('조회 전용')->assertSee(__('portal.settlement_hidden_notice'))
+            ->assertSee('대신 보낼 수 있습니다')->assertDontSee('조회 전용')->assertSee(__('portal.settlement_hidden_notice'))
             ->assertDontSee(__('portal.tab.settlements'))->assertDontSee(__('portal.kpi_settlement_pending'));
         Http::assertSent(fn ($req) => str_contains($req->url(), 'salesman_email=mine%40ce.test'));
         // 지정 영업 명의의 정산 호출 0 (관리 본인 포털 첫 로드는 본인 데이터라 정산 호출이 있을 수 있다 — 그건 대상 아님)
@@ -8596,10 +8629,12 @@ class BoardTest extends TestCase
         $this->assertArrayNotHasKey('payout_total_krw', $row);
         $this->assertSame(['USD' => 100], $row['sales_by_currency']);
 
-        $c->call('sendPurchaseRequest', 'purchase_deposit', 10)->assertSet('reqResult', ['error' => __('portal.flash_proxy_readonly')]);
-        Http::assertNotSent(fn ($req) => $req->method() === 'POST');
+        // 담당 관리는 요청을 대신 보낸다(2026-11-02 Jin) — 그 영업 명의(salesman_email)로 POST 가 나간다
+        $c->set('reqAmount.10', '1000')->call('sendPurchaseRequest', 'purchase_deposit', 10);
+        $this->assertNotSame(['error' => __('portal.flash_proxy_readonly')], $c->get('reqResult'));
+        Http::assertSent(fn ($req) => $req->method() === 'POST' && str_contains($req->url(), '/requests') && str_contains($req->body(), 'mine@ce.test'));
 
-        // 지정 없는 관리 — 선택 칸 없음·viewUser 무시
+        // 공유 없는 관리 — 선택 칸 없음·viewUser 무시
         $this->actingAs($this->mkUser('manager'));
         Volt::test('portal.index')->assertDontSee('사용자별 조회')->call('viewUser', $mine->id)->assertSet('viewUserId', null);
     }
@@ -8618,6 +8653,23 @@ class BoardTest extends TestCase
             ->assertSee(__('portal.kpi_settlement_pending'))->assertSee(__('portal.tab.settlements'))->assertDontSee(__('portal.settlement_hidden_notice'));
         $this->assertSame(2, $c->get('result')['data']['settlement_pending_count']);
         Http::assertSent(fn ($req) => str_contains($req->url(), 'payout-batches'));
+    }
+
+    /** 관리(role) 액터도 같다 — 사용자 추가에서 업무관리자·super 프로퍼티를 밀어넣어도 `user` 로 저장되고, 업무관리자 계정은 열지도 못한다(Jin 2026-11-02 확인 질문). */
+    public function test_manager_role_cannot_create_work_manager_or_super(): void
+    {
+        $wm = $this->mkUser('sales', 'wm@board.test', 'manager');
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('users.index')->call('openCreate')
+            ->assertDontSeeHtml('wire:model="is_work_manager"')->assertDontSeeHtml('wire:model="is_super"')   // 등급 체크박스 자체가 없다(목록의 등급 배지 글자와는 별개)
+            ->set('name', '승격시도')->set('email', 'esc3@board.test')->set('role', 'manager')
+            ->set('is_work_manager', true)->set('is_super', true)->set('password', 'secret123')
+            ->call('save')->assertHasNoErrors();
+        $this->assertSame('user', User::where('email', 'esc3@board.test')->value('permission'));
+
+        Volt::test('users.index')->call('openEdit', $wm->id)->assertSet('editingId', null);   // 위 등급 계정은 못 연다
+        $this->assertSame('manager', $wm->fresh()->permission);
     }
 
     /** 등급 지정은 super 만(결정 2) — 업무관리자가 프로퍼티를 밀어넣어도 user 로 저장된다. super 계정도 못 건드린다. */
@@ -8981,7 +9033,7 @@ class BoardTest extends TestCase
         $creator->update(['car_erp_salesman_email' => 'creator@ce.test']);
         $l = $this->mkListing($creator, ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000]);
 
-        foreach ([$this->mkUser('manager'), $this->mkUser('manager', null, 'manager')] as $viewer) {   // 관리 role · 업무관리자
+        foreach ([$this->mkUser('manager', null, 'manager'), $this->mkUser('manager', null, 'manager')] as $viewer) {   // 관리 role · 업무관리자
             Http::fake(['*/api/internal/board/buyers*' => Http::response(['count' => 0, 'data' => []], 200)]);
             $this->actingAs($viewer);
             Volt::test('auction.index')->call('openDetail', $l->id);

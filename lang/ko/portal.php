@@ -7,14 +7,15 @@ return [
     'title' => '내 정산·미수·선적 (포털)',
     'viewing_other_readonly' => ':name 님의 포털 — 조회 전용입니다. 요청·선적요청은 시스템관리자만 대신 보낼 수 있습니다.',
     'viewing_other' => ':name 님의 포털 — 시스템관리자는 대신 실행할 수 있습니다. ⚠️ 요청은 :name 님 명의로 car-erp에 전달됩니다.',
+    'viewing_other_manager' => '담당 영업 :name 님의 포털 — 요청·선적요청을 대신 보낼 수 있습니다. ⚠️ 요청은 :name 님 명의로 car-erp에 전달됩니다. 정산 관련 항목은 보이지 않습니다.',
     'viewing_self' => '본인(:name) 정보만 — car-erp 원장 읽기. 수정·선적실무는 car-erp.',
     'footer_note' => '읽기전용(car-erp 원장). 금액·정산·선적 실무 수정은 car-erp 담당에게. 선적요청은 car-erp 관리에게 알람으로 전달됩니다.',
 
     // 사용자별 조회 (super)
     'view_by_user' => '사용자별 조회',
     'view_by_user_hint' => '이름을 누르면 그 사용자의 정산·미수·선적이 표시됩니다 (시스템관리자·업무관리자 — 대신 실행은 시스템관리자만)',
-    'view_by_user_hint_manager' => '이름을 누르면 담당 영업의 미수·재고·판매·선적이 표시됩니다 (조회 전용 · 정산 관련은 보이지 않음)',
-    'settlement_hidden_notice' => '담당 영업 열람 — 정산 관련 항목(정산 탭·월별 정산액·진행 중 정산·마진율)은 보이지 않습니다.',
+    'view_by_user_hint_manager' => '나를 공유한 영업만 보입니다 — 이름을 누르면 그 영업의 미수·재고·판매·선적이 표시되고 요청을 대신 보낼 수 있습니다 (정산 관련은 보이지 않음)',
+    'settlement_hidden_notice' => '담당 영업 열람 — 정산 관련 항목(정산 탭·월별 정산액·진행 중 정산·마진율)은 보이지 않습니다. 요청·선적요청은 그 영업 명의로 나갑니다.',
     'view_self_btn' => '나(본인)',
 
     // 탭
@@ -348,4 +349,15 @@ return [
     'savings_col_type' => '종류',
     'savings_col_amount' => '금액',
     'savings_type' => ['EARNED' => '적립', 'USED' => '사용', 'REFUND' => '환불', 'ADJUSTMENT' => '조정', 'CANCELLED' => '취소'],
+    // 내 포털 공유(영업 → 관리, 2026-11-02 Jin) — manager_salesman. 영업은 /users 를 못 보므로 포털에서 찍는다.
+    'sharing' => [
+        'heading' => '내 포털 공유',
+        'subheading' => '체크한 관리는 내 매입예정과 포털(미수·재고·판매·선적)을 보고 계약금·매입잔금 요청과 선적요청을 내 명의로 대신 보낼 수 있습니다. 정산 관련 항목은 보이지 않습니다.',
+        'current' => '공유 중: :names',
+        'none_selected' => '공유한 관리 없음 — 관리는 내 매입예정·포털을 볼 수 없습니다',
+        'edit' => '공유 설정',
+        'none' => '공유할 수 있는 관리 계정이 없습니다.',
+        'save' => '공유 저장',
+        'saved' => '저장됨',
+    ],
 ];
