@@ -580,7 +580,39 @@ class BoardTest extends TestCase
         $c->set('search', '김검')->assertSee('박다른');               // 버튼 전엔 그대로
         $c->call('searchNow')->assertSee('김검색')->assertDontSee('박다른');
         $c->set('search', '01012345678')->call('searchNow')->assertSee('김검색');   // 하이픈 없이 전화번호
-        $c->set('search', '')->call('searchNow')->set('roleFilter', 'inspection')->assertSee('박다른')->assertDontSee('김검색');
+        $c->set('search', '')->call('searchNow')->call('pickRole', 'inspection')->assertSee('박다른')->assertDontSee('김검색');
+    }
+
+    /** 사용자관리 필터 = ERP 미러(2026-11-02 Jin) — 역할 칩은 「일반」을 같이 잡고 다시 누르면 해제, 등급순 정렬, 건수 선택·페이지. */
+    public function test_users_filter_chips_order_and_pagination(): void
+    {
+        $super = $this->mkUser('manager', null, 'super');
+        $super->update(['name' => '가시스템']);
+        $wm = $this->mkUser('sales', null, 'manager');
+        $wm->update(['name' => '나업무']);
+        $s = $this->mkUser('sales');
+        $s->update(['name' => '다영업']);
+        $m = $this->mkUser('manager');
+        $m->update(['name' => '라관리']);
+        $this->actingAs($super);
+
+        $c = Volt::test('users.index');
+        // 등급순(시스템관리자 → 업무관리자 → 일반), 일반 안은 관리 → 영업
+        $c->assertSeeInOrder(['가시스템', '나업무', '라관리', '다영업']);
+
+        $c->call('pickRole', 'sales')->assertSet('permFilter', 'user')->assertSee('다영업')->assertDontSee('라관리')->assertDontSee('나업무');
+        $c->call('pickRole', 'sales')->assertSet('roleFilter', '')->assertSet('permFilter', 'user')->assertSee('라관리');   // 다시 누르면 역할만 해제
+        $c->call('pickPerm', 'manager')->assertSee('나업무')->assertDontSee('다영업');
+        $c->call('pickPerm', 'manager')->assertSet('permFilter', '');                                                       // 같은 칩 = 해제
+        $c->call('pickRole', 'nope')->assertSet('roleFilter', '');                                                          // 모르는 값 무시
+
+        // 건수 선택 — 화이트리스트 밖이면 10, 10명 넘으면 다음 페이지로
+        $c->set('perPage', 7)->assertSet('perPage', 10);
+        foreach (range(1, 8) as $i) {
+            $this->mkUser('sales')->update(['name' => '페이지'.str_pad((string) $i, 2, '0', STR_PAD_LEFT)]);
+        }
+        $c->call('searchNow')->assertSee('페이지06')->assertDontSee('페이지07');
+        $c->set('perPage', 30)->assertSee('페이지08');
     }
 
     /** 숫자 표기만 다른 재저장은 감사 변경이 아니다(ERP isRealChange 대조, 2026-10-24). 매도비 계좌는 *** 로 남는다. */
