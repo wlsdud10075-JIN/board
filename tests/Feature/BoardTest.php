@@ -8620,6 +8620,23 @@ class BoardTest extends TestCase
         Http::assertSent(fn ($req) => str_contains($req->url(), 'payout-batches'));
     }
 
+    /** 관리(role) 액터도 같다 — 사용자 추가에서 업무관리자·super 프로퍼티를 밀어넣어도 `user` 로 저장되고, 업무관리자 계정은 열지도 못한다(Jin 2026-11-02 확인 질문). */
+    public function test_manager_role_cannot_create_work_manager_or_super(): void
+    {
+        $wm = $this->mkUser('sales', 'wm@board.test', 'manager');
+        $this->actingAs($this->mkUser('manager'));
+
+        Volt::test('users.index')->call('openCreate')
+            ->assertDontSeeHtml('wire:model="is_work_manager"')->assertDontSeeHtml('wire:model="is_super"')   // 등급 체크박스 자체가 없다(목록의 등급 배지 글자와는 별개)
+            ->set('name', '승격시도')->set('email', 'esc3@board.test')->set('role', 'manager')
+            ->set('is_work_manager', true)->set('is_super', true)->set('password', 'secret123')
+            ->call('save')->assertHasNoErrors();
+        $this->assertSame('user', User::where('email', 'esc3@board.test')->value('permission'));
+
+        Volt::test('users.index')->call('openEdit', $wm->id)->assertSet('editingId', null);   // 위 등급 계정은 못 연다
+        $this->assertSame('manager', $wm->fresh()->permission);
+    }
+
     /** 등급 지정은 super 만(결정 2) — 업무관리자가 프로퍼티를 밀어넣어도 user 로 저장된다. super 계정도 못 건드린다. */
     public function test_work_manager_cannot_grant_permissions_or_touch_super(): void
     {
