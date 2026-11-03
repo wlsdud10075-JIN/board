@@ -93,6 +93,15 @@ return [
         'encar_dealer' => '엔카딜러',
         'auction_venue' => '경매장',
         'lot_number' => '출품번호',
+        'remitter_name' => '송금인 이름',
+        'remitter_id' => '송금인 ID(여권/ID 번호)',
+        'seller_company' => '매입처 법인명',
+        'seller_ceo' => '매입처 대표자',
+        'seller_phone' => '매입처 휴대폰',
+        'erp_attachments_send' => 'ERP 사진·서류 전송',     // 2026-11-03 — 누가·어떤 파일을, 결과(붙은 장수)는 전송 표
+        'erp_remitter_send' => 'ERP 송금인 전송',          // 2026-11-03 — 보낸 이름·결과, ID 는 ***
+        'erp_resync' => 'ERP 재전송(관리)',               // 2026-11-03 — /manage 재전송 누른 사람
+        'commercial_invoice' => '인보이스 다운로드',
         'deleted' => '삭제',
     ],
 
@@ -101,7 +110,7 @@ return [
         'direction' => ['outbound' => '보냄 →', 'inbound' => '받음 ←'],
         'target' => [
             'car_erp' => 'car-erp (ERP)',
-            'ollama' => '사내 AI (사진 계좌 읽기)',
+            'ollama' => '사내 AI (사진 읽기 — 계좌·여권)',
             'ssancar_media' => 'ssancar.com (검차 사진·영상)',
             'respond_io' => 'respond.io (바이어 채팅)',
         ],
@@ -113,6 +122,8 @@ return [
             'verdict_poll' => '바이어 회신 확인',
             'buyer_verdict' => '바이어 회신 수신',
             'send_offer' => '바이어에게 견적 발송',
+            'passport_extract' => '여권·ID 사진 읽기',
+            'remitter_send' => '송금인 ERP 전송',
             'unknown' => '알 수 없는 이벤트',
         ],
         'resp' => [
@@ -131,6 +142,7 @@ return [
                 '422' => 'ERP 가 거절 (필수값·형식)',
             ],
         ],
+        'passport_status' => ['done' => '이름·번호 후보 찾음', 'none' => '후보 없음', 'failed' => '읽기 실패', 'running' => '읽는 중'],
         'payee_status' => ['done' => '계좌 후보 찾음', 'none' => '계좌 후보 없음', 'failed' => '읽기 실패', 'running' => '읽는 중'],
         'sum' => [
             'erp_vehicle' => 'ERP 차량 #:id',
@@ -143,6 +155,8 @@ return [
             'photo_errors' => '못 읽은 사진 :n장',
             'verdict' => '바이어 회신: :v',
             'label' => '라벨: :label',
+            'passport' => '이름 후보 :names건 · 번호 후보 :ids건',
+            'unchanged' => 'ERP 값과 같아 바뀐 칸 없음',
             'photos_sent' => '사진 :n장 함께 발송',
         ],
         'reason' => ['inspected_video' => '검차 영상이 올라와 전달대기로 넘김', 'stock_photos' => '재고 사진이 올라와 전달대기로 넘김'],

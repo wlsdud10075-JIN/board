@@ -145,12 +145,21 @@ class BoardTest extends TestCase
         Volt::test('listings.index')->call('openEdit', $l->id)->call('sendRemitter')->assertSee('덮어썼습니다');
         $this->assertNotNull($l->fresh()->remitter_synced_at);
         Http::assertSent(fn ($r) => str_contains($r->url(), '/vehicles/188/remitter') && $r['remitter_name'] === 'JOHN DOE' && $r['remitter_id'] === 'AB1234567' && $r['salesman_email'] === $kim->email);
+        // 기록(2026-11-03 Jin 점검) — 감사 행(누가·결과)과 전송 표 행(보낸 값·응답), 문서번호는 양쪽 다 ***
+        $audit = BoardAuditLog::where('purchase_listing_id', $l->id)->where('action', 'erp_remitter_send')->sole();
+        $this->assertSame($kim->id, $audit->user_id);
+        $this->assertSame(['erp_vehicle_id' => 188, 'remitter_name' => 'JOHN DOE', 'remitter_id' => '***', 'result' => 'ok', 'status' => 200, 'updated' => ['remitter_name', 'remitter_id']], json_decode($audit->new_value, true));
+        $ev = IntegrationEvent::where('purchase_listing_id', $l->id)->where('event_type', 'remitter_send')->sole();
+        $this->assertSame([200, '***', 'JOHN DOE'], [$ev->response_status, $ev->request_payload['remitter_id'], $ev->request_payload['remitter_name']]);
+        $this->assertStringNotContainsString('AB1234567', $audit->new_value.json_encode($ev->request_payload).$ev->response_body);
 
         // 403 = 담당 불일치 — 전송 시각을 찍지 않는다
         Http::fake(['*/vehicles/189/remitter*' => Http::response(['message' => 'forbidden'], 403)]);
         $l2 = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 189, 'remitter_name' => 'JANE ROE']);
         Volt::test('listings.index')->call('openEdit', $l2->id)->call('sendRemitter')->assertSee('이 영업의 차로 보지 않습니다');
         $this->assertNull($l2->fresh()->remitter_synced_at);
+        $this->assertSame('failed', json_decode(BoardAuditLog::where('purchase_listing_id', $l2->id)->where('action', 'erp_remitter_send')->sole()->new_value, true)['result']);
+        $this->assertSame(403, IntegrationEvent::where('purchase_listing_id', $l2->id)->where('event_type', 'remitter_send')->sole()->response_status);
 
         // ERP 차량 없음 — 호출 0
         $l3 = $this->mkListing($kim, ['status' => 'accepted', 'remitter_name' => 'NO ERP']);
@@ -696,6 +705,9 @@ class BoardTest extends TestCase
 
         // 픽스처 1건 + 방금 2건.
         $this->assertSame(3, $l->salesAttachments()->count());
+        // 누가 어떤 파일을 ERP 로 보냈나(2026-11-03 Jin 점검) — 결과는 전송 표 응답
+        $a = BoardAuditLog::where('purchase_listing_id', $l->id)->where('action', 'erp_attachments_send')->sole();
+        $this->assertSame([$kim->id, ['erp_vehicle_id' => 188, 'count' => 2, 'files' => ['late.jpg', 'late2.jpg']]], [$a->user_id, json_decode($a->new_value, true)]);
 
         // 🚨 **첨부 전용**으로 나가야 한다 — 평범한 resync 면 판매가가 채워지고 sale_date 가 오늘로 찍힌다.
         Bus::assertDispatched(fn (SyncWonListingToCarErp $job) => $job->listingId === $l->id
@@ -3334,6 +3346,7 @@ class BoardTest extends TestCase
                 ->assertSee(__('manage.resync'))
                 ->call('resyncToCarErp')->assertHasNoErrors();
             Bus::assertDispatched(fn (SyncWonListingToCarErp $job) => $job->listingId === $synced->id);
+            $this->assertSame($u->id, BoardAuditLog::where('purchase_listing_id', $synced->id)->where('action', 'erp_resync')->sole()->user_id);
 
             Volt::test('manage.index')->call('openEdit', $l->id)
                 ->assertSee(__('manage.delete'))

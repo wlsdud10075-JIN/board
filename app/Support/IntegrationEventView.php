@@ -43,10 +43,12 @@ class IntegrationEventView
     {
         $code = $ev->response_status;
 
-        if ($ev->event_type === 'payee_extract') {
+        // 사진 읽기(ollama) 두 종류는 HTTP 호출 기록이 아니다 — 응답 코드 없음 = 실패가 아니라 결과 상태로 말한다.
+        if (in_array($ev->event_type, ['payee_extract', 'passport_extract'], true)) {
             $st = (string) data_get($ev->request_payload, 'status');
+            $group = $ev->event_type === 'passport_extract' ? 'passport_status' : 'payee_status';
 
-            return [self::t('audit.ev.payee_status.'.$st, $st !== '' ? $st : '—'), match ($st) {
+            return [self::t('audit.ev.'.$group.'.'.$st, $st !== '' ? $st : '—'), match ($st) {
                 'done' => true,
                 'failed' => false,
                 default => null,
@@ -113,6 +115,21 @@ class IntegrationEventView
                 $out[] = __('audit.ev.sum.payee', ['n' => (int) ($p['candidates'] ?? 0)]);
                 if ((int) ($p['photo_errors'] ?? 0) > 0) {
                     $out[] = __('audit.ev.sum.photo_errors', ['n' => (int) $p['photo_errors']]);
+                }
+                break;
+
+            case 'passport_extract':
+                $out[] = __('audit.ev.sum.passport', ['names' => (int) ($p['names'] ?? 0), 'ids' => (int) ($p['ids'] ?? 0)]);
+                break;
+
+            case 'remitter_send':
+                if (isset($p['erp_vehicle_id'])) {
+                    $out[] = __('audit.ev.sum.erp_vehicle', ['id' => $p['erp_vehicle_id']]);
+                }
+                if (! empty($body['updated'])) {
+                    $out[] = __('audit.ev.sum.filled', ['fields' => implode(', ', array_map(fn ($f) => self::fieldLabel((string) $f), (array) $body['updated']))]);
+                } elseif ($body !== []) {
+                    $out[] = __('audit.ev.sum.unchanged');
                 }
                 break;
 
