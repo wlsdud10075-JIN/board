@@ -50,11 +50,11 @@
     <div class="mt-1.5 grid grid-cols-2 gap-2">
         <div>
             <label class="label-base">{{ __('listings.resync.transport_fee') }} <span class="text-gray-400">{{ __('listings.resync.auto') }}</span></label>
-            <div class="input-base bg-gray-100 text-right text-[12px] text-gray-700">{{ $sp['freight'] !== null ? number_format($sp['freight'], 2) : '—' }}</div>
+            <div class="input-base bg-gray-100 text-right text-[12px] text-gray-700">{{ $sp['freight'] !== null ? number_format($sp['freight'], fmod($sp['freight'], 1) == 0 ? 0 : 2) : '—' }}</div>
         </div>
         <div>
             <label class="label-base">{{ __('listings.resync.sale_price') }} <span class="text-gray-400">{{ __('listings.resync.auto') }}</span></label>
-            <div class="input-base bg-gray-100 text-right text-[12px] font-semibold text-gray-800">{{ $sp['sale'] !== null ? number_format($sp['sale'], 2) : '—' }}</div>
+            <div class="input-base bg-gray-100 text-right text-[12px] font-semibold text-gray-800">{{ $sp['sale'] !== null ? number_format($sp['sale'], fmod($sp['sale'], 1) == 0 ? 0 : 2) : '—' }}</div>
         </div>
     </div>
     <p class="mt-1 text-[11px] text-gray-500">{{ $sp['currency'] ? __('listings.resync.split_hint', ['currency' => $sp['currency']]) : __('listings.resync.split_hint_nocur') }}</p>

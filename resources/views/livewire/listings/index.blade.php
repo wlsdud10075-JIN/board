@@ -660,9 +660,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         $freight = null;
         if ($fUsd !== null) {
             if ($currency === 'USD') {
-                $freight = round($fUsd, 2);
+                $freight = round($fUsd);
             } elseif ($usd && $rate) {
-                $freight = round($fUsd * $usd / $rate, 2);
+                $freight = round($fUsd * $usd / $rate);   // 정수 — 소수점까지 나누면 금액이 복잡해진다(2026-11-03 Jin, 48다1710 1898.09 → 1898)
             }
         }
 

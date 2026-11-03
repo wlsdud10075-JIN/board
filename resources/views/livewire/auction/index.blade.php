@@ -472,7 +472,7 @@ new #[Layout('components.layouts.app')] class extends Component {
      * 셀프검차 판매 쪼개기(2026-10-22 Jin) — 총판매가·운임비 USD 는 고정, 판매가가 환율 차이를 흡수한다.
      *   운임비(견적통화) = 운임비 USD × USD 환율 ÷ 견적통화 환율 (USD 견적이면 그대로, KRW 견적이면 × USD 환율)
      *   판매가 = 총판매가 − 운임비 → 합계가 총판매가와 정확히 같도록 운임비를 먼저 반올림하고 뺀다.
-     * 소수 둘째 자리 — ERP `sale_price`·`transport_fee` 가 decimal(15,2) 라 그대로 받는다.
+     * 운임비는 **정수로 반올림**(2026-11-03 Jin — 종전 소수 둘째 자리) → 총판매가가 정수면 판매가도 정수. ERP 칸은 decimal(15,2) 그대로.
      * 환율이 비어 운임비를 못 구하면 운임비 null·판매가 = 총판매가(총판매가는 보존 → 환율을 넣으면 다시 나뉜다).
      *
      * @return array{sale: ?float, freight: ?float, rate: ?int}
@@ -493,9 +493,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         $freight = null;
         if ($fUsd !== null) {
             if ($this->quoteCurrency === 'USD') {
-                $freight = round($fUsd, 2);
+                $freight = round($fUsd);
             } elseif ($usd && $rate) {
-                $freight = round($fUsd * $usd / $rate, 2);
+                $freight = round($fUsd * $usd / $rate);   // 정수 — 소수점까지 나누면 금액이 복잡해진다(2026-11-03 Jin, 48다1710 1898.09 → 1898)
             }
         }
 
@@ -1059,11 +1059,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 </div>
                                 <div>
                                     <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.transport_fee') }} <span class="text-gray-400">({{ __('auction.auto') }})</span></label>
-                                    <div class="input-base bg-gray-100 text-gray-700">{{ $split['freight'] !== null ? number_format($split['freight'], 2) : '—' }}</div>
+                                    <div class="input-base bg-gray-100 text-gray-700">{{ $split['freight'] !== null ? number_format($split['freight'], fmod($split['freight'], 1) == 0 ? 0 : 2) : '—' }}</div>
                                 </div>
                                 <div>
                                     <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.sale_price') }} <span class="text-gray-400">({{ __('auction.auto') }})</span></label>
-                                    <div class="input-base bg-gray-100 font-semibold text-gray-800">{{ $split['sale'] !== null ? number_format($split['sale'], 2) : '—' }}</div>
+                                    <div class="input-base bg-gray-100 font-semibold text-gray-800">{{ $split['sale'] !== null ? number_format($split['sale'], fmod($split['sale'], 1) == 0 ? 0 : 2) : '—' }}</div>
                                 </div>
                                 @endif
                             @endif

@@ -1854,13 +1854,13 @@ class BoardTest extends TestCase
             ->assertSee(__('auction.sale_total'))
             ->set('quoteCurrency', 'EUR')->set('sale_total', '11800')->set('transport_fee_usd', '2040')
             ->set('rate_usd', '1380')->set('rate_eur', '1580');
-        $this->assertSame(['sale' => 10018.23, 'freight' => 1781.77, 'rate' => 1580], $c->instance()->selfSplit());
+        $this->assertSame(['sale' => 10018.0, 'freight' => 1782.0, 'rate' => 1580], $c->instance()->selfSplit());
         $c->set('buyerId', 7)->call('conclude', $l->id, 'won')->assertHasNoErrors();
 
         Http::assertSent(function ($req) {
             $d = $req->data();
 
-            return str_contains($req->url(), 'purchase-sync') && $d['sale_price'] == 10018.23 && $d['transport_fee'] == 1781.77
+            return str_contains($req->url(), 'purchase-sync') && $d['sale_price'] == 10018 && $d['transport_fee'] == 1782
                 && $d['sale_currency'] === 'EUR' && $d['sale_exchange_rate'] === 1580
                 && $d['transport_fee_usd'] === 2040 && $d['usd_exchange_rate'] === 1380;
         });
@@ -1946,13 +1946,13 @@ class BoardTest extends TestCase
             ->set('rate_usd', '1380')
             ->set('rate_eur', '1580');
 
-        // 2040 × 1380 ÷ 1580 = 1781.77 → 판매가 10018.23, 합계 11800 정확히
-        $this->assertSame(['sale' => 10018.23, 'freight' => 1781.77, 'rate' => 1580], $c->instance()->selfSplit());
+        // 2040 × 1380 ÷ 1580 = 1781.77 → 정수 1782(2026-11-03 Jin) → 판매가 10018, 합계 11800 정확히
+        $this->assertSame(['sale' => 10018.0, 'freight' => 1782.0, 'rate' => 1580], $c->instance()->selfSplit());
 
         $c->set('buyerId', 7)->call('savePayee')->assertHasNoErrors();
         $f = $l->fresh();
-        $this->assertSame(10018.23, (float) $f->sale_price);
-        $this->assertSame(1781.77, (float) $f->transport_fee);
+        $this->assertSame(10018.0, (float) $f->sale_price);
+        $this->assertSame(1782.0, (float) $f->transport_fee);
         $this->assertSame(11800.0, round((float) $f->sale_price + (float) $f->transport_fee, 2));
         $this->assertSame(2040.0, (float) $f->transport_fee_usd);
         $this->assertSame('EUR', $f->offer_currency);
@@ -1987,7 +1987,12 @@ class BoardTest extends TestCase
         $c->set('quoteCurrency', 'USD')->set('sale_total', '11800');
         $this->assertSame(['sale' => 9760.0, 'freight' => 2040.0, 'rate' => 1380], $c->instance()->selfSplit());
 
-        $c->set('sale_total', '1000')->call('savePayee')->assertHasErrors('sale_total');
+        // 48다1710 형태(2026-11-03 Jin) — EUR 12,650 · 운임비 2,140 USD: 2140 × 1320 ÷ 1488 = 1898.39 → 정수 1898, 판매가 10752(소수 없음)
+        $c->set('quoteCurrency', 'EUR')->set('sale_total', '12650')->set('transport_fee_usd', '2140')->set('rate_usd', '1320')->set('rate_eur', '1488');
+        $this->assertSame(['sale' => 10752.0, 'freight' => 1898.0, 'rate' => 1488], $c->instance()->selfSplit());
+        $c->assertSee('10,752')->assertDontSee('10,751.');
+
+        $c->set('quoteCurrency', 'USD')->set('transport_fee_usd', '2040')->set('rate_usd', '1380')->set('sale_total', '1000')->call('savePayee')->assertHasErrors('sale_total');
         $this->assertNull($l->fresh()->sale_price);
     }
 
@@ -4583,6 +4588,12 @@ class BoardTest extends TestCase
         $sales = $this->mkUser('sales');
         $l = $this->mkListing($sales, ['status' => 'synced', 'car_erp_vehicle_id' => 385, 'car_cost' => 8700000, 'sale_price' => null, 'offer_currency' => null, 'offer_rate' => null, 'transport_fee' => null]);
         $this->actingAs($sales);
+
+        // 금액 다시 보내기 계산도 운임비 정수(2026-11-03 Jin, 48다1710 형태 — 2140 × 1320 ÷ 1488 = 1898.39 → 1898)
+        $sp = Volt::test('listings.index')->call('openEdit', $l->id)
+            ->set('e_sale_total', '12,650')->set('e_sale_currency', 'EUR')->set('e_rate_usd', '1320')->set('e_rate_eur', '1488')->set('e_transport_fee_usd', '2,140')
+            ->instance()->resendSplit();
+        $this->assertSame([10752.0, 1898.0], [$sp['sale'], $sp['freight']]);
 
         // 아무것도 안 바꾸고 저장 → 전송 없음
         Volt::test('listings.index')->call('openEdit', $l->id)->call('update')->assertHasNoErrors();

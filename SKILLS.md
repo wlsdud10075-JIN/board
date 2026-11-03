@@ -391,7 +391,7 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
   (예: RORO 알바니아 세단 2,040) 판매는 EUR 일 수 있다. 사람이 적는 칸 = **총판매가(견적통화)·운임비 USD·환율 USD·환율 EUR**,
   계산값(읽기 전용) = **운임비(견적통화) = 운임비 USD × USD환율 ÷ 견적환율**(USD 견적=그대로, KRW 견적=×USD환율) ·
   **판매가 = 총판매가 − 운임비** → 환율이 움직이면 판매가가 흡수하고 총판매가는 고정. 단일 경로 = `/auction` `selfSplit()`.
-  - 소수 둘째 자리 — 운임비를 먼저 반올림하고 빼서 합계가 정확히 맞는다. ERP `sale_price`·`transport_fee` = decimal(15,2)·`numeric` 검증이라 그대로 받는다(car-erp `PurchaseSyncController.php:97-98`).
+  - **운임비 = 정수 반올림**(2026-11-03 Jin — 종전 소수 둘째 자리; 48다1710 EUR 12,650·운임비 2,140 USD 가 1898.09/10751.91 로 갈려 복잡했다 → 1898/10752). 운임비를 먼저 반올림하고 빼서 합계가 정확히 맞는다(총판매가가 정수면 판매가도 정수). 화면은 정수면 소수점 없이 표시. ERP `sale_price`·`transport_fee` = decimal(15,2)·`numeric` 검증이라 그대로 받는다(car-erp `PurchaseSyncController.php:97-98`).
   - 저장 = `sale_price`·`transport_fee`(계산값, ERP 로 가는 칸 그대로) + 새 칸 `transport_fee_usd`·`offer_rate_usd`·`offer_rate_eur`(화면 복원용, 감사 대상). 총판매가 컬럼은 없다(= 합). `offer_rate` = **견적통화 환율**(ERP `sale_exchange_rate`) 유지.
   - ⚠️ `transport_fee_usd` 는 **ERP 로 안 간다** — purchase-sync 가 그 키를 받지 않는다(ERP `transport_fee_usd` 는 선적요청 1/N 경로 전용). 보내려면 car-erp 수신측 변경.
   - 락 변경: 판매가 락 → **총판매가 락**(`sale_total`), 환율 락은 견적통화 쪽 칸(`rate_usd`/`rate_eur`), **운임비 USD 가 있고 견적이 USD 가 아니면 USD 환율 필수**(없으면 운임비가 빠진 채 판매가 = 총판매가로 나간다). 운임비 > 총판매가 = 저장 거부.
