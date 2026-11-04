@@ -34,6 +34,9 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public string $overall = '';
 
+    /** 반려 사유 — [journal_id => 사유]. 반려는 팀장만·팀장 승인 전에만. */
+    public array $rejectReasons = [];
+
     public function mount(): void
     {
         $u = Auth::user();
@@ -145,6 +148,23 @@ new #[Layout('components.layouts.app')] class extends Component {
         session()->flash('ap_ok', $final ? __('journal.ap_final_flash') : __('journal.ap_approved_flash'));
     }
 
+    public function rejectJournal(int $journalId): void
+    {
+        $j = WorkJournal::with('user')->findOrFail($journalId);
+        try {
+            $this->svc()->reject($j, Auth::user(), (string) ($this->rejectReasons[$journalId] ?? ''));
+        } catch (\DomainException $e) {
+            $this->addError('reject.'.$journalId, __('journal.err.'.$e->getMessage()));
+
+            return;
+        }
+        unset($this->rejectReasons[$journalId], $this->opinions[$journalId], $this->batch, $this->batches, $this->counts);
+        if (! $this->batches->contains('id', $this->sel)) {
+            $this->sel = $this->batches->first()?->id;   // 다 반려해 기안이 사라졌으면 다음 것
+        }
+        session()->flash('ap_ok', __('journal.ap_rejected_flash', ['name' => $j->user?->name]));
+    }
+
     public function dow($date): string
     {
         return __('journal.dow.'.\Carbon\Carbon::parse($date)->dayOfWeek);
@@ -192,7 +212,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         {{-- 기안 상세 --}}
         <div>
             @if ($b = $this->batch)
-                @php $cur = $b->currentStep(); $canApprove = $svc->canApprove($b, $me); $journals = $b->journals->sortBy(fn ($j) => $j->submitted_at); @endphp
+                @php $cur = $b->currentStep(); $canApprove = $svc->canApprove($b, $me); $canReject = $svc->canReject($b, $me); $journals = $b->journals->sortBy(fn ($j) => $j->submitted_at); @endphp
                 <div class="card">
                     <div class="flex flex-wrap items-center justify-between gap-2">
                         <h3 class="text-base font-bold text-gray-800">{{ __('journal.ap_batch', ['date' => $b->date->toDateString(), 'dow' => $this->dow($b->date)]) }}@if ($b->seq > 1) · {{ __('journal.ap_batch_extra', ['seq' => $b->seq]) }}@endif</h3>
@@ -256,6 +276,16 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 @if ($canApprove)
                                     <textarea class="input-base mt-2" rows="2" placeholder="{{ __('journal.ap_opinion_ph', ['name' => $jr->user?->name]) }}" wire:model="opinions.{{ $jr->id }}"></textarea>
                                 @endif
+                                {{-- 반려 — 팀장만, 팀장 승인 전에만. 사유 필수, 이 사람 일지만 내용 그대로 돌려보낸다. --}}
+                                @if ($canReject)
+                                    <div class="mt-2 rounded-md border border-red-100 bg-red-50/50 p-2">
+                                        <textarea class="input-base" rows="2" placeholder="{{ __('journal.ap_reject_ph', ['name' => $jr->user?->name]) }}" wire:model="rejectReasons.{{ $jr->id }}"></textarea>
+                                        @error('reject.'.$jr->id) <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                                        <div class="mt-1 text-right">
+                                            <button type="button" class="btn-outline btn-sm border-red-300 text-red-700" wire:click="rejectJournal({{ $jr->id }})" wire:confirm="{{ __('journal.ap_reject_confirm', ['name' => $jr->user?->name]) }}">{{ __('journal.ap_reject') }}</button>
+                                        </div>
+                                    </div>
+                                @endif
                             </div>
                         </details>
                     @endforeach
@@ -272,7 +302,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                         @php $next = $b->steps->first(fn ($s) => $s->seq > $cur->seq && $s->status === 'pending'); @endphp
                         <textarea class="input-base mt-2" rows="2" placeholder="{{ __('journal.ap_overall_ph') }}" wire:model="overall"></textarea>
                         <div class="mt-3 flex flex-wrap items-center gap-2">
-                            <span class="text-xs text-gray-500">{{ __('journal.ap_no_reject') }}</span>
+                            <span class="text-xs text-gray-500">{{ $canReject ? __('journal.ap_reject_hint') : __('journal.ap_no_reject') }}</span>
                             <button type="button" class="btn-green ml-auto" wire:click="approve">{{ __('journal.ap_approve', ['next' => $next ? __('journal.ap_next_to', ['title' => $next->title]) : __('journal.ap_final')]) }}</button>
                         </div>
                     @endif

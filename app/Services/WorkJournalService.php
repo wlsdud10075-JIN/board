@@ -20,7 +20,8 @@ use Illuminate\Support\Facades\DB;
  *
  *  - 상신 = 표 + board 활동을 **snapshot 으로 고정**하고 그날 열린 묶음에 넣는다(묶음에 승인 단계가 하나라도 있으면 새 묶음 = 추가 기안).
  *  - 결재선 = 팀장(지정 업무관리자) → 부장 → 상무 → 대표(최고관리자 직급). 그 직급 사람이 없으면 skipped, 대표가 없으면 상신을 막는다.
- *  - 반려 없음 — 결재자는 인원별·전체 의견을 남기고 승인만 한다.
+ *  - 반려 = **팀장만, 팀장 승인 전에만**, 사람별·사유 필수(2026-11-04 Jin). 반려된 일지는 내용 그대로 작성자에게 돌아가 고쳐 다시 상신.
+ *    그 위 단계(부장·상무·대표)는 의견만 남기고 승인한다.
  *  - 모든 행위는 board_audit_logs(Jin 원칙).
  */
 class WorkJournalService
@@ -199,6 +200,7 @@ class WorkJournalService
                 'status' => 'submitted',
                 'submitted_at' => now(),
                 'batch_id' => $batch->id,
+                'rejected_at' => null, 'rejected_by' => null, 'reject_reason' => null,   // 다시 상신 — 반려 이력은 감사 로그에
                 'snapshot' => [
                     'entries' => $entries->map(fn ($e) => ['time' => $e->time, 'task' => $e->task, 'note' => $e->note])->values()->all(),
                     'activities' => $this->activitiesFor($j->user, $date),
@@ -256,6 +258,40 @@ class WorkJournalService
     }
 
     // ───────────── 결재 ─────────────
+
+    /** 반려할 수 있나 — 지금 팀장 단계이고 그 팀장 본인일 때만(부장 이상에게 넘어간 뒤엔 없음). */
+    public function canReject(WorkJournalBatch $b, User $u): bool
+    {
+        return $this->canApprove($b, $u) && $b->currentStep()?->title === User::TEAM_LEADER;
+    }
+
+    /**
+     * 반려 — 그 사람 일지만 묶음에서 빼서 rejected(내용 그대로)로 돌려보낸다. 사유 필수. 묶음이 비면 지운다.
+     */
+    public function reject(WorkJournal $j, User $actor, string $reason): void
+    {
+        $reason = trim($reason);
+        $b = $j->batch()->with('steps')->first();
+        if ($j->status !== 'submitted' || ! $b || ! $this->canReject($b, $actor)) {
+            throw new \DomainException('cannot_reject');
+        }
+        if ($reason === '') {
+            throw new \DomainException('reason_required');
+        }
+        DB::transaction(function () use ($j, $b, $actor, $reason) {
+            $j->update([
+                'status' => 'rejected', 'batch_id' => null, 'snapshot' => null, 'submitted_at' => null,
+                'rejected_at' => now(), 'rejected_by' => $actor->id, 'reject_reason' => mb_substr($reason, 0, 500),
+            ]);
+            if (! $b->journals()->exists()) {
+                $b->delete();
+            }
+            $this->audit($actor->id, 'work_journal_reject', null, json_encode([
+                'date' => $j->date->toDateString(), 'user' => $j->user?->name, 'reason' => $reason,
+            ], JSON_UNESCAPED_UNICODE));
+        });
+        $this->push($j->user, __('journal.push.reject_title'), __('journal.push.reject_body', ['date' => $j->date->format('m-d'), 'reason' => mb_substr($reason, 0, 80)]), 'wj-reject-'.$j->id, route('work-journal', ['date' => $j->date->toDateString()]));
+    }
 
     public function canApprove(WorkJournalBatch $b, User $u): bool
     {

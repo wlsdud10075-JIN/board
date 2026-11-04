@@ -252,7 +252,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <button type="button" class="btn-outline btn-sm" wire:click="goDate('{{ $d->copy()->addDay()->toDateString() }}')">{{ __('journal.next_day') }}</button>
                 <button type="button" class="btn-ghost btn-sm" wire:click="goDate('{{ today()->toDateString() }}')">{{ __('journal.today') }}</button>
             @endif
-            <span class="badge {{ ['draft' => 'badge-gray', 'submitted' => 'badge-blue', 'approved' => 'badge-green', 'none' => 'badge-gray'][$status] }}">{{ __('journal.status.'.$status) }}</span>
+            <span class="badge {{ ['draft' => 'badge-gray', 'submitted' => 'badge-blue', 'approved' => 'badge-green', 'rejected' => 'badge-red', 'none' => 'badge-gray'][$status] }}">{{ __('journal.status.'.$status) }}</span>
             @if ($j?->submitted_at)<span class="text-xs text-gray-500">{{ __('journal.submitted_at', ['time' => $j->submitted_at->format('H:i')]) }}</span>@endif
             <span class="ml-auto flex items-center gap-2">
                 @if (! $locked)
@@ -266,6 +266,14 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         @if (! $locked && $d->isToday() && $svc->showUnsubmitted($d))
             <div class="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">{{ __('journal.cutoff_warn', ['time' => $svc->cutoff()]) }}</div>
+        @endif
+        {{-- 팀장 반려 — 내용은 그대로, 사유를 보고 고쳐서 다시 상신(2026-11-04 Jin) --}}
+        @if ($status === 'rejected')
+            <div class="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">
+                <b>{{ __('journal.rejected_title', ['name' => $j->rejecter?->name, 'time' => $j->rejected_at?->format('m-d H:i')]) }}</b>
+                <div class="mt-0.5 whitespace-pre-line">{{ $j->reject_reason }}</div>
+                <div class="mt-1 text-[12px] text-red-600">{{ __('journal.rejected_hint') }}</div>
+            </div>
         @endif
         @error('rows') <div class="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">⚠ {{ $message }}</div> @enderror
 
