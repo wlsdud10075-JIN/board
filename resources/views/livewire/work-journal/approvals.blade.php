@@ -268,7 +268,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                         @php $prev = $b->comments->where('work_journal_id', $jr->id); $snapRows = (array) data_get($jr->snapshot, 'entries', []); @endphp
                         {{-- wire:ignore.self — 의견을 칠 때 다시 그려져도 펼친 상태(open)를 유지 --}}
                         <details class="wj-p mb-2 rounded-xl border border-gray-200 bg-white" wire:key="jr-{{ $jr->id }}" wire:ignore.self>
-                            <summary class="flex cursor-pointer flex-wrap items-center gap-2 px-4 py-2.5">
+                            <summary class="flex cursor-pointer flex-wrap items-center gap-2 px-3 py-2.5 sm:px-4">
                                 <b class="text-gray-800">{{ $jr->user?->name }}</b>
                                 <span class="badge badge-gray">{{ $jr->user?->roleLabel() }}</span>
                                 <span class="text-xs text-gray-500">{{ __('journal.ap_rows', ['n' => count($snapRows)]) }} · {{ __('journal.submitted_at', ['time' => $jr->submitted_at?->format('H:i')]) }}</span>
@@ -278,15 +278,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     <button type="button" class="ml-auto rounded-md bg-red-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-red-700" x-data x-on:click.prevent.stop="$wire.openReject({{ $jr->id }})">{{ __('journal.ap_reject') }}</button>
                                 @endif
                             </summary>
-                            <div class="px-4 pb-4">
-                                <table class="tbl text-[13px]">
-                                    <thead><tr><th class="w-16">{{ __('journal.col_time') }}</th><th>{{ __('journal.col_task') }}</th><th class="w-1/4">{{ __('journal.col_note') }}</th></tr></thead>
-                                    <tbody>
-                                        @foreach ($snapRows as $r)
-                                            <tr><td class="whitespace-nowrap">{{ $r['time'] ?? '' }}</td><td class="whitespace-pre-line">{{ $r['task'] ?? '' }}</td><td>@if (($r['note'] ?? '') !== '')<span class="badge badge-amber whitespace-normal">{{ $r['note'] }}</span>@endif</td></tr>
-                                        @endforeach
-                                    </tbody>
-                                </table>
+                            <div class="px-3 pb-4 sm:px-4">
+                                @include('livewire.work-journal._entries', ['rows' => $snapRows])
                                 <div class="mt-3 border-t border-dashed border-gray-200 pt-2">
                                     <div class="mb-1 text-xs font-bold text-gray-700">{{ __('journal.activity_snapshot') }}</div>
                                     @include('livewire.work-journal._activities', ['acts' => (array) data_get($jr->snapshot, 'activities', [])])

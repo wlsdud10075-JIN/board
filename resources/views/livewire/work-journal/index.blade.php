@@ -277,34 +277,32 @@ new #[Layout('components.layouts.app')] class extends Component {
         @endif
         @error('rows') <div class="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">⚠ {{ $message }}</div> @enderror
 
-        <div class="overflow-x-auto">
-            <table class="tbl">
-                <thead><tr><th class="w-40">{{ __('journal.col_time') }}</th><th>{{ __('journal.col_task') }}</th><th class="w-1/4">{{ __('journal.col_note') }}</th>@unless ($locked)<th class="w-10"></th>@endunless</tr></thead>
-                <tbody>
-                    @forelse ($shownRows as $i => $r)
-                        <tr wire:key="wj-row-{{ $r['id'] ?? $i }}">
-                            @if ($locked)
-                                <td class="whitespace-nowrap text-gray-700">{{ $r['time'] }}</td>
-                                <td class="whitespace-pre-line text-gray-800">{{ $r['task'] }}</td>
-                                <td>@if (($r['note'] ?? '') !== '')<span class="badge badge-amber whitespace-normal">{{ $r['note'] }}</span>@endif</td>
-                            @else
-                                <td class="whitespace-nowrap">
-                                    <div class="flex items-center gap-1">
-                                        <input type="text" class="input-base text-center" style="width:5.5rem" maxlength="5" placeholder="09:00" wire:model.live.debounce.600ms="rows.{{ $i }}.time">
-                                        <button type="button" class="btn-outline btn-sm whitespace-nowrap" wire:click="stampNow({{ $i }})">{{ __('journal.now') }}</button>
-                                    </div>
-                                </td>
-                                <td><textarea rows="1" class="input-base wj-task" placeholder="{{ __('journal.ph_task') }}" wire:model.live.debounce.600ms="rows.{{ $i }}.task"></textarea></td>
-                                <td><textarea rows="1" class="input-base" placeholder="{{ __('journal.ph_note') }}" wire:model.live.debounce.600ms="rows.{{ $i }}.note"></textarea></td>
-                                <td class="text-right"><button type="button" class="btn-ghost btn-sm" title="{{ __('journal.delete_row') }}" wire:click="deleteRow({{ $r['id'] }})">✕</button></td>
-                            @endif
-                        </tr>
-                    @empty
-                        <tr><td colspan="4" class="py-6 text-center text-gray-400">{{ __('journal.empty_rows') }}</td></tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </div>
+        {{-- 모바일 = 줄마다 카드(시간·지금·✕ 한 줄 → 한 일 → 비고), PC = 한 줄 4칸. 표(table)로 두면 폰에서 입력칸이 쪼그라든다(2026-11-04 Jin). --}}
+        @if ($locked)
+            @include('livewire.work-journal._entries', ['rows' => $shownRows])
+        @else
+            <div class="hidden gap-2 border-b border-gray-200 pb-1.5 text-[12px] font-semibold text-gray-500 sm:flex">
+                <div style="width:9.5rem">{{ __('journal.col_time') }}</div><div class="flex-1">{{ __('journal.col_task') }}</div><div style="width:16rem">{{ __('journal.col_note') }}</div><div class="w-8"></div>
+            </div>
+            @forelse ($rows as $i => $r)
+                <div class="flex flex-wrap items-start gap-2 border-b border-gray-100 py-2.5 sm:flex-nowrap" wire:key="wj-row-{{ $r['id'] }}">
+                    <div class="order-1 flex shrink-0 items-center gap-1" style="width:9.5rem">
+                        <input type="text" class="input-base text-center" style="width:5.5rem" maxlength="5" inputmode="numeric" placeholder="09:00" wire:model.live.debounce.600ms="rows.{{ $i }}.time">
+                        <button type="button" class="btn-outline btn-sm whitespace-nowrap" wire:click="stampNow({{ $i }})">{{ __('journal.now') }}</button>
+                    </div>
+                    <button type="button" class="btn-ghost btn-sm order-2 ml-auto sm:order-4 sm:ml-0" title="{{ __('journal.delete_row') }}" wire:click="deleteRow({{ $r['id'] }})">✕</button>
+                    {{-- 폭은 바깥 div 에 — input-base 가 width 를 갖고 있어 textarea 에 직접 준 폭 클래스가 PC 에서 먹지 않았다 --}}
+                    <div class="order-3 w-full min-w-0 sm:order-2 sm:w-auto sm:flex-1">
+                        <textarea rows="2" class="input-base wj-task" placeholder="{{ __('journal.ph_task') }}" wire:model.live.debounce.600ms="rows.{{ $i }}.task"></textarea>
+                    </div>
+                    <div class="order-4 w-full sm:order-3 sm:w-64 sm:shrink-0">
+                        <textarea rows="2" class="input-base" placeholder="{{ __('journal.ph_note') }}" wire:model.live.debounce.600ms="rows.{{ $i }}.note"></textarea>
+                    </div>
+                </div>
+            @empty
+                <p class="py-6 text-center text-sm text-gray-400">{{ __('journal.empty_rows') }}</p>
+            @endforelse
+        @endif
 
         @unless ($locked)
             <div class="mt-3 flex flex-wrap items-center gap-2">
