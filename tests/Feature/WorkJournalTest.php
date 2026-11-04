@@ -203,15 +203,17 @@ class WorkJournalTest extends TestCase
     /** 마감 알림 — 평일·마감 시각 이후·하루 1번, 주말·마감 전은 안 보냄. 시각은 기능설정. */
     public function test_cutoff_notify_weekday_once(): void
     {
-        $this->line();
         $svc = app(WorkJournalService::class);
+        $this->assertFalse($svc->notifyCutoff(Carbon::parse('2026-11-04 19:10')));   // 팀장 없음 — 안 보내고 「보냄」도 안 찍음
+        $this->line();
+        $this->assertTrue($svc->notifyCutoff(Carbon::parse('2026-11-04 19:15')));     // 지정된 뒤 같은 날 다음 확인에서 보낸다
         $this->assertFalse($svc->notifyCutoff(Carbon::parse('2026-11-05 18:59')));
         $this->assertTrue($svc->notifyCutoff(Carbon::parse('2026-11-05 19:00')));
         $this->assertFalse($svc->notifyCutoff(Carbon::parse('2026-11-05 19:05')));   // 오늘 이미
         $this->assertFalse($svc->notifyCutoff(Carbon::parse('2026-11-07 19:30')));   // 토요일
         Setting::updateOrCreate(['key' => 'work_journal_cutoff'], ['value' => '18:00', 'type' => 'string']);
         $this->assertTrue($svc->notifyCutoff(Carbon::parse('2026-11-06 18:01')));
-        $this->assertSame(2, BoardAuditLog::where('action', 'work_journal_cutoff')->count());
+        $this->assertSame(3, BoardAuditLog::where('action', 'work_journal_cutoff')->count());
     }
 
     /** 기능설정 마감 시각은 super 만(최고관리자도 못 연다). */

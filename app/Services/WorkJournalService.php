@@ -341,17 +341,17 @@ class WorkJournalService
         if ($now->isWeekend() || $now->format('H:i') < $this->cutoff() || Setting::get('work_journal_cutoff_notified_on') === $today) {
             return false;
         }
-        Setting::updateOrCreate(['key' => 'work_journal_cutoff_notified_on'], ['value' => $today, 'type' => 'string', 'description' => '업무일지 마감 알림 보낸 날(하루 1번)']);
-
         $submitted = WorkJournal::whereDate('date', $today)->whereIn('status', ['submitted', 'approved'])->count();
         $missing = max(0, $this->writers()->count() - $submitted);
         $leader = User::where('approval_title', User::TEAM_LEADER)->where('permission', 'manager')->where('is_active', true)->first();
         $batch = WorkJournalBatch::whereDate('date', $today)->where('status', 'pending')->with('steps.approver')->orderBy('seq')->first();
         $to = $batch?->currentStep()?->approver ?? $leader;
-        $this->audit(null, 'work_journal_cutoff', null, json_encode(['date' => $today, 'submitted' => $submitted, 'missing' => $missing, 'to' => $to?->name], JSON_UNESCAPED_UNICODE));
-        if ($to) {
-            $this->push($to, __('journal.push.cutoff_title'), __('journal.push.cutoff_body', ['submitted' => $submitted, 'missing' => $missing]), 'wj-cutoff-'.$today);
+        if (! $to) {
+            return false;   // 받을 사람(팀장)이 아직 없다 — 「보냄」으로 찍지 않아 그날 지정되면 다음 확인 때 보낸다
         }
+        Setting::updateOrCreate(['key' => 'work_journal_cutoff_notified_on'], ['value' => $today, 'type' => 'string', 'description' => '업무일지 마감 알림 보낸 날(하루 1번)']);
+        $this->audit(null, 'work_journal_cutoff', null, json_encode(['date' => $today, 'submitted' => $submitted, 'missing' => $missing, 'to' => $to?->name], JSON_UNESCAPED_UNICODE));
+        $this->push($to, __('journal.push.cutoff_title'), __('journal.push.cutoff_body', ['submitted' => $submitted, 'missing' => $missing]), 'wj-cutoff-'.$today);
 
         return true;
     }
