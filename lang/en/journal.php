@@ -63,6 +63,8 @@ return [
     'ap_title' => 'Journal approvals',
     'ap_subtitle' => 'Journals submitted on a day are gathered into one approval. Expand each person, add per-person or overall comments, then [Approve] to pass it on. There is no rejection.',
     'ap_forbidden' => 'Requires an approval title or a manager level.',
+    'ap_tab' => ['mine' => 'To approve', 'open' => 'In progress', 'done' => 'Done'],
+    'ap_empty' => ['mine' => 'Nothing to approve right now.', 'open' => 'Nothing waiting on other approvers.', 'done' => 'No approvals completed this month.'],
     'ap_list_empty' => 'No submitted journals.',
     'ap_batch' => ':date (:dow) work journals',
     'ap_batch_extra' => 'Extra :seq',

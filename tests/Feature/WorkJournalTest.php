@@ -226,6 +226,31 @@ class WorkJournalTest extends TestCase
         $this->assertTrue(BoardAuditLog::where('field', 'work_journal_cutoff')->exists());
     }
 
+    /** 결재 화면 탭 — 결재할 것(내 차례) · 진행 중(다른 사람 차례) · 완료(월). 결재자는 「결재할 것」으로 열리고, 승인하면 거기서 빠진다. */
+    public function test_approval_tabs_split_mine_open_done(): void
+    {
+        $line = $this->line();
+        Carbon::setTestNow('2026-11-03 18:00:00');
+        $old = $this->writeAndSubmit($this->mk('김영업'), '어제 일');
+        foreach (['lead', 'bujang', 'sangmu', 'ceo'] as $k) {
+            $this->approveAs($line[$k], $old->fresh()->batch);
+        }
+        Carbon::setTestNow('2026-11-04 18:00:00');
+        $today = $this->writeAndSubmit($this->mk('이영업'), '오늘 일');
+
+        $this->actingAs($line['lead']);
+        $c = Volt::test('work-journal.approvals')->assertSet('tab', 'mine')->assertSet('sel', $today->batch_id)
+            ->assertSee('오늘 일')->assertDontSee('2026-11-03');
+        $this->assertSame(['mine' => 1, 'open' => 0], $c->get('counts'));
+        $c->set('opinions.'.$today->id, '확인')->call('approve')->assertSet('sel', null)->assertSee(__('journal.ap_empty.mine'));
+        $c->call('setTab', 'open')->assertSee('2026-11-04')->assertDontSee('2026-11-03');   // 이제 부장 차례 = 진행 중
+        $c->call('setTab', 'done')->assertSet('month', '2026-11')->assertSee('2026-11-03');
+
+        // 조회만 하는 관리자 등급은 「진행 중」으로 연다
+        $this->actingAs($this->mk('백업무', 'manager'));
+        Volt::test('work-journal.approvals')->assertSet('tab', 'open');
+    }
+
     /** 로컬 전용 사용자 전환 — 꺼져 있으면 404, super 만, 전환 뒤에도 계속 바꾸고 원래 계정으로 복귀, 감사 행. */
     public function test_dev_user_switch_is_local_super_only(): void
     {

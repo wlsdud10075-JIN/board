@@ -18,6 +18,17 @@ new #[Layout('components.layouts.app')] class extends Component {
     #[Url]
     public ?int $sel = null;
 
+    /**
+     * 탭(2026-11-04 Jin — 지난 날·오늘 기안이 섞여 헷갈린다): mine = 지금 내 차례 / open = 진행 중이지만 다른 사람 차례 / done = 최종 승인.
+     * 결재자는 mine 으로, 관리자 등급(조회)은 open 으로 연다. 세 탭은 겹치지 않는다.
+     */
+    #[Url]
+    public string $tab = '';
+
+    /** 완료 탭 월(Y-m) — 기본 이번 달. */
+    #[Url]
+    public string $month = '';
+
     /** 내 인원별 의견 — [journal_id => 내용] */
     public array $opinions = [];
 
@@ -27,9 +38,45 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $u = Auth::user();
         abort_unless($u->isJournalApprover() || $u->hasFullAccess(), 403, __('journal.ap_forbidden'));
-        if (! $this->sel || ! WorkJournalBatch::whereKey($this->sel)->exists()) {
-            $this->sel = $this->defaultBatchId();
+        if (! in_array($this->tab, ['mine', 'open', 'done'], true)) {
+            $this->tab = $u->isJournalApprover() ? 'mine' : 'open';
         }
+        if (! preg_match('/^\d{4}-\d{2}$/', $this->month)) {
+            $this->month = today()->format('Y-m');
+        }
+        if (! $this->sel || ! $this->batches->contains('id', $this->sel)) {
+            $this->sel = $this->batches->first()?->id;
+        }
+    }
+
+    public function setTab(string $t): void
+    {
+        if (! in_array($t, ['mine', 'open', 'done'], true)) {
+            return;
+        }
+        $this->tab = $t;
+        $this->reset('opinions', 'overall');
+        unset($this->batches, $this->batch);
+        $this->sel = $this->batches->first()?->id;
+    }
+
+    public function updatedMonth(): void
+    {
+        if (! preg_match('/^\d{4}-\d{2}$/', $this->month)) {
+            $this->month = today()->format('Y-m');
+        }
+        unset($this->batches, $this->batch);
+        $this->sel = $this->batches->first()?->id;
+    }
+
+    /** 탭 숫자 — 결재할 것 · 진행 중(완료는 개수 대신 월). */
+    #[Computed]
+    public function counts(): array
+    {
+        $pending = WorkJournalBatch::with('steps')->where('status', 'pending')->get();
+        $mine = $pending->filter(fn ($b) => $this->svc()->canApprove($b, Auth::user()))->count();
+
+        return ['mine' => $mine, 'open' => $pending->count() - $mine];
     }
 
     private function svc(): WorkJournalService
@@ -37,20 +84,21 @@ new #[Layout('components.layouts.app')] class extends Component {
         return app(WorkJournalService::class);
     }
 
-    /** 처음 열면 — 내 차례인 기안 → 없으면 가장 최근 기안. */
-    private function defaultBatchId(): ?int
-    {
-        $mine = $this->batches->first(fn ($b) => $this->svc()->canApprove($b, Auth::user()));
-
-        return ($mine ?? $this->batches->first())?->id;
-    }
-
     #[Computed]
     public function batches()
     {
-        return WorkJournalBatch::with('steps.approver')->withCount('journals')
-            ->whereDate('date', '>=', today()->subDays(60)->toDateString())
-            ->orderByDesc('date')->orderByDesc('seq')->get();
+        $me = Auth::user();
+        if ($this->tab === 'done') {
+            $from = \Carbon\Carbon::parse($this->month.'-01');
+
+            return WorkJournalBatch::with('steps.approver')->withCount('journals')->where('status', 'approved')
+                ->whereDate('date', '>=', $from->toDateString())->whereDate('date', '<=', $from->copy()->endOfMonth()->toDateString())
+                ->orderByDesc('date')->orderByDesc('seq')->get();
+        }
+        $pending = WorkJournalBatch::with('steps.approver')->withCount('journals')->where('status', 'pending')
+            ->orderBy('date')->orderBy('seq')->get();   // 진행 중은 오래된 것부터 — 밀린 것이 위에
+
+        return $pending->filter(fn ($b) => $this->svc()->canApprove($b, $me) === ($this->tab === 'mine'))->values();
     }
 
     #[Computed]
@@ -92,7 +140,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
         $this->reset('opinions', 'overall');
-        unset($this->batch, $this->batches);
+        unset($this->batch, $this->batches, $this->counts);
+        $this->sel = $this->batches->first()?->id;   // 처리한 기안은 「결재할 것」에서 빠진다 → 다음 것
         session()->flash('ap_ok', $final ? __('journal.ap_final_flash') : __('journal.ap_approved_flash'));
     }
 
@@ -111,8 +160,19 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     @php $svc = app(\App\Services\WorkJournalService::class); $me = auth()->user(); @endphp
     <div class="grid gap-4 lg:grid-cols-[280px_1fr]">
-        {{-- 기안 목록 --}}
+        {{-- 기안 목록 — 탭(결재할 것 · 진행 중 · 완료) --}}
         <div>
+            <div class="mb-3 flex flex-wrap gap-1.5">
+                @foreach (['mine', 'open', 'done'] as $t)
+                    <button type="button" wire:click="setTab('{{ $t }}')"
+                            class="rounded-md border px-3 py-1.5 text-[13px] font-semibold {{ $tab === $t ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">
+                        {{ __('journal.ap_tab.'.$t) }}@if ($t !== 'done') <span class="{{ $tab === $t ? 'text-white/80' : ($t === 'mine' && $this->counts['mine'] > 0 ? 'text-red-600' : 'text-gray-400') }}">{{ $this->counts[$t] }}</span>@endif
+                    </button>
+                @endforeach
+            </div>
+            @if ($tab === 'done')
+                <input type="month" class="input-filter mb-3 w-full" wire:model.live="month" max="{{ today()->format('Y-m') }}">
+            @endif
             @forelse ($this->batches as $bt)
                 @php $cur = $bt->currentStep(); $mine = $svc->canApprove($bt, $me); @endphp
                 <button type="button" wire:click="pick({{ $bt->id }})" wire:key="bt-{{ $bt->id }}"
@@ -125,7 +185,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     </div>
                 </button>
             @empty
-                <div class="card-sm text-center text-sm text-gray-400">{{ __('journal.ap_list_empty') }}</div>
+                <div class="card-sm text-center text-sm text-gray-400">{{ __('journal.ap_empty.'.$tab) }}</div>
             @endforelse
         </div>
 
