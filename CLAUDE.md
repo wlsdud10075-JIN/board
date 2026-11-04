@@ -39,6 +39,7 @@ board 와 car-erp 는 형제 디렉터리 + **별도 DB**다. artisan/tinker 실
 
 **permission** (`users.permission`):
 - `super` 시스템관리자 — role 무관 전체 접근 + **기능설정** + **감사로그** + 사용자관리 중 **등급(super·업무관리자) 지정·super 계정 수정** + 포털 타인 명의 대리실행 (관리자 페이지 삭제·재전송은 2026-10-22 부터 **관리 이상** — 관리 role·업무관리자·super). car-erp super 대응.
+- `admin` **최고관리자**(2026-11-04 Jin, car-erp admin 미러) — 업무관리자 권한(role 무관 전체 화면·전체 매물·감사로그·사용자관리·`/manage` 삭제·재전송) + **등급 지정(super 제외)**. **못 함** = 기능설정(`EnsureSuper`)·포털 남의 것 대신 실행(**조회만**, `proxyWriteBlocked`). role 은 「관리」 고정. 판정 = `User::isTopManager()`(🚫 `isAdmin` 이름 금지 — ERP 는 super 포함), `hasFullAccess()` 에 포함. 등급 순위 `tierRank()` super 4·admin 3·manager 2·user 1 — **위 등급 계정은 아래 등급이 못 건드린다**(`targetIsProtected`). **결재 직급 `approval_title`**(업무일지 결재선) = admin 에게만 부장·상무·대표, manager 에게만 팀장 — 직급당 1명(지정하면 기존 보유자 해제·감사 `user_permission`), 등급이 바뀌면 자동 해제. 업무관리자의 등급 지정 불가는 종전대로(ERP 와 다름).
 - `manager` **업무관리자**(2026-10-14 Jin, car-erp 의 manager 등급 미러) — role 무관 전체 화면 + **감사로그** + 사용자관리(super 계정 제외, 등급 변경 불가; **업무관리자 계정은 관리 role 이 못 건드린다** — 위 등급은 아래 등급이 수정 불가). **기능설정·등급 지정·포털 대리실행은 못 한다**(관리자 페이지 삭제·재전송은 2026-10-22 부터 허용 · **포털 남의 정보 조회는 2026-10-23 부터 허용 — 조회 전용**, 쓰기는 `proxyWriteBlocked()` 가 막는다)(Jin 결정: 대리실행은 영업 명의로 ERP 알림톡까지 나가는 쓰기, 지정은 ERP 와 같이 super 만). 판정 = `User::isWorkManager()`, super 와 묶은 바이패스 = `User::hasFullAccess()`(role 가드·영업 격리·사이드바·푸시 수신). ⚠️ `isManager()` 는 **role=관리** 라 별개 — 이름이 비슷해 헷갈린다. 컬럼이 ENUM 이라 마이그 `2026_10_14_000001` 로 값을 넓혔다.
 - `user` 일반 — `role` 기반 접근. **관리(role=manager) ↔ 영업 포털 공유**(2026-11-02 Jin — 「ERP 처럼 영업이 본인 정보를 공유할 사람을 찍게」, 테이블 `manager_salesman` = car-erp 미러): **영업이 `/portal` 맨 위 「🤝 내 포털 공유」 카드에서 관리를 체크**한다(지정 주체 = 영업 — 영업은 /users 가 없다 · 2026-11-02 1차 「업무관리자가 /users 에서 지정」→ 2차 「내 설정」→ 3차 포털로 옮김). **관리의 매입예정(`/listings`)·전달·회신·경매·관리 화면도 본인 + 공유한 영업의 매물만**(`SalesmanScope` 가 role=manager 에 pivot 서브쿼리 적용, 공유 0명 = 본인 것만 · Jin 「매입예정화면도 본인과 연결된 영업만」). 찍힌 관리는 `/portal` 사용자별 조회에서 **그 영업들만** 보고, **요청(계약금·매입잔금·대표계약금·판매대금확인)·선적요청·서류·서명을 대신 실행할 수 있다**(그 영업 명의로 ERP 전달 — super 와 같은 쓰기), 단 **정산 관련은 전부 숨김**(정산내역 탭·요약 정산 대기 KPI·월별 정산액·진행 중 정산·마진율 — 서버가 호출을 건너뛰고 응답 키 `settle|payout|margin` 제거). role 이 바뀌면 `/users` 저장 시 연결 자동 해제(감사 행). ⚠️ **board 관리 ≠ ERP 관리**: ERP `canAccessSettlement` 는 관리를 포함하지만 board 는 Jin 결정으로 제외 — 「ERP 미러」 명분으로 되살리지 말 것. 업무관리자·super 의 타인 열람은 종전대로(전체·정산 포함·업무관리자는 조회 전용). 배포 = 1차 `03fbce0`(/users 체크박스) → **최종 두 박스 배포 완료 2026-11-02 저녁 master `b0f2824`**(heymanboard·ssancarboard success, db:backup ✓ 1556.1 KB / 524.9 KB, Nothing to migrate, /login 200). ⚠️ 배포 직후 운영 관리 role 계정은 공유받기 전까지 매입예정·관리 화면이 본인 등록분만 보인다 — 영업이 /portal 「내 포털 공유」에서 체크해야 열림(Jin 인지, 공지는 Jin).
 
@@ -48,7 +49,7 @@ board 와 car-erp 는 형제 디렉터리 + **별도 DB**다. artisan/tinker 실
 | alias | 클래스 | 규칙 |
 |---|---|---|
 | `role:a,b` | `EnsureRole` | super·업무관리자(`hasFullAccess`)는 무조건 통과(바이패스) / 아니면 role∈{a,b} / 비활성(is_active=false) 차단 |
-| `full-access` | `EnsureFullAccess` | super 또는 업무관리자. `/audit` 보호 |
+| `full-access` | `EnsureFullAccess` | super·최고관리자·업무관리자(`hasFullAccess`). `/audit` 보호 |
 | `super` | `EnsureSuper` | super 전용 (업무관리자·관리 role 도 차단). `/admin/settings` 보호 |
 
 **라우트 / 화면 접근**:
@@ -122,6 +123,8 @@ draft(현지확인대기) → awaiting_buyer(회신대기) → accepted(구매�
 | kim@board.test / lee@board.test | user | 영업 |
 | park@board.test | user | 현지확인 |
 | choi@board.test | user | 경매 |
+| leader@board.test | manager(업무관리자·**팀장**) | 관리 |
+| bujang@board.test · sangmu@board.test · ceo@board.test | **admin**(최고관리자·부장/상무/대표) | 관리 |
 
 ## 자주 쓰는 명령어 (반드시 `cd /c/xampp/htdocs/board` 먼저)
 ```bash
@@ -258,7 +261,7 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
 
 ## ⏭️ 남은 작업 (미완)
 
-- 🔜 **업무일지 + 업무일지결재 + 최고관리자 등급 — 다음 개발**(2026-11-04 기획 확정, Jin 주말 개발 예정): **정본 = `meetings/plan-work-journal-2026-11.md`**(결정·데이터 모델·**「🏠 개발 시작 안내」 1~5단계**·ERP 함정) + 미리보기 `meetings/mockups/work-journal-preview.html`(브라우저로 열어 사람 바꿔 가며). 요지 = 전 직원 일지(시간·한 일·비고, 줄 추가 시 현재시각, 자동 저장, board 활동 자동 동봉) → 날짜별 자동 묶음 → 팀장(지정 업무관리자 1명) → 부장 → 상무 → 대표(**최고관리자 `permission=admin` 신설** 직급, 빈 단계 건너뜀) · 인원별+전체 의견 · 반려 없음 · 마감 19:00(기능설정) · 종·웹푸시 먼저, 알림톡은 ERP 월정산 방식으로 나중. **1단계(최고관리자 등급)부터.**
+- 🔜 **업무일지 + 업무일지결재 + 최고관리자 등급 — 1~4단계 dev 구현 완료·미배포**(2026-11-04, Jin 로컬 확인 대기 → 배포 허락. 5단계 알림톡은 나중): **정본 = `meetings/plan-work-journal-2026-11.md`**(결정·데이터 모델·**「🏠 개발 시작 안내」 1~5단계**·ERP 함정) + 미리보기 `meetings/mockups/work-journal-preview.html`(브라우저로 열어 사람 바꿔 가며). 요지 = 전 직원 일지(시간·한 일·비고, 줄 추가 시 현재시각, 자동 저장, board 활동 자동 동봉) → 날짜별 자동 묶음 → 팀장(지정 업무관리자 1명) → 부장 → 상무 → 대표(**최고관리자 `permission=admin` 신설** 직급, 빈 단계 건너뜀) · 인원별+전체 의견 · 반려 없음 · 마감 19:00(기능설정) · 종·웹푸시 먼저, 알림톡은 ERP 월정산 방식으로 나중. **1단계(최고관리자 등급)부터.**
 
 - **연동 B 감사 명령 `board:purchase-sync-audit`**(2026-09-28 Jin 승인, **dev 구현 완료·운영 미배포** — 「야간 배치 실행기」 1단계, 정본 = car-erp `docs/design/agent-virtual-office-analysis.md` §11·§12): won 인데 60분 넘게 ERP 로 안 넘어간 차(`stalled`) · 정합성 2식(synced인데 erp id 없음 / erp id 있는데 synced 아님) · synced 매물의 erp id 를 ERP `GET /vehicles/exists`(car-erp §4-3, dev `b8f2d423`)로 대조한 `missing_in_erp` 를 **JSON 으로만** 기록(`storage/app/integration/purchase-sync-audit.json`, exit 항상 0, DB 쓰기·재전송 0). 스케줄 07:40 — ERP 08:00 아침 보고가 `BOARD_AUDIT_JSON` 으로 그 파일을 읽는다. 테스트 = `tests/Feature/PurchaseSyncAuditTest.php`.
   - ⚠️ **두 박스 모두 돈다**(heymanboard·ssancarboard) — ERP 는 같은 박스의 board 파일을 읽어야 하고 경로가 다르다(`/var/www/board/...` vs `/var/www/board-ssancar/...`). ERP 측은 heymanerp 만 설정(2026-09-28 car-erp 세션).
