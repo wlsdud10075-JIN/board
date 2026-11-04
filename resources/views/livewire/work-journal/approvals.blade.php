@@ -34,8 +34,10 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public string $overall = '';
 
-    /** 반려 사유 — [journal_id => 사유]. 반려는 팀장만·팀장 승인 전에만. */
-    public array $rejectReasons = [];
+    /** 반려 모달(2026-11-04 Jin — 빨간 [반려] → 사유 모달). 반려는 팀장만·팀장 승인 전에만. */
+    public ?int $rejectingId = null;
+
+    public string $rejectReason = '';
 
     public function mount(): void
     {
@@ -148,17 +150,32 @@ new #[Layout('components.layouts.app')] class extends Component {
         session()->flash('ap_ok', $final ? __('journal.ap_final_flash') : __('journal.ap_approved_flash'));
     }
 
-    public function rejectJournal(int $journalId): void
+    public function openReject(int $journalId): void
     {
+        $this->rejectingId = $journalId;
+        $this->rejectReason = '';
+        $this->resetErrorBag('rejectReason');
+    }
+
+    public function closeReject(): void
+    {
+        $this->reset('rejectingId', 'rejectReason');
+        $this->resetErrorBag('rejectReason');
+    }
+
+    public function rejectJournal(): void
+    {
+        $journalId = (int) $this->rejectingId;
         $j = WorkJournal::with('user')->findOrFail($journalId);
         try {
-            $this->svc()->reject($j, Auth::user(), (string) ($this->rejectReasons[$journalId] ?? ''));
+            $this->svc()->reject($j, Auth::user(), $this->rejectReason);
         } catch (\DomainException $e) {
-            $this->addError('reject.'.$journalId, __('journal.err.'.$e->getMessage()));
+            $this->addError('rejectReason', __('journal.err.'.$e->getMessage()));
 
             return;
         }
-        unset($this->rejectReasons[$journalId], $this->opinions[$journalId], $this->batch, $this->batches, $this->counts);
+        $this->reset('rejectingId', 'rejectReason');
+        unset($this->opinions[$journalId], $this->batch, $this->batches, $this->counts);
         if (! $this->batches->contains('id', $this->sel)) {
             $this->sel = $this->batches->first()?->id;   // 다 반려해 기안이 사라졌으면 다음 것
         }
@@ -256,6 +273,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <span class="badge badge-gray">{{ $jr->user?->roleLabel() }}</span>
                                 <span class="text-xs text-gray-500">{{ __('journal.ap_rows', ['n' => count($snapRows)]) }} · {{ __('journal.submitted_at', ['time' => $jr->submitted_at?->format('H:i')]) }}</span>
                                 @if ($prev->isNotEmpty())<span class="badge badge-purple">💬 {{ $prev->count() }}</span>@endif
+                                {{-- 반려 — 팀장만, 팀장 승인 전에만. 빨간 버튼 → 사유 모달(2026-11-04 Jin) --}}
+                                @if ($canReject)
+                                    <button type="button" class="ml-auto rounded-md bg-red-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-red-700" x-data x-on:click.prevent.stop="$wire.openReject({{ $jr->id }})">{{ __('journal.ap_reject') }}</button>
+                                @endif
                             </summary>
                             <div class="px-4 pb-4">
                                 <table class="tbl text-[13px]">
@@ -275,16 +296,6 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 @endforeach
                                 @if ($canApprove)
                                     <textarea class="input-base mt-2" rows="2" placeholder="{{ __('journal.ap_opinion_ph', ['name' => $jr->user?->name]) }}" wire:model="opinions.{{ $jr->id }}"></textarea>
-                                @endif
-                                {{-- 반려 — 팀장만, 팀장 승인 전에만. 사유 필수, 이 사람 일지만 내용 그대로 돌려보낸다. --}}
-                                @if ($canReject)
-                                    <div class="mt-2 rounded-md border border-red-100 bg-red-50/50 p-2">
-                                        <textarea class="input-base" rows="2" placeholder="{{ __('journal.ap_reject_ph', ['name' => $jr->user?->name]) }}" wire:model="rejectReasons.{{ $jr->id }}"></textarea>
-                                        @error('reject.'.$jr->id) <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                                        <div class="mt-1 text-right">
-                                            <button type="button" class="btn-outline btn-sm border-red-300 text-red-700" wire:click="rejectJournal({{ $jr->id }})" wire:confirm="{{ __('journal.ap_reject_confirm', ['name' => $jr->user?->name]) }}">{{ __('journal.ap_reject') }}</button>
-                                        </div>
-                                    </div>
                                 @endif
                             </div>
                         </details>
@@ -310,4 +321,20 @@ new #[Layout('components.layouts.app')] class extends Component {
             @endif
         </div>
     </div>
+
+    {{-- 반려 사유 모달 --}}
+    @if ($rejectingId && ($rj = \App\Models\WorkJournal::with('user')->find($rejectingId)))
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="closeReject">
+        <div class="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+            <h3 class="text-base font-bold text-gray-800">{{ __('journal.ap_reject_modal_title', ['name' => $rj->user?->name]) }}</h3>
+            <p class="mt-1 text-xs text-gray-500">{{ __('journal.ap_reject_modal_hint') }}</p>
+            <textarea class="input-base mt-3" rows="4" autofocus placeholder="{{ __('journal.ap_reject_ph', ['name' => $rj->user?->name]) }}" wire:model="rejectReason"></textarea>
+            @error('rejectReason') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            <div class="mt-4 flex justify-end gap-2">
+                <button type="button" class="btn-ghost" wire:click="closeReject">{{ __('common.cancel') }}</button>
+                <button type="button" class="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700" wire:click="rejectJournal">{{ __('journal.ap_reject_submit') }}</button>
+            </div>
+        </div>
+        </div>
+    @endif
 </div>

@@ -237,8 +237,9 @@ class WorkJournalTest extends TestCase
         $batch = $ja->fresh()->batch;
 
         $this->actingAs($line['lead']);
-        Volt::test('work-journal.approvals')->call('pick', $batch->id)->call('rejectJournal', $ja->id)->assertHasErrors('reject.'.$ja->id);   // 사유 없음
-        Volt::test('work-journal.approvals')->call('pick', $batch->id)->set('rejectReasons.'.$ja->id, '오후 업무 빠짐 — 다시 작성')->call('rejectJournal', $ja->id)->assertHasNoErrors();
+        Volt::test('work-journal.approvals')->call('pick', $batch->id)->call('openReject', $ja->id)->assertSee(__('journal.ap_reject_modal_title', ['name' => '김영업']))
+            ->call('rejectJournal')->assertHasErrors('rejectReason');   // 사유 없음 — 모달은 열린 채
+        Volt::test('work-journal.approvals')->call('pick', $batch->id)->call('openReject', $ja->id)->set('rejectReason', '오후 업무 빠짐 — 다시 작성')->call('rejectJournal')->assertHasNoErrors()->assertSet('rejectingId', null);
 
         $ja->refresh();
         $this->assertSame(['rejected', null, '오후 업무 빠짐 — 다시 작성', $line['lead']->id], [$ja->status, $ja->batch_id, $ja->reject_reason, $ja->rejected_by]);
@@ -256,7 +257,7 @@ class WorkJournalTest extends TestCase
         // 팀장 승인 뒤 부장은 반려 못 함
         $this->approveAs($line['lead'], $batch);
         $this->actingAs($line['bujang']);
-        Volt::test('work-journal.approvals')->call('pick', $batch->id)->set('rejectReasons.'.$jb->id, 'x')->call('rejectJournal', $jb->id)->assertHasErrors('reject.'.$jb->id);
+        Volt::test('work-journal.approvals')->call('pick', $batch->id)->call('openReject', $jb->id)->set('rejectReason', 'x')->call('rejectJournal')->assertHasErrors('rejectReason');
         $this->assertSame('submitted', $jb->fresh()->status);
     }
 
@@ -266,7 +267,7 @@ class WorkJournalTest extends TestCase
         $line = $this->line();
         $j = $this->writeAndSubmit($this->mk('김영업'));
         $this->actingAs($line['lead']);
-        Volt::test('work-journal.approvals')->call('pick', $j->batch_id)->set('rejectReasons.'.$j->id, '다시')->call('rejectJournal', $j->id)->assertHasNoErrors();
+        Volt::test('work-journal.approvals')->call('pick', $j->batch_id)->call('openReject', $j->id)->set('rejectReason', '다시')->call('rejectJournal')->assertHasNoErrors();
         $this->assertSame(0, WorkJournalBatch::count());
     }
 
