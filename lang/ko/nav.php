@@ -49,6 +49,8 @@ return [
         'manager' => '관리',
     ],
 
+    'dev_switch' => ['label' => '🔀 사용자 전환(로컬)', 'back' => '↩ 원래 계정으로'],
+
     'perm' => [
         'admin' => '최고관리자',
         'super' => '시스템관리자',

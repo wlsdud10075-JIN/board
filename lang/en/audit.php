@@ -115,6 +115,7 @@ return [
         'work_journal_recall' => 'Work journal recalled',
         'work_journal_approve' => 'Work journal approved',
         'work_journal_step_skipped' => 'Work journal step skipped (vacant)',
+        'dev_user_switch' => 'User switch (local test)',
         'deleted' => 'Deleted',
     ],
 

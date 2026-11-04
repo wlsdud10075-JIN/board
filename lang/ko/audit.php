@@ -115,6 +115,7 @@ return [
         'work_journal_recall' => '업무일지 회수',
         'work_journal_approve' => '업무일지 승인',
         'work_journal_step_skipped' => '업무일지 결재 단계 건너뜀(공석)',
+        'dev_user_switch' => '사용자 전환(로컬 시험)',
         'deleted' => '삭제',
     ],
 

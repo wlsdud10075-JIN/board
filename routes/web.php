@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\BuyerViewController;
+use App\Http\Controllers\DevUserSwitchController;
 use App\Http\Controllers\PhotoController;
 use App\Http\Controllers\PushSubscriptionController;
 use App\Models\Setting;
@@ -64,6 +65,10 @@ Route::middleware(['auth'])->group(function () {
     // 웹푸시 구독 저장/해제 — 상단 종 패널의 「휴대폰 알림」 토글이 브라우저 PushSubscription 을 그대로 보낸다(2026-10-12)
     Route::post('push/subscribe', [PushSubscriptionController::class, 'store'])->name('push.subscribe');
     Route::post('push/unsubscribe', [PushSubscriptionController::class, 'destroy'])->name('push.unsubscribe');
+
+    // 로컬 전용 사용자 전환 — 꺼져 있으면 컨트롤러가 404(config board.dev_user_switch = APP_ENV local 기본)
+    Route::post('dev/switch-user', [DevUserSwitchController::class, 'switch'])->name('dev.switch-user');
+    Route::post('dev/switch-back', [DevUserSwitchController::class, 'back'])->name('dev.switch-back');
 
     // 설정
     Route::redirect('settings', 'settings/profile');

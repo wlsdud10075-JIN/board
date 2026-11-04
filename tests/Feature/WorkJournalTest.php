@@ -226,6 +226,30 @@ class WorkJournalTest extends TestCase
         $this->assertTrue(BoardAuditLog::where('field', 'work_journal_cutoff')->exists());
     }
 
+    /** 로컬 전용 사용자 전환 — 꺼져 있으면 404, super 만, 전환 뒤에도 계속 바꾸고 원래 계정으로 복귀, 감사 행. */
+    public function test_dev_user_switch_is_local_super_only(): void
+    {
+        $root = $this->mk('root', 'super', null, 'manager');
+        $lead = $this->mk('정팀장', 'manager', '팀장', 'manager');
+        $writer = $this->mk('김영업');
+
+        config(['board.dev_user_switch' => false]);   // 운영과 같음
+        $this->actingAs($root)->post('/dev/switch-user', ['user_id' => $writer->id])->assertNotFound();
+
+        config(['board.dev_user_switch' => true]);
+        $this->actingAs($writer)->post('/dev/switch-user', ['user_id' => $root->id])->assertForbidden();   // super 아님
+
+        $this->actingAs($root)->post('/dev/switch-user', ['user_id' => $writer->id])->assertRedirect();
+        $this->assertSame($writer->id, auth()->id());
+        $this->get('/work-journal')->assertOk()->assertSee(__('nav.dev_switch.back'));   // 전환된 상태에서도 전환 상자·복귀 버튼
+
+        $this->post('/dev/switch-user', ['user_id' => $lead->id])->assertRedirect();   // 일반 → 팀장으로 바로
+        $this->assertSame($lead->id, auth()->id());
+        $this->post('/dev/switch-back')->assertRedirect();
+        $this->assertSame($root->id, auth()->id());
+        $this->assertSame(3, BoardAuditLog::where('action', 'dev_user_switch')->count());
+    }
+
     /** 사이드바 배지 — 지금 내 차례인 기안 수. */
     public function test_sidebar_badge_counts_my_turn(): void
     {

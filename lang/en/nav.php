@@ -49,6 +49,8 @@ return [
         'manager' => 'Management',
     ],
 
+    'dev_switch' => ['label' => '🔀 Switch user (local)', 'back' => '↩ Back to my account'],
+
     'perm' => [
         'admin' => 'Top manager',
         'super' => 'System Admin',

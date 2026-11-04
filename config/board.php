@@ -97,6 +97,10 @@ return [
     ],
 
     // 업무 가이드(Notion 등 외부) — 사이드바 하단 링크. 비우면 미노출.
+    // 로컬 전용 「사용자 전환」(2026-11-04 Jin) — 시스템관리자가 다른 계정으로 바로 들어가 본다. 기본 = APP_ENV=local 일 때만.
+    // 🔒 운영(production)에선 꺼져 라우트가 404. 운영에서 켜지 말 것(남의 계정으로 행동 = 감사 추적이 깨진다).
+    'dev_user_switch' => (bool) env('BOARD_DEV_USER_SWITCH', env('APP_ENV') === 'local'),
+
     'work_guide_url' => env('BOARD_WORK_GUIDE_URL', 'https://dashing-stick-008.notion.site/37345d82bd838108a418c76a210f1854'),
 
     // 검사지역 정식 라벨 — 전국 시·군 (정적 번들, 외부 API 미사용).
