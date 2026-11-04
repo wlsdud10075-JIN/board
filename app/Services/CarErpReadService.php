@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\IntegrationEvent;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -571,7 +572,49 @@ class CarErpReadService
 
     private function post(string $endpoint, array $query, array $payload): array
     {
-        return $this->send('POST', self::PREFIX.$endpoint, $query, $payload);
+        $r = $this->send('POST', self::PREFIX.$endpoint, $query, $payload);
+        $this->logWrite($endpoint, $payload, $r);
+
+        return $r;
+    }
+
+    /**
+     * ERP 로 **쓰는** 호출 기록(2026-11-04 Jin 「요청한 것도 기록에 남아야지」) — 포털 요청(계약금·매입잔금·대표계약금·판매대금확인)·선적요청·
+     * B/L 요청/취소·변경요청·서명요청이 board 어디에도 안 남았다. 읽기(GET)는 남기지 않는다(조회는 기록 대상 아님 · 분당 수십 건).
+     * 🔒 송금인(`/remitter`)은 호출부가 매물·마스킹과 함께 남긴다(`listings` `logRemitterSend`) — 여기서 또 남기면 문서번호가 원문으로 샌다.
+     * 응답의 `signed_url`(바이어 서명 링크 — 아는 사람은 서명 화면을 연다)은 *** 로.
+     */
+    private function logWrite(string $endpoint, array $payload, array $r): void
+    {
+        if (str_contains($endpoint, '/remitter')) {
+            return;
+        }
+        $type = match (true) {
+            $endpoint === '/requests' => 'board_request',
+            $endpoint === '/shipping-requests/sync' => 'shipping_sync',
+            $endpoint === '/shipping-request' => 'shipping_request',
+            $endpoint === '/shipping-requests/change-request' => 'change_request',
+            $endpoint === '/signing-requests' => 'signing_request',
+            str_ends_with($endpoint, '/bl-request') => 'bl_request',
+            str_ends_with($endpoint, '/bl-cancel') => 'bl_cancel',
+            default => 'erp_write',
+        };
+        $body = $r['data'] ?? null;
+        if (is_array($body) && isset($body['signed_url'])) {
+            $body['signed_url'] = '***';
+        }
+        try {
+            IntegrationEvent::create([
+                'direction' => 'outbound', 'target' => 'car_erp', 'event_type' => $type,
+                'purchase_listing_id' => null,   // 포털은 ERP 차량 기준 — 차는 payload vehicle_ids(감사 행에 차량번호)
+                'request_payload' => $payload + ['endpoint' => $endpoint],
+                'response_status' => ($r['status'] ?? 0) ?: null,
+                'response_body' => $body === null ? null : mb_substr((string) json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), 0, 2000),
+                'error' => ($r['ok'] ?? false) ? null : mb_substr((string) ($r['message'] ?? $r['reason'] ?? 'HTTP '.($r['status'] ?? 0)), 0, 500),
+            ]);
+        } catch (\Throwable $e) {
+            report($e);   // 기록 실패가 요청 자체를 실패로 만들지 않는다
+        }
     }
 
     private function send(string $method, string $path, array $query, ?array $payload): array

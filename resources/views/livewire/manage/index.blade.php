@@ -300,6 +300,12 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         // 2026-08-18: 예전엔 car_erp_vehicle_id 를 지우고 status 를 won 으로 되돌려 Job 가드를 통과시켰는데,
         // 전송이 실패하면 그 상태로 남아 **차가 /auction 목록에 되살아났다**. 이제 Job 이 resync 를 받는다.
+        // 누가 재전송을 눌렀나(2026-11-03 Jin 점검) — 전송 표엔 행위자가 없다. 결과는 전송 표 응답.
+        BoardAuditLog::create([
+            'user_id' => Auth::id(), 'purchase_listing_id' => $l->id, 'action' => 'erp_resync', 'field' => 'erp_resync',
+            'old_value' => null, 'new_value' => json_encode(['erp_vehicle_id' => $l->car_erp_vehicle_id, 'status' => $l->status], JSON_UNESCAPED_UNICODE),
+            'ip_address' => BoardAuditLog::currentIp(),
+        ]);
         SyncWonListingToCarErp::dispatch($l->id, resync: true);
 
         session()->flash('ok', __('manage.resynced', ['vehicle' => \App\Support\Plate::show($l->vehicle_number)]));

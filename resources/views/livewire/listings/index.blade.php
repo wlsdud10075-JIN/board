@@ -776,6 +776,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
 
         $this->syncSince = $this->lastSyncEventId($l->id);
+        $this->logAttachmentsSend($l, $stored['names']);
         SyncWonListingToCarErp::dispatch($l->id, resync: true, attachmentsOnly: true);
 
         $this->attachResult = $this->latestSyncFields($l->id, $this->syncSince) + ['sent' => $stored['stored'], 'skipped' => $stored['skipped']];
@@ -852,6 +853,20 @@ new #[Layout('components.layouts.app')] class extends Component {
                 'erp_vehicle_id' => $l->car_erp_vehicle_id, 'sale_price' => $l->sale_price, 'currency' => $l->offer_currency, 'rate' => $l->offer_rate,
                 'transport_fee' => $l->transport_fee, 'transport_fee_usd' => $l->transport_fee_usd, 'usd_rate' => $l->offer_rate_usd,
             ], JSON_UNESCAPED_UNICODE),
+            'ip_address' => BoardAuditLog::currentIp(),
+        ]);
+    }
+
+    /**
+     * 사진·서류만 ERP 로 보낸 기록(2026-11-03 Jin 「ERP 에 보낼 때 무엇을 보냈는지 다 기록」) — `attachment_add` 는 「올렸다」일 뿐
+     * 「누가 ERP 로 보냈다」가 아니고, 전송 표(integration_events)엔 행위자가 없다(Job 은 큐에서 돈다). 결과(붙은 장수)는 전송 표 응답.
+     */
+    private function logAttachmentsSend(PurchaseListing $l, array $names): void
+    {
+        BoardAuditLog::create([
+            'user_id' => Auth::id(), 'purchase_listing_id' => $l->id, 'action' => 'erp_attachments_send', 'field' => 'erp_attachments_send',
+            'old_value' => null,
+            'new_value' => json_encode(['erp_vehicle_id' => $l->car_erp_vehicle_id, 'count' => count($names), 'files' => array_values($names)], JSON_UNESCAPED_UNICODE),
             'ip_address' => BoardAuditLog::currentIp(),
         ]);
     }
@@ -939,6 +954,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
         $r = app(CarErpReadService::class)->setRemitter($this->erpEmailFor($l), (int) $l->car_erp_vehicle_id, $l->remitter_name, $l->remitter_id);
+        $this->logRemitterSend($l, $r);
         if (! ($r['ok'] ?? false)) {
             $this->invoiceNote = __('listings.invoice.send_failed', ['reason' => ($r['status'] ?? 0) === 403 ? __('listings.invoice.send_403') : (string) ($r['message'] ?? $r['reason'] ?? 'HTTP '.($r['status'] ?? 0))]);
 
@@ -950,6 +966,30 @@ new #[Layout('components.layouts.app')] class extends Component {
             ? __('listings.invoice.send_same')
             : __(data_get($r['data'], 'had_previous') ? 'listings.invoice.send_overwritten' : 'listings.invoice.send_done');
         unset($this->editing, $this->listings);
+    }
+
+    /**
+     * 송금인 ERP 전송 기록(2026-11-03 Jin 점검 — 종전엔 감사·전송 표 **어디에도** 안 남았다). `CarErpReadService::post()` 는 기록을 안 하므로
+     * 여기서 남긴다: 감사 행(누가·무엇을·결과) + 전송 표 행(보낸 값·ERP 응답). 🔒 `remitter_id`(여권/ID 문서번호)는 양쪽 다 `***`.
+     */
+    private function logRemitterSend(PurchaseListing $l, array $r): void
+    {
+        $sent = ['erp_vehicle_id' => (int) $l->car_erp_vehicle_id, 'remitter_name' => $l->remitter_name, 'remitter_id' => ($l->remitter_id ?? '') !== '' ? '***' : null];
+        $ok = (bool) ($r['ok'] ?? false);
+        BoardAuditLog::create([
+            'user_id' => Auth::id(), 'purchase_listing_id' => $l->id, 'action' => 'erp_remitter_send', 'field' => 'erp_remitter_send',
+            'old_value' => null,
+            'new_value' => json_encode($sent + ['result' => $ok ? 'ok' : 'failed', 'status' => $r['status'] ?? null,
+                'updated' => $ok ? (array) data_get($r['data'], 'updated', []) : null], JSON_UNESCAPED_UNICODE),
+            'ip_address' => BoardAuditLog::currentIp(),
+        ]);
+        \App\Models\IntegrationEvent::create([
+            'direction' => 'outbound', 'target' => 'car_erp', 'event_type' => 'remitter_send', 'purchase_listing_id' => $l->id,
+            'request_payload' => $sent,
+            'response_status' => ($r['status'] ?? 0) ?: null,
+            'response_body' => $ok ? mb_substr((string) json_encode($r['data'], JSON_UNESCAPED_UNICODE), 0, 2000) : null,
+            'error' => $ok ? null : mb_substr((string) ($r['message'] ?? $r['reason'] ?? 'HTTP '.($r['status'] ?? 0)), 0, 500),
+        ]);
     }
 
     /**
@@ -1131,6 +1171,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             $labels = array_map(fn ($f) => __('listings.resync.changed_field.'.$f), $amountChanged);
             $flash .= ' '.__('listings.resync.auto_sent', ['fields' => implode('·', $labels), 'count' => $stored['stored']]);
         } elseif ($l->car_erp_vehicle_id && $stored['stored'] > 0) {
+            $this->logAttachmentsSend($l, $stored['names']);
             SyncWonListingToCarErp::dispatch($l->id, resync: true, attachmentsOnly: true);
             $flash .= ' '.__('listings.attach_add.auto_sent', ['count' => $stored['stored']]);
         }
@@ -1455,13 +1496,13 @@ new #[Layout('components.layouts.app')] class extends Component {
      *    ERP 는 경로 기준 중복제거라 board 가 두 번 저장하면 두 번 붙는다). 판정은 원본 파일명만(크기 컬럼 없음) — 다른 사진이
      *    같은 이름이면 걸린다는 한계가 있어, 건너뛴 이름을 화면에 알린다.
      *
-     * @return array{stored:int, skipped:list<string>}
+     * @return array{stored:int, skipped:list<string>, names:list<string>}
      */
     private function storeSalesFiles(PurchaseListing $l, array $files): array
     {
         $files = array_values(array_filter($files));
         if (empty($files)) {
-            return ['stored' => 0, 'skipped' => []];
+            return ['stored' => 0, 'skipped' => [], 'names' => []];
         }
 
         $disk = config('board.photo_disk');
@@ -1469,6 +1510,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $existing = $l->salesAttachments()->pluck('original_name')->map(fn ($n) => mb_strtolower((string) $n))->flip()->all();
         $stored = 0;
         $skipped = [];
+        $names = [];
 
         foreach ($files as $f) {
             $name = $f->getClientOriginalName();
@@ -1479,6 +1521,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             }
             $existing[mb_strtolower($name)] = true;
             $stored++;
+            $names[] = $name;
             $isImage = str_starts_with((string) $f->getMimeType(), 'image/');
             $prefix = $isImage ? config('board.sales_photo_prefix') : config('board.sales_document_prefix');
             $path = $f->store($prefix.'/'.$l->id, $disk);
@@ -1492,7 +1535,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             ]);
         }
 
-        return ['stored' => $stored, 'skipped' => $skipped];
+        return ['stored' => $stored, 'skipped' => $skipped, 'names' => $names];
     }
 
     /** 저장 전 선택파일 빼기 — 추가폼. */

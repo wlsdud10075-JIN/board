@@ -315,6 +315,35 @@ new #[Layout('components.layouts.app')] class extends Component {
      * car-erp 영업 매칭 이메일 — 오버라이드 우선, 없으면 로그인.
      * super 가 다른 사용자를 열람 중이면 그 사용자 기준(서버 isSuper 게이트). 비-super 는 항상 본인.
      */
+    /**
+     * 포털에서 ERP 로 보낸 요청 = 감사 행 1개(2026-11-04 Jin 「요청한 것도 기록에 남아야지」 · board 모든 행위는 감사 행).
+     * 누가(로그인 사용자) · 누구 명의로(대리실행이면 그 영업 — `as`) · 어느 차(ERP id → board 에 있는 차는 차량번호) · 무엇을 · 결과.
+     * 차 1대이고 board 매물이 있으면 그 매물에 붙인다(감사 화면 차량 칸). 보낸 원문·ERP 응답은 전송 표(`CarErpReadService::logWrite`).
+     */
+    private function logErpWrite(string $action, array $detail, array $vehicleIds, array $res, array $extra = []): void
+    {
+        $vehicleIds = array_values(array_unique(array_map('intval', $vehicleIds)));
+        $listings = $vehicleIds === [] ? collect() : \App\Models\PurchaseListing::withoutGlobalScopes()->whereNull('deleted_at')
+            ->whereIn('car_erp_vehicle_id', $vehicleIds)->get(['id', 'vehicle_number', 'car_erp_vehicle_id']);
+        $ok = (bool) ($res['ok'] ?? false);
+        try {
+            \App\Models\BoardAuditLog::create([
+                'user_id' => Auth::id(),
+                'purchase_listing_id' => count($vehicleIds) === 1 ? $listings->first()?->id : null,
+                'action' => $action, 'field' => $action, 'old_value' => null,
+                'new_value' => json_encode(array_filter([
+                    'as' => $this->isViewingOther() ? $this->salesmanEmail() : null,
+                    'erp_vehicle_ids' => $vehicleIds ?: null,
+                    'vehicles' => $listings->pluck('vehicle_number')->all() ?: null,
+                ], fn ($v) => $v !== null) + $detail + ['result' => $ok ? 'ok' : 'failed', 'status' => $res['status'] ?? null]
+                    + array_filter($extra, fn ($v) => $v !== null && $v !== []), JSON_UNESCAPED_UNICODE),
+                'ip_address' => \App\Models\BoardAuditLog::currentIp(),
+            ]);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
     private function salesmanEmail(): string
     {
         $u = $this->viewingUser() ?? Auth::user();
@@ -880,6 +909,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             })->values()->all();
 
         $res = $this->svc()->syncShippingRequests($this->salesmanEmail(), $payload);
+        $this->logErpWrite('erp_shipping_sync', ['bundles' => $payload], collect($payload)->pluck('vehicle_ids')->flatten()->all(), $res);
         if (! ($res['ok'] ?? false)) {
             $this->shipNote = __('portal.flash_ship_failed');
 
@@ -933,6 +963,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
         $res = $this->svc()->blRequest($this->salesmanEmail(), $batchId, $blType);
+        $this->logErpWrite('erp_bl_request', ['batch_id' => $batchId, 'bl_type' => $blType], [], $res);
         $this->shipNote = ($res['ok'] ?? false) ? __('portal.flash_bl_requested') : __('portal.flash_ship_failed');
         $this->load();
     }
@@ -949,6 +980,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
         $res = $this->svc()->blCancel($this->salesmanEmail(), $batchId);
+        $this->logErpWrite('erp_bl_cancel', ['batch_id' => $batchId], [], $res);
         if (($res['status'] ?? 0) === 409) {
             $this->shipNote = __('portal.flash_bl_already_issued');   // 관리 발급완료 — 무름 불가
         } elseif ($res['ok'] ?? false) {
@@ -974,6 +1006,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
         $res = $this->svc()->changeRequest($this->salesmanEmail(), $vehicleId, $note);
+        $this->logErpWrite('erp_change_request', ['note' => $note], [$vehicleId], $res);
         $this->shipNote = ($res['ok'] ?? false) ? __('portal.flash_change_requested') : __('portal.flash_ship_failed');
         $this->changeNote[$vehicleId] = '';
         $this->load();
@@ -1241,6 +1274,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $res = $this->svc()->sendBoardRequest(
             $this->salesmanEmail(), $type, $vehicleIds, $buyerId, $note ?: null, $amountKrw, $resend
         );
+        $this->logErpWrite('erp_board_request', array_filter(['type' => $type, 'buyer_id' => $buyerId, 'amount_krw' => $amountKrw, 'resend' => $resend ?: null, 'note' => $note ?: null],
+            fn ($v) => $v !== null), $vehicleIds, $res, ['created' => data_get($res, 'data.created'), 'skipped' => data_get($res, 'data.skipped')]);
 
         if (! ($res['ok'] ?? false)) {
             // 422 는 car-erp 가 이유를 준다(buyer_mismatch·buyer_required) — 원문을 살려 원인을 짚게.
@@ -1359,6 +1394,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
 
         $res = $this->svc()->requestSigningSession($this->salesmanEmail(), $ids);
+        $this->logErpWrite('erp_signing_request', [], $ids, $res);
         if (! ($res['ok'] ?? false) || empty(data_get($res, 'data.signed_url'))) {
             // 422 = 바이어 미지정·판매가 0·혼합 바이어/통화·수출채널 아님·30대 초과. 사유는 **ERP 문구 그대로** 보인다(2026-10-12 Jin).
             // ⚠️ 서류 422(`No buyer: …` 영문 abort)와 달리 서명 422 는 ERP lang 문구(한글)다 — 2026-10-12 까지 `docBlockedReason()`
