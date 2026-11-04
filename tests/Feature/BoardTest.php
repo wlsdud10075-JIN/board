@@ -5397,6 +5397,42 @@ class BoardTest extends TestCase
             ->call('sendPurchaseRequest', CarErpReadService::REQ_PURCHASE_DEPOSIT, 6)
             ->assertSet('reqResult.created', [])
             ->assertSet('reqResult.skipped.0.reason', 'already_open');
+
+        // 요청도 기록(2026-11-04 Jin) — 감사 행: 누가·어느 차(board 매물이면 차량번호·매물 연결)·종류·금액·결과 / 전송 표: 보낸 원문·ERP 응답
+        $logs = BoardAuditLog::where('action', 'erp_board_request')->orderBy('id')->get();
+        $this->assertCount(2, $logs);
+        $v = json_decode($logs[0]->new_value, true);
+        $this->assertSame([$sales->id, [6], 'purchase_deposit', 3000000, 'ok', ['11가1111']], [$logs[0]->user_id, $v['erp_vehicle_ids'], $v['type'], $v['amount_krw'], $v['result'], $v['created']]);
+        $this->assertSame('already_open', json_decode($logs[1]->new_value, true)['skipped'][0]['reason']);
+        $ev = IntegrationEvent::where('event_type', 'board_request')->orderBy('id')->get();
+        $this->assertCount(2, $ev);
+        $this->assertSame([201, 3000000, [6]], [$ev[0]->response_status, $ev[0]->request_payload['amount_krw'], $ev[0]->request_payload['vehicle_ids']]);
+        $this->assertSame(0, IntegrationEvent::where('target', 'car_erp')->whereNotIn('event_type', ['board_request'])->count());   // 조회(GET)는 안 남긴다
+    }
+
+    /** 포털 요청 감사 행 — board 에 있는 차면 매물에 붙고 차량번호가 남는다. 실패도 남는다(2026-11-04 Jin). */
+    public function test_portal_erp_writes_are_logged_with_vehicle_and_failure(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'synced', 'car_erp_vehicle_id' => 6]);
+        $this->actingAs($sales);
+        Http::fake([
+            '*/api/internal/board/requests*' => Http::response(['message' => 'buyer_mismatch'], 422),
+            '*/api/internal/board/shipping-requests/change-request*' => Http::response(['ok' => true], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+
+        Volt::test('portal.index')->set('reqAmount.6', '1000000')->call('sendPurchaseRequest', CarErpReadService::REQ_PURCHASE_BALANCE, 6);
+        $a = BoardAuditLog::where('action', 'erp_board_request')->sole();
+        $v = json_decode($a->new_value, true);
+        $this->assertSame([$l->id, [$l->vehicle_number], 'failed', 422], [$a->purchase_listing_id, $v['vehicles'], $v['result'], $v['status']]);
+        $this->assertSame(422, IntegrationEvent::where('event_type', 'board_request')->sole()->response_status);
+
+        Volt::test('portal.index')->set('changeNote.6', '컨테이너로 변경')->call('requestChange', 6);
+        $c = BoardAuditLog::where('action', 'erp_change_request')->sole();
+        $this->assertSame([$l->id, '컨테이너로 변경', 'ok'], [$c->purchase_listing_id, json_decode($c->new_value, true)['note'], json_decode($c->new_value, true)['result']]);
+        $this->assertSame('change_request', IntegrationEvent::where('event_type', 'change_request')->sole()->event_type);
     }
 
     /**
@@ -6733,6 +6769,11 @@ class BoardTest extends TestCase
             ->assertHasNoErrors()
             ->assertSee('SC2607-00001')
             ->assertSee('https://heysellcar.com/sign/tok?expires=1&signature=ab');
+        // 서명 요청도 기록 — 단 바이어 서명 링크는 로그에 남기지 않는다(아는 사람은 서명 화면을 연다)
+        $ev = IntegrationEvent::where('event_type', 'signing_request')->sole();
+        $this->assertStringNotContainsString('sign/tok', (string) $ev->response_body);
+        $this->assertStringContainsString('SC2607-00001', (string) $ev->response_body);
+        $this->assertSame([1], json_decode(BoardAuditLog::where('action', 'erp_signing_request')->sole()->new_value, true)['erp_vehicle_ids']);
 
         // 발급 직후 그 자리에서 「서명 대기」 — 「✍️ 요청」 버튼이 남아 있으면 재클릭이 방금 만든 링크를 revoke 한다(2026-10-12 Jin).
         $c->assertSee(__('portal.sign_st_pending'))

@@ -102,6 +102,12 @@ return [
         'erp_remitter_send' => 'ERP 송금인 전송',          // 2026-11-03 — 보낸 이름·결과, ID 는 ***
         'erp_resync' => 'ERP 재전송(관리)',               // 2026-11-03 — /manage 재전송 누른 사람
         'commercial_invoice' => '인보이스 다운로드',
+        'erp_board_request' => '포털 요청 (계약금·매입잔금·대표계약금·판매대금확인)',   // 2026-11-04 — 누가·누구 명의·어느 차·금액·결과
+        'erp_shipping_sync' => '포털 선적요청',
+        'erp_bl_request' => '포털 B/L 요청',
+        'erp_bl_cancel' => '포털 B/L 요청 취소',
+        'erp_change_request' => '포털 선적 변경요청',
+        'erp_signing_request' => '포털 서명 요청',
         'deleted' => '삭제',
     ],
 
@@ -124,6 +130,14 @@ return [
             'send_offer' => '바이어에게 견적 발송',
             'passport_extract' => '여권·ID 사진 읽기',
             'remitter_send' => '송금인 ERP 전송',
+            'board_request' => '포털 요청 (계약금·잔금 등)',
+            'shipping_sync' => '선적요청',
+            'shipping_request' => '선적요청 (단건)',
+            'change_request' => '선적 변경요청',
+            'signing_request' => '서명 요청',
+            'bl_request' => 'B/L 요청',
+            'bl_cancel' => 'B/L 요청 취소',
+            'erp_write' => 'ERP 쓰기',
             'unknown' => '알 수 없는 이벤트',
         ],
         'resp' => [
