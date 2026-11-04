@@ -258,6 +258,8 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
 
 ## ⏭️ 남은 작업 (미완)
 
+- 🔜 **업무일지 + 업무일지결재 + 최고관리자 등급 — 다음 개발**(2026-11-04 기획 확정, Jin 주말 개발 예정): **정본 = `meetings/plan-work-journal-2026-11.md`**(결정·데이터 모델·**「🏠 개발 시작 안내」 1~5단계**·ERP 함정) + 미리보기 `meetings/mockups/work-journal-preview.html`(브라우저로 열어 사람 바꿔 가며). 요지 = 전 직원 일지(시간·한 일·비고, 줄 추가 시 현재시각, 자동 저장, board 활동 자동 동봉) → 날짜별 자동 묶음 → 팀장(지정 업무관리자 1명) → 부장 → 상무 → 대표(**최고관리자 `permission=admin` 신설** 직급, 빈 단계 건너뜀) · 인원별+전체 의견 · 반려 없음 · 마감 19:00(기능설정) · 종·웹푸시 먼저, 알림톡은 ERP 월정산 방식으로 나중. **1단계(최고관리자 등급)부터.**
+
 - **연동 B 감사 명령 `board:purchase-sync-audit`**(2026-09-28 Jin 승인, **dev 구현 완료·운영 미배포** — 「야간 배치 실행기」 1단계, 정본 = car-erp `docs/design/agent-virtual-office-analysis.md` §11·§12): won 인데 60분 넘게 ERP 로 안 넘어간 차(`stalled`) · 정합성 2식(synced인데 erp id 없음 / erp id 있는데 synced 아님) · synced 매물의 erp id 를 ERP `GET /vehicles/exists`(car-erp §4-3, dev `b8f2d423`)로 대조한 `missing_in_erp` 를 **JSON 으로만** 기록(`storage/app/integration/purchase-sync-audit.json`, exit 항상 0, DB 쓰기·재전송 0). 스케줄 07:40 — ERP 08:00 아침 보고가 `BOARD_AUDIT_JSON` 으로 그 파일을 읽는다. 테스트 = `tests/Feature/PurchaseSyncAuditTest.php`.
   - ⚠️ **두 박스 모두 돈다**(heymanboard·ssancarboard) — ERP 는 같은 박스의 board 파일을 읽어야 하고 경로가 다르다(`/var/www/board/...` vs `/var/www/board-ssancar/...`). ERP 측은 heymanerp 만 설정(2026-09-28 car-erp 세션).
   - ⚠️ stalled 시계 = `updated_at` — won 행을 다른 이유로 저장하면(드로어 편집) 60분이 다시 시작된다. 더 엄밀히 하려면 `board_audit_logs` 의 won status_change 시각으로 바꿀 것(미착수).
