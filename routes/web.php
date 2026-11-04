@@ -54,6 +54,10 @@ Route::middleware(['auth'])->group(function () {
     Volt::route('audit', 'audit.index')->middleware('full-access')->name('audit');   // super + 업무관리자 (2026-10-14 Jin)
     Volt::route('admin/settings', 'admin.settings')->middleware('super')->name('admin.settings');
 
+    // 업무일지 + 업무일지결재(2026-11-04 Jin) — 권한 판정은 화면 mount 에서(작성 = 등급 일반, 결재 = 결재 직급 또는 전체 접근 등급 조회).
+    Volt::route('work-journal', 'work-journal.index')->name('work-journal');
+    Volt::route('work-journal/approvals', 'work-journal.approvals')->name('work-journal.approvals');
+
     // 사진 같은출처 스트리밍 (모바일 다중 공유 fetch 의 CORS 우회) — 스코프는 컨트롤러에서
     Route::get('photos/{photo}', [PhotoController::class, 'show'])->name('photos.show');
 

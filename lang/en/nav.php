@@ -2,12 +2,15 @@
 
 return [
     'group' => [
+        'journal' => 'Work journal',
         'work' => 'Work',
         'manage' => 'Management',
         'system' => 'System',
     ],
 
     'menu' => [
+        'work_journal' => 'Work journal',
+        'work_journal_approvals' => 'Journal approvals',
         'listings' => 'Purchases (Invoice)',
         'forwarding' => 'Awaiting forward',
         'verdicts' => 'Buyer Replies',
@@ -21,6 +24,8 @@ return [
     ],
 
     'crumb' => [
+        'work_journal' => 'Work journal',
+        'work_journal_approvals' => 'Journal approvals',
         'dashboard' => 'Dashboard',
         'listings' => 'Purchases (Invoice)',
         'forwarding' => 'Awaiting forward',

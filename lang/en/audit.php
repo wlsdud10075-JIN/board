@@ -109,6 +109,12 @@ return [
         'erp_change_request' => 'Portal shipping change request',
         'erp_signing_request' => 'Portal signature request',
         'user_permission' => 'User level / approval title',
+        'work_journal_cutoff' => 'Work journal cutoff',
+        'work_journal_write' => 'Work journal written',
+        'work_journal_submit' => 'Work journal submitted',
+        'work_journal_recall' => 'Work journal recalled',
+        'work_journal_approve' => 'Work journal approved',
+        'work_journal_step_skipped' => 'Work journal step skipped (vacant)',
         'deleted' => 'Deleted',
     ],
 

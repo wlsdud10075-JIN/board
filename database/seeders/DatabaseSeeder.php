@@ -11,24 +11,30 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        // ─── 계정 (역할별) · password ───  [이름, 이메일, role, permission]
+        // ─── 계정 (역할별) · password ───  [이름, 이메일, role, permission, 결재 직급]
+        // 결재선(업무일지, 2026-11-04) = 팀장(업무관리자) → 부장 → 상무 → 대표(최고관리자)
         $users = [
-            ['시스템관리자', 'admin@board.test', 'manager', 'super'],
-            ['관리자', 'manager@board.test', 'manager', 'user'],
-            ['김영업', 'kim@board.test', 'sales', 'user'],
-            ['이영업', 'lee@board.test', 'sales', 'user'],
-            ['박검차', 'park@board.test', 'inspection', 'user'],
-            ['최경매', 'choi@board.test', 'auction', 'user'],
+            ['시스템관리자', 'admin@board.test', 'manager', 'super', null],
+            ['관리자', 'manager@board.test', 'manager', 'user', null],
+            ['김영업', 'kim@board.test', 'sales', 'user', null],
+            ['이영업', 'lee@board.test', 'sales', 'user', null],
+            ['박검차', 'park@board.test', 'inspection', 'user', null],
+            ['최경매', 'choi@board.test', 'auction', 'user', null],
+            ['정팀장', 'leader@board.test', 'manager', 'manager', '팀장'],
+            ['임부장', 'bujang@board.test', 'manager', 'admin', '부장'],
+            ['오상무', 'sangmu@board.test', 'manager', 'admin', '상무'],
+            ['홍대표', 'ceo@board.test', 'manager', 'admin', '대표'],
         ];
 
         $byEmail = [];
-        foreach ($users as [$name, $email, $role, $permission]) {
+        foreach ($users as [$name, $email, $role, $permission, $title]) {
             $byEmail[$email] = User::updateOrCreate(
                 ['email' => $email],
                 [
                     'name' => $name,
                     'role' => $role,
                     'permission' => $permission,
+                    'approval_title' => $title,
                     'is_active' => true,
                     'password' => Hash::make('password'),
                     'email_verified_at' => now(),

@@ -15,6 +15,8 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public bool $assistantEnabled = false;   // 사내 업무 도우미(챗봇) 운영 on/off
 
+    public string $journalCutoff = '19:00';   // 업무일지 상신 마감 시각(2026-11-04 Jin)
+
     // 카카오 알림톡(BizM) — 발신프로필은 car-erp 와 공유. 코드=board_region_inspection.
     public string $alimtalkUserid = '';
 
@@ -47,6 +49,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->buyerCompanyName = Setting::get('buyer_company_name', 'SSANCAR') ?: 'SSANCAR';
         $this->localeEnEnabled = (bool) Setting::get('locale_en_enabled', false);
         $this->assistantEnabled = (bool) Setting::get('assistant_enabled', false);
+        $this->journalCutoff = app(\App\Services\WorkJournalService::class)->cutoff();
 
         $this->alimtalkUserid = (string) (Setting::get('alimtalk_userid', '') ?: '');
         $this->alimtalkProfile = (string) (Setting::get('alimtalk_profile', '') ?: '');
@@ -57,6 +60,21 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->alimtalkToggleForward = (bool) Setting::get('alimtalk_toggle_board_forward_ready', true);
         $this->alimtalkScheduleTime = (string) (Setting::get('alimtalk_region_schedule_time', '') ?: '');
         // userkey 는 보안상 로드하지 않음(설정돼 있으면 placeholder 로만 안내).
+    }
+
+    public function saveJournalCutoff(): void
+    {
+        if (! auth()->user()?->isSuper()) {
+            abort(403);
+        }
+        $this->validate(['journalCutoff' => ['required', 'date_format:H:i']]);
+        $old = app(\App\Services\WorkJournalService::class)->cutoff();
+        Setting::updateOrCreate(['key' => 'work_journal_cutoff'], ['value' => $this->journalCutoff, 'type' => 'string', 'description' => '업무일지 상신 마감 시각(HH:MM KST)']);
+        if ($old !== $this->journalCutoff) {
+            \App\Models\BoardAuditLog::create(['user_id' => auth()->id(), 'purchase_listing_id' => null, 'action' => 'setting_change', 'field' => 'work_journal_cutoff',
+                'old_value' => $old, 'new_value' => $this->journalCutoff, 'ip_address' => \App\Models\BoardAuditLog::currentIp()]);
+        }
+        $this->dispatch('journal-saved');
     }
 
     public function saveAlimtalk(): void
@@ -274,6 +292,20 @@ new #[Layout('components.layouts.app')] class extends Component {
         @if (! config('assistant.enabled'))
             <p class="mt-1 text-xs text-amber-600">{{ __('assistant.settings_env_off') }}</p>
         @endif
+    </div>
+
+    {{-- 업무일지 — 상신 마감 시각 --}}
+    <div class="card mb-4 max-w-lg">
+        <div class="mb-3 border-b border-gray-100 pb-2">
+            <span class="text-sm font-semibold text-gray-700">{{ __('journal.settings_title') }}</span>
+        </div>
+        <form wire:submit="saveJournalCutoff" class="space-y-3">
+            <flux:input type="time" wire:model="journalCutoff" :label="__('journal.settings_cutoff')" :description="__('journal.settings_cutoff_hint')" required />
+            <div class="flex items-center gap-3">
+                <flux:button variant="primary" type="submit">{{ __('settings.feature.save') }}</flux:button>
+                <x-action-message class="text-sm text-green-600" on="journal-saved">{{ __('journal.settings_saved') }}</x-action-message>
+            </div>
+        </form>
     </div>
 
     {{-- 카카오 알림톡(BizM) — 지역 검차 안내 --}}

@@ -2,12 +2,15 @@
 
 return [
     'group' => [
+        'journal' => '업무일지',
         'work' => '업무',
         'manage' => '관리',
         'system' => '시스템',
     ],
 
     'menu' => [
+        'work_journal' => '업무일지',
+        'work_journal_approvals' => '업무일지결재',
         'listings' => '매입예정(Invoice)',
         'forwarding' => '전달 대기',
         'verdicts' => '바이어 회신',
@@ -21,6 +24,8 @@ return [
     ],
 
     'crumb' => [
+        'work_journal' => '업무일지',
+        'work_journal_approvals' => '업무일지결재',
         'dashboard' => '대시보드',
         'listings' => '매입예정(Invoice)',
         'forwarding' => '전달 대기',

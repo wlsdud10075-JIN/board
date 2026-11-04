@@ -32,6 +32,9 @@
         $pendingForward = \App\Models\PurchaseListing::where('status', 'inspected')->count();
     }
 
+    // 업무일지 결재 — 지금 내 차례인 기안 수(결재 직급 있는 사람만 쿼리).
+    $journalTurn = $user->isJournalApprover() ? app(\App\Services\WorkJournalService::class)->myTurnCount($user) : 0;
+
     $routeName = request()->route()?->getName();
     $breadcrumb = match ($routeName) {
         'dashboard' => __('nav.crumb.dashboard'),
@@ -48,6 +51,8 @@
         'settings.password' => __('nav.crumb.settings_password'),
         'settings.appearance' => __('nav.crumb.settings_appearance'),
         'admin.settings' => __('nav.crumb.admin_settings'),
+        'work-journal' => __('nav.crumb.work_journal'),
+        'work-journal.approvals' => __('nav.crumb.work_journal_approvals'),
         default => '',
     };
 
@@ -61,6 +66,10 @@
             ['label' => __('nav.menu.verdicts'), 'href' => route('verdicts'), 'icon' => 'chat', 'active' => request()->routeIs('verdicts'), 'show' => $can(['sales', 'manager'])],
             ['label' => __('nav.menu.auction'), 'href' => route('auction'), 'icon' => 'banknotes', 'active' => request()->routeIs('auction'), 'show' => $can(['sales', 'auction', 'manager'])],
             ['label' => __('nav.menu.portal'), 'href' => route('portal'), 'icon' => 'wallet', 'active' => request()->routeIs('portal'), 'show' => $can(['sales', 'manager'])],
+        ]],
+        ['key' => 'journal', 'label' => __('nav.group.journal'), 'items' => [
+            ['label' => __('nav.menu.work_journal'), 'href' => route('work-journal'), 'icon' => 'document', 'active' => request()->routeIs('work-journal'), 'show' => $user->isJournalWriter()],
+            ['label' => __('nav.menu.work_journal_approvals'), 'href' => route('work-journal.approvals'), 'icon' => 'clipboard', 'active' => request()->routeIs('work-journal.approvals'), 'show' => $user->isJournalApprover() || $user->hasFullAccess(), 'badge' => $journalTurn ?: null],
         ]],
         ['key' => 'manage', 'label' => __('nav.group.manage'), 'items' => [
             ['label' => __('nav.menu.manage'), 'href' => route('manage'), 'icon' => 'shield', 'active' => request()->routeIs('manage'), 'show' => $can(['manager'])],

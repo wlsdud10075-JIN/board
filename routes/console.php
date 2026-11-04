@@ -44,6 +44,9 @@ Schedule::command('board:purchase-sync-audit')->dailyAt('07:40')->withoutOverlap
 // 미설정이면 명령 내부 no-op.
 Schedule::command('board:inspection-reconcile')->dailyAt('07:20')->withoutOverlapping();
 
+// 업무일지 마감 알림 — 5분마다 확인, 평일·마감 시각 이후·하루 1번은 서비스가 판정(2026-11-04 Jin)
+Schedule::command('board:work-journal-cutoff')->everyFiveMinutes()->withoutOverlapping();
+
 // §11 요청 결과(ERP 확인·거절) → 웹푸시. ERP→board 역방향 채널이 없어 board 가 매분 사용자별 since 조회.
 // VAPID·car-erp 미설정이면 명령 내부 no-op. 두 박스 모두 돈다(각자 자기 ERP).
 Schedule::command('board:push-request-results')->everyMinute()->withoutOverlapping();
