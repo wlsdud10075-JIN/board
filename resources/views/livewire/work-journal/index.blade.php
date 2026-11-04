@@ -112,15 +112,6 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->touchSaved();
     }
 
-    public function stampNow(int $i): void
-    {
-        if (! isset($this->rows[$i])) {
-            return;
-        }
-        $this->rows[$i]['time'] = now()->format('H:i');
-        $this->updatedRows($this->rows[$i]['time'], $i.'.time');
-    }
-
     public function deleteRow(int $id): void
     {
         $j = $this->writable();
@@ -277,27 +268,34 @@ new #[Layout('components.layouts.app')] class extends Component {
         @endif
         @error('rows') <div class="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">⚠ {{ $message }}</div> @enderror
 
-        {{-- 모바일 = 줄마다 카드(시간·지금·✕ 한 줄 → 한 일 → 비고), PC = 한 줄 4칸. 표(table)로 두면 폰에서 입력칸이 쪼그라든다(2026-11-04 Jin). --}}
+        {{-- 모바일 = 줄마다 카드(시간·✕ → 한 일 → 비고, 이름표), PC = 한 줄 4칸. 표(table)로 두면 폰에서 입력칸이 쪼그라든다(2026-11-04 Jin). --}}
         @if ($locked)
             @include('livewire.work-journal._entries', ['rows' => $shownRows])
         @else
+            {{-- 2026-11-04 Jin: [지금] 버튼 없음(줄 추가 = 지금 시각, 시간 칸은 수정 가능) · 한 일·비고는 한 줄 높이로 시작해 글만큼 늘어난다.
+                 PC = 머리글 + 한 줄 4칸 / 폰 = 줄마다 카드, 칸마다 작은 이름표(무슨 칸인지 보이게). --}}
+            @php $grow = "\$el.style.height = 'auto'; \$el.style.height = \$el.scrollHeight + 'px'"; @endphp
             <div class="hidden gap-2 border-b border-gray-200 pb-1.5 text-[12px] font-semibold text-gray-500 sm:flex">
-                <div style="width:9.5rem">{{ __('journal.col_time') }}</div><div class="flex-1">{{ __('journal.col_task') }}</div><div style="width:16rem">{{ __('journal.col_note') }}</div><div class="w-8"></div>
+                <div class="w-20 shrink-0">{{ __('journal.col_time') }}</div><div class="flex-1">{{ __('journal.col_task') }}</div><div class="w-64 shrink-0">{{ __('journal.col_note') }}</div><div class="w-8 shrink-0"></div>
             </div>
             @forelse ($rows as $i => $r)
-                <div class="flex flex-wrap items-start gap-2 border-b border-gray-100 py-2.5 sm:flex-nowrap" wire:key="wj-row-{{ $r['id'] }}">
-                    <div class="order-1 flex shrink-0 items-center gap-1" style="width:9.5rem">
-                        <input type="text" class="input-base text-center" style="width:5.5rem" maxlength="5" inputmode="numeric" placeholder="09:00" wire:model.live.debounce.600ms="rows.{{ $i }}.time">
-                        <button type="button" class="btn-outline btn-sm whitespace-nowrap" wire:click="stampNow({{ $i }})">{{ __('journal.now') }}</button>
+                <div class="mb-2 rounded-lg border border-gray-200 p-2.5 sm:mb-0 sm:flex sm:items-start sm:gap-2 sm:rounded-none sm:border-0 sm:border-b sm:border-gray-100 sm:px-0 sm:py-2" wire:key="wj-row-{{ $r['id'] }}">
+                    <div class="flex items-center gap-2 sm:w-20 sm:shrink-0">
+                        <span class="text-[11px] font-semibold text-gray-500 sm:hidden">{{ __('journal.col_time') }}</span>
+                        <input type="text" class="input-base text-center" style="width:5rem" maxlength="5" inputmode="numeric" placeholder="09:00" wire:model.live.debounce.600ms="rows.{{ $i }}.time">
+                        <button type="button" class="btn-ghost btn-sm ml-auto sm:hidden" title="{{ __('journal.delete_row') }}" wire:click="deleteRow({{ $r['id'] }})">✕</button>
                     </div>
-                    <button type="button" class="btn-ghost btn-sm order-2 ml-auto sm:order-4 sm:ml-0" title="{{ __('journal.delete_row') }}" wire:click="deleteRow({{ $r['id'] }})">✕</button>
-                    {{-- 폭은 바깥 div 에 — input-base 가 width 를 갖고 있어 textarea 에 직접 준 폭 클래스가 PC 에서 먹지 않았다 --}}
-                    <div class="order-3 w-full min-w-0 sm:order-2 sm:w-auto sm:flex-1">
-                        <textarea rows="2" class="input-base wj-task" placeholder="{{ __('journal.ph_task') }}" wire:model.live.debounce.600ms="rows.{{ $i }}.task"></textarea>
+                    <div class="mt-2 min-w-0 sm:mt-0 sm:flex-1">
+                        <span class="mb-0.5 block text-[11px] font-semibold text-gray-500 sm:hidden">{{ __('journal.col_task') }}</span>
+                        <textarea rows="1" class="input-base wj-task resize-none overflow-hidden" style="field-sizing:content; min-height:2.25rem" placeholder="{{ __('journal.ph_task') }}" wire:model.live.debounce.600ms="rows.{{ $i }}.task"
+                                  x-data x-init="$nextTick(() => { {{ $grow }} })" x-on:input="{{ $grow }}"></textarea>
                     </div>
-                    <div class="order-4 w-full sm:order-3 sm:w-64 sm:shrink-0">
-                        <textarea rows="2" class="input-base" placeholder="{{ __('journal.ph_note') }}" wire:model.live.debounce.600ms="rows.{{ $i }}.note"></textarea>
+                    <div class="mt-2 sm:mt-0 sm:w-64 sm:shrink-0">
+                        <span class="mb-0.5 block text-[11px] font-semibold text-gray-500 sm:hidden">{{ __('journal.col_note') }}</span>
+                        <textarea rows="1" class="input-base resize-none overflow-hidden" style="field-sizing:content; min-height:2.25rem" placeholder="{{ __('journal.ph_note') }}" wire:model.live.debounce.600ms="rows.{{ $i }}.note"
+                                  x-data x-init="$nextTick(() => { {{ $grow }} })" x-on:input="{{ $grow }}"></textarea>
                     </div>
+                    <button type="button" class="btn-ghost btn-sm hidden w-8 shrink-0 sm:block" title="{{ __('journal.delete_row') }}" wire:click="deleteRow({{ $r['id'] }})">✕</button>
                 </div>
             @empty
                 <p class="py-6 text-center text-sm text-gray-400">{{ __('journal.empty_rows') }}</p>

@@ -16,7 +16,6 @@ return [
     'col_note' => 'Note',
     'ph_task' => 'What you did',
     'ph_note' => 'Remarks',
-    'now' => 'Now',
     'add_row' => '+ Add row',
     'delete_row' => 'Delete row',
     'copy_prev' => 'Copy previous day',
