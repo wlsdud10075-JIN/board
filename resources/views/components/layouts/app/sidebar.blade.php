@@ -6,7 +6,7 @@
 <body class="min-h-screen bg-gray-50">
 @php
     $user = auth()->user();
-    $permLabel = $user->isSuper() ? __('nav.perm.super') : ($user->isWorkManager() ? __('nav.perm.manager') : $user->roleLabel());
+    $permLabel = $user->isSuper() ? __('nav.perm.super') : ($user->isTopManager() ? __('nav.perm.admin') : ($user->isWorkManager() ? __('nav.perm.manager') : $user->roleLabel()));
     $workGuideUrl = config('board.work_guide_url') ?: '';
 
     // 브랜드 텍스트 — 기능설정(sidebar_brand)과 동일 출처. 로그인 화면과 한 곳에서 같이 변경.

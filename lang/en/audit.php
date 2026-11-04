@@ -108,6 +108,7 @@ return [
         'erp_bl_cancel' => 'Portal B/L request cancelled',
         'erp_change_request' => 'Portal shipping change request',
         'erp_signing_request' => 'Portal signature request',
+        'user_permission' => 'User level / approval title',
         'deleted' => 'Deleted',
     ],
 

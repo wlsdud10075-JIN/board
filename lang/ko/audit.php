@@ -108,6 +108,7 @@ return [
         'erp_bl_cancel' => '포털 B/L 요청 취소',
         'erp_change_request' => '포털 선적 변경요청',
         'erp_signing_request' => '포털 서명 요청',
+        'user_permission' => '사용자 등급·결재 직급',   // 2026-11-04 — 누가 누구의 등급·직급을 바꿨나(옮김 포함)
         'deleted' => '삭제',
     ],
 

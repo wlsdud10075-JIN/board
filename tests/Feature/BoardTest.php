@@ -3466,7 +3466,7 @@ class BoardTest extends TestCase
         Volt::test('users.index')
             ->call('openCreate')
             ->set('name', '침입')->set('email', 'esc@board.test')->set('role', 'manager')
-            ->set('is_super', true)
+            ->set('tier', 'super')
             ->set('password', 'secret123')
             ->call('save')->assertHasNoErrors();
 
@@ -3481,7 +3481,7 @@ class BoardTest extends TestCase
 
         Volt::test('users.index')
             ->call('openEdit', $me->id)
-            ->set('is_super', true)
+            ->set('tier', 'super')
             ->call('save')->assertHasNoErrors();
 
         $this->assertFalse($me->fresh()->isSuper());
@@ -8759,9 +8759,9 @@ class BoardTest extends TestCase
         $this->actingAs($this->mkUser('manager'));
 
         Volt::test('users.index')->call('openCreate')
-            ->assertDontSeeHtml('wire:model="is_work_manager"')->assertDontSeeHtml('wire:model="is_super"')   // 등급 체크박스 자체가 없다(목록의 등급 배지 글자와는 별개)
+            ->assertDontSeeHtml('wire:model.live="tier"')   // 등급 선택칸 자체가 없다(목록의 등급 배지 글자와는 별개)
             ->set('name', '승격시도')->set('email', 'esc3@board.test')->set('role', 'manager')
-            ->set('is_work_manager', true)->set('is_super', true)->set('password', 'secret123')
+            ->set('tier', 'super')->set('password', 'secret123')
             ->call('save')->assertHasNoErrors();
         $this->assertSame('user', User::where('email', 'esc3@board.test')->value('permission'));
 
@@ -8778,10 +8778,11 @@ class BoardTest extends TestCase
         Volt::test('users.index')
             ->call('openCreate')
             ->set('name', '승격시도')->set('email', 'esc2@board.test')->set('role', 'sales')
-            ->set('is_super', true)->set('is_work_manager', true)
+            ->set('tier', 'admin')->set('approval_title', '대표')
             ->set('password', 'secret123')
             ->call('save')->assertHasNoErrors();
         $this->assertSame('user', User::where('email', 'esc2@board.test')->value('permission'));
+        $this->assertNull(User::where('email', 'esc2@board.test')->value('approval_title'));
 
         Volt::test('users.index')
             ->call('openEdit', $super->id)
@@ -8811,7 +8812,7 @@ class BoardTest extends TestCase
         Volt::test('users.index')
             ->call('openCreate')
             ->set('name', '업무관리')->set('email', 'wm2@board.test')->set('role', 'inspection')
-            ->set('is_work_manager', true)
+            ->set('tier', 'manager')
             ->set('password', 'secret123')
             ->call('save')->assertHasNoErrors();
 
@@ -8821,11 +8822,94 @@ class BoardTest extends TestCase
         $this->assertFalse($u->isSuper());
         $this->assertTrue($u->hasFullAccess());
 
-        // 둘 다 체크면 super 우선
         Volt::test('users.index')
-            ->call('openEdit', $u->id)->set('is_super', true)->set('is_work_manager', true)
+            ->call('openEdit', $u->id)->set('tier', 'super')
             ->call('save')->assertHasNoErrors();
         $this->assertSame('super', $u->fresh()->permission);
+    }
+
+    /** 최고관리자(admin, 2026-11-04 Jin) — role 무관 전체 화면·감사로그·사용자관리·전체 매물. 기능설정은 막힌다(EnsureSuper). 포털 남의 것은 조회만. */
+    public function test_top_manager_has_full_access_but_not_settings(): void
+    {
+        $other = $this->mkUser('sales');
+        $l = $this->mkListing($other);
+        $admin = $this->mkUser('inspection', null, 'admin');
+        $this->assertTrue($admin->isTopManager() && $admin->hasFullAccess() && ! $admin->isSuper() && ! $admin->isWorkManager());
+        $this->actingAs($admin);
+
+        foreach (['/listings', '/forwarding', '/verdicts', '/inspection', '/auction', '/manage', '/users', '/audit'] as $url) {
+            $this->get($url)->assertOk();
+        }
+        $this->get('/admin/settings')->assertForbidden();
+        $this->get('/listings')->assertSee(__('nav.perm.admin'))->assertSee(__('nav.menu.audit'))->assertDontSee(route('admin.settings'));
+        Volt::test('listings.index')->assertSee($l->vehicle_number);   // 영업 격리 없음(SalesmanScope 바이패스)
+        $this->assertSame(1, PurchaseListing::count());
+    }
+
+    /** 등급 지정 — 최고관리자는 super 를 못 주고 admin·manager·user 는 준다. 최고관리자 계정은 super·최고관리자만, 업무관리자는 못 연다. */
+    public function test_top_manager_grants_tiers_except_super_and_is_protected_from_lower(): void
+    {
+        $admin = $this->mkUser('manager', null, 'admin');
+        $this->actingAs($admin);
+
+        Volt::test('users.index')->call('openCreate')
+            ->set('name', '최고')->set('email', 'top@board.test')->set('role', 'sales')->set('tier', 'super')->set('password', 'secret123')
+            ->call('save')->assertHasErrors('tier');
+        $this->assertNull(User::where('email', 'top@board.test')->first());
+
+        Volt::test('users.index')->call('openCreate')
+            ->set('name', '최고')->set('email', 'top@board.test')->set('role', 'sales')->set('tier', 'admin')->set('approval_title', '상무')->set('password', 'secret123')
+            ->call('save')->assertHasNoErrors();
+        $top = User::where('email', 'top@board.test')->firstOrFail();
+        $this->assertSame(['admin', '상무', 'manager'], [$top->permission, $top->approval_title, $top->role]);   // 최고관리자는 role 「관리」 고정
+        $log = BoardAuditLog::where('action', 'user_permission')->latest('id')->first();
+        $this->assertSame(['admin', '상무'], [json_decode($log->new_value, true)['permission'], json_decode($log->new_value, true)['approval_title']]);
+
+        // 업무관리자는 최고관리자 계정을 못 연다 · 최고관리자는 super 계정을 못 연다
+        $this->actingAs($this->mkUser('sales', null, 'manager'));
+        Volt::test('users.index')->call('openEdit', $top->id)->assertSet('editingId', null);
+        $this->actingAs($admin);
+        $super = $this->mkUser('sales', 'root@board.test', 'super');
+        Volt::test('users.index')->call('openEdit', $super->id)->assertSet('editingId', null);
+
+        // 최고관리자는 자기 등급을 못 내린다
+        Volt::test('users.index')->call('openEdit', $admin->id)->set('tier', 'user')->call('save')->assertHasNoErrors();
+        $this->assertSame('admin', $admin->fresh()->permission);
+    }
+
+    /** 결재 직급 — 등급에 매인다(admin: 부장·상무·대표 / manager: 팀장), 등급이 바뀌면 해제, 직급마다 1명(옮기면 기존 보유자 해제 + 감사). */
+    public function test_approval_title_follows_tier_and_is_unique(): void
+    {
+        $this->actingAs($this->mkUser('manager', null, 'super'));
+        $wm1 = $this->mkUser('sales', 'wm1@board.test', 'manager');
+        $wm2 = $this->mkUser('sales', 'wm2@board.test', 'manager');
+
+        Volt::test('users.index')->call('openEdit', $wm1->id)->set('approval_title', '팀장')->call('save')->assertHasNoErrors();
+        $this->assertSame('팀장', $wm1->fresh()->approval_title);
+        $this->assertTrue($wm1->fresh()->isJournalApprover());
+
+        // 업무관리자에게 「대표」는 안 붙는다
+        Volt::test('users.index')->call('openEdit', $wm2->id)->set('approval_title', '대표')->call('save')->assertHasNoErrors();
+        $this->assertNull($wm2->fresh()->approval_title);
+
+        // 팀장을 wm2 로 옮기면 wm1 은 해제
+        Volt::test('users.index')->call('openEdit', $wm2->id)->set('approval_title', '팀장')->call('save')->assertHasNoErrors();
+        $this->assertSame([null, '팀장'], [$wm1->fresh()->approval_title, $wm2->fresh()->approval_title]);
+        $this->assertTrue(BoardAuditLog::where('action', 'user_permission')->where('new_value', 'like', '%moved_to%')->exists());
+
+        // 등급을 일반으로 내리면 직급 해제
+        Volt::test('users.index')->call('openEdit', $wm2->id)->set('tier', 'user')->call('save')->assertHasNoErrors();
+        $this->assertSame(['user', null], [$wm2->fresh()->permission, $wm2->fresh()->approval_title]);
+        $this->assertTrue($wm2->fresh()->isJournalWriter());
+    }
+
+    /** 최고관리자도 남의 포털은 조회만(Jin 2026-11-04 — 업무관리자와 같게). 대신 실행은 super·담당 관리만. */
+    public function test_top_manager_portal_is_read_only_for_others(): void
+    {
+        $this->actingAs($this->mkUser('manager', null, 'admin'));
+        $sales = $this->mkUser('sales');
+        $c = Volt::test('portal.index')->set('viewUserId', $sales->id);
+        $this->assertTrue($c->instance()->proxyWriteBlocked());
     }
 
     /** 사이드바 — 업무관리자는 감사로그 메뉴를 보고 기능설정 메뉴는 못 본다. 등급 라벨은 「업무관리자」. */

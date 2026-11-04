@@ -30,6 +30,7 @@ class User extends Authenticatable // implements MustVerifyEmail
         'password',
         'role',
         'permission',
+        'approval_title',
         'is_active',
         'locale',
         'car_erp_salesman_id',
@@ -45,11 +46,20 @@ class User extends Authenticatable // implements MustVerifyEmail
     public const LOCALES = ['ko', 'en'];
 
     /**
-     * 권한 단계 (car-erp 미러 super > manager > user) — super=시스템관리자, manager=업무관리자(2026-10-14 Jin), user=role 기반.
-     * 업무관리자 = role 무관 전체 화면 + 감사로그 + 사용자관리(super 계정 제외). 기능설정·업무관리자/super 지정·
+     * 권한 단계 (car-erp 미러 super > admin > manager > user) — super=시스템관리자, admin=최고관리자(2026-11-04 Jin), manager=업무관리자(2026-10-14 Jin), user=role 기반.
+     * 업무관리자 = role 무관 전체 화면 + 감사로그 + 사용자관리(super 계정 제외). 기능설정·super 지정·
      * 포털 타인 명의 대리실행은 super 만. 관리자 페이지 삭제/재전송은 관리 이상(관리 role 포함, 2026-10-22 Jin).
+     * 최고관리자 = 업무관리자 권한 + 등급 지정(super 제외)·결재 직급(부장·상무·대표). 기능설정·포털 대리실행은 못 한다(조회만).
      */
-    public const PERMISSIONS = ['super', 'manager', 'user'];
+    public const PERMISSIONS = ['super', 'admin', 'manager', 'user'];
+
+    /** 업무일지 결재선 순서(2026-11-04 Jin) — 팀장 = 업무관리자 중 지정 1명, 부장·상무·대표 = 최고관리자. 직급마다 1명. */
+    public const JOURNAL_LINE = ['팀장', '부장', '상무', '대표'];
+
+    /** 최고관리자에게만 붙는 결재 직급(ERP `APPROVAL_TITLES` 와 같은 값). */
+    public const TOP_TITLES = ['부장', '상무', '대표'];
+
+    public const TEAM_LEADER = '팀장';
 
     public const ROLE_LABELS = [
         'sales' => '영업', 'inspection' => '현지확인', 'auction' => '경매', 'manager' => '관리',
@@ -103,12 +113,43 @@ class User extends Authenticatable // implements MustVerifyEmail
     }
 
     /**
-     * role 바이패스 등급 = super 또는 업무관리자. 라우트 role 가드·영업 격리·사이드바 메뉴가 이걸 본다.
+     * 최고관리자(permission=admin, 2026-11-04 Jin). 🚫 `isAdmin()` 으로 짓지 말 것 — car-erp `isAdmin()` 은 super 를 포함해 헷갈린다.
+     */
+    public function isTopManager(): bool
+    {
+        return $this->permission === 'admin';
+    }
+
+    /** 등급 순위 — super 4 · admin 3 · manager 2 · user 1. 「위 등급 계정은 아래 등급이 못 건드린다」 판정용. */
+    public function tierRank(): int
+    {
+        return match ($this->permission) {
+            'super' => 4, 'admin' => 3, 'manager' => 2, default => 1,
+        };
+    }
+
+    /** 업무일지 작성자 — 등급 「일반」 활성 사용자(결재 직급·관리자 등급은 쓰지 않고 결재·조회만). */
+    public function isJournalWriter(): bool
+    {
+        return $this->is_active && $this->permission === 'user';
+    }
+
+    /** 업무일지 결재선에 들어가는 사람 — 팀장 지정 업무관리자 또는 직급 있는 최고관리자. */
+    public function isJournalApprover(): bool
+    {
+        return $this->is_active && (
+            ($this->isWorkManager() && $this->approval_title === self::TEAM_LEADER)
+            || ($this->isTopManager() && in_array($this->approval_title, self::TOP_TITLES, true))
+        );
+    }
+
+    /**
+     * role 바이패스 등급 = super·최고관리자·업무관리자. 라우트 role 가드·영업 격리·사이드바 메뉴가 이걸 본다.
      * ⚠️ super 전용 기능(기능설정·등급 지정·포털 대리실행·관리자 페이지 삭제/재전송)은 여기 말고 `isSuper()` 로 판정.
      */
     public function hasFullAccess(): bool
     {
-        return $this->isSuper() || $this->isWorkManager();
+        return $this->isSuper() || $this->isTopManager() || $this->isWorkManager();
     }
 
     public function roleLabel(): string

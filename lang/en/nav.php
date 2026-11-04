@@ -45,6 +45,7 @@ return [
     ],
 
     'perm' => [
+        'admin' => 'Top manager',
         'super' => 'System Admin',
         'manager' => 'Operations Manager',
     ],

@@ -21,8 +21,10 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $phone = '';           // 알림톡 수신번호(검차 담당자 지역 검차 안내 등)
     public string $region = '';          // 검차원 담당 지역(고정 로스터) — 지역 검차 알림톡 수신 기준
     public string $role = 'sales';
-    public bool $is_super = false;
-    public bool $is_work_manager = false;   // 업무관리자 등급(permission=manager) — super 만 지정, 둘 다 체크면 super 우선
+    /** 등급(permission) — super·admin 만 바꾼다(admin 은 super 를 못 준다). 업무관리자·관리 role 이 밀어넣어도 서버가 기존 값으로 되돌린다. */
+    public string $tier = 'user';
+    /** 결재 직급 — admin: 부장·상무·대표 / manager: 팀장. 직급마다 1명(지정하면 기존 보유자 해제). 2026-11-04 Jin */
+    public string $approval_title = '';
     public bool $is_active = true;
     public ?string $car_erp_salesman_id = null;
     public string $car_erp_salesman_email = '';   // 연동 B 영업 매칭 오버라이드(car-erp 이메일이 로그인과 다를 때)
@@ -58,7 +60,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function pickPerm(string $perm): void
     {
-        if ($perm !== '' && ! in_array($perm, ['super', 'manager', 'user'], true)) {
+        if ($perm !== '' && ! in_array($perm, User::PERMISSIONS, true)) {
             return;
         }
         $this->permFilter = ($this->permFilter === $perm && $this->roleFilter === '') ? '' : $perm;
@@ -107,9 +109,9 @@ new #[Layout('components.layouts.app')] class extends Component {
             }))
             ->when($this->permFilter !== '', fn ($q) => $q->where('permission', $this->permFilter))
             ->when($this->roleFilter !== '', fn ($q) => $q->where('permission', 'user')->where('role', $this->roleFilter))
-            // 등급순(시스템관리자 → 업무관리자 → 일반) → 일반은 역할순 → 이름 → id(동점 tie-break — 페이지 사이 중복·누락 방지, ERP 와 같음).
+            // 등급순(시스템관리자 → 최고관리자 → 업무관리자 → 일반) → 일반은 역할순 → 이름 → id(동점 tie-break — 페이지 사이 중복·누락 방지, ERP 와 같음).
             //   ⚠️ orderBy('permission') 은 MySQL ENUM 인덱스·sqlite 문자열로 순서가 갈린다 — CASE 로 고정.
-            ->orderByRaw("CASE permission WHEN 'super' THEN 0 WHEN 'manager' THEN 1 ELSE 2 END")
+            ->orderByRaw("CASE permission WHEN 'super' THEN 0 WHEN 'admin' THEN 1 WHEN 'manager' THEN 2 ELSE 3 END")
             ->orderByRaw("CASE WHEN permission = 'user' THEN CASE role WHEN 'manager' THEN 0 WHEN 'sales' THEN 1 WHEN 'inspection' THEN 2 WHEN 'auction' THEN 3 ELSE 4 END ELSE 0 END")
             ->orderBy('name')->orderBy('id')
             ->paginate($this->perPage);
@@ -131,7 +133,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     }
 
     /**
-     * 위 등급 계정은 아래 등급이 못 건드린다 — super 는 super 만, 업무관리자는 super·업무관리자만.
+     * 위 등급 계정은 아래 등급이 못 건드린다 — super 는 super 만, 최고관리자는 super·최고관리자만, 업무관리자는 업무관리자 이상만.
      * 아니면 관리 role 이 업무관리자 비밀번호를 바꿔 그 계정으로 감사로그를 연다(한 단계 아래의 같은 탈취 경로).
      */
     public function targetIsProtected(?User $target): bool
@@ -139,15 +141,31 @@ new #[Layout('components.layouts.app')] class extends Component {
         if ($target === null) {
             return false;
         }
-        $actor = Auth::user();
 
-        return ($target->isSuper() && ! $actor->isSuper())
-            || ($target->isWorkManager() && ! $actor->hasFullAccess());
+        return $target->tierRank() > 1 && Auth::user()->tierRank() < $target->tierRank();
+    }
+
+    /** 등급·결재 직급을 바꿀 수 있나 — super 와 최고관리자(car-erp 미러). 업무관리자는 종전대로 못 한다(board 2026-10-14 결정 유지). */
+    public function actorCanGrant(): bool
+    {
+        $a = Auth::user();
+
+        return $a->isSuper() || $a->isTopManager();
+    }
+
+    /** 줄 수 있는 등급 — super 는 전부, 최고관리자는 super 빼고. */
+    public function grantableTiers(): array
+    {
+        if (! $this->actorCanGrant()) {
+            return [];
+        }
+
+        return Auth::user()->isSuper() ? ['user', 'manager', 'admin', 'super'] : ['user', 'manager', 'admin'];
     }
 
     public function openCreate(): void
     {
-        $this->reset(['editingId', 'name', 'email', 'phone', 'region', 'password', 'is_super', 'is_work_manager', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email']);
+        $this->reset(['editingId', 'name', 'email', 'phone', 'region', 'password', 'tier', 'approval_title', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email']);
         $this->role = 'sales';
         $this->is_active = true;
         $this->showForm = true;
@@ -168,8 +186,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->phone = $u->phone ?? '';
         $this->region = $u->region ?? '';
         $this->role = $u->role;
-        $this->is_super = $u->isSuper();
-        $this->is_work_manager = $u->isWorkManager();
+        $this->tier = $u->permission;
+        $this->approval_title = (string) $u->approval_title;
         $this->is_active = $u->is_active;
         $this->car_erp_salesman_id = $u->car_erp_salesman_id !== null ? (string) $u->car_erp_salesman_id : null;
         $this->car_erp_salesman_email = $u->car_erp_salesman_email ?? '';
@@ -181,7 +199,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function close(): void
     {
-        $this->reset(['showForm', 'editingId', 'name', 'email', 'phone', 'region', 'password', 'is_super', 'is_work_manager', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email']);
+        $this->reset(['showForm', 'editingId', 'name', 'email', 'phone', 'region', 'password', 'tier', 'approval_title', 'car_erp_salesman_id', 'car_erp_salesman_email', 'respond_agent_email']);
         $this->role = 'sales';
         $this->is_active = true;
     }
@@ -197,6 +215,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             'car_erp_salesman_id' => 'nullable|integer|min:1',
             'car_erp_salesman_email' => 'nullable|email|max:100',
             'respond_agent_email' => 'nullable|email|max:100',
+            'tier' => 'required|in:'.implode(',', User::PERMISSIONS),
+            'approval_title' => 'nullable|in:'.implode(',', User::JOURNAL_LINE),
         ];
         if (! $this->editingId || filled($this->password)) {
             $rules['password'] = 'required|string|min:6';
@@ -205,32 +225,45 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $target = $this->editingId ? User::findOrFail($this->editingId) : null;
 
-        // 시스템관리자 경계 — 관리자는 super 계정을 수정할 수 없고, super 지정도 못 한다.
-        // is_super 는 public 프로퍼티라 화면에서 숨기는 것만으론 못 막는다. 최종 판정은 여기서.
-        if (! $this->actorIsSuper()) {
-            if ($this->targetIsProtected($target)) {
-                session()->flash('err', __('users.err_super_target_forbidden'));
+        // 등급 경계 — 위 등급 계정은 못 건드리고, 줄 수 없는 등급은 못 준다.
+        // tier 는 public 프로퍼티라 화면에서 숨기는 것만으론 못 막는다. 최종 판정은 여기서.
+        if ($this->targetIsProtected($target)) {
+            session()->flash('err', __('users.err_super_target_forbidden'));
 
-                return;
-            }
-            // 등급은 super 만 바꾼다. 🚨 재계산하면 관리 role 이 업무관리자 계정을 저장만 해도 user 로 조용히 내려간다
-            //    → 기존 등급을 그대로 보존(신규는 user).
-            $this->is_super = false;
-            $this->is_work_manager = $target?->isWorkManager() ?? false;
+            return;
+        }
+        if (! $this->actorCanGrant()) {
+            // 🚨 재계산하면 관리 role 이 업무관리자 계정을 저장만 해도 user 로 조용히 내려간다 → 기존 등급·직급 보존(신규는 user).
+            $this->tier = $target?->permission ?? 'user';
+            $this->approval_title = (string) ($target?->approval_title ?? '');
+        } elseif (! in_array($this->tier, $this->grantableTiers(), true)) {
+            $this->addError('tier', __('users.err_cannot_grant_tier'));
+
+            return;
         }
 
         // 본인 계정 보호 — 자기 권한을 내려 스스로 잠기는 것 방지
         if ($this->editingId === Auth::id()) {
             if ($this->actorIsSuper()) {
-                if (! $this->is_super) {
-                    $this->addError('is_super', __('users.err_cannot_remove_own_super'));
+                if ($this->tier !== 'super') {
+                    $this->addError('tier', __('users.err_cannot_remove_own_super'));
 
                     return;
                 }
             } else {
                 $this->role = $target->role;   // 관리자가 자기 역할을 바꿔 사용자관리를 잃는 것 방지
+                $this->tier = $target->permission;   // 최고관리자도 자기 등급은 못 내린다
             }
             $this->is_active = true;
+        }
+
+        // 결재 직급은 등급에 매인다 — admin: 부장·상무·대표 / manager: 팀장 / 그 외: 없음(등급이 바뀌면 자동 해제, ERP 와 같음).
+        $title = $this->approval_title ?: null;
+        if (! (($this->tier === 'admin' && in_array($title, User::TOP_TITLES, true)) || ($this->tier === 'manager' && $title === User::TEAM_LEADER))) {
+            $title = null;
+        }
+        if ($this->tier === 'admin') {
+            $this->role = 'manager';   // 최고관리자는 role 무관 — ERP 처럼 「관리」로 고정(영업 격리·영업 매핑이 남지 않게)
         }
 
         $data = [
@@ -239,7 +272,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             'phone' => $this->phone ?: null,
             'region' => $this->role === 'inspection' ? ($this->region ?: null) : null,   // 지역은 검차원만
             'role' => $this->role,
-            'permission' => $this->is_super ? 'super' : ($this->is_work_manager ? 'manager' : 'user'),
+            'permission' => $this->tier,
+            'approval_title' => $title,
             'is_active' => $this->is_active,
             'car_erp_salesman_id' => ($this->car_erp_salesman_id === null || $this->car_erp_salesman_id === '') ? null : (int) $this->car_erp_salesman_id,
             'car_erp_salesman_email' => $this->car_erp_salesman_email ?: null,
@@ -249,6 +283,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             $data['password'] = $this->password; // 'hashed' cast
         }
 
+        $before = $target ? ['permission' => $target->permission, 'approval_title' => $target->approval_title] : null;
         if ($target) {
             $target->update($data);
         } else {
@@ -256,10 +291,48 @@ new #[Layout('components.layouts.app')] class extends Component {
             $target = User::create($data);
         }
         $this->detachStaleSharing($target);
+        $this->logTierChange($target, $before);
+        $released = $title ? $this->releaseTitleFromOthers($target, $title) : [];
 
         unset($this->users);
-        session()->flash('ok', __('users.saved'));
+        session()->flash('ok', __('users.saved').($released ? ' '.__('users.title_released', ['title' => $title, 'names' => implode(', ', $released)]) : ''));
         $this->close();
+    }
+
+    /** 등급·결재 직급이 바뀌면 감사 행(Jin 「board 모든 행위는 기록」). 신규 계정은 user 가 아닐 때만. */
+    private function logTierChange(User $target, ?array $before): void
+    {
+        $after = ['permission' => $target->permission, 'approval_title' => $target->approval_title];
+        if ($before === $after || ($before === null && $after === ['permission' => 'user', 'approval_title' => null])) {
+            return;
+        }
+        \App\Models\BoardAuditLog::create([
+            'user_id' => Auth::id(), 'purchase_listing_id' => null, 'action' => 'user_permission', 'field' => 'user_permission',
+            'old_value' => $before === null ? null : json_encode(['user' => $target->name] + $before, JSON_UNESCAPED_UNICODE),
+            'new_value' => json_encode(['user' => $target->name] + $after, JSON_UNESCAPED_UNICODE),
+            'ip_address' => \App\Models\BoardAuditLog::currentIp(),
+        ]);
+    }
+
+    /**
+     * 결재 직급은 직급마다 1명(업무일지 결재선이 사람을 자동으로 고른다 — 둘이면 누구에게 갈지 규칙이 없다, ERP 는 제출 때 고르지만 board 는 자동).
+     * 지정하면 같은 직급의 기존 보유자를 해제하고 감사 행. 반환 = 해제된 이름들(화면 안내용).
+     */
+    private function releaseTitleFromOthers(User $target, string $title): array
+    {
+        $names = [];
+        foreach (User::where('approval_title', $title)->where('id', '!=', $target->id)->get() as $other) {
+            $other->update(['approval_title' => null]);
+            $names[] = $other->name;
+            \App\Models\BoardAuditLog::create([
+                'user_id' => Auth::id(), 'purchase_listing_id' => null, 'action' => 'user_permission', 'field' => 'user_permission',
+                'old_value' => json_encode(['user' => $other->name, 'permission' => $other->permission, 'approval_title' => $title], JSON_UNESCAPED_UNICODE),
+                'new_value' => json_encode(['user' => $other->name, 'permission' => $other->permission, 'approval_title' => null, 'reason' => 'moved_to:'.$target->name], JSON_UNESCAPED_UNICODE),
+                'ip_address' => \App\Models\BoardAuditLog::currentIp(),
+            ]);
+        }
+
+        return $names;
     }
 
     /**
@@ -352,6 +425,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @endforeach
             </span>
             <button type="button" wire:click="pickPerm('manager')" class="{{ $permFilter === 'manager' ? $chipOn : $chipOff }}">{{ __('users.filter_perm_manager') }}</button>
+            <button type="button" wire:click="pickPerm('admin')" class="{{ $permFilter === 'admin' ? $chipOn : $chipOff }}">{{ __('users.filter_perm_admin') }}</button>
             <button type="button" wire:click="pickPerm('super')" class="{{ $permFilter === 'super' ? $chipOn : $chipOff }}">{{ __('users.filter_perm_super') }}</button>
         </div>
     </div>
@@ -371,7 +445,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                             </td>
                             <td class="text-gray-600">{{ $u->email }}</td>
                             <td>
-                                @if ($u->isSuper())<span class="badge badge-red">{{ __('nav.perm.super') }}</span> @elseif ($u->isWorkManager())<span class="badge badge-amber">{{ __('nav.perm.manager') }}</span> @endif
+                                @if ($u->isSuper())<span class="badge badge-red">{{ __('nav.perm.super') }}</span> @elseif ($u->isTopManager())<span class="badge badge-red">{{ __('nav.perm.admin') }}</span> @elseif ($u->isWorkManager())<span class="badge badge-amber">{{ __('nav.perm.manager') }}</span> @endif
+                                @if ($u->approval_title)<span class="badge badge-gray">{{ __('users.title_badge', ['title' => $u->approval_title]) }}</span>@endif
                                 <span class="badge {{ $u->isManager() ? 'badge-purple' : 'badge-blue' }}">{{ $this->roleLabel($u->role) }}</span>
                             </td>
                             <td class="text-gray-500">{{ $u->car_erp_salesman_email ?? ($u->car_erp_salesman_id ? '#'.$u->car_erp_salesman_id : '—') }}</td>
@@ -459,16 +534,35 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <input class="input-base" wire:model="password" type="password" placeholder="{{ $editingId ? __('users.ph_password_keep') : __('users.ph_password_new') }}">
                 @error('password') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
-                {{-- 시스템관리자 지정은 시스템관리자만 (관리 role 이 스스로 super 가 되는 권한상승 차단) --}}
-                @if ($this->actorIsSuper())
-                    <label class="mt-4 flex items-center gap-2 text-sm text-gray-700">
-                        <input type="checkbox" wire:model="is_super"> <b>{{ __('users.super_checkbox') }}</b> {{ __('users.super_checkbox_desc') }}
-                    </label>
-                    @error('is_super') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                    {{-- 업무관리자 등급(2026-10-14 Jin) — 지정도 super 만. 둘 다 체크면 super 로 저장된다. --}}
-                    <label class="mt-2 flex items-center gap-2 text-sm text-gray-700">
-                        <input type="checkbox" wire:model="is_work_manager"> <b>{{ __('users.work_manager_checkbox') }}</b> {{ __('users.work_manager_checkbox_desc') }}
-                    </label>
+                {{-- 등급·결재 직급 — super·최고관리자만 보이고 바꾼다(최고관리자는 super 를 못 준다). 서버 가드 = save(). 2026-11-04 Jin --}}
+                @if ($this->actorCanGrant())
+                    <label class="label-base mt-4">{{ __('users.label_tier') }}</label>
+                    <select class="input-base" wire:model.live="tier">
+                        @foreach ($this->grantableTiers() as $t)
+                            <option value="{{ $t }}">{{ __('users.tier.'.$t) }}</option>
+                        @endforeach
+                    </select>
+                    <p class="mt-1 text-xs text-gray-400">{{ __('users.tier_desc.'.$tier) }}</p>
+                    @error('tier') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+
+                    @if ($tier === 'admin')
+                        <label class="label-base mt-3">{{ __('users.label_approval_title') }}</label>
+                        <select class="input-base" wire:model="approval_title">
+                            <option value="">{{ __('users.title_none') }}</option>
+                            @foreach (\App\Models\User::TOP_TITLES as $t)
+                                <option value="{{ $t }}">{{ $t }}</option>
+                            @endforeach
+                        </select>
+                        <p class="mt-1 text-xs text-gray-400">{{ __('users.title_hint') }}</p>
+                    @elseif ($tier === 'manager')
+                        {{-- 체크박스는 bool 로 바인딩돼 문자열 칸엔 안 맞는다 — select 로 --}}
+                        <label class="label-base mt-3">{{ __('users.label_approval_title') }}</label>
+                        <select class="input-base" wire:model="approval_title">
+                            <option value="">{{ __('users.title_none') }}</option>
+                            <option value="{{ \App\Models\User::TEAM_LEADER }}">{{ __('users.team_leader_option') }}</option>
+                        </select>
+                        <p class="mt-1 text-xs text-gray-400">{{ __('users.title_hint') }}</p>
+                    @endif
                 @endif
 
                 <label class="mt-2 flex items-center gap-2 text-sm text-gray-700">
