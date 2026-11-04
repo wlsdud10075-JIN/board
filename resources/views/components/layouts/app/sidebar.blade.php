@@ -32,6 +32,9 @@
         $pendingForward = \App\Models\PurchaseListing::where('status', 'inspected')->count();
     }
 
+    // 알림톡 실패(미확인) — 시스템관리자만
+    $alimtalkAttention = $user->isSuper() ? \App\Models\AlimtalkLog::needsAttention()->count() : 0;
+
     // 업무일지 결재 — 지금 내 차례인 기안 수(결재 직급 있는 사람만 쿼리).
     $journalTurn = $user->isJournalApprover() ? app(\App\Services\WorkJournalService::class)->myTurnCount($user) : 0;
 
@@ -51,6 +54,7 @@
         'settings.password' => __('nav.crumb.settings_password'),
         'settings.appearance' => __('nav.crumb.settings_appearance'),
         'admin.settings' => __('nav.crumb.admin_settings'),
+        'admin.alimtalk-logs' => __('nav.crumb.alimtalk_logs'),
         'work-journal' => __('nav.crumb.work_journal'),
         'work-journal.approvals' => __('nav.crumb.work_journal_approvals'),
         default => '',
@@ -77,6 +81,7 @@
         ['key' => 'system', 'label' => __('nav.group.system'), 'items' => [
             ['label' => __('nav.menu.users'), 'href' => route('users'), 'icon' => 'user-group', 'active' => request()->routeIs('users'), 'show' => $can(['manager'])],
             ['label' => __('nav.menu.audit'), 'href' => route('audit'), 'icon' => 'document', 'active' => request()->routeIs('audit'), 'show' => $user->hasFullAccess()],
+            ['label' => __('nav.menu.alimtalk_logs'), 'href' => route('admin.alimtalk-logs'), 'icon' => 'chat', 'active' => request()->routeIs('admin.alimtalk-logs'), 'show' => $user->isSuper(), 'badge' => $alimtalkAttention ?: null],
             ['label' => __('nav.menu.settings'), 'href' => route('admin.settings'), 'icon' => 'cog', 'active' => request()->routeIs('admin.settings'), 'show' => $user->isSuper()],
         ]],
     ];

@@ -117,6 +117,7 @@ return [
         'work_journal_step_skipped' => '업무일지 결재 단계 건너뜀(공석)',
         'dev_user_switch' => '사용자 전환(로컬 시험)',
         'work_journal_reject' => '업무일지 반려',
+        'alimtalk_ack' => '알림톡 실패 확인',
         'deleted' => '삭제',
     ],
 

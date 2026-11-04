@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\AlimtalkLog;
 use App\Models\BoardAuditLog;
 use App\Models\PurchaseListing;
 use App\Models\Setting;
@@ -318,6 +319,31 @@ class WorkJournalTest extends TestCase
         $this->post('/dev/switch-back')->assertRedirect();
         $this->assertSame($root->id, auth()->id());
         $this->assertSame(3, BoardAuditLog::where('action', 'dev_user_switch')->count());
+    }
+
+    /** 알림톡 로그 화면 — 시스템관리자만, 상태·주의 필요 필터, 실패 [확인](한 건·전체) + 감사, 사이드바 배지. 건너뜀 사유는 한글. */
+    public function test_alimtalk_log_screen_super_only_with_ack(): void
+    {
+        $root = $this->mk('root', 'super', null, 'manager');
+        $insp = $this->mk('박검차', 'user', null, 'inspection');
+        $f1 = AlimtalkLog::create(['user_id' => $insp->id, 'template_code' => 'board_region_inspection', 'phone' => '01012345678', 'region' => '서울특별시', 'status' => 'failed', 'error' => 'HTTP 500 boom']);
+        $f2 = AlimtalkLog::create(['template_code' => 'board_forward_ready', 'phone' => '01099998888', 'status' => 'failed', 'error' => 'bizmsg fail — K104']);
+        AlimtalkLog::create(['template_code' => 'board_forward_ready', 'phone' => '', 'status' => 'skipped', 'error' => 'no_phone']);
+        AlimtalkLog::create(['template_code' => 'board_forward_ready', 'phone' => '01011112222', 'status' => 'sent', 'msgid' => 'm1', 'message' => '전달 대기 안내 본문']);
+
+        $this->actingAs($this->mk('최고', 'admin', null, 'manager'))->get('/admin/alimtalk-logs')->assertForbidden();
+        $this->actingAs($root)->get('/admin/alimtalk-logs')->assertOk()->assertSee(__('nav.menu.alimtalk_logs'))
+            ->assertSee('지역 검차 안내')->assertSee(__('alimtalk_logs.reason.no_phone'));
+
+        $c = Volt::test('admin.alimtalk-logs')->set('status', 'skipped')->assertSee(__('alimtalk_logs.reason.no_phone'))->assertDontSee('HTTP 500 boom')
+            ->set('status', '')->set('attention', true)->assertSee('HTTP 500 boom')->assertDontSee('전달 대기 안내 본문');
+        $this->assertSame(2, $c->instance()->attentionCount);
+        $c->call('acknowledge', $f1->id);
+        $this->assertNotNull($f1->fresh()->acknowledged_at);
+        $c->call('acknowledgeAll');
+        $this->assertSame(0, AlimtalkLog::needsAttention()->count());
+        $this->assertSame(2, BoardAuditLog::where('action', 'alimtalk_ack')->count());
+        $c->set('search', '박검')->call('searchNow')->set('attention', false)->assertSee('01012345678')->assertDontSee('01099998888');
     }
 
     /** 사이드바 배지 — 지금 내 차례인 기안 수. */

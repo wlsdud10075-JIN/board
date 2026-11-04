@@ -117,6 +117,7 @@ return [
         'work_journal_step_skipped' => 'Work journal step skipped (vacant)',
         'dev_user_switch' => 'User switch (local test)',
         'work_journal_reject' => 'Work journal returned',
+        'alimtalk_ack' => 'Alimtalk failure acknowledged',
         'deleted' => 'Deleted',
     ],
 

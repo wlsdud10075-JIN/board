@@ -9,6 +9,7 @@ return [
     ],
 
     'menu' => [
+        'alimtalk_logs' => 'Alimtalk log',
         'work_journal' => 'Work journal',
         'work_journal_approvals' => 'Journal approvals',
         'listings' => 'Purchases (Invoice)',
@@ -24,6 +25,7 @@ return [
     ],
 
     'crumb' => [
+        'alimtalk_logs' => 'Alimtalk log',
         'work_journal' => 'Work journal',
         'work_journal_approvals' => 'Journal approvals',
         'dashboard' => 'Dashboard',

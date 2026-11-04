@@ -9,6 +9,7 @@ return [
     ],
 
     'menu' => [
+        'alimtalk_logs' => '알림톡 로그',
         'work_journal' => '업무일지',
         'work_journal_approvals' => '업무일지결재',
         'listings' => '매입예정(Invoice)',
@@ -24,6 +25,7 @@ return [
     ],
 
     'crumb' => [
+        'alimtalk_logs' => '알림톡 로그',
         'work_journal' => '업무일지',
         'work_journal_approvals' => '업무일지결재',
         'dashboard' => '대시보드',

@@ -64,6 +64,9 @@ board 와 car-erp 는 형제 디렉터리 + **별도 DB**다. artisan/tinker 실
 | `/manage` | manage | 관리 / super |
 | `/users` | users | 관리 / super (2026-08-04 Jin) — 단 **super 지정·super 계정 수정/비활성화는 super 만**(화면 내 가드). 관리자는 자기 role 변경도 불가(자기잠금 방지) |
 | `/audit` | audit | **super + 업무관리자** — 감사로그(변경이력 board_audit_logs + car-erp 전송 integration_events) |
+| `/work-journal` | work-journal | 등급 「일반」 활성 사용자(작성자) — 업무일지(2026-11-04) |
+| `/work-journal/approvals` | work-journal.approvals | 결재 직급(팀장·부장·상무·대표) + 전체 접근 등급(조회) — 업무일지결재 |
+| `/admin/alimtalk-logs` | admin.alimtalk-logs | **super 전용** — 알림톡 발송 기록(실패 [확인]·사이드바 배지, ERP 미러 2026-11-04) |
 | `/dashboard` | dashboard | 로그인 후 role 별 홈으로 redirect(super·업무관리자는 `/manage`) |
 
 **로그인**: 이메일 + 비밀번호(`Auth::attempt(['email'=>...])`). 비활성 계정은 로그인돼도 업무화면 403.
