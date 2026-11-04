@@ -51,3 +51,43 @@
 
 - 결재 완료 후 기안자에게 의견이 보이나(보인다 가정 — 미리보기에서 확인)
 - 대표 최종 승인 후 수정 불가(가정)
+
+---
+
+## 🏠 개발 시작 안내 (다른 PC 에서 이어 받기 — 2026-11-04 작성)
+
+> 메모리는 PC 별이라 안 따라간다. **이 문서 + 미리보기 `meetings/mockups/work-journal-preview.html` 이 전부**다(브라우저로 열어 사람 바꿔 가며 확인).
+> 시작 전: `git pull origin dev` → `composer install`·`npm install`(필요 시) → `php artisan migrate` → `php artisan test`(기준선: 실패 2건 = Dashboard 302·Example, 원래부터).
+> master 머지/배포는 **Jin 명시 허락 후에만**. `.md` 는 dev 전용.
+
+### 단계 (각 단계 = 커밋 1개 이상, 테스트 동반)
+
+**1단계 — 최고관리자 등급 + 결재 직급** (먼저 단독으로 끝내고 배포 가능한 단위)
+- 마이그: `users.permission` ENUM 에 `admin` 추가(선례 `2026_10_14_000001` — change() 로 값 넓힘, down 은 admin→manager 강등 후 축소) · `users.approval_title` string(10) nullable.
+- `app/Models/User.php`: `isTopManager()`(permission=admin, 🚫 이름을 `isAdmin` 으로 짓지 말 것 — ERP 는 super 포함이라 혼동) · `hasFullAccess()` 에 admin 포함(:109) · 상수 `APPROVAL_TITLES_TOP = ['부장','상무','대표']`, 팀장 = `'팀장'`.
+- 「전체 접근」 판정 전수 확인(`hasFullAccess()` 호출 26곳 + `isSuper()`/`isWorkManager()` 직접 비교 + `EnsureFullAccess`·`EnsureSuper` 미들웨어 + 사이드바 + `SalesmanScope` + 푸시 수신 + `/portal` `proxyWriteBlocked()`(admin = **조회만**) + `/manage` `canManageActions()`). 화면별 접근 테스트로 고정 — 하나라도 빠지면 admin 만 조용히 막힌다.
+- `/users`(`resources/views/livewire/users/index.blade.php`): 등급 선택에 최고관리자(지정 = super 와 admin, admin 은 super 를 못 줌) · `targetIsProtected()` 에 admin 계층(admin 계정은 super·admin 만 수정) · 결재 직급 칸(admin → 부장/상무/대표 select, manager → 「팀장으로 지정」 체크 — 팀장은 1명, 지정하면 기존 팀장 해제) · 등급이 바뀌면 직급 자동 해제 · admin 은 role=manager 고정 · 감사 행 · 등급 칩 필터에 최고관리자. `nav.perm.*`·`users.*` lang ko/en.
+- ⚠️ CLAUDE.md 「권한 시스템」 표 갱신(admin 행).
+
+**2단계 — 업무일지 탭(작성자)**
+- 테이블: `work_journals`(user_id, date, status draft/submitted/approved, submitted_at, snapshot json — 상신 순간 표+자동 활동 고정, unique(user_id,date)) · `work_journal_entries`(journal_id, time 'HH:MM', task text, note, sort).
+- 화면 `resources/views/livewire/work-journal/index.blade.php`(Volt) + 라우트·사이드바(작성자 = 직급 없는 일반 사용자 전원). 날짜 선택, 표 3칸, [+ 줄 추가] = **지금 시각 자동(수정 가능)**, [지금], 줄 삭제, [전날 일지 불러오기].
+- **자동 저장**: 칸 변경마다 서버 저장(`wire:model.live.debounce` + updated 훅, 행 단위 upsert) · 「✓ 자동 저장됨 HH:MM」.
+- **board 활동(자동)**: 그날 본인 `board_audit_logs`(user_id, created_at 날짜) — 등록(create)·구매확정/상태·ERP 전송(`erp_*`)·사진(`attachment_add`)·요청(`erp_board_request` 등)을 시간·차량번호·한 일·**현재 진행상태**(listing statusLabel)로. **옮겨 적는 버튼 없음 — 상신 때 snapshot 에 그대로 포함.** 같은 순간 칸별 field_edit 은 한 줄로 묶을 것(구매확정 1회 = 수십 행).
+- [상신] → 잠김 · [회수](그날 묶음의 팀장 단계가 아직 대기일 때만).
+
+**3단계 — 업무일지결재 탭(팀장·부장·상무·대표)**
+- 테이블: `work_journal_batches`(date unique, status pending/approved, current_step) · `work_journal_steps`(batch_id, seq, title, approver_user_id, status pending/approved/skipped, acted_at) · `work_journal_comments`(batch_id, step_id, journal_id null=전체, user_id, body).
+- 묶음 생성 = 그날 첫 상신 때(date 단위 1개). 결재선 = 팀장(지정 manager 1명) → 부장 → 상무 → 대표(admin 직급) — **그 직급 사람이 없으면 skipped**, 대표 없으면 상신 막음(안내). 팀장 승인 전 상신분은 합류, **승인 후 상신분 = 「추가 기안」**(같은 날짜 두 번째 묶음 — date unique 대신 (date, seq)).
+- 화면: 날짜별 기안 목록 · 결재선 띠 · 상신 N/미상신 M(이름, 주말 제외) · 인원별 `<details>` 카드(표 + board 활동 snapshot + 앞 단계 인원별 의견 + 내 의견 칸) · 전체 의견 · [승인 → 다음]. **반려 없음.** 차례 아닌 결재자는 읽기 전용. 완료 후 기안자는 본인 일지에서 **나에게 달린 의견 + 전체 의견**만 본다. 대표 승인 후 수정 불가.
+- ERP 참고(읽기 전용, car-erp 레포): 카드 `resources/views/components/payout/person-card.blade.php`, 결재 로직 `app/Models/SettlementPayoutBatch.php`(approveBy·normalizeLine).
+
+**4단계 — 마감·알림**
+- 기능설정(super) `work_journal_cutoff` 기본 19:00(`Setting::get`) · 스케줄 명령(매분 또는 cutoff 시각) 평일만: 팀장에게 「상신 N · 미상신 M」 종·웹푸시(`app/Services/WebPushService.php`, 종 = `resources/views/livewire/notify/bell.blade.php` 패턴). 결재 차례가 오면 그 결재자에게 종·푸시, 최종 승인 시 기안자 전원.
+- 감사 행 전부: 작성(첫 저장)·상신·회수·의견·승인·skip(시스템).
+
+**5단계(나중) — 알림톡 = ERP 월정산과 똑같이**: BizM 템플릿(결재요청·최종승인) 검수 후. 차례 결재자 1명에게 전용 `temporarySignedRoute` 링크(5일, 로그인 없음, GET 보기 / POST 승인·의견, 결정 때 재검증, `forceRootUrl(APP_URL)`), 10분 연타 방지.
+
+### 미리보기와 실제의 차이 (구현 시 주의)
+- 미리보기는 브라우저 저장 — 실제는 서버 저장.
+- 미리보기의 board 활동은 가짜 샘플 — 실제는 감사 로그 매핑(action → 문구 표, 모르는 action 은 원문).
