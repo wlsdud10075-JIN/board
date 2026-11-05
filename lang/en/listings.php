@@ -411,8 +411,6 @@ return [
         'label' => 'Car location',
         'hint' => '(when there is no Encar link — used for the inspector route)',
         'none' => 'Not selected',
-        'same_region' => 'Same region',
-        'other_region' => 'Other regions',
         'manual' => 'Enter address…',
         'address_ph' => 'Enter the address',
         'not_in_list' => '(not in list)',

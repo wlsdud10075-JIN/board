@@ -546,8 +546,8 @@ class InspectionQueueTest extends TestCase
         });
     }
 
-    /** 목록은 10분 캐시, 실패는 캐시하지 않는다(빈 목록 → 화면은 직접 입력만). 같은 지역 먼저. */
-    public function test_yard_list_cache_and_grouping(): void
+    /** 목록은 10분 캐시, 실패는 캐시하지 않는다(빈 목록 → 화면은 직접 입력만). 지역 거르기는 브라우저(_location). */
+    public function test_yard_list_cache(): void
     {
         $this->configure();
         Cache::flush();
@@ -557,9 +557,7 @@ class InspectionQueueTest extends TestCase
 
         Http::swap(new Factory);
         $this->fakeYards();
-        $g = SsancarYards::grouped('안산');   // 축약형도 정식형으로 맞춰 비교
-        $this->assertSame([11], array_column($g['same'], 'id'));
-        $this->assertSame([4], array_column($g['other'], 'id'));
+        $this->assertSame([4, 11], array_column(SsancarYards::all(), 'id'));
         SsancarYards::all();
         Http::assertSentCount(1);   // 두 번째는 캐시
     }
@@ -592,7 +590,7 @@ class InspectionQueueTest extends TestCase
         $this->actingAs(User::find($l->created_by_user_id));
 
         Volt::test('listings.index')->call('openEdit', $l->id)
-            ->assertSee(__('listings.loc.label'))->assertSee('경기매매단지(안산)')
+            ->assertSee(__('listings.loc.label'))->assertSee('yards')
             ->set('e_loc_choice', '4')->call('update')->assertHasNoErrors();
         $l->refresh();
         $this->assertSame([4, '수원오토컬렉션(SAC)', null, 'ok'], [$l->yard_id, $l->yard_name, $l->location_address, $l->yard_status]);

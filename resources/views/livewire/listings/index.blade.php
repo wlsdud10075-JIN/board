@@ -1843,7 +1843,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                         @error('inspection_request') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
                     @if ($encar_url === '')
-                        @include('livewire.listings._location', ['choiceModel' => 'loc_choice', 'addressModel' => 'loc_address', 'choice' => $loc_choice, 'region' => $region, 'current' => null, 'disabled' => false])
+                        @include('livewire.listings._location', ['choiceModel' => 'loc_choice', 'addressModel' => 'loc_address', 'choice' => $loc_choice, 'regionModel' => 'region', 'current' => null, 'disabled' => false])
                     @endif
                 @endif
 
@@ -2036,7 +2036,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <input class="input-base" wire:model="e_inspection_request" maxlength="255" placeholder="{{ __('listings.add_form.inspection_request_ph') }}" @unless ($canEdit) disabled @endunless>
                         @error('e_inspection_request') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                         @if ($e->status === 'draft' && $e_encar_url === '')
-                            @include('livewire.listings._location', ['choiceModel' => 'e_loc_choice', 'addressModel' => 'e_loc_address', 'choice' => $e_loc_choice, 'region' => $e_region, 'current' => $e, 'disabled' => ! $canEdit])
+                            @include('livewire.listings._location', ['choiceModel' => 'e_loc_choice', 'addressModel' => 'e_loc_address', 'choice' => $e_loc_choice, 'regionModel' => 'e_region', 'current' => $e, 'disabled' => ! $canEdit])
                         @endif
                     @endif
 
