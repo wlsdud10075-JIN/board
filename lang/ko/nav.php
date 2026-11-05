@@ -2,12 +2,16 @@
 
 return [
     'group' => [
+        'journal' => '업무일지',
         'work' => '업무',
         'manage' => '관리',
         'system' => '시스템',
     ],
 
     'menu' => [
+        'alimtalk_logs' => '알림톡 로그',
+        'work_journal' => '업무일지',
+        'work_journal_approvals' => '업무일지결재',
         'listings' => '매입예정(Invoice)',
         'forwarding' => '전달 대기',
         'verdicts' => '바이어 회신',
@@ -21,6 +25,9 @@ return [
     ],
 
     'crumb' => [
+        'alimtalk_logs' => '알림톡 로그',
+        'work_journal' => '업무일지',
+        'work_journal_approvals' => '업무일지결재',
         'dashboard' => '대시보드',
         'listings' => '매입예정(Invoice)',
         'forwarding' => '전달 대기',
@@ -44,7 +51,10 @@ return [
         'manager' => '관리',
     ],
 
+    'dev_switch' => ['label' => '🔀 사용자 전환(로컬)', 'back' => '↩ 원래 계정으로'],
+
     'perm' => [
+        'admin' => '최고관리자',
         'super' => '시스템관리자',
         'manager' => '업무관리자',
     ],

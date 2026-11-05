@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\BuyerViewController;
+use App\Http\Controllers\DevUserSwitchController;
 use App\Http\Controllers\PhotoController;
 use App\Http\Controllers\PushSubscriptionController;
 use App\Models\Setting;
@@ -53,6 +54,11 @@ Route::middleware(['auth'])->group(function () {
     Volt::route('users', 'users.index')->middleware('role:manager')->name('users');
     Volt::route('audit', 'audit.index')->middleware('full-access')->name('audit');   // super + 업무관리자 (2026-10-14 Jin)
     Volt::route('admin/settings', 'admin.settings')->middleware('super')->name('admin.settings');
+    Volt::route('admin/alimtalk-logs', 'admin.alimtalk-logs')->middleware('super')->name('admin.alimtalk-logs');   // 알림톡 로그(2026-11-04, ERP 미러)
+
+    // 업무일지 + 업무일지결재(2026-11-04 Jin) — 권한 판정은 화면 mount 에서(작성 = 등급 일반, 결재 = 결재 직급 또는 전체 접근 등급 조회).
+    Volt::route('work-journal', 'work-journal.index')->name('work-journal');
+    Volt::route('work-journal/approvals', 'work-journal.approvals')->name('work-journal.approvals');
 
     // 사진 같은출처 스트리밍 (모바일 다중 공유 fetch 의 CORS 우회) — 스코프는 컨트롤러에서
     Route::get('photos/{photo}', [PhotoController::class, 'show'])->name('photos.show');
@@ -60,6 +66,10 @@ Route::middleware(['auth'])->group(function () {
     // 웹푸시 구독 저장/해제 — 상단 종 패널의 「휴대폰 알림」 토글이 브라우저 PushSubscription 을 그대로 보낸다(2026-10-12)
     Route::post('push/subscribe', [PushSubscriptionController::class, 'store'])->name('push.subscribe');
     Route::post('push/unsubscribe', [PushSubscriptionController::class, 'destroy'])->name('push.unsubscribe');
+
+    // 로컬 전용 사용자 전환 — 꺼져 있으면 컨트롤러가 404(config board.dev_user_switch = APP_ENV local 기본)
+    Route::post('dev/switch-user', [DevUserSwitchController::class, 'switch'])->name('dev.switch-user');
+    Route::post('dev/switch-back', [DevUserSwitchController::class, 'back'])->name('dev.switch-back');
 
     // 설정
     Route::redirect('settings', 'settings/profile');

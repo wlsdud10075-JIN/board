@@ -2,12 +2,16 @@
 
 return [
     'group' => [
+        'journal' => 'Work journal',
         'work' => 'Work',
         'manage' => 'Management',
         'system' => 'System',
     ],
 
     'menu' => [
+        'alimtalk_logs' => 'Alimtalk log',
+        'work_journal' => 'Work journal',
+        'work_journal_approvals' => 'Journal approvals',
         'listings' => 'Purchases (Invoice)',
         'forwarding' => 'Awaiting forward',
         'verdicts' => 'Buyer Replies',
@@ -21,6 +25,9 @@ return [
     ],
 
     'crumb' => [
+        'alimtalk_logs' => 'Alimtalk log',
+        'work_journal' => 'Work journal',
+        'work_journal_approvals' => 'Journal approvals',
         'dashboard' => 'Dashboard',
         'listings' => 'Purchases (Invoice)',
         'forwarding' => 'Awaiting forward',
@@ -44,7 +51,10 @@ return [
         'manager' => 'Management',
     ],
 
+    'dev_switch' => ['label' => '🔀 Switch user (local)', 'back' => '↩ Back to my account'],
+
     'perm' => [
+        'admin' => 'Top manager',
         'super' => 'System Admin',
         'manager' => 'Operations Manager',
     ],

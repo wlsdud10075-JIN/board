@@ -6,7 +6,7 @@
 <body class="min-h-screen bg-gray-50">
 @php
     $user = auth()->user();
-    $permLabel = $user->isSuper() ? __('nav.perm.super') : ($user->isWorkManager() ? __('nav.perm.manager') : $user->roleLabel());
+    $permLabel = $user->isSuper() ? __('nav.perm.super') : ($user->isTopManager() ? __('nav.perm.admin') : ($user->isWorkManager() ? __('nav.perm.manager') : $user->roleLabel()));
     $workGuideUrl = config('board.work_guide_url') ?: '';
 
     // 브랜드 텍스트 — 기능설정(sidebar_brand)과 동일 출처. 로그인 화면과 한 곳에서 같이 변경.
@@ -32,6 +32,12 @@
         $pendingForward = \App\Models\PurchaseListing::where('status', 'inspected')->count();
     }
 
+    // 알림톡 실패(미확인) — 시스템관리자만
+    $alimtalkAttention = $user->isSuper() ? \App\Models\AlimtalkLog::needsAttention()->count() : 0;
+
+    // 업무일지 결재 — 지금 내 차례인 기안 수(결재 직급 있는 사람만 쿼리).
+    $journalTurn = $user->isJournalApprover() ? app(\App\Services\WorkJournalService::class)->myTurnCount($user) : 0;
+
     $routeName = request()->route()?->getName();
     $breadcrumb = match ($routeName) {
         'dashboard' => __('nav.crumb.dashboard'),
@@ -48,6 +54,9 @@
         'settings.password' => __('nav.crumb.settings_password'),
         'settings.appearance' => __('nav.crumb.settings_appearance'),
         'admin.settings' => __('nav.crumb.admin_settings'),
+        'admin.alimtalk-logs' => __('nav.crumb.alimtalk_logs'),
+        'work-journal' => __('nav.crumb.work_journal'),
+        'work-journal.approvals' => __('nav.crumb.work_journal_approvals'),
         default => '',
     };
 
@@ -62,12 +71,17 @@
             ['label' => __('nav.menu.auction'), 'href' => route('auction'), 'icon' => 'banknotes', 'active' => request()->routeIs('auction'), 'show' => $can(['sales', 'auction', 'manager'])],
             ['label' => __('nav.menu.portal'), 'href' => route('portal'), 'icon' => 'wallet', 'active' => request()->routeIs('portal'), 'show' => $can(['sales', 'manager'])],
         ]],
+        ['key' => 'journal', 'label' => __('nav.group.journal'), 'items' => [
+            ['label' => __('nav.menu.work_journal'), 'href' => route('work-journal'), 'icon' => 'document', 'active' => request()->routeIs('work-journal'), 'show' => $user->isJournalWriter()],
+            ['label' => __('nav.menu.work_journal_approvals'), 'href' => route('work-journal.approvals'), 'icon' => 'clipboard', 'active' => request()->routeIs('work-journal.approvals'), 'show' => $user->isJournalApprover() || $user->hasFullAccess(), 'badge' => $journalTurn ?: null],
+        ]],
         ['key' => 'manage', 'label' => __('nav.group.manage'), 'items' => [
             ['label' => __('nav.menu.manage'), 'href' => route('manage'), 'icon' => 'shield', 'active' => request()->routeIs('manage'), 'show' => $can(['manager'])],
         ]],
         ['key' => 'system', 'label' => __('nav.group.system'), 'items' => [
             ['label' => __('nav.menu.users'), 'href' => route('users'), 'icon' => 'user-group', 'active' => request()->routeIs('users'), 'show' => $can(['manager'])],
             ['label' => __('nav.menu.audit'), 'href' => route('audit'), 'icon' => 'document', 'active' => request()->routeIs('audit'), 'show' => $user->hasFullAccess()],
+            ['label' => __('nav.menu.alimtalk_logs'), 'href' => route('admin.alimtalk-logs'), 'icon' => 'chat', 'active' => request()->routeIs('admin.alimtalk-logs'), 'show' => $user->isSuper(), 'badge' => $alimtalkAttention ?: null],
             ['label' => __('nav.menu.settings'), 'href' => route('admin.settings'), 'icon' => 'cog', 'active' => request()->routeIs('admin.settings'), 'show' => $user->isSuper()],
         ]],
     ];
@@ -218,6 +232,24 @@
             <div class="ml-2 truncate text-[13px] text-gray-700">{{ $breadcrumb }}</div>
 
             <div class="ml-auto flex items-center gap-2">
+            {{-- 로컬 전용 사용자 전환(2026-11-04 Jin) — 시스템관리자, 또는 시스템관리자가 전환해 들어온 상태에서만. 운영은 config 가 꺼져 안 보인다. --}}
+            @if (config('board.dev_user_switch') && ($user->isSuper() || session('dev_switch_from')))
+                <form method="POST" action="{{ route('dev.switch-user') }}" class="flex items-center gap-1">
+                    @csrf
+                    <span class="hidden text-[11px] font-semibold text-amber-600 sm:inline">{{ __('nav.dev_switch.label') }}</span>
+                    <select name="user_id" class="input-filter py-0.5 text-[12px]" onchange="this.form.submit()">
+                        @foreach (\App\Models\User::where('is_active', true)->orderByRaw("CASE permission WHEN 'super' THEN 0 WHEN 'admin' THEN 1 WHEN 'manager' THEN 2 ELSE 3 END")->orderBy('name')->get() as $su)
+                            <option value="{{ $su->id }}" @selected($su->id === $user->id)>{{ $su->name }} · {{ $su->approval_title ?: ($su->isSuper() ? __('nav.perm.super') : ($su->isTopManager() ? __('nav.perm.admin') : ($su->isWorkManager() ? __('nav.perm.manager') : $su->roleLabel()))) }}</option>
+                        @endforeach
+                    </select>
+                </form>
+                @if (session('dev_switch_from'))
+                    <form method="POST" action="{{ route('dev.switch-back') }}">
+                        @csrf
+                        <button type="submit" class="rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-200">{{ __('nav.dev_switch.back') }}</button>
+                    </form>
+                @endif
+            @endif
             {{-- 상단 종 — 내 §11 요청 결과(ERP 확인·거절)·진행 중. 포털을 쓰는 역할 + car-erp 연결이 있을 때만(없으면 조회할 것이 없다). --}}
             @if (($user->hasFullAccess() || $user->isSales() || $user->isManager()) && app(\App\Services\CarErpReadService::class)->configured())
                 <livewire:notify.bell />

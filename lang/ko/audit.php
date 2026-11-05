@@ -108,6 +108,16 @@ return [
         'erp_bl_cancel' => '포털 B/L 요청 취소',
         'erp_change_request' => '포털 선적 변경요청',
         'erp_signing_request' => '포털 서명 요청',
+        'user_permission' => '사용자 등급·결재 직급',   // 2026-11-04 — 누가 누구의 등급·직급을 바꿨나(옮김 포함)
+        'work_journal_cutoff' => '업무일지 마감 시각',
+        'work_journal_write' => '업무일지 작성',
+        'work_journal_submit' => '업무일지 상신',
+        'work_journal_recall' => '업무일지 회수',
+        'work_journal_approve' => '업무일지 승인',
+        'work_journal_step_skipped' => '업무일지 결재 단계 건너뜀(공석)',
+        'dev_user_switch' => '사용자 전환(로컬 시험)',
+        'work_journal_reject' => '업무일지 반려',
+        'alimtalk_ack' => '알림톡 실패 확인',
         'deleted' => '삭제',
     ],
 

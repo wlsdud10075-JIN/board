@@ -15,8 +15,24 @@ class AlimtalkLog extends Model
 {
     protected $fillable = [
         'user_id', 'template_code', 'phone', 'region',
-        'message', 'msgid', 'status', 'error',
+        'message', 'msgid', 'status', 'error', 'acknowledged_at', 'acknowledged_by',
     ];
+
+    protected function casts(): array
+    {
+        return ['acknowledged_at' => 'datetime'];
+    }
+
+    /** 주의 필요 = 실패 ∧ 시스템관리자가 아직 [확인] 안 함 — 알림톡 로그 화면 필터·사이드바 배지(2026-11-04, ERP 미러). */
+    public function scopeNeedsAttention($q)
+    {
+        return $q->where('status', 'failed')->whereNull('acknowledged_at');
+    }
+
+    public function acknowledger(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'acknowledged_by');
+    }
 
     public function user(): BelongsTo
     {
