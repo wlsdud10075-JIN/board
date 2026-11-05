@@ -555,9 +555,20 @@ class BoardTest extends TestCase
         $this->assertSame(1, $c->get('tabCounts')['all']);
         $c->set('q', 'wasim')->assertSee('22나2222')->assertDontSee('11가1111');
         $c->set('q', 'ahmed')->assertSee('11가1111')->assertDontSee('33다3333');
+
+        // 담당자(등록자) 이름 — 전체가 보이는 사람 기준
+        $lee = $this->mkUser('sales');
+        $lee->update(['name' => '이담당']);
+        $this->mkListing($lee, ['vehicle_number' => '44라4444']);
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
+        Volt::test('listings.index')->set('q', '이담당')->assertSee('44라4444')->assertDontSee('11가1111');
+        $this->actingAs($kim);
         $c->set('q', '')->set('qVin', 'kmh')->assertSee('11가1111')->assertSee('33다3333')->assertDontSee('22나2222');
         $c->set('qVin', 'zzz')->assertSee(__('listings.list.search_empty'));
         $c->call('clearSearch')->assertSee('22나2222');
+        // 입력만으로는 안 걸리고 [검색]·Enter 로 건다
+        $c->set('qInput', 'wasim')->assertSee('11가1111')->call('searchNow')->assertDontSee('11가1111')->assertSee('22나2222')->assertSet('q', 'wasim');
+        $c->call('clearSearch')->assertSet('qInput', '');
         $this->assertSame(3, $c->get('tabCounts')['all']);
     }
 

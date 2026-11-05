@@ -49,9 +49,15 @@ new #[Layout('components.layouts.app')] class extends Component {
     public int $owner = 0;
 
     /**
-     * 검색(2026-11-05 Jin) — 차량번호·바이어 한 칸 + 차대번호 한 칸. 목록·탭 건수가 같은 조건(tabQuery·tabCounts → applySearch).
+     * 검색(2026-11-05 Jin) — 차량번호·바이어·담당자 한 칸 + 차대번호 한 칸. 목록·탭 건수가 같은 조건(tabQuery·tabCounts → applySearch).
      * 차량번호는 공백을 무시하고 부분일치(「12가 3456」도 걸린다). 바이어 = 직접 적은 이름·ERP 바이어 이름 둘 다.
+     * **[검색] 버튼·Enter 로만 건다**(Jin 2026-11-05) — 입력칸(qInput·vinInput)과 적용값(q·qVin, URL)을 나눈다.
+     * 입력 즉시 검색은 한글 조합 중(「ㅇ」「이다」)에도 서버를 불러 목록이 깜빡였고, 다른 화면(/manage·/audit·알림톡 로그)도 버튼식이다.
      */
+    public string $qInput = '';
+
+    public string $vinInput = '';
+
     #[Url(except: '')]
     public string $q = '';
 
@@ -69,9 +75,17 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->updatedQ();
     }
 
+    /** 🚨 `search()` 로 짓지 말 것 — 프로퍼티와 이름이 겹치면 버튼이 죽는다(알림톡 로그 화면과 같은 이유로 searchNow). */
+    public function searchNow(): void
+    {
+        $this->q = trim($this->qInput);
+        $this->qVin = trim($this->vinInput);
+        $this->updatedQ();
+    }
+
     public function clearSearch(): void
     {
-        $this->q = $this->qVin = '';
+        $this->q = $this->qVin = $this->qInput = $this->vinInput = '';
         $this->updatedQ();
     }
 
@@ -83,7 +97,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             $like = '%'.addcslashes($q, '%_\\').'%';
             $plate = '%'.addcslashes(preg_replace('/\s+/', '', $q), '%_\\').'%';
             $query->where(fn ($w) => $w->whereRaw("REPLACE(vehicle_number, ' ', '') LIKE ?", [$plate])
-                ->orWhere('buyer_name', 'like', $like)->orWhere('car_erp_buyer_name', 'like', $like));
+                ->orWhere('buyer_name', 'like', $like)->orWhere('car_erp_buyer_name', 'like', $like)
+                ->orWhereHas('creator', fn ($u) => $u->where('name', 'like', $like)));   // 담당자(등록자) — 2026-11-05 Jin
         }
         if ($vin !== '') {
             $query->where('vin', 'like', '%'.addcslashes($vin, '%_\\').'%');
@@ -225,6 +240,8 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function mount(ExchangeRateService $rates): void
     {
+        $this->qInput = $this->q;      // ?q= 로 들어오면 입력칸에도 보이게
+        $this->vinInput = $this->qVin;
         $rates->refreshIfStale();   // 오래됐을 때만 갱신(lazy, cron 불필요)
         $this->loadRates($rates);
     }
@@ -1747,10 +1764,11 @@ new #[Layout('components.layouts.app')] class extends Component {
              🚨 스크롤 컨테이너에 **`min-w-0` 필수** — flex 자식은 기본 `min-width:auto` 라 칩 9개가
                 줄어들 줄을 모르고 **부모를 넘쳐** overflow-x-auto 가 죽는다(= 페이지 전체가 가로로 밀린다).
              ⚠️ 좁은 폭에선 셀렉트를 **아래 줄**로 내린다 — 한 줄에 같이 두면 탭이 보일 폭이 90px 남짓 남는다. --}}
-        {{-- 검색(2026-11-05 Jin) — 차량번호·바이어 / 차대번호 두 칸. 입력 멈추면 바로 걸린다(버튼 없음). 모바일은 한 줄에 7:5. --}}
+        {{-- 검색(2026-11-05 Jin) — 차량번호·바이어·담당자 / 차대번호 두 칸 + [검색](Enter 도 됨). 모바일은 한 줄에 7:5:버튼. --}}
         <div class="mb-2 flex items-center gap-1.5">
-            <input type="search" wire:model.live.debounce.400ms="q" class="input-filter min-w-0 flex-[7] sm:max-w-xs" placeholder="{{ __('listings.list.search_ph') }}" autocomplete="off">
-            <input type="search" wire:model.live.debounce.400ms="qVin" class="input-filter min-w-0 flex-[5] uppercase sm:max-w-[12rem]" placeholder="{{ __('listings.list.vin_ph') }}" autocomplete="off">
+            <input type="search" wire:model="qInput" wire:keydown.enter="searchNow" enterkeyhint="search" class="input-filter min-w-0 flex-[7] sm:max-w-xs" placeholder="{{ auth()->user()->canSeeAll() ? __('listings.list.search_ph_all') : __('listings.list.search_ph') }}" autocomplete="off">
+            <input type="search" wire:model="vinInput" wire:keydown.enter="searchNow" enterkeyhint="search" class="input-filter min-w-0 flex-[5] uppercase sm:max-w-[12rem]" placeholder="{{ __('listings.list.vin_ph') }}" autocomplete="off">
+            <button type="button" wire:click="searchNow" class="btn-primary btn-sm shrink-0">{{ __('common.search') }}</button>
             @if ($q !== '' || $qVin !== '')
                 <button type="button" wire:click="clearSearch" class="shrink-0 rounded-md px-1.5 text-lg leading-none text-gray-400 hover:text-gray-600" title="{{ __('listings.list.search_clear') }}">×</button>
             @endif
