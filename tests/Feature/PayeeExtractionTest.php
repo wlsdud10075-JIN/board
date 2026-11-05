@@ -306,8 +306,8 @@ class PayeeExtractionTest extends TestCase
         $this->assertSame('won', $l->fresh()->status);
     }
 
-    /** 후보 적용은 **입력칸까지만** — 누르는 것만으로 DB 가 바뀌면 자동 기입이 된다. */
-    public function test_apply_suggestion_fills_input_only(): void
+    /** 후보 적용 = 입력칸 + 즉시 저장(2026-11-05 A안 — 상세창을 닫았다 열어도 남는다). 칸별 field_edit + 적용 기록. */
+    public function test_apply_suggestion_fills_and_saves(): void
     {
         $l = $this->mkListing(['payee_extraction_status' => 'done', 'payee_suggestions' => [
             'candidates' => [[
@@ -323,7 +323,10 @@ class PayeeExtractionTest extends TestCase
             ->assertSet('payee_account', '140-014-011460')
             ->assertSet('payee_bank', '신한은행');
 
-        $this->assertNull($l->fresh()->payee_account);   // 저장은 아직 아니다
+        $this->assertSame(['140-014-011460', '신한은행', '(주)수호모터스'], [$l->fresh()->payee_account, $l->fresh()->payee_bank, $l->fresh()->payee_name]);   // 바로 저장
+        $this->assertTrue(BoardAuditLog::where('purchase_listing_id', $l->id)->where('action', 'field_edit')->where('field', 'payee_account')->where('new_value', '***')->exists());
+        // 닫았다 다시 열어도 남는다
+        Volt::test('auction.index')->call('openDetail', $l->id)->assertSet('payee_account', '140-014-011460');
         // 적용도 기록(2026-11-05 Jin — 350너9262): 누가 어떤 후보를, 계좌는 ***
         $log = BoardAuditLog::where('purchase_listing_id', $l->id)->where('action', 'payee_suggestion_apply')->sole();
         $this->assertSame(['to' => 'payee', 'bank' => '신한은행', 'holder' => '(주)수호모터스', 'account' => '***'], json_decode($log->new_value, true));
@@ -418,8 +421,8 @@ class PayeeExtractionTest extends TestCase
         $this->assertNull($l->owner_name);   // 🚫 자동 기입 없음
     }
 
-    /** 소유자 적용은 **입력칸까지만**. 후보 블록이 계좌 없이도 그려진다. */
-    public function test_apply_owner_fills_input_only(): void
+    /** 소유자 적용 = 입력칸 + 즉시 저장. 후보 블록이 계좌 없이도 그려진다. */
+    public function test_apply_owner_fills_and_saves(): void
     {
         $l = $this->mkListing(['payee_extraction_status' => 'done', 'payee_suggestions' => [
             'registration_owner' => '오승환', 'registration_owners' => ['오승환'], 'candidates' => [],
@@ -433,7 +436,7 @@ class PayeeExtractionTest extends TestCase
             ->call('applyOwner', 0)
             ->assertSet('owner_name', '오승환');
 
-        $this->assertNull($l->fresh()->owner_name);
+        $this->assertSame('오승환', $l->fresh()->owner_name);
         $this->assertSame(['to' => 'owner_name', 'value' => '오승환'], json_decode(BoardAuditLog::where('purchase_listing_id', $l->id)->where('action', 'payee_suggestion_apply')->sole()->new_value, true));
     }
 
@@ -607,7 +610,7 @@ class PayeeExtractionTest extends TestCase
             ->assertSet('seller_company', '(주)성진모터스')
             ->assertSet('seller_ceo', '김대표')
             ->assertSet('seller_phone', '010-2000-1111');
-        $this->assertNull($l->fresh()->seller_company);   // 저장은 아직 아니다
+        $this->assertSame('(주)성진모터스', $l->fresh()->seller_company);   // 적용 = 즉시 저장(2026-11-05 A안)
 
         $t->call('savePayee')->assertHasNoErrors();
         $l->refresh();
