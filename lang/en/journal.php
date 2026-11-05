@@ -32,7 +32,7 @@ return [
     'empty_rows' => 'No rows yet. Start with [+ Add row].',
     'err' => [
         'empty' => 'Nothing written yet.',
-        'no_ceo' => 'No CEO is assigned in the approval line — ask the system admin to assign the CEO title in user management.',
+        'no_ceo' => 'No director, executive or CEO is assigned in the approval line — ask the system admin to assign approval titles in user management.',
         'not_draft' => 'Already submitted.',
         'cannot_recall' => 'Approval has started — cannot recall.',
         'locked' => 'A submitted journal cannot be edited.',

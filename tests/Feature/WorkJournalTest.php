@@ -127,8 +127,29 @@ class WorkJournalTest extends TestCase
         $w = $this->mk('김영업');
         $this->actingAs($w);
         Volt::test('work-journal.index')->call('submit')->assertHasErrors('rows');   // 빈 일지
-        Volt::test('work-journal.index')->call('addRow')->set('rows.0.task', 'x')->call('submit')->assertHasErrors('rows');   // 대표 없음
+        Volt::test('work-journal.index')->call('addRow')->set('rows.0.task', 'x')->call('submit')->assertHasErrors('rows');   // 부장·상무·대표 전부 없음
         $this->assertSame('draft', WorkJournal::first()->status);
+    }
+
+    /** 대표가 비면 지정된 최고관리자 직급 중 가장 위가 최종 결재권자(2026-11-05 Jin). */
+    public function test_vacant_ceo_makes_highest_top_title_final(): void
+    {
+        $lead = $this->mk('정팀장', 'manager', '팀장', 'manager');
+        $bujang = $this->mk('박부장', 'admin', '부장', 'manager');
+        $sangmu = $this->mk('최상무', 'admin', '상무', 'manager');
+        $w = $this->mk('김영업');
+        $j = $this->writeAndSubmit($w);
+        $b = $j->batch()->with('steps')->first();
+        $this->assertSame(['pending', 'pending', 'pending', 'skipped'], $b->steps->pluck('status')->all());
+
+        foreach ([$lead, $bujang] as $u) {
+            $this->actingAs($u);
+            Volt::test('work-journal.approvals')->call('pick', $b->id)->call('approve');
+        }
+        $this->assertNotSame('approved', $b->fresh()->status);
+        $this->actingAs($sangmu);
+        Volt::test('work-journal.approvals')->call('pick', $b->id)->assertSee(__('journal.ap_final'))->call('approve');
+        $this->assertSame('approved', $b->fresh()->status);
     }
 
     /** 회수 — 팀장 승인 전까지만, 비면 묶음 삭제. 팀장 승인 뒤 늦게 상신 = 추가 기안(seq 2). */
