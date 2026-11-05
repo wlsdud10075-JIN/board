@@ -118,6 +118,8 @@ return [
         'dev_user_switch' => '사용자 전환(로컬 시험)',
         'work_journal_reject' => '업무일지 반려',
         'alimtalk_ack' => '알림톡 실패 확인',
+        'payee_extract_request' => '이미지에서 정보 찾기',
+        'payee_suggestion_apply' => '찾은 정보 적용(후보 선택)',
         'deleted' => '삭제',
     ],
 
@@ -167,7 +169,7 @@ return [
             ],
         ],
         'passport_status' => ['done' => '이름·번호 후보 찾음', 'none' => '후보 없음', 'failed' => '읽기 실패', 'running' => '읽는 중'],
-        'payee_status' => ['done' => '계좌 후보 찾음', 'none' => '계좌 후보 없음', 'failed' => '읽기 실패', 'running' => '읽는 중'],
+        'payee_status' => ['done' => '정보 후보 찾음', 'none' => '찾은 정보 없음', 'failed' => '읽기 실패', 'running' => '읽는 중'],
         'sum' => [
             'erp_vehicle' => 'ERP 차량 #:id',
             'attachments' => '첨부 :n장 추가',
@@ -176,6 +178,9 @@ return [
             'skipped' => '그대로 둔 칸: :fields',
             'invalid' => '확인 실패 항목: :fields',
             'payee' => '계좌 후보 :n건',
+            'payee_owners' => '소유자 후보 :n건',
+            'payee_sellers' => '매입처 후보 :n건',
+            'payee_phones' => '연락처 후보 :n건',
             'photo_errors' => '못 읽은 사진 :n장',
             'verdict' => '바이어 회신: :v',
             'label' => '라벨: :label',

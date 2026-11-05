@@ -118,6 +118,8 @@ return [
         'dev_user_switch' => 'User switch (local test)',
         'work_journal_reject' => 'Work journal returned',
         'alimtalk_ack' => 'Alimtalk failure acknowledged',
+        'payee_extract_request' => 'Find info from images',
+        'payee_suggestion_apply' => 'Found info applied (candidate picked)',
         'deleted' => 'Deleted',
     ],
 
@@ -166,7 +168,7 @@ return [
             ],
         ],
         'passport_status' => ['done' => 'Name/number found', 'none' => 'Nothing found', 'failed' => 'Read failed', 'running' => 'Reading'],
-        'payee_status' => ['done' => 'Account candidates found', 'none' => 'No account found', 'failed' => 'Could not read', 'running' => 'Reading'],
+        'payee_status' => ['done' => 'Candidates found', 'none' => 'Nothing found', 'failed' => 'Could not read', 'running' => 'Reading'],
         'sum' => [
             'erp_vehicle' => 'ERP vehicle #:id',
             'attachments' => ':n attachment(s) added',
@@ -175,6 +177,9 @@ return [
             'skipped' => 'Left as is: :fields',
             'invalid' => 'Failed checks: :fields',
             'payee' => ':n account candidate(s)',
+            'payee_owners' => ':n owner candidate(s)',
+            'payee_sellers' => ':n seller candidate(s)',
+            'payee_phones' => ':n contact candidate(s)',
             'photo_errors' => ':n photo(s) unreadable',
             'verdict' => 'Buyer reply: :v',
             'label' => 'Label: :label',

@@ -7602,7 +7602,7 @@ class BoardTest extends TestCase
 
         $ko = $this->actingAs($u)->get('/audit')->assertOk();
         foreach (['보냄 →', 'car-erp (ERP)', '매입 차량 ERP 등록', 'ERP 에 새로 등록됨', 'ERP 차량 #395', '첨부 5장 추가',
-            'ERP 가 거절 (필수값·형식)', '확인 실패 항목: 최종금액', '사진에서 계좌 읽기', '계좌 후보 찾음', '계좌 후보 2건', '보낸·받은 내용 보기', '2건'] as $t) {
+            'ERP 가 거절 (필수값·형식)', '확인 실패 항목: 최종금액', '사진에서 계좌 읽기', '정보 후보 찾음', '계좌 후보 2건', '보낸·받은 내용 보기', '2건'] as $t) {
             $ko->assertSee($t, false);
         }
         $ko->assertDontSee('integration_events')->assertDontSee('>201<', false)->assertDontSee('>payload<', false);
@@ -7610,7 +7610,7 @@ class BoardTest extends TestCase
         $u->update(['locale' => 'en']);
         $en = $this->actingAs($u->fresh())->get('/audit')->assertOk();
         foreach (['Sent →', 'Register purchase in ERP', 'Created in ERP', 'ERP vehicle #395', 'Rejected by ERP (required/format)',
-            'Read bank account from photos', 'Account candidates found', '34RU7841'] as $t) {
+            'Read bank account from photos', 'Candidates found', '34RU7841'] as $t) {
             $en->assertSee($t, false);
         }
         $en->assertDontSee('매입 차량 ERP 등록');

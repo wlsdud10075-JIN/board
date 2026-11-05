@@ -374,8 +374,40 @@ new #[Layout('components.layouts.app')] class extends Component {
         // 계좌 추출 — 사진이 새로 들어왔을 때만 돌린다. 결과는 후보일 뿐이라 payee_* 를 안 건드린다.
         if (config('board.payee_extract.enabled')) {
             $l->forceFill(['payee_extraction_status' => 'pending', 'payee_extraction_at' => now()])->saveQuietly();
+            $this->logPayeeAction($l, 'payee_extract_request', ['photos' => $l->salesAttachments()->where('kind', InspectionPhoto::KIND_SALES_PHOTO)->count(), 'trigger' => 'upload']);
             ExtractPayeeFromPhotos::dispatch($l->id);
         }
+    }
+
+    /**
+     * 정보 찾기·후보 적용 감사 행(2026-11-05 Jin — ssancarboard 350너9262: 「찾기 눌러 골라 넣었다는데 기록이 없다」).
+     * 종전엔 찾기 = 상태만 saveQuietly(행위자 없음), 적용 = 입력칸만 채움(기록 0) → 저장 때 칸별 field_edit 만 남아 OCR 값인지 손 입력인지 갈 수 없었다.
+     * 계좌·휴대폰은 *** (BoardAudit::MASKED 와 같은 취급). 적용은 저장 전이라 실제 저장은 그 뒤 field_edit 행이 따로 남는다.
+     */
+    /**
+     * 후보 [적용] = 입력칸 + **그 칸만 즉시 저장**(2026-11-05 Jin A안). 종전엔 입력칸만 채워 상세창을 닫았다 열면 사라졌고,
+     * 그대로 구매확정하면 계좌·소유자·매입처가 빈 채 ERP 로 갔다(ssancarboard 350너9262 — ERP 는 payee 를 처음 한 번만 받는다).
+     * 사람이 골라 누른 값만 저장한다 — 자동 기입 금지 원칙 그대로(모델이 칸을 채우지 않는다). 일반 save() 라 칸별 field_edit 감사도 남는다.
+     */
+    private function saveApplied(PurchaseListing $l, array $fields): void
+    {
+        if (! in_array($l->status, ['accepted', 'won'], true)) {
+            return;
+        }
+        foreach ($fields as $k => $v) {
+            $v = is_string($v) ? trim($v) : $v;
+            $l->{$k} = ($v === '' ? null : $v);
+        }
+        $l->save();
+        unset($this->detail);
+    }
+
+    private function logPayeeAction(PurchaseListing $l, string $action, array $value): void
+    {
+        \App\Models\BoardAuditLog::create([
+            'user_id' => \Illuminate\Support\Facades\Auth::id(), 'purchase_listing_id' => $l->id, 'action' => $action, 'field' => $action,
+            'old_value' => null, 'new_value' => json_encode($value, JSON_UNESCAPED_UNICODE), 'ip_address' => \App\Models\BoardAuditLog::currentIp(),
+        ]);
     }
 
     /** 저장 전 선택파일 빼기. */
@@ -654,9 +686,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         session()->flash('ok', __('auction.flash_payee_saved'));
     }
 
-    /**
-     * 계좌 후보를 입력칸에 옮긴다 — **저장은 아니다**. 사람이 보고 [입금정보 저장]을 눌러야 확정된다.
-     */
+    /** 계좌 후보 → 입력칸 + 즉시 저장(2026-11-05 A안, `saveApplied`). */
     public function applySuggestion(int $index, string $role): void
     {
         $l = PurchaseListing::findOrFail($this->detailId);
@@ -664,29 +694,34 @@ new #[Layout('components.layouts.app')] class extends Component {
         if (! $c) {
             return;
         }
+        $this->logPayeeAction($l, 'payee_suggestion_apply', ['to' => $role === 'fee' ? 'selling_fee_payee' : 'payee', 'bank' => $c['bank'], 'holder' => $c['holder'], 'account' => '***']);
         if ($role === 'fee') {
             $this->selling_fee_payee_bank = $c['bank'];
             $this->selling_fee_payee_account = $c['number'];
             $this->selling_fee_payee_name = $c['holder'];
+            $this->saveApplied($l, ['selling_fee_payee_bank' => $c['bank'], 'selling_fee_payee_account' => $c['number'], 'selling_fee_payee_name' => $c['holder']]);
 
             return;
         }
         $this->payee_bank = $c['bank'];
         $this->payee_account = $c['number'];
         $this->payee_name = $c['holder'];
+        $this->saveApplied($l, ['payee_bank' => $c['bank'], 'payee_account' => $c['number'], 'payee_name' => $c['holder']]);
     }
 
-    /** 소유자 후보를 소유자 칸에 옮긴다 — 계좌 후보와 같이 **저장은 아니다**. */
+    /** 소유자 후보 → 소유자 칸 + 즉시 저장. */
     public function applyOwner(int $index): void
     {
         $l = PurchaseListing::findOrFail($this->detailId);
         $owner = ($l->payee_suggestions['registration_owners'] ?? [])[$index] ?? null;
         if ($owner) {
             $this->owner_name = $owner;
+            $this->logPayeeAction($l, 'payee_suggestion_apply', ['to' => 'owner_name', 'value' => $owner]);
+            $this->saveApplied($l, ['owner_name' => $owner]);
         }
     }
 
-    /** 매입처 후보(법인명·대표자)를 입력칸에 옮긴다 — 계좌 후보와 같이 **저장은 아니다**. */
+    /** 매입처 후보(법인명·대표자) → 입력칸 + 즉시 저장. */
     public function applySeller(int $index): void
     {
         $l = PurchaseListing::findOrFail($this->detailId);
@@ -700,15 +735,19 @@ new #[Layout('components.layouts.app')] class extends Component {
         if (($s['ceo'] ?? '') !== '') {
             $this->seller_ceo = $s['ceo'];
         }
+        $this->logPayeeAction($l, 'payee_suggestion_apply', ['to' => 'seller', 'company' => $s['company'] ?? '', 'ceo' => $s['ceo'] ?? '']);
+        $this->saveApplied($l, array_filter(['seller_company' => $s['company'] ?? '', 'seller_ceo' => $s['ceo'] ?? ''], fn ($v) => $v !== ''));
     }
 
-    /** 연락처 후보(휴대폰)를 입력칸에 옮긴다 — **저장은 아니다**. */
+    /** 연락처 후보(휴대폰) → 입력칸 + 즉시 저장. */
     public function applySellerPhone(int $index): void
     {
         $l = PurchaseListing::findOrFail($this->detailId);
         $p = ($l->payee_suggestions['seller_phones'] ?? [])[$index] ?? null;
         if ($p && ($p['number'] ?? '') !== '') {
             $this->seller_phone = $p['number'];
+            $this->logPayeeAction($l, 'payee_suggestion_apply', ['to' => 'seller_phone', 'value' => '***']);
+            $this->saveApplied($l, ['seller_phone' => $p['number']]);
         }
     }
 
@@ -731,6 +770,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             $this->storeSalesFiles($l);
         } elseif ($l->salesAttachments()->where('kind', InspectionPhoto::KIND_SALES_PHOTO)->exists()) {
             $l->forceFill(['payee_extraction_status' => 'pending', 'payee_extraction_at' => now()])->saveQuietly();
+            $this->logPayeeAction($l, 'payee_extract_request', ['photos' => $l->salesAttachments()->where('kind', InspectionPhoto::KIND_SALES_PHOTO)->count(), 'trigger' => 'button']);
             ExtractPayeeFromPhotos::dispatch($l->id);
         } else {
             $this->addError('salesFiles', __('auction.payee_extract.no_photos'));

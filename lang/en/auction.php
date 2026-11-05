@@ -146,7 +146,7 @@ return [
         'apply_car' => 'Use for vehicle',
         'apply_fee' => 'Use for selling fee',
         'dismiss' => 'Dismiss',
-        'confirm_hint' => 'Review, then press save to apply',
+        'confirm_hint' => 'Applying saves right away — if wrong, fix the field below and save',
         'owner_mismatch' => 'Account holder differs from the registration owner — please verify',
         'find' => '📷 Find info in images',
         'find_sub' => 'Account · Owner · Seller · Contact',

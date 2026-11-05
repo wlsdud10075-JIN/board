@@ -113,6 +113,11 @@ class IntegrationEventView
 
             case 'payee_extract':
                 $out[] = __('audit.ev.sum.payee', ['n' => (int) ($p['candidates'] ?? 0)]);
+                foreach (['owners' => 'payee_owners', 'sellers' => 'payee_sellers', 'phones' => 'payee_phones'] as $k => $lk) {
+                    if ((int) ($p[$k] ?? 0) > 0) {   // 옛 로그(키 없음)는 계좌 건수만
+                        $out[] = __('audit.ev.sum.'.$lk, ['n' => (int) $p[$k]]);
+                    }
+                }
                 if ((int) ($p['photo_errors'] ?? 0) > 0) {
                     $out[] = __('audit.ev.sum.photo_errors', ['n' => (int) $p['photo_errors']]);
                 }
