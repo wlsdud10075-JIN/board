@@ -541,6 +541,37 @@ class BoardTest extends TestCase
         $this->assertSame(30, $c->get('perPage'));
     }
 
+    /** 검색(2026-11-05 Jin) — 차량번호(공백 무시)·바이어 한 칸 + 차대번호 한 칸, 탭 건수도 같은 조건. 등록일 칸. */
+    public function test_listings_search_by_plate_buyer_and_vin(): void
+    {
+        $kim = $this->mkUser('sales');
+        $this->mkListing($kim, ['vehicle_number' => '11가1111', 'vin' => 'KMHAA11111', 'buyer_name' => 'Ahmed Trading']);
+        $this->mkListing($kim, ['vehicle_number' => '22나2222', 'vin' => 'KNABB22222', 'car_erp_buyer_name' => 'Wasim Motors']);
+        $this->mkListing($kim, ['vehicle_number' => '33다3333', 'vin' => 'KMHCC33333']);
+        $this->actingAs($kim);
+
+        $c = Volt::test('listings.index')->assertSee(__('listings.table.created'))->assertSee(now()->format('m-d'));
+        $c->set('q', '11가 1111')->assertSee('11가1111')->assertDontSee('22나2222');
+        $this->assertSame(1, $c->get('tabCounts')['all']);
+        $c->set('q', 'wasim')->assertSee('22나2222')->assertDontSee('11가1111');
+        $c->set('q', 'ahmed')->assertSee('11가1111')->assertDontSee('33다3333');
+
+        // 담당자(등록자) 이름 — 전체가 보이는 사람 기준
+        $lee = $this->mkUser('sales');
+        $lee->update(['name' => '이담당']);
+        $this->mkListing($lee, ['vehicle_number' => '44라4444']);
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
+        Volt::test('listings.index')->set('q', '이담당')->assertSee('44라4444')->assertDontSee('11가1111');
+        $this->actingAs($kim);
+        $c->set('q', '')->set('qVin', 'kmh')->assertSee('11가1111')->assertSee('33다3333')->assertDontSee('22나2222');
+        $c->set('qVin', 'zzz')->assertSee(__('listings.list.search_empty'));
+        $c->call('clearSearch')->assertSee('22나2222');
+        // 입력만으로는 안 걸리고 [검색]·Enter 로 건다
+        $c->set('qInput', 'wasim')->assertSee('11가1111')->call('searchNow')->assertDontSee('11가1111')->assertSee('22나2222')->assertSet('q', 'wasim');
+        $c->call('clearSearch')->assertSet('qInput', '');
+        $this->assertSame(3, $c->get('tabCounts')['all']);
+    }
+
     /**
      * 등록자 필터 — 관리·super 만(Jin 2026-10-13 「인원별로도」). 목록과 탭 건수가 같은 모수. 영업은 셀렉트 자체가 없고
      * URL 로 `?owner=` 가 들어와도 무시된다(SalesmanScope 가 본인 것만 준다).
@@ -5941,6 +5972,7 @@ class BoardTest extends TestCase
             $c = Volt::test('portal.index')->call('setTab', 'inventory')->call('setInvCategory', $category);
             $this->assertSame(['11가0059', '11가0061', '11가0009'], array_column($c->get('invRows'), 'vehicle_number'), $category);
         }
+        $c->assertSee(__('portal.col_purchase_date'))->assertSee('2026-08-09');   // 매입일 칸(2026-11-05 Jin)
 
         $c = Volt::test('portal.index')->call('setTab', 'inventory')->call('setInvCategory', 'shipped_out');
         $this->assertSame(['11가0009', '11가0059', '11가0061'], array_column($c->get('invRows'), 'vehicle_number'));

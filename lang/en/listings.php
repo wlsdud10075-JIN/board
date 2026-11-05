@@ -50,6 +50,11 @@ return [
         'count_only' => 'Count only',
         'count_only_hint' => ':count listing(s) in this tab. (Pick a page size to see them)',
         'owner_all' => 'All registrants',
+        'search_ph' => '🔍 Plate · buyer',
+        'search_ph_all' => '🔍 Plate · buyer · salesperson',
+        'vin_ph' => 'VIN',
+        'search_clear' => 'Clear search',
+        'search_empty' => 'No results.',
     ],
 
     // Table headers
@@ -66,6 +71,7 @@ return [
         'work_date' => 'Inspection date',
         'invoice' => 'Invoice',
         'status' => 'Status',
+        'created' => 'Registered',
     ],
     'invoice_state' => ['none' => 'Not entered', 'entered' => 'Entered', 'synced' => 'Sent to ERP'],
 

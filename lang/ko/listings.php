@@ -50,6 +50,11 @@ return [
         'count_only' => '건수만',
         'count_only_hint' => '지금 탭에 :count건 있습니다. (목록을 보려면 개수를 고르세요)',
         'owner_all' => '등록자 전체',   // 관리·super 등록자 필터(2026-10-13)
+        'search_ph' => '🔍 차량번호·바이어',
+        'search_ph_all' => '🔍 차량번호·바이어·담당자',   // 전체가 보이는 사람(영업은 본인 것만이라 담당자 검색이 뜻 없음)   // 2026-11-05 Jin
+        'vin_ph' => '차대번호',
+        'search_clear' => '검색 지우기',
+        'search_empty' => '검색 결과가 없습니다.',
     ],
 
     // 표 헤더
@@ -66,6 +71,7 @@ return [
         'work_date' => '검차 예정일',        // ssancar.com 이 정한 날(P1, 2026-10-29) — board 계산 없음
         'status' => '상태',
         'invoice' => 'Invoice',             // 송금인(여권/ID) 입력·ERP 전송 상태(2026-10-29 ②)
+        'created' => '등록일',              // 2026-11-05 Jin
     ],
     'invoice_state' => ['none' => '미입력', 'entered' => '입력됨', 'synced' => 'ERP 전송됨'],
 

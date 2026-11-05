@@ -2438,6 +2438,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             <div class="hidden overflow-x-auto sm:block">
                 <table class="tbl">
                     <thead><tr>
+                        <th class="whitespace-nowrap">{{ __('portal.col_purchase_date') }}</th>
                         <th>{{ __('portal.col_vehicle') }}</th><th>{{ __('portal.col_progress') }}</th>
                         <th>{{ __('portal.col_location') }}</th><th>{{ $dateLabel }}</th>
                         <th>{{ __('portal.col_buyer') }}</th><th>{{ __('portal.col_purchase_price') }}</th>
@@ -2453,6 +2454,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <tr wire:key="inv-{{ data_get($row, 'vehicle_id') }}">
                                 {{-- PC 폭 맞춤(2026-10-20 Jin): 칸마다 nowrap 을 걸면 칩 3개·VIN 메타·버튼 줄이 한 줄로 굳어 표가 화면을
                                      넘치고, 칩 없는 행은 그 폭만큼 비어 보인다. 원자값(차량번호·칩·날짜·금액)만 nowrap, 나머지는 접히게. --}}
+                                {{-- 매입일(2026-11-05 Jin 「재고에도 등록일」 — ERP 응답에 차량 생성일은 없어 ERP 화면의 매입일 `purchase_date` 로, 정렬 기준과 같다) --}}
+                                <td class="whitespace-nowrap text-gray-700">{{ data_get($row, 'purchase_date') ?: '—' }}</td>
                                 <td class="font-semibold text-gray-700">
                                     <span class="whitespace-nowrap">{{ \App\Support\Plate::show(data_get($row, 'vehicle_number')) ?: '—' }}</span>
                                     @include('livewire.portal._vehicle-meta')
@@ -2470,7 +2473,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <td class="min-w-[15rem] text-right">@include('livewire.portal._request-purchase-action')</td>
                             </tr>
                         @empty
-                            <tr><td colspan="8" class="py-8 text-center text-gray-400">{{ __('portal.inv_empty') }}</td></tr>
+                            <tr><td colspan="9" class="py-8 text-center text-gray-400">{{ __('portal.inv_empty') }}</td></tr>
                         @endforelse
                     </tbody>
                 </table>
@@ -2494,6 +2497,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             </span>
                         </div>
                         <div class="mt-1 flex flex-wrap items-center gap-x-3 text-[11px] text-gray-500">
+                            <span>{{ __('portal.col_purchase_date') }} <b class="text-gray-700">{{ data_get($row, 'purchase_date') ?: '—' }}</b></span>
                             <span>{{ __('portal.col_location') }} <b class="text-gray-700">{{ $loc ?: '—' }}</b></span>
                             <span>{{ $dateLabel }} <b class="text-gray-700">{{ data_get($row, $dateKey) ?: '—' }}</b></span>
                             @if (data_get($row, 'buyer'))<span>{{ __('portal.col_buyer') }} <b class="text-gray-700">{{ data_get($row, 'buyer') }}</b></span>@endif

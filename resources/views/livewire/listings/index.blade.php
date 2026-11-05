@@ -48,6 +48,65 @@ new #[Layout('components.layouts.app')] class extends Component {
     #[Url]
     public int $owner = 0;
 
+    /**
+     * 검색(2026-11-05 Jin) — 차량번호·바이어·담당자 한 칸 + 차대번호 한 칸. 목록·탭 건수가 같은 조건(tabQuery·tabCounts → applySearch).
+     * 차량번호는 공백을 무시하고 부분일치(「12가 3456」도 걸린다). 바이어 = 직접 적은 이름·ERP 바이어 이름 둘 다.
+     * **[검색] 버튼·Enter 로만 건다**(Jin 2026-11-05) — 입력칸(qInput·vinInput)과 적용값(q·qVin, URL)을 나눈다.
+     * 입력 즉시 검색은 한글 조합 중(「ㅇ」「이다」)에도 서버를 불러 목록이 깜빡였고, 다른 화면(/manage·/audit·알림톡 로그)도 버튼식이다.
+     */
+    public string $qInput = '';
+
+    public string $vinInput = '';
+
+    #[Url(except: '')]
+    public string $q = '';
+
+    #[Url(except: '')]
+    public string $qVin = '';
+
+    public function updatedQ(): void
+    {
+        unset($this->listings, $this->tabCounts);
+        $this->resetPage();
+    }
+
+    public function updatedQVin(): void
+    {
+        $this->updatedQ();
+    }
+
+    /** 🚨 `search()` 로 짓지 말 것 — 프로퍼티와 이름이 겹치면 버튼이 죽는다(알림톡 로그 화면과 같은 이유로 searchNow). */
+    public function searchNow(): void
+    {
+        $this->q = trim($this->qInput);
+        $this->qVin = trim($this->vinInput);
+        $this->updatedQ();
+    }
+
+    public function clearSearch(): void
+    {
+        $this->q = $this->qVin = $this->qInput = $this->vinInput = '';
+        $this->updatedQ();
+    }
+
+    private function applySearch($query)
+    {
+        $q = trim($this->q);
+        $vin = preg_replace('/\s+/', '', $this->qVin);
+        if ($q !== '') {
+            $like = '%'.addcslashes($q, '%_\\').'%';
+            $plate = '%'.addcslashes(preg_replace('/\s+/', '', $q), '%_\\').'%';
+            $query->where(fn ($w) => $w->whereRaw("REPLACE(vehicle_number, ' ', '') LIKE ?", [$plate])
+                ->orWhere('buyer_name', 'like', $like)->orWhere('car_erp_buyer_name', 'like', $like)
+                ->orWhereHas('creator', fn ($u) => $u->where('name', 'like', $like)));   // 담당자(등록자) — 2026-11-05 Jin
+        }
+        if ($vin !== '') {
+            $query->where('vin', 'like', '%'.addcslashes($vin, '%_\\').'%');
+        }
+
+        return $query;
+    }
+
     public function updatedOwner(): void
     {
         if ($this->owner !== 0 && ! $this->owners->contains('id', $this->owner)) {
@@ -181,6 +240,8 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function mount(ExchangeRateService $rates): void
     {
+        $this->qInput = $this->q;      // ?q= 로 들어오면 입력칸에도 보이게
+        $this->vinInput = $this->qVin;
         $rates->refreshIfStale();   // 오래됐을 때만 갱신(lazy, cron 불필요)
         $this->loadRates($rates);
     }
@@ -267,9 +328,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         $statuses = PurchaseListing::TAB_STATUSES[$this->tab] ?? null;
         $owner = $this->ownerFilter();
 
-        return PurchaseListing::query()
+        return $this->applySearch(PurchaseListing::query()
             ->when($statuses !== null, fn ($q) => $q->whereIn('status', $statuses))
-            ->when($owner !== null, fn ($q) => $q->where('created_by_user_id', $owner));
+            ->when($owner !== null, fn ($q) => $q->where('created_by_user_id', $owner)));
     }
 
     #[Computed]
@@ -303,8 +364,8 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function tabCounts(): array
     {
         $owner = $this->ownerFilter();
-        $byStatus = PurchaseListing::query()
-            ->when($owner !== null, fn ($q) => $q->where('created_by_user_id', $owner))   // 목록과 같은 모수
+        $byStatus = $this->applySearch(PurchaseListing::query()
+            ->when($owner !== null, fn ($q) => $q->where('created_by_user_id', $owner)))   // 목록과 같은 모수(검색 포함)
             ->selectRaw('status, count(*) as c')
             ->groupBy('status')
             ->pluck('c', 'status');
@@ -1703,6 +1764,15 @@ new #[Layout('components.layouts.app')] class extends Component {
              🚨 스크롤 컨테이너에 **`min-w-0` 필수** — flex 자식은 기본 `min-width:auto` 라 칩 9개가
                 줄어들 줄을 모르고 **부모를 넘쳐** overflow-x-auto 가 죽는다(= 페이지 전체가 가로로 밀린다).
              ⚠️ 좁은 폭에선 셀렉트를 **아래 줄**로 내린다 — 한 줄에 같이 두면 탭이 보일 폭이 90px 남짓 남는다. --}}
+        {{-- 검색(2026-11-05 Jin) — 차량번호·바이어·담당자 / 차대번호 두 칸 + [검색](Enter 도 됨). 모바일은 한 줄에 7:5:버튼. --}}
+        <div class="mb-2 flex items-center gap-1.5">
+            <input type="search" wire:model="qInput" wire:keydown.enter="searchNow" enterkeyhint="search" class="input-filter min-w-0 flex-[7] sm:max-w-xs" placeholder="{{ auth()->user()->canSeeAll() ? __('listings.list.search_ph_all') : __('listings.list.search_ph') }}" autocomplete="off">
+            <input type="search" wire:model="vinInput" wire:keydown.enter="searchNow" enterkeyhint="search" class="input-filter min-w-0 flex-[5] uppercase sm:max-w-[12rem]" placeholder="{{ __('listings.list.vin_ph') }}" autocomplete="off">
+            <button type="button" wire:click="searchNow" class="btn-primary btn-sm shrink-0">{{ __('common.search') }}</button>
+            @if ($q !== '' || $qVin !== '')
+                <button type="button" wire:click="clearSearch" class="shrink-0 rounded-md px-1.5 text-lg leading-none text-gray-400 hover:text-gray-600" title="{{ __('listings.list.search_clear') }}">×</button>
+            @endif
+        </div>
         <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div class="-mx-1 flex min-w-0 gap-1 overflow-x-auto whitespace-nowrap px-1 pb-1">
                 @foreach (\App\Models\PurchaseListing::TABS as $t)
@@ -1878,24 +1948,26 @@ new #[Layout('components.layouts.app')] class extends Component {
             @php $showOwner = auth()->user()->canSeeAll(); @endphp
             <table class="tbl tbl-center">
                 <thead>
-                    <tr><th class="w-px whitespace-nowrap">{{ __('listings.table.vehicle') }}</th><th>{{ __('listings.table.source') }}</th>@if ($showOwner)<th>{{ __('listings.table.owner') }}</th>@endif<th>{{ __('listings.table.total') }}</th><th>{{ __('listings.table.inspection_request') }}</th><th>{{ __('listings.table.inspection_note') }}</th><th>{{ __('listings.table.buyer') }}</th><th>{{ __('listings.table.verdict') }}</th><th>{{ __('listings.table.status') }}</th><th>{{ __('listings.table.inspection_state') }}</th><th>{{ __('listings.table.work_date') }}</th><th>{{ __('listings.table.invoice') }}</th></tr>
+                    <tr><th class="w-px whitespace-nowrap">{{ __('listings.table.created') }}</th><th class="w-px whitespace-nowrap">{{ __('listings.table.vehicle') }}</th><th>{{ __('listings.table.source') }}</th>@if ($showOwner)<th>{{ __('listings.table.owner') }}</th>@endif<th>{{ __('listings.table.total') }}</th><th>{{ __('listings.table.inspection_request') }}</th><th>{{ __('listings.table.inspection_note') }}</th><th>{{ __('listings.table.buyer') }}</th><th>{{ __('listings.table.verdict') }}</th><th>{{ __('listings.table.status') }}</th><th>{{ __('listings.table.inspection_state') }}</th><th>{{ __('listings.table.work_date') }}</th><th>{{ __('listings.table.invoice') }}</th></tr>
                 </thead>
                 <tbody>
                     @forelse ($this->listings as $l)
                         <tr class="cursor-pointer hover:bg-gray-50" wire:click="openEdit({{ $l->id }})">
+                            {{-- 등록일(2026-11-05 Jin) — 올해는 월-일, 지난해는 연도까지. 시각은 아래 작게. --}}
+                            <td class="w-px whitespace-nowrap text-[12px] text-gray-600">{{ $l->created_at?->format($l->created_at->isCurrentYear() ? 'm-d' : 'y-m-d') }}<div class="text-[11px] text-gray-400">{{ $l->created_at?->format('H:i') }}</div></td>
                             <td class="w-px whitespace-nowrap">
                                 <div class="font-semibold text-gray-800">{{ \App\Support\Plate::show($l->vehicle_number) }}</div>
                                 <div class="text-xs text-gray-400">VIN ·{{ \Illuminate\Support\Str::limit($l->vin, 10, '') }}</div>
                             </td>
-                            <td><span class="badge {{ $l->originBadge() }}">{{ $l->originLabel() }}</span></td>
+                            <td class="whitespace-nowrap"><span class="badge {{ $l->originBadge() }}">{{ $l->originLabel() }}</span></td>
                             @if ($showOwner)<td class="whitespace-nowrap text-gray-700">{{ $l->creator?->name ?? '—' }}</td>@endif
                             <td class="font-semibold {{ $l->final_price ? 'text-[var(--color-primary-text)]' : 'text-gray-400' }}">{{ $l->final_price ? number_format($l->final_price).__('common.won_currency') : '—' }}</td>
                             {{-- 추가 검사 요청(영업 → 검차원) / 검차 메모(검차 결과) — 이름이 헷갈려 두 칸으로 나눴다(2026-10-23 Jin). --}}
                             <td class="max-w-[180px] truncate text-xs text-gray-600" title="{{ $l->inspection_request }}">{{ $l->inspection_request ?: '—' }}</td>
                             <td class="max-w-[180px] truncate text-xs text-gray-500" title="{{ $l->inspection_note }}">{{ $l->inspection_note ?: '—' }}</td>
                             <td class="max-w-[160px] truncate text-gray-700" title="{{ $l->buyerDisplay() }}">{{ $l->buyerDisplay() ?: '—' }}</td>
-                            <td>@if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</td>
-                            <td><span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span></td>
+                            <td class="whitespace-nowrap">@if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@else<span class="text-gray-300">—</span>@endif</td>
+                            <td class="whitespace-nowrap"><span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span></td>
                             {{-- 검차상태 — 현지확인대기 차가 왜 아직 전달대기로 안 넘어갔나(ssancar 폴러 마지막 판정). 그 외 상태는 빈 칸. 상태 칸 오른쪽(Jin). --}}
                             <td class="max-w-[260px] whitespace-normal text-[11px] leading-snug text-gray-500">@if ($hold = $l->ssancarHoldHint())@if (! empty($hold['alert']))<span class="font-semibold text-red-600">⚠ {{ __($hold['key'], $hold['params']) }}</span>@else{{ __($hold['key'], $hold['params']) }}@endif @else<span class="text-gray-300">—</span>@endif</td>
                             {{-- 검차 예정일(P1, 2026-10-29) — ssancar 가 정한 날(현지확인대기 차만). 오늘 목록이면 초록. 긴급 요청·결정은 드로어·종에서. --}}
@@ -1905,7 +1977,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <td class="whitespace-nowrap"><span class="badge {{ ['none' => 'badge-gray', 'entered' => 'badge-blue', 'synced' => 'badge-green'][$inv] }}">{{ __('listings.invoice_state.'.$inv) }}</span></td>
                         </tr>
                     @empty
-                        <tr><td colspan="{{ $showOwner ? 12 : 11 }}" class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</td></tr>
+                        <tr><td colspan="{{ $showOwner ? 13 : 12 }}" class="py-8 text-center text-gray-400">{{ ($q !== '' || $qVin !== '') ? __('listings.list.search_empty') : __('listings.list.empty') }}</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -1918,7 +1990,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <div class="flex items-start justify-between gap-2">
                         <div class="min-w-0">
                             <div class="font-semibold text-gray-800">{{ \App\Support\Plate::show($l->vehicle_number) }}</div>
-                            <div class="text-xs text-gray-400">VIN ·{{ \Illuminate\Support\Str::limit($l->vin, 12, '') }}</div>
+                            <div class="text-xs text-gray-400">VIN ·{{ \Illuminate\Support\Str::limit($l->vin, 12, '') }} · {{ __('listings.table.created') }} {{ $l->created_at?->format($l->created_at->isCurrentYear() ? 'm-d H:i' : 'y-m-d') }}</div>
                         </div>
                         <span class="badge {{ $l->originBadge() }} shrink-0">{{ $l->originLabel() }}</span>
                     </div>
@@ -1948,7 +2020,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @endif
                 </div>
             @empty
-                <div class="py-8 text-center text-gray-400">{{ __('listings.list.empty') }}</div>
+                <div class="py-8 text-center text-gray-400">{{ ($q !== '' || $qVin !== '') ? __('listings.list.search_empty') : __('listings.list.empty') }}</div>
             @endforelse
         </div>
         <div class="mt-3">{{ $this->listings->links() }}</div>
