@@ -10,9 +10,12 @@ use App\Models\PushSubscription;
 use App\Models\User;
 use App\Services\WebPushService;
 use App\Support\SsancarInspection;
+use App\Support\SsancarYards;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Livewire\Volt\Volt;
 use Tests\TestCase;
@@ -524,5 +527,82 @@ class InspectionQueueTest extends TestCase
         $this->assertStringContainsString('ConnectionException', $row->error);
         $this->assertStringContainsString('timed out', $row->error);
         Bus::assertNotDispatched(SendInspectionQueueEvent::class);
+    }
+
+    // ───────────── 차 위치 = 매매단지(2026-11-05) ─────────────
+
+    private function fakeYards(string $yardResult = 'ok'): void
+    {
+        Http::fake(function ($req) use ($yardResult) {
+            $b = json_decode($req->body(), true);
+            if (($b['event'] ?? '') === 'yard.list') {
+                return Http::response(['ok' => true, 'yards' => [
+                    ['id' => 4, 'name' => '수원오토컬렉션(SAC)', 'region' => '경기 수원시', 'address' => '경기 수원시 권선구 권선로 341'],
+                    ['id' => 11, 'name' => '경기매매단지(안산)', 'region' => '경기 안산시', 'address' => '경기 안산시 단원구'],
+                ]]);
+            }
+
+            return Http::response(['ok' => true, 'listing_id' => $b['listing_id'] ?? 0, 'status' => 'queued'] + (isset($b['yard_id']) ? ['yard' => $yardResult] : []));
+        });
+    }
+
+    /** 목록은 10분 캐시, 실패는 캐시하지 않는다(빈 목록 → 화면은 직접 입력만). 같은 지역 먼저. */
+    public function test_yard_list_cache_and_grouping(): void
+    {
+        $this->configure();
+        Cache::flush();
+        Http::fake(['*' => Http::response('down', 500)]);
+        $this->assertSame([], SsancarYards::all());
+        $this->assertNull(Cache::get(SsancarYards::CACHE_KEY));
+
+        Http::swap(new Factory);
+        $this->fakeYards();
+        $g = SsancarYards::grouped('안산');   // 축약형도 정식형으로 맞춰 비교
+        $this->assertSame([11], array_column($g['same'], 'id'));
+        $this->assertSame([4], array_column($g['other'], 'id'));
+        SsancarYards::all();
+        Http::assertSentCount(1);   // 두 번째는 캐시
+    }
+
+    /** 링크 없는 차 = yard_id 를 싣고 응답 yard(ok|unknown)를 적는다. 링크 있는 차는 위치를 안 싣는다. 직접 입력 = address. */
+    public function test_upsert_carries_location_only_without_link(): void
+    {
+        $this->configure();
+        $this->fakeYards('unknown');
+        $yard = $this->mkListing(['yard_id' => 99, 'yard_name' => '없어진 단지']);
+        $manual = $this->mkListing(['location_address' => '경기 화성시 어딘가 1']);
+        $linked = $this->mkListing(['encar_url' => 'https://fem.encar.com/cars/detail/1', 'yard_id' => 4]);
+
+        $sent = collect(Http::recorded())->map(fn ($r) => json_decode($r[0]->body(), true))->keyBy('listing_id');
+        $this->assertSame(99, $sent[$yard->id]['yard_id']);
+        $this->assertArrayNotHasKey('address', $sent[$yard->id]);
+        $this->assertSame('경기 화성시 어딘가 1', $sent[$manual->id]['address']);
+        $this->assertArrayNotHasKey('yard_id', $sent[$linked->id]);
+        $this->assertSame('unknown', $yard->fresh()->yard_status);
+        $this->assertNull($manual->fresh()->yard_status);
+    }
+
+    /** 드로어 — 단지를 고르면 id·이름 스냅샷 저장 + 감사 + 재발송, 다시 고르면 지난 확인 결과를 지운다. */
+    public function test_drawer_location_pick_and_manual(): void
+    {
+        $this->configure();
+        $this->fakeYards('ok');
+        Cache::flush();
+        $l = $this->mkListing();
+        $this->actingAs(User::find($l->created_by_user_id));
+
+        Volt::test('listings.index')->call('openEdit', $l->id)
+            ->assertSee(__('listings.loc.label'))->assertSee('경기매매단지(안산)')
+            ->set('e_loc_choice', '4')->call('update')->assertHasNoErrors();
+        $l->refresh();
+        $this->assertSame([4, '수원오토컬렉션(SAC)', null, 'ok'], [$l->yard_id, $l->yard_name, $l->location_address, $l->yard_status]);
+        $this->assertTrue(BoardAuditLog::where('purchase_listing_id', $l->id)->where('field', 'yard_name')->where('new_value', '수원오토컬렉션(SAC)')->exists());
+
+        Volt::test('listings.index')->call('openEdit', $l->id)->set('e_loc_choice', 'manual')->call('update')->assertHasErrors('e_loc_address');
+        Volt::test('listings.index')->call('openEdit', $l->id)->set('e_loc_choice', 'manual')->set('e_loc_address', '경기 안산시 단원구 1')->call('update')->assertHasNoErrors();
+        $l->refresh();
+        $this->assertSame([null, null, '경기 안산시 단원구 1', null], [$l->yard_id, $l->yard_name, $l->location_address, $l->yard_status]);
+
+        Volt::test('listings.index')->call('openEdit', $l->id)->set('e_loc_choice', '777')->call('update')->assertHasErrors('e_loc_choice');   // 목록에 없는 id
     }
 }

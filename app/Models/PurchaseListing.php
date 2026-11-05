@@ -23,7 +23,7 @@ class PurchaseListing extends Model
     use NormalizesRegion, SoftDeletes;
 
     protected $fillable = [
-        'created_by_user_id', 'source', 'origin', 'region', 'c_no', 'ssancar_ref',
+        'created_by_user_id', 'source', 'origin', 'region', 'yard_id', 'yard_name', 'location_address', 'yard_status', 'c_no', 'ssancar_ref',
         'respond_conversation_id', 'respond_contact_id', 'encar_id',
         'vehicle_number', 'owner_name', 'vin',
         'expected_price', 'expected_price_currency', 'car_cost', 'discount_rate', 'sale_discount_amount',
@@ -539,7 +539,7 @@ class PurchaseListing extends Model
         'seller_company', 'seller_ceo', 'seller_phone',
         // 송금인(여권/ID) — 2026-10-29 ②. 문서번호는 *** 마스킹.
         'remitter_name', 'remitter_id',
-        'vehicle_number', 'vin', 'car_erp_vehicle_id', 'region', 'inspection_note', 'inspection_request', 'inspection_memo',
+        'vehicle_number', 'vin', 'car_erp_vehicle_id', 'region', 'yard_name', 'location_address', 'inspection_note', 'inspection_request', 'inspection_memo',
         'encar_url', 'encar_dealer', 'auction_venue', 'lot_number',
         // 재고매입 = 바이어 없이 ERP 로 넘어간다 → 나중에 반드시 "누가 왜"를 묻게 된다.
         'buyer_undecided',
@@ -641,7 +641,7 @@ class PurchaseListing extends Model
     }
 
     /** 검차 큐에 실리는 값 — 이 중 하나가 바뀌면 upsert 를 다시 보낸다. 🚫 소유자명·계좌·금액은 넣지 않는다. */
-    public const INSPECTION_QUEUE_FIELDS = ['vehicle_number', 'vin', 'region', 'inspection_request', 'encar_url'];
+    public const INSPECTION_QUEUE_FIELDS = ['vehicle_number', 'vin', 'region', 'inspection_request', 'encar_url', 'yard_id', 'location_address'];
 
     /**
      * 검차 큐 판정식 — `status='draft' AND origin≠self_inspection AND 미삭제` (스펙 §8-6). origin 은 nullable 이라

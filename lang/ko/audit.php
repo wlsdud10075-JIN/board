@@ -87,6 +87,8 @@ return [
         'region' => '지역',
         'inspection_note' => '추가검사',
         'inspection_request' => '검차요청',
+        'yard_name' => '차 위치(단지)',
+        'location_address' => '차 위치(주소)',
         'inspection_memo' => '메모',
         'c_no' => '매물번호',
         'encar_url' => '엔카URL',

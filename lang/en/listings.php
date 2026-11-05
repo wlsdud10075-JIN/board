@@ -406,4 +406,19 @@ return [
         'urgent_rejected' => 'Urgent rejected (:by · :at):note — scheduled date unchanged. You can request again',
         'urgent_today' => 'This car is already on today\'s inspection list — no urgent request needed.',
     ],
+    // Car location = dealer yard (2026-11-05) — only for cars without an Encar link.
+    'loc' => [
+        'label' => 'Car location',
+        'hint' => '(when there is no Encar link — used for the inspector route)',
+        'none' => 'Not selected',
+        'same_region' => 'Same region',
+        'other_region' => 'Other regions',
+        'manual' => 'Enter address…',
+        'address_ph' => 'Enter the address',
+        'not_in_list' => '(not in list)',
+        'list_failed' => 'Could not load the yard list — enter the address instead.',
+        'yard_gone' => 'The selected yard is no longer in the list — choose again.',
+        'unknown' => 'Yard not recognized — ssancar could not find this yard. Choose again or enter the address.',
+        'ok' => 'Confirmed by ssancar',
+    ],
 ];

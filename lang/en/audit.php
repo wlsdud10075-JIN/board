@@ -87,6 +87,8 @@ return [
         'region' => 'Region',
         'inspection_note' => 'Extra inspection',
         'inspection_request' => 'Inspection request',
+        'yard_name' => 'Car location (yard)',
+        'location_address' => 'Car location (address)',
         'inspection_memo' => 'Memo',
         'c_no' => 'Listing no.',
         'encar_url' => 'Encar URL',
