@@ -11,6 +11,7 @@ use App\Models\PurchaseListing;
 use App\Models\User;
 use App\Services\Assistant\OllamaClient;
 use App\Services\PayeeExtractor;
+use App\Support\IntegrationEventView;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Storage;
@@ -323,6 +324,11 @@ class PayeeExtractionTest extends TestCase
             ->assertSet('payee_bank', '신한은행');
 
         $this->assertNull($l->fresh()->payee_account);   // 저장은 아직 아니다
+        // 적용도 기록(2026-11-05 Jin — 350너9262): 누가 어떤 후보를, 계좌는 ***
+        $log = BoardAuditLog::where('purchase_listing_id', $l->id)->where('action', 'payee_suggestion_apply')->sole();
+        $this->assertSame(['to' => 'payee', 'bank' => '신한은행', 'holder' => '(주)수호모터스', 'account' => '***'], json_decode($log->new_value, true));
+        $this->assertStringNotContainsString('140-014', $log->new_value);
+        $this->assertNotNull($log->user_id);
     }
 
     /**
@@ -428,6 +434,7 @@ class PayeeExtractionTest extends TestCase
             ->assertSet('owner_name', '오승환');
 
         $this->assertNull($l->fresh()->owner_name);
+        $this->assertSame(['to' => 'owner_name', 'value' => '오승환'], json_decode(BoardAuditLog::where('purchase_listing_id', $l->id)->where('action', 'payee_suggestion_apply')->sole()->new_value, true));
     }
 
     /**
@@ -448,6 +455,9 @@ class PayeeExtractionTest extends TestCase
 
         Bus::assertDispatched(ExtractPayeeFromPhotos::class);
         $this->assertSame('pending', $l->fresh()->payee_extraction_status);
+        $req = BoardAuditLog::where('purchase_listing_id', $l->id)->where('action', 'payee_extract_request')->sole();   // 누가 찾기를 눌렀나(2026-11-05)
+        $this->assertSame('button', json_decode($req->new_value, true)['trigger']);
+        $this->assertNotNull($req->user_id);
     }
 
     public function test_find_button_without_photos_says_so(): void
@@ -607,5 +617,17 @@ class PayeeExtractionTest extends TestCase
         $this->assertNotSame('010-2000-1111', \DB::table('purchase_listings')->where('id', $l->id)->value('seller_phone'));
         $this->assertSame('***', BoardAuditLog::where('field', 'seller_phone')->latest('id')->value('new_value'));
         $this->assertSame('(주)성진모터스', BoardAuditLog::where('field', 'seller_company')->latest('id')->value('new_value'));
+    }
+
+    /** 전송 표 — 계좌 없이 소유자·매입처만 읽혀도 「못 읽음」처럼 보이지 않게 종류별 건수(2026-11-05 Jin, 350너9262). 옛 로그(키 없음)는 계좌만. */
+    public function test_extract_log_shows_counts_per_kind(): void
+    {
+        $ev = IntegrationEvent::create(['direction' => 'outbound', 'target' => 'ollama', 'event_type' => 'payee_extract',
+            'request_payload' => ['status' => 'done', 'candidates' => 0, 'photo_errors' => 0, 'owners' => 1, 'sellers' => 1, 'phones' => 0]]);
+        $sum = implode(' · ', IntegrationEventView::summary($ev));
+        $this->assertStringContainsString(__('audit.ev.sum.payee_owners', ['n' => 1]), $sum);
+        $this->assertStringContainsString(__('audit.ev.sum.payee_sellers', ['n' => 1]), $sum);
+        $this->assertStringNotContainsString(__('audit.ev.sum.payee_phones', ['n' => 0]), $sum);
+        $this->assertSame([__('audit.ev.payee_status.done'), true], IntegrationEventView::response($ev));
     }
 }

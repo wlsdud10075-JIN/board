@@ -734,6 +734,8 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
 
 설계·근거 = `meetings/design-payee-extraction-2026-09-10.md`
 
+- 🔁 **2026-11-05 Jin(ssancarboard 350너9262 「찾기 눌러 골라 넣었다는데 기록이 없다」)** — [정보 찾기] = 감사 행 `payee_extract_request`(누가·사진 수·trigger button/upload), 후보 [적용] = `payee_suggestion_apply`(to = payee·selling_fee_payee·owner_name·seller·seller_phone, **계좌·휴대폰 ***)**. 종전엔 찾기 = 상태 saveQuietly(행위자 없음)·적용 = 입력칸만이라 저장 때 칸별 field_edit 만 남아 OCR 값인지 손 입력인지 갈 수 없었다. 전송 표 `payee_extract` 도 계좌 건수만 실어 소유자·매입처만 읽힌 경우가 「계좌 후보 0건」으로 보였다 → payload `owners`·`sellers`·`phones` 건수 + 응답 문구 「정보 후보 찾음 / 찾은 정보 없음」.
+
 ### 14-15b. 계좌추출 상태 표시 — 버튼 아래 상태 줄 · 결과 자동 스크롤 · 「실패」는 failed 만 (2026-10-28 Jin, dev)
 - `/auction` 드로어의 결과 상자(`#payee-status`, 입금정보 칸 위)는 「찾기」 버튼(첨부 섹션 맨 아래)에서 ~450px 위라 **눌러도 아무 변화가 없는 것처럼** 보였다(헤드리스 실측: 스크롤은 안 튀고, 상자가 시야 밖). → ① 버튼 바로 아래 같은 상태 줄(`under_searching`/`under_slow`/`under_found`(누르면 위로)/`under_none`/`under_failed`) ② 결과 도착 시 `#payee-status` 로 자동 스크롤 — Alpine `x-init` + `window.__payeeWaiting`(「찾는 중」을 한 번 그렸을 때만, 드로어 열자마자 후보가 있으면 안 움직임) ③ **pending 은 시간 무관하게 「찾는 중」** — 5분 넘으면 `payeeExtractionSlow()` 로 문구만 「오래 걸림」·폴링 15초(종전엔 「실패」로 그려 사용자가 포기했는데 Job 은 뒤에 끝나 후보가 저장됐다). 「실패」는 `status=failed` 만.
 - ⚠️ 확정 잠금 `payeeExtractionInFlight()`(5분 창)은 **그대로** — 화면용 `payeeExtractionPending()`/`Slow()` 와 분리. 잠금까지 시간 무관으로 바꾸면 Job 이 유실된 차를 영영 확정 못 한다(탈출구 「계좌 없이 확정하기」는 있지만). 가드 = `test_payee_extract_status_shows_under_button_and_slow_instead_of_failed`.

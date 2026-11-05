@@ -106,7 +106,9 @@ class ExtractPayeeFromPhotos implements ShouldQueue
             'payee_extraction_status' => $found ? 'done' : 'none',
         ])->saveQuietly();
 
-        $this->log($l, $found ? 'done' : 'none', count($result['candidates']), $failed);
+        $this->log($l, $found ? 'done' : 'none', count($result['candidates']), $failed, [
+            'owners' => count($result['registration_owners']), 'sellers' => count($result['seller_companies']), 'phones' => count($result['seller_phones']),
+        ]);
     }
 
     /** 실패해도 구매확정을 영영 막지 않는다 — 상태를 failed 로 풀어준다. */
@@ -146,15 +148,18 @@ class ExtractPayeeFromPhotos implements ShouldQueue
         }
     }
 
-    /** 🚨 계좌번호는 로그에 남기지 않는다 — 건수만(전송 본문·화면에는 실값이 간다). */
-    private function log(PurchaseListing $l, string $status, int $found, int $failed): void
+    /**
+     * 🚨 계좌번호는 로그에 남기지 않는다 — 건수만(전송 본문·화면에는 실값이 간다).
+     * 2026-11-05 Jin(ssancarboard 350너9262 「못 읽은 건가?」): 종전엔 계좌 건수만 실어 소유자·매입처만 읽힌 경우도 「계좌 후보 0건」으로 보였다 → 종류별 건수.
+     */
+    private function log(PurchaseListing $l, string $status, int $found, int $failed, array $more = []): void
     {
         IntegrationEvent::create([
             'direction' => 'outbound',
             'target' => 'ollama',
             'event_type' => 'payee_extract',
             'purchase_listing_id' => $l->id,
-            'request_payload' => ['status' => $status, 'candidates' => $found, 'photo_errors' => $failed],   // 매입처·휴대폰도 값은 안 남긴다
+            'request_payload' => ['status' => $status, 'candidates' => $found, 'photo_errors' => $failed] + $more,   // 매입처·휴대폰도 값은 안 남긴다(건수만)
         ]);
     }
 }

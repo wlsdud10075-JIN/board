@@ -374,8 +374,22 @@ new #[Layout('components.layouts.app')] class extends Component {
         // 계좌 추출 — 사진이 새로 들어왔을 때만 돌린다. 결과는 후보일 뿐이라 payee_* 를 안 건드린다.
         if (config('board.payee_extract.enabled')) {
             $l->forceFill(['payee_extraction_status' => 'pending', 'payee_extraction_at' => now()])->saveQuietly();
+            $this->logPayeeAction($l, 'payee_extract_request', ['photos' => $l->salesAttachments()->where('kind', InspectionPhoto::KIND_SALES_PHOTO)->count(), 'trigger' => 'upload']);
             ExtractPayeeFromPhotos::dispatch($l->id);
         }
+    }
+
+    /**
+     * 정보 찾기·후보 적용 감사 행(2026-11-05 Jin — ssancarboard 350너9262: 「찾기 눌러 골라 넣었다는데 기록이 없다」).
+     * 종전엔 찾기 = 상태만 saveQuietly(행위자 없음), 적용 = 입력칸만 채움(기록 0) → 저장 때 칸별 field_edit 만 남아 OCR 값인지 손 입력인지 갈 수 없었다.
+     * 계좌·휴대폰은 *** (BoardAudit::MASKED 와 같은 취급). 적용은 저장 전이라 실제 저장은 그 뒤 field_edit 행이 따로 남는다.
+     */
+    private function logPayeeAction(PurchaseListing $l, string $action, array $value): void
+    {
+        \App\Models\BoardAuditLog::create([
+            'user_id' => \Illuminate\Support\Facades\Auth::id(), 'purchase_listing_id' => $l->id, 'action' => $action, 'field' => $action,
+            'old_value' => null, 'new_value' => json_encode($value, JSON_UNESCAPED_UNICODE), 'ip_address' => \App\Models\BoardAuditLog::currentIp(),
+        ]);
     }
 
     /** 저장 전 선택파일 빼기. */
@@ -664,6 +678,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         if (! $c) {
             return;
         }
+        $this->logPayeeAction($l, 'payee_suggestion_apply', ['to' => $role === 'fee' ? 'selling_fee_payee' : 'payee', 'bank' => $c['bank'], 'holder' => $c['holder'], 'account' => '***']);
         if ($role === 'fee') {
             $this->selling_fee_payee_bank = $c['bank'];
             $this->selling_fee_payee_account = $c['number'];
@@ -683,6 +698,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $owner = ($l->payee_suggestions['registration_owners'] ?? [])[$index] ?? null;
         if ($owner) {
             $this->owner_name = $owner;
+            $this->logPayeeAction($l, 'payee_suggestion_apply', ['to' => 'owner_name', 'value' => $owner]);
         }
     }
 
@@ -700,6 +716,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         if (($s['ceo'] ?? '') !== '') {
             $this->seller_ceo = $s['ceo'];
         }
+        $this->logPayeeAction($l, 'payee_suggestion_apply', ['to' => 'seller', 'company' => $s['company'] ?? '', 'ceo' => $s['ceo'] ?? '']);
     }
 
     /** 연락처 후보(휴대폰)를 입력칸에 옮긴다 — **저장은 아니다**. */
@@ -709,6 +726,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $p = ($l->payee_suggestions['seller_phones'] ?? [])[$index] ?? null;
         if ($p && ($p['number'] ?? '') !== '') {
             $this->seller_phone = $p['number'];
+            $this->logPayeeAction($l, 'payee_suggestion_apply', ['to' => 'seller_phone', 'value' => '***']);
         }
     }
 
@@ -731,6 +749,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             $this->storeSalesFiles($l);
         } elseif ($l->salesAttachments()->where('kind', InspectionPhoto::KIND_SALES_PHOTO)->exists()) {
             $l->forceFill(['payee_extraction_status' => 'pending', 'payee_extraction_at' => now()])->saveQuietly();
+            $this->logPayeeAction($l, 'payee_extract_request', ['photos' => $l->salesAttachments()->where('kind', InspectionPhoto::KIND_SALES_PHOTO)->count(), 'trigger' => 'button']);
             ExtractPayeeFromPhotos::dispatch($l->id);
         } else {
             $this->addError('salesFiles', __('auction.payee_extract.no_photos'));
