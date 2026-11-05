@@ -78,7 +78,7 @@
 
 **3단계 — 업무일지결재 탭(팀장·부장·상무·대표)**
 - 테이블: `work_journal_batches`(date unique, status pending/approved, current_step) · `work_journal_steps`(batch_id, seq, title, approver_user_id, status pending/approved/skipped, acted_at) · `work_journal_comments`(batch_id, step_id, journal_id null=전체, user_id, body).
-- 묶음 생성 = 그날 첫 상신 때(date 단위 1개). 결재선 = 팀장(지정 manager 1명) → 부장 → 상무 → 대표(admin 직급) — **그 직급 사람이 없으면 skipped**, 대표 없으면 상신 막음(안내). 팀장 승인 전 상신분은 합류, **승인 후 상신분 = 「추가 기안」**(같은 날짜 두 번째 묶음 — date unique 대신 (date, seq)).
+- 묶음 생성 = 그날 첫 상신 때(date 단위 1개). 결재선 = 팀장(지정 manager 1명) → 부장 → 상무 → 대표(admin 직급) — **그 직급 사람이 없으면 skipped**, 대표가 비면 **지정된 최고관리자 직급 중 가장 위(상무 → 부장)가 최종 결재권자**(2026-11-05 Jin), 부장·상무·대표가 모두 없을 때만 상신 막음(안내). 팀장 승인 전 상신분은 합류, **승인 후 상신분 = 「추가 기안」**(같은 날짜 두 번째 묶음 — date unique 대신 (date, seq)).
 - 화면: 날짜별 기안 목록 · 결재선 띠 · 상신 N/미상신 M(이름, 주말 제외) · 인원별 `<details>` 카드(표 + board 활동 snapshot + 앞 단계 인원별 의견 + 내 의견 칸) · 전체 의견 · [승인 → 다음]. **반려 없음.** 차례 아닌 결재자는 읽기 전용. 완료 후 기안자는 본인 일지에서 **나에게 달린 의견 + 전체 의견**만 본다. 대표 승인 후 수정 불가.
 - ERP 참고(읽기 전용, car-erp 레포): 카드 `resources/views/components/payout/person-card.blade.php`, 결재 로직 `app/Models/SettlementPayoutBatch.php`(approveBy·normalizeLine).
 

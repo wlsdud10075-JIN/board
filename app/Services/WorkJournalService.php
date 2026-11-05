@@ -19,7 +19,8 @@ use Illuminate\Support\Facades\DB;
  * 정본 = meetings/plan-work-journal-2026-11.md.
  *
  *  - 상신 = 표 + board 활동을 **snapshot 으로 고정**하고 그날 열린 묶음에 넣는다(묶음에 승인 단계가 하나라도 있으면 새 묶음 = 추가 기안).
- *  - 결재선 = 팀장(지정 업무관리자) → 부장 → 상무 → 대표(최고관리자 직급). 그 직급 사람이 없으면 skipped, 대표가 없으면 상신을 막는다.
+ *  - 결재선 = 팀장(지정 업무관리자) → 부장 → 상무 → 대표(최고관리자 직급). 그 직급 사람이 없으면 skipped.
+ *    대표가 없으면 **지정된 최고관리자 직급 중 가장 위(상무 → 부장)가 최종 결재권자**(2026-11-05 Jin) — 부장·상무·대표가 모두 없을 때만 상신을 막는다.
  *  - 반려 = **팀장만, 팀장 승인 전에만**, 사람별·사유 필수(2026-11-04 Jin). 반려된 일지는 내용 그대로 작성자에게 돌아가 고쳐 다시 상신.
  *    그 위 단계(부장·상무·대표)는 의견만 남기고 승인한다.
  *  - 모든 행위는 board_audit_logs(Jin 원칙).
@@ -178,7 +179,7 @@ class WorkJournalService
     // ───────────── 상신·회수 ─────────────
 
     /**
-     * 상신 — snapshot 고정 + 그날 열린 묶음에 합류(없으면 새 묶음·결재선 생성). 대표가 없으면 \DomainException('no_ceo').
+     * 상신 — snapshot 고정 + 그날 열린 묶음에 합류(없으면 새 묶음·결재선 생성). 부장·상무·대표가 모두 없으면 \DomainException('no_ceo').
      */
     public function submit(WorkJournal $j): WorkJournalBatch
     {
@@ -212,7 +213,10 @@ class WorkJournalService
         });
     }
 
-    /** 새 묶음 + 결재선. 직급 사람이 없는 단계는 skipped(시스템 감사 행), 대표가 없으면 막는다. */
+    /**
+     * 새 묶음 + 결재선. 직급 사람이 없는 단계는 skipped(시스템 감사 행). 마지막 pending 단계가 곧 최종 결재 —
+     * 대표가 비면 상무(없으면 부장)가 최종(2026-11-05 Jin). 최고관리자 직급이 하나도 없으면 막는다(팀장 혼자 최종 ❌).
+     */
     private function createBatch(string $date): WorkJournalBatch
     {
         $holders = [];
@@ -220,7 +224,7 @@ class WorkJournalService
             $holders[$title] = User::where('approval_title', $title)->where('is_active', true)
                 ->where('permission', $title === User::TEAM_LEADER ? 'manager' : 'admin')->orderBy('id')->first();
         }
-        if (! $holders['대표']) {
+        if (! collect(User::TOP_TITLES)->contains(fn ($t) => $holders[$t] !== null)) {
             throw new \DomainException('no_ceo');
         }
         $seq = (int) WorkJournalBatch::whereDate('date', $date)->max('seq') + 1;

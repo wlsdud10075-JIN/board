@@ -265,7 +265,7 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
 
 ## ⏭️ 남은 작업 (미완)
 
-- ✅ **업무일지 + 업무일지결재 + 최고관리자 등급 + 알림톡 로그 — 두 박스 배포 완료**(2026-11-05 master `65b48af` — heymanboard·ssancarboard success, db:backup ✓ 1582.3 KB / 655.2 KB, 마이그 4개 DONE). 정본 = `meetings/plan-work-journal-2026-11.md`. 남음 = ① **운영 결재 직급 지정**(super 가 사용자관리에서 최고관리자 등급·부장/상무/대표, 업무관리자 1명 「팀장」 — **대표가 없으면 상신이 막힌다**) ② 5단계 알림톡(최소 발송 방침 = 기획 문서) ③ 운영 `dev_user_switch` off 실측(APP_ENV production 이면 off, 미확인).
+- ✅ **업무일지 + 업무일지결재 + 최고관리자 등급 + 알림톡 로그 — 두 박스 배포 완료**(2026-11-05 master `65b48af` — heymanboard·ssancarboard success, db:backup ✓ 1582.3 KB / 655.2 KB, 마이그 4개 DONE). 정본 = `meetings/plan-work-journal-2026-11.md`. 남음 = ① **운영 결재 직급 지정**(super 가 사용자관리에서 최고관리자 등급·부장/상무/대표, 업무관리자 1명 「팀장」 — 대표가 비면 상무(없으면 부장)가 최종 결재, **부장·상무·대표가 모두 없으면 상신이 막힌다**(2026-11-05)) ② 5단계 알림톡(최소 발송 방침 = 기획 문서) ③ 운영 `dev_user_switch` off 실측(APP_ENV production 이면 off, 미확인).
 
 - **연동 B 감사 명령 `board:purchase-sync-audit`**(2026-09-28 Jin 승인, **dev 구현 완료·운영 미배포** — 「야간 배치 실행기」 1단계, 정본 = car-erp `docs/design/agent-virtual-office-analysis.md` §11·§12): won 인데 60분 넘게 ERP 로 안 넘어간 차(`stalled`) · 정합성 2식(synced인데 erp id 없음 / erp id 있는데 synced 아님) · synced 매물의 erp id 를 ERP `GET /vehicles/exists`(car-erp §4-3, dev `b8f2d423`)로 대조한 `missing_in_erp` 를 **JSON 으로만** 기록(`storage/app/integration/purchase-sync-audit.json`, exit 항상 0, DB 쓰기·재전송 0). 스케줄 07:40 — ERP 08:00 아침 보고가 `BOARD_AUDIT_JSON` 으로 그 파일을 읽는다. 테스트 = `tests/Feature/PurchaseSyncAuditTest.php`.
   - ⚠️ **두 박스 모두 돈다**(heymanboard·ssancarboard) — ERP 는 같은 박스의 board 파일을 읽어야 하고 경로가 다르다(`/var/www/board/...` vs `/var/www/board-ssancar/...`). ERP 측은 heymanerp 만 설정(2026-09-28 car-erp 세션).
