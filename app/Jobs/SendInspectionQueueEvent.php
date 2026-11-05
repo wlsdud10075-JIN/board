@@ -72,9 +72,13 @@ class SendInspectionQueueEvent implements ShouldQueue
                 'source_url' => $l->encar_url,
                 'created_at' => $l->created_at?->timezone('Asia/Seoul')->toIso8601String(),
                 'reason' => $this->reason,
-                // P1 — 긴급 요청(선택 필드). `address` 는 보내지 않는다(Jin 2026-10-29 — 엔카 차 주소는 ssancar 가 source_url 로 수집).
+                // P1 — 긴급 요청(선택 필드). 엔카 차 주소는 ssancar 가 source_url 로 수집(Jin 2026-10-29) — address 는 링크 없는 차의 「직접 입력」만(아래).
                 'urgent' => $this->urgent ? true : null,
                 'urgent_note' => $this->urgent ? $l->inspection_urgent_note : null,
+                // 차 위치(2026-11-05 Jin) — **엔카 링크 없는 차만**. 단지(yard_id)가 주소보다 우선(ssancar 가 그 단지 좌표를 바로 씀),
+                //   「직접 입력」 주소는 address(ssancar 지오코딩). 링크가 있으면 ssancar 가 엔카에서 주소를 가져온다(종전 그대로).
+                'yard_id' => $l->encar_url ? null : $l->yard_id,
+                'address' => $l->encar_url || $l->yard_id ? null : $l->location_address,
             ], fn ($v) => $v !== null)
             : [
                 'event' => 'queue.withdraw',
@@ -118,6 +122,12 @@ class SendInspectionQueueEvent implements ShouldQueue
             if (array_key_exists('urgent_decision', $d)) {
                 $ud = $d['urgent_decision'];
                 $l->inspection_urgent_decision = is_string($ud) && $ud !== '' ? mb_substr($ud, 0, 10) : null;
+                $dirty = true;
+            }
+            // 차 위치 — yard_id 를 실은 응답에만 `yard: ok|unknown` 이 붙는다. unknown = 없는/숨긴 단지라 무시됨 → 화면 「단지 미확인」.
+            $ys = isset($payload['yard_id']) && in_array($d['yard'] ?? null, ['ok', 'unknown'], true) ? $d['yard'] : null;
+            if ($l->yard_status !== $ys) {
+                $l->yard_status = $ys;
                 $dirty = true;
             }
             if ($dirty) {

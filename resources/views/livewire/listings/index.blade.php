@@ -127,6 +127,8 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $auction_venue = '';
     public string $lot_number = '';
     public string $inspection_request = '';  // 검차 요청사항 — 영업 → 검차원(2026-10-21 Jin). inspection_note(검차 결과 메모)와 별개
+    public string $loc_choice = '';          // 차 위치(2026-11-05) — '' | 단지 id | 'manual'. 엔카 링크 없는 차만(applyLocation)
+    public string $loc_address = '';         // 「직접 입력」 주소
     // 입금정보 (선택 — 영업이 미리 알면 입력, 모르면 구매단계에서) §6e
     public string $payee_name = '';
     public string $payee_bank = '';
@@ -156,6 +158,8 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $e_auction_venue = '';
     public string $e_lot_number = '';
     public string $e_inspection_request = '';
+    public string $e_loc_choice = '';
+    public string $e_loc_address = '';
 
     public string $e_urgent_note = '';   // 「긴급 검차 요청」 사유(선택, P1 2026-10-29) — 보내는 순간만 쓰고 비운다
     // ── 드로어 탭(2026-10-29 ②) — 기본·검차·첨부·Invoice. 비활성 탭도 DOM 에 두고 hidden 으로만 가린다.
@@ -555,6 +559,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->e_auction_venue = $l->auction_venue ?? '';
         $this->e_lot_number = $l->lot_number ?? '';
         $this->e_inspection_request = $l->inspection_request ?? '';
+        $this->e_loc_choice = $l->yard_id ? (string) $l->yard_id : ($l->location_address ? 'manual' : '');
+        $this->e_loc_address = $l->location_address ?? '';
         $this->drawerTab = 'basic';
         $this->e_remitter_name = $l->remitter_name ?? '';
         $this->e_remitter_id = $l->remitter_id ?? '';
@@ -1080,7 +1086,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'drawerTab', 'e_remitter_name', 'e_remitter_id', 'invoiceNote', 'passportFile', 'e_sale_total', 'e_transport_fee_usd', 'e_rate_usd', 'e_rate_eur', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'e_inspection_request', 'e_urgent_note', 'eSalesFiles', 'e_sale_currency', 'resyncResult', 'attachResult', 'syncSince']);
+        $this->reset(['editingId', 'drawerTab', 'e_remitter_name', 'e_remitter_id', 'invoiceNote', 'passportFile', 'e_sale_total', 'e_transport_fee_usd', 'e_rate_usd', 'e_rate_eur', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'e_inspection_request', 'e_loc_choice', 'e_loc_address', 'e_urgent_note', 'eSalesFiles', 'e_sale_currency', 'resyncResult', 'attachResult', 'syncSince']);
         unset($this->editing);
     }
 
@@ -1116,6 +1122,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             'e_auction_venue' => 'nullable|string|max:100',
             'e_lot_number' => 'nullable|string|max:50',
             'e_inspection_request' => 'nullable|string|max:255',
+            'e_loc_choice' => 'nullable|string|max:20',
+            'e_loc_address' => 'nullable|string|max:255|required_if:e_loc_choice,manual',
             'e_remitter_name' => 'nullable|string|max:100',
             'e_remitter_id' => 'nullable|string|max:64',
             'eSalesFiles.*' => 'file|max:204800',
@@ -1157,6 +1165,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         } else {
             $l->auction_venue = $this->e_auction_venue ?: null;
             $l->lot_number = $this->e_lot_number ?: null;
+        }
+        if ($l->status === 'draft' && ! $this->applyLocation($l, $this->e_loc_choice, $this->e_loc_address, 'e_loc_choice')) {
+            return;
         }
         $l->save();
         $stored = $this->storeSalesFiles($l, $this->eSalesFiles);
@@ -1308,6 +1319,40 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
     }
 
+    /**
+     * 차 위치(2026-11-05 Jin, ssancar 매매단지 연동) — 엔카 링크 없는 검차 대상 차만 단지 id 또는 직접 입력 주소를 갖는다.
+     * 링크가 있으면 ssancar 가 엔카에서 주소를 가져오므로 비운다(셀프검차는 검차 씬 없음). 단지는 고른 때의 이름을 스냅샷으로 남긴다.
+     * 단지가 바뀌면 지난 ssancar 확인 결과(yard_status)는 지운다 — 다음 upsert 응답이 다시 채운다.
+     */
+    private function applyLocation(PurchaseListing $l, string $choice, string $address, string $errorKey): bool
+    {
+        $before = $l->yard_id;
+        if ($l->encar_url || $l->origin === PurchaseListing::ORIGIN_SELF_INSPECTION || $choice === '') {
+            $l->yard_id = $l->yard_name = $l->location_address = null;
+        } elseif ($choice === 'manual') {
+            $l->yard_id = $l->yard_name = null;
+            $l->location_address = trim($address) ?: null;
+        } else {
+            $id = (int) $choice;
+            if ($id !== $l->yard_id) {
+                $y = \App\Support\SsancarYards::find($id);
+                if (! $y) {
+                    $this->addError($errorKey, __('listings.loc.yard_gone'));
+
+                    return false;
+                }
+                $l->yard_id = $id;
+                $l->yard_name = mb_substr($y['name'], 0, 100);
+            }
+            $l->location_address = null;
+        }
+        if ($l->yard_id !== $before) {
+            $l->yard_status = null;
+        }
+
+        return true;
+    }
+
     public function save(): void
     {
         // 매입방법(source)은 유입 카테고리(origin)에서 도출 — 단일 소스 오브 트루스.
@@ -1340,6 +1385,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             'auction_venue' => 'nullable|string|max:100',
             'lot_number' => 'nullable|string|max:50',
             'inspection_request' => 'nullable|string|max:255',
+            'loc_choice' => 'nullable|string|max:20',
+            'loc_address' => 'nullable|string|max:255|required_if:loc_choice,manual',
             'salesFiles.*' => 'file|max:204800',
         ], messages: [
             'origin.required' => __('listings.add_form.origin_required'),
@@ -1435,6 +1482,9 @@ new #[Layout('components.layouts.app')] class extends Component {
             'verdict_channel' => $selfInspection ? 'manual' : 'auto',
         ]);
         $listing->final_price = $listing->totalKrw($this->usdRate(), $this->eurRate());   // 최종금액(KRW) 스냅샷(차값통화 환산)
+        if (! $this->applyLocation($listing, $this->loc_choice, $this->loc_address, 'loc_choice')) {
+            return;
+        }
         $listing->save();
 
         $this->storeSalesFiles($listing, $this->salesFiles);
@@ -1567,7 +1617,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     private function resetForm(): void
     {
-        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'link', 'promotingId', 'expected_price', 'expected_price_currency', 'priceOptions', 'encarHistory', 'showHistory', 'payee_name', 'payee_bank', 'payee_account', 'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number', 'inspection_request', 'salesFiles']);
+        $this->reset(['vehicle_number', 'owner_name', 'vin', 'region', 'c_no', 'ssancar_ref', 'encar_id', 'respond_contact_id', 'link', 'promotingId', 'expected_price', 'expected_price_currency', 'priceOptions', 'encarHistory', 'showHistory', 'payee_name', 'payee_bank', 'payee_account', 'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account', 'car_cost', 'discount_rate', 'shipping_usd', 'encar_url', 'encar_dealer', 'auction_venue', 'lot_number', 'inspection_request', 'loc_choice', 'loc_address', 'salesFiles']);
         $this->origin = '';
         $this->source = 'encar';
         $this->resetErrorBag();
@@ -1792,6 +1842,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <input class="input-base" wire:model="inspection_request" maxlength="255" placeholder="{{ __('listings.add_form.inspection_request_ph') }}">
                         @error('inspection_request') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>
+                    @if ($encar_url === '')
+                        @include('livewire.listings._location', ['choiceModel' => 'loc_choice', 'addressModel' => 'loc_address', 'choice' => $loc_choice, 'regionModel' => 'region', 'current' => null, 'disabled' => false])
+                    @endif
                 @endif
 
                 <p class="mt-3 text-xs text-gray-500">{!! __('listings.add_form.note') !!}</p>
@@ -1982,6 +2035,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <label class="label-base mt-3">{{ __('listings.add_form.inspection_request') }} <span class="text-gray-400">{{ __('listings.add_form.inspection_request_hint') }}</span></label>
                         <input class="input-base" wire:model="e_inspection_request" maxlength="255" placeholder="{{ __('listings.add_form.inspection_request_ph') }}" @unless ($canEdit) disabled @endunless>
                         @error('e_inspection_request') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                        @if ($e->status === 'draft' && $e_encar_url === '')
+                            @include('livewire.listings._location', ['choiceModel' => 'e_loc_choice', 'addressModel' => 'e_loc_address', 'choice' => $e_loc_choice, 'regionModel' => 'e_region', 'current' => $e, 'disabled' => ! $canEdit])
+                        @endif
                     @endif
 
                     {{-- 읽기전용 진행 정보 (현지확인·경매에서 채워짐) --}}
