@@ -541,6 +541,26 @@ class BoardTest extends TestCase
         $this->assertSame(30, $c->get('perPage'));
     }
 
+    /** 검색(2026-11-05 Jin) — 차량번호(공백 무시)·바이어 한 칸 + 차대번호 한 칸, 탭 건수도 같은 조건. 등록일 칸. */
+    public function test_listings_search_by_plate_buyer_and_vin(): void
+    {
+        $kim = $this->mkUser('sales');
+        $this->mkListing($kim, ['vehicle_number' => '11가1111', 'vin' => 'KMHAA11111', 'buyer_name' => 'Ahmed Trading']);
+        $this->mkListing($kim, ['vehicle_number' => '22나2222', 'vin' => 'KNABB22222', 'car_erp_buyer_name' => 'Wasim Motors']);
+        $this->mkListing($kim, ['vehicle_number' => '33다3333', 'vin' => 'KMHCC33333']);
+        $this->actingAs($kim);
+
+        $c = Volt::test('listings.index')->assertSee(__('listings.table.created'))->assertSee(now()->format('m-d'));
+        $c->set('q', '11가 1111')->assertSee('11가1111')->assertDontSee('22나2222');
+        $this->assertSame(1, $c->get('tabCounts')['all']);
+        $c->set('q', 'wasim')->assertSee('22나2222')->assertDontSee('11가1111');
+        $c->set('q', 'ahmed')->assertSee('11가1111')->assertDontSee('33다3333');
+        $c->set('q', '')->set('qVin', 'kmh')->assertSee('11가1111')->assertSee('33다3333')->assertDontSee('22나2222');
+        $c->set('qVin', 'zzz')->assertSee(__('listings.list.search_empty'));
+        $c->call('clearSearch')->assertSee('22나2222');
+        $this->assertSame(3, $c->get('tabCounts')['all']);
+    }
+
     /**
      * 등록자 필터 — 관리·super 만(Jin 2026-10-13 「인원별로도」). 목록과 탭 건수가 같은 모수. 영업은 셀렉트 자체가 없고
      * URL 로 `?owner=` 가 들어와도 무시된다(SalesmanScope 가 본인 것만 준다).
