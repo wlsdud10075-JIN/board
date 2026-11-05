@@ -5972,6 +5972,7 @@ class BoardTest extends TestCase
             $c = Volt::test('portal.index')->call('setTab', 'inventory')->call('setInvCategory', $category);
             $this->assertSame(['11가0059', '11가0061', '11가0009'], array_column($c->get('invRows'), 'vehicle_number'), $category);
         }
+        $c->assertSee(__('portal.col_purchase_date'))->assertSee('2026-08-09');   // 매입일 칸(2026-11-05 Jin)
 
         $c = Volt::test('portal.index')->call('setTab', 'inventory')->call('setInvCategory', 'shipped_out');
         $this->assertSame(['11가0009', '11가0059', '11가0061'], array_column($c->get('invRows'), 'vehicle_number'));
