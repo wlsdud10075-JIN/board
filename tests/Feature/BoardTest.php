@@ -4021,6 +4021,30 @@ class BoardTest extends TestCase
     }
 
     /**
+     * 엔카 API 가 일시 오류면(CloudFront 407·타임아웃·5xx) 3번까지 시도하고, 그래도 안 되면 링크를 비우지 않고 「다시 눌러 보세요」(2026-11-06 Jin).
+     * 종전엔 성공 문구만 뜨고 칸이 비어 「추출이 안 되는 링크 형식」으로 보였다 — 링크 형식은 문제가 없었다.
+     */
+    public function test_encar_enrich_failure_keeps_link_and_tells_user_to_retry(): void
+    {
+        $n = 0;
+        Http::fake(['*api.encar.com*' => function () use (&$n) {
+            $n++;
+
+            return $n <= 4 ? Http::response('', 407) : Http::response(['vehicleNo' => '03다9430', 'advertisement' => ['price' => 850]], 200);   // 운영 실측 = CloudFront 407
+        }]);
+        $this->actingAs($this->mkUser('sales'));
+        $long = 'https://fem.encar.com/cars/detail/42732330?advClickPosition=mweb_mhightlight_g3_t21907&listAdvType=mhighlight&type=detail&view_type=hs_ad';
+
+        $c = Volt::test('listings.index')->set('showAdd', true)->set('link', $long)->call('parseLink')
+            ->assertHasErrors('link')->assertSee('HTTP 407')
+            ->assertSet('link', $long)                 // 링크는 그대로 — 한 번 더 누르면 된다
+            ->assertSet('encar_id', '42732330')->assertSet('vehicle_number', '');
+        $this->assertSame(3, $n);                        // 404 이 아닌 실패는 3번까지
+
+        $c->call('parseLink')->assertHasNoErrors()->assertSet('vehicle_number', '03다9430')->assertSet('link', '');
+    }
+
+    /**
      * 모바일에서 공유한 엔카 링크(추적 파라미터 354자)로 매입예정 추가 — 2026-08-04 운영 실패 재현.
      * encar_url 은 varchar(255)+max:255 라 원본을 그대로 넣으면 저장이 조용히 죽었다.
      */

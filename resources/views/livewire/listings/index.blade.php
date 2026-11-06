@@ -1302,7 +1302,15 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
 
         // 매물 자동채움(enrichment) — 빈 칸만 prefill, 영업이 확인 후 저장(IDENTITY_LOCKED 자동확정 금지).
-        $e = app(\App\Services\ListingEnrichment::class)->enrich($r, $url);
+        $enricher = app(\App\Services\ListingEnrichment::class);
+        $e = $enricher->enrich($r, $url);
+        // 엔카가 답을 안 줬으면(타임아웃·오류) 식별값은 남기되 링크를 비우지 않고 「다시 눌러 보세요」 — 2026-11-06 Jin.
+        //   종전엔 성공 문구에 자동 채움만 빠진 채 칸이 비어 있어 「추출이 안 되는 링크 형식」으로 보였다(링크는 정상이었다).
+        if ($e === [] && $enricher->lastFailure !== null) {
+            $this->addError('link', __('listings.links.enrich_failed', ['reason' => $enricher->lastFailure]));
+
+            return;
+        }
         // 검차 싼카 링크는 원본 엔카 id 를 품고 있음 → 폼에 채워 '이력 조회' 가능하게.
         if (! empty($e['encar_id']) && $this->encar_id === '') {
             $this->encar_id = (string) $e['encar_id'];

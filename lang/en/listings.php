@@ -125,6 +125,7 @@ return [
         'extract' => 'Extract',
         'extracted' => 'Extracted:',
         'parse_error' => 'Could not find an identifier in the link. (Enter manually instead.)',
+        'enrich_failed' => 'The link is fine but Encar did not return the vehicle (:reason) — press Extract again. If it keeps failing, enter the details manually.',
         'price_label' => 'Listing price (= car cost)',
         'price_hint' => '(auto on link extraction · select currency)',
         'price_ph' => 'Auto-filled from link · can enter manually',
