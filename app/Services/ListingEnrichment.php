@@ -135,19 +135,24 @@ class ListingEnrichment
     public function byEncarId(string $id): array
     {
         $base = rtrim((string) config('services.encar.base_url', 'https://api.encar.com'), '/');
-        // 일시 오류(연결 실패·타임아웃·5xx·429)는 한 번 더 — 모바일 공유 링크로 눌렀다 빈 칸만 보고 「링크 형식 탓」으로 읽혔다(2026-11-06).
+        // 404 이 아닌 실패는 최대 3번(0.5초 간격) — 2026-11-06 운영 실측: 박스(AWS IP)에서 api.encar.com 이 **「407 Error from cloudfront」를
+        //   간헐적으로**(연속 5번 중 4번) 즉시 돌려준다(타임아웃도 섞임). 로컬 PC 는 매번 200. 종전엔 한 번 실패하면 빈 칸만 남아
+        //   영업이 [추출]을 두세 번 눌러야 했다(Jin 「7~8초, 심하면 15초 뒤 두 번」). 404 = 없는 차라 재시도 무의미.
         $res = null;
         $why = null;
-        for ($try = 1; $try <= 2; $try++) {
+        for ($try = 1; $try <= 3; $try++) {
             try {
-                $res = Http::timeout(8)->get($base.'/v1/readside/vehicle/'.$id);
+                $res = Http::timeout(6)->get($base.'/v1/readside/vehicle/'.$id);
                 $why = $res->failed() ? 'HTTP '.$res->status() : null;
             } catch (\Throwable $e) {
                 $res = null;
                 $why = class_basename($e).': '.mb_substr($e->getMessage(), 0, 120);
             }
-            if ($why === null || ($res !== null && $res->status() < 500 && $res->status() !== 429)) {
+            if ($why === null || ($res !== null && $res->status() === 404)) {
                 break;
+            }
+            if ($try < 3) {
+                usleep(500_000);
             }
         }
         if ($why !== null) {

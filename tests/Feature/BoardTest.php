@@ -4021,7 +4021,7 @@ class BoardTest extends TestCase
     }
 
     /**
-     * 엔카 API 가 일시 오류면(타임아웃·5xx) 한 번 더 시도하고, 그래도 안 되면 링크를 비우지 않고 「다시 눌러 보세요」(2026-11-06 Jin).
+     * 엔카 API 가 일시 오류면(CloudFront 407·타임아웃·5xx) 3번까지 시도하고, 그래도 안 되면 링크를 비우지 않고 「다시 눌러 보세요」(2026-11-06 Jin).
      * 종전엔 성공 문구만 뜨고 칸이 비어 「추출이 안 되는 링크 형식」으로 보였다 — 링크 형식은 문제가 없었다.
      */
     public function test_encar_enrich_failure_keeps_link_and_tells_user_to_retry(): void
@@ -4030,16 +4030,16 @@ class BoardTest extends TestCase
         Http::fake(['*api.encar.com*' => function () use (&$n) {
             $n++;
 
-            return $n <= 2 ? Http::response('upstream down', 503) : Http::response(['vehicleNo' => '03다9430', 'advertisement' => ['price' => 850]], 200);
+            return $n <= 4 ? Http::response('', 407) : Http::response(['vehicleNo' => '03다9430', 'advertisement' => ['price' => 850]], 200);   // 운영 실측 = CloudFront 407
         }]);
         $this->actingAs($this->mkUser('sales'));
         $long = 'https://fem.encar.com/cars/detail/42732330?advClickPosition=mweb_mhightlight_g3_t21907&listAdvType=mhighlight&type=detail&view_type=hs_ad';
 
         $c = Volt::test('listings.index')->set('showAdd', true)->set('link', $long)->call('parseLink')
-            ->assertHasErrors('link')->assertSee('HTTP 503')
+            ->assertHasErrors('link')->assertSee('HTTP 407')
             ->assertSet('link', $long)                 // 링크는 그대로 — 한 번 더 누르면 된다
             ->assertSet('encar_id', '42732330')->assertSet('vehicle_number', '');
-        $this->assertSame(2, $n);                        // 503 은 한 번 재시도
+        $this->assertSame(3, $n);                        // 404 이 아닌 실패는 3번까지
 
         $c->call('parseLink')->assertHasNoErrors()->assertSet('vehicle_number', '03다9430')->assertSet('link', '');
     }
