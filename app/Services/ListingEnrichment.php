@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Support\Region;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 /**
  * 매물 자동채움(enrichment) — encar JSON API + ssancar 페이지 파싱 → 차량번호·차값·지역·VIN.
@@ -29,9 +30,17 @@ class ListingEnrichment
         'SIDE_SILL_LEFT' => '사이드실(좌)', 'SIDE_SILL_RIGHT' => '사이드실(우)',
     ];
 
+    /**
+     * 마지막 encar 조회가 **외부 오류**(타임아웃·4xx/5xx)로 끝났으면 그 사유(2026-11-06 Jin — 「추출이 안 되는 형식이 있다」:
+     * 링크 형식은 문제없었고 enrich 가 빈 배열을 돌려주면 화면이 아무 말 없이 칸만 비어 있어 링크 탓으로 보였다).
+     * null = 정상(값이 없어도 엔카가 그렇게 답한 것). 화면은 이걸로 「다시 눌러 보세요」를 띄운다.
+     */
+    public ?string $lastFailure = null;
+
     /** ListingLink::parse 결과(+ 원본 URL)로 enrich. encar_id=API / ssancar=페이지 파싱. */
     public function enrich(array $parsed, string $url = ''): array
     {
+        $this->lastFailure = null;
         if (! empty($parsed['encar_id'])) {
             return $this->byEncarId((string) $parsed['encar_id']);
         }
@@ -126,12 +135,25 @@ class ListingEnrichment
     public function byEncarId(string $id): array
     {
         $base = rtrim((string) config('services.encar.base_url', 'https://api.encar.com'), '/');
-        try {
-            $res = Http::timeout(8)->get($base.'/v1/readside/vehicle/'.$id);
-        } catch (\Throwable) {
-            return [];
+        // 일시 오류(연결 실패·타임아웃·5xx·429)는 한 번 더 — 모바일 공유 링크로 눌렀다 빈 칸만 보고 「링크 형식 탓」으로 읽혔다(2026-11-06).
+        $res = null;
+        $why = null;
+        for ($try = 1; $try <= 2; $try++) {
+            try {
+                $res = Http::timeout(8)->get($base.'/v1/readside/vehicle/'.$id);
+                $why = $res->failed() ? 'HTTP '.$res->status() : null;
+            } catch (\Throwable $e) {
+                $res = null;
+                $why = class_basename($e).': '.mb_substr($e->getMessage(), 0, 120);
+            }
+            if ($why === null || ($res !== null && $res->status() < 500 && $res->status() !== 429)) {
+                break;
+            }
         }
-        if ($res->failed()) {
+        if ($why !== null) {
+            $this->lastFailure = $why;
+            Log::warning('encar enrich failed', ['encar_id' => $id, 'reason' => $why]);
+
             return [];
         }
 
