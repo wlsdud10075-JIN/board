@@ -133,3 +133,14 @@ board 는 펼침 상세에 **「2026-07월분 배치 (2026-08-10 지급)」** �
 - **운영 배포 안 함** — 배치 미러가 최종 형태라 그때 한 번에 올립니다(Jin 확인).
 - 코드 = `resources/views/livewire/portal/index.blade.php` (`collectSettlements()` / `$monthlySettle`),
   테스트 = `tests/Feature/BoardTest.php::test_monthly_settlement_detail_separates_paid_from_confirmed`.
+
+---
+
+## 7. 2026-11-09 추기 — ⏸ 지급보류 · ➕ 지급추가 미러 (Jin 결정, car-erp 세션 경유)
+
+> 권위 = car-erp `docs/integration/board-portal-api.md §13`(ERP 가 갱신). 여기는 board 쪽 결론만.
+
+- **Jin 결정(2026-11-09)**: ① 사유(`note`) **보낸다**(ERP 입력칸 안내 불필요) ② 실송금 계산 **없음**((가) — 그 달 보류·추가 금액이 보이면 끝, 수령액 라벨 변경·급여 전송 논의 안 함) ③ 화면 = **요약 월 행 「정산」 옆 뱃지만**(ERP 사내직원관리 이름 옆 ⏸/➕ 뱃지처럼, 눌러서 줄 목록). 배치 블록 추가·확정 전 힌트·조정 kind 라벨은 **안 한다**.
+- **ERP 가 넓히는 §13 응답**(배치마다, cancelled 제외): `holds[]`/`extras[]` = `{month, amount_krw, status, note, released_at}` · `held_total`·`extra_total` · `adjustments[].kind` + `source_months[]` · `finalized_at` · 「정산·조정 없는 배치 제외」 조건 완화(보류·추가만 있는 사람도 배치가 남음). **ERP 먼저 배포.**
+- **ERP 사실(car-erp 회신)**: hold `amount_krw` = 지급합계와 같은 부호의 크기(보통 +) · extra 는 +/− 서명값 · 상태 집합 둘 다 `held→queued→released_batch` / `released_paid` / `cancelled`(최종 확정 뒤에도 hold 는 `held` 로 남을 수 있음) · 귀속월 = 항상 소속 배치 `month` · `kind` 는 string(16)(닫힌 ENUM 아님). **ssancarerp 실측** = 승인 month 배치 3건(08~10) · 급여(`payroll_entries`) 09월 22명·10월 40명 → **ssancarboard `net_payout` 은 이미 그 두 달에서 통장과 다르다**(급여만큼 작음) · extra +3,000,000 1줄 실존. heymanerp = 급여 0·보류 0.
+- **board 구현(dev)**: `collectPayouts()` 가 배치의 `held_total`/`extra_total` 을 `$monthly[월]['hold_sum'|'extra_sum']`, 줄을 `hold_lines[]|extra_lines[]` 로 모은다(**settle_sum 불변**, 재합산 없음). 뱃지 = `_settle-hold-badges.blade.php`(데스크톱 셀·모바일 카드 공용, 부호 = ERP 뱃지와 같이 저장값 그대로, `.stop` 으로 행 펼침과 분리, 모르는 status 는 원문). 정산 0건 배치는 `_settle-detail` 이 빈 차량 표를 안 그린다. 가드 = `test_monthly_row_shows_hold_and_extra_badges_without_touching_total` · `test_monthly_row_has_no_hold_badge_when_erp_sends_none`.
