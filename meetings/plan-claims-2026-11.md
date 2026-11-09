@@ -195,7 +195,14 @@ board 추천 = **(가) 를 기본으로 두고 링크(다)를 보조**(대표가
 | H | 링크 5일 만료 · 10분 연타 방지 · [다시 보내기] (ERP 회신으로 숫자 재확인). |
 | I | 목업은 **추후**. |
 
-## 17. ERP 회신(템플릿 등록 경로) — 대기
+## 17. ERP 회신(2026-11-09, car-erp-b6 · 코드 실측) — 월정산 승인 알림톡 운용 사실 → board 설계에 쓸 것
+
+- **계정**: 발신프로필·userid 는 회사별(헤이맨 `@heyman_con` · 싼카 `@site_condition`). ERP 는 한 DB 에 `{set}` 접미사로, **board 는 인스턴스별 DB 라 접미사 없이** 기존 `Setting alimtalk_userid`·`alimtalk_profile`·`alimtalk_tmpl_{code}`·`alimtalk_toggle_{code}` 그대로 쓴다(이미 2종이 그 구조).
+- **템플릿 모양(미러할 것)**: 코드 `erp_payout_request` 「정산지급 승인요청」 — 본문 고정문(변수 없음) + **아이템리스트 카드**(하이라이트 title 6자·desc 19자·아이템 desc 20자 자동컷, summary 없음) + **WL 버튼 1개** 「승인/반려 바로가기」, 등록 URL `https://{도메인}/a/payout/#{url}`, 발송 때 서명 URL 전체 주입. 카카오가 승인본 버튼 URL 과 대조 → 다르면 **K108 거부** ⇒ 링크 생성 직전 `URL::forceRootUrl(config('app.url'))`(ERP 실패 5건 교훈). 버튼은 `button1`~`button5` 개별 필드(배열이면 K108).
+- **검수 경로**: Claude 가 **등록 xlsx 를 코드에서 생성**(BizM `upload_sample_v2.xlsx` 를 zip 수준 패치 — PhpSpreadsheet/openpyxl 저장본은 「양식이 다릅니다」 거부) → Jin 이 BizM 콘솔 일괄 업로드·검수 요청 → 승인 tmplId 를 기능설정에 입력. 카테고리 = 직원 내부 알림 **008002**. 생성기 = car-erp `scripts/alimtalk-build-upload.php`(기본형, 버튼 1개 `register_path`)·`alimtalk-build-itemlist-upload.php`(아이템리스트형, 버튼 열 안 씀 — WL 버튼은 콘솔에서 넣었을 가능성). **board 에는 생성기가 없다** → ERP 기본형 스크립트를 board `scripts/` 로 이식(상수 = board `AlimtalkTemplates::TEMPLATES` 에서 읽기, 프로필 2개 출력).
+- **링크 규칙**: GET = `temporarySignedRoute` **5일** + `signed` 미들웨어, **DB 토큰 없음**(배치 id·승인자 u·만료가 서명에 묶임), CSRF 예외. GET 은 **표시만**(카톡 프리페치 방지), POST `decide` 는 진입 때 새로 발급한 **60분** 서명 URL. 「10분」= **재전송 연타 방지**(`request_notified_at` 기준, 관리·업무관리자만 재전송). POST 재검증 = 서명·u 존재·반려 사유 필수·`canDecide`(상태+차례)·**트랜잭션 `lockForUpdate` 재조회**(더블클릭 2회 처리 사고 11-06 → 11-09 추가)·감사(user·IP). → board 클레임 링크도 **이 6항 그대로**.
+- **수신 번호**: ERP `users.phone`. **board 도 `users.phone` 이 이미 있다**(마이그 `2026_07_12_000001`, 사용자관리 입력칸·검색 포함 — 검차 알림톡용) ⇒ 대표 전화는 **새 컬럼 없이** 사용자관리에서 대표 계정에 적으면 끝(§16 A 의 「board 첫 전화번호」 표현은 틀림 — 정정).
+- **board 쪽 보강 필요**: `BizmAlimtalkService::send()` 가 지금 `phn·profile·tmplId·msg` 만 보낸다 → **`button1`(WL)·itemList 지원 추가**. 템플릿 2종 상수(`board_claim_approval_request`·`board_claim_decision`) + 등록 xlsx 생성 스크립트 이식 + 프로필 2개 × 2 = 검수 4건(Jin 업로드).
 
 ## 18. 남은 질문
 
