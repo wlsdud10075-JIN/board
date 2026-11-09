@@ -241,7 +241,11 @@ new #[Layout('components.layouts.app')] class extends Component {
             // ⏸ 지급보류 · ➕ 지급추가(ERP payout_holds 미러, Jin 2026-11-09 — 「요약 월 행 뱃지 + 눌러서 줄 목록」만).
             // ERP 가 보낸 합(`held_total`·`extra_total`, cancelled 제외)을 **그대로** 쓴다 — 줄을 다시 더하지 않고, settle_sum 에서
             // 빼거나 더하지도 않는다(실송금 계산 없음 = Jin (가)). 키가 없으면(옛 ERP) 아무것도 남기지 않아 뱃지가 안 뜬다.
-            foreach (['hold' => ['holds', 'held_total'], 'extra' => ['extras', 'extra_total']] as $kind => [$linesKey, $totalKey]) {
+            // ➕ 는 **보류가 흡수하지 않은 추가만**(`extra_outside_total`, Jin 2026-11-09 「보류 1,321만과 추가 300만이 따로 서면 중복으로 보인다」).
+            // 보류 한도 = 지급합계 + 추가 라서 보류가 지급합계를 넘은 만큼(`held_extra_part`)은 추가를 흡수한 것 → ⏸ 안에 「지급 X + 추가 Y」로.
+            // 키가 없으면(구 ERP) 종전처럼 `extra_total`.
+            $extraTotalKey = array_key_exists('extra_outside_total', (array) $b) ? 'extra_outside_total' : 'extra_total';
+            foreach (['hold' => ['holds', 'held_total'], 'extra' => ['extras', $extraTotalKey]] as $kind => [$linesKey, $totalKey]) {
                 $lines = (array) data_get($b, $linesKey, []);
                 if ($lines === [] && ! data_get($b, $totalKey)) {
                     continue;
@@ -250,6 +254,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                 foreach ($lines as $l) {
                     $m[$key][$kind.'_lines'][] = $l;
                 }
+            }
+            if ((float) (data_get($b, 'held_extra_part') ?? 0) != 0.0) {
+                $m[$key]['hold_payout_part'] = ($m[$key]['hold_payout_part'] ?? 0) + (float) (data_get($b, 'held_payout_part') ?? 0);
+                $m[$key]['hold_extra_part'] = ($m[$key]['hold_extra_part'] ?? 0) + (float) data_get($b, 'held_extra_part');
             }
         }
 

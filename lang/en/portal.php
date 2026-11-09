@@ -154,6 +154,7 @@ return [
     'settle_hold_status_released_batch' => 'Included in a settlement',
     'settle_hold_status_released_paid' => 'Paid outside settlement',
     'settle_hold_released_on' => 'processed :date',
+    'settle_hold_parts' => 'payout :payout + extra :extra',
     'settle_month_total' => 'Received this month',
 
     // In-progress settlements (not received yet) — confirmed and pending are never merged.

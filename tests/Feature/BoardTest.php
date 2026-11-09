@@ -7996,6 +7996,43 @@ class BoardTest extends TestCase
         $this->assertSame(2, substr_count($c->html(), __('portal.settle_col_margin_rate')));
     }
 
+    /**
+     * 보류가 추가를 흡수한 경우(Jin 2026-11-09 「보류 1,321만과 추가 300만이 따로 서면 중복으로 보인다 → 최종 금액 하나만, 구성은 그 안에」):
+     * ⏸ = held_total 그대로 + 「지급 X + 추가 Y」 구성 · ➕ = extra_outside_total 만(0 이면 뱃지 없음, 줄은 목록에 남음).
+     * ssancarerp 실사례 = 지급 10,216,156 + 추가 3,000,000 = 보류 13,216,156, 흡수 3,000,000.
+     */
+    public function test_hold_badge_absorbs_extra_and_hides_extra_badge_when_nothing_is_outside(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/payout-batches*' => Http::response([
+                'count' => 1,
+                'data' => [[
+                    'batch_id' => 9, 'month' => '2026-10', 'status' => 'approved', 'decided_at' => '2026-11-05', 'finalized_at' => null,
+                    'settlements' => [['vehicle_number' => '11가1111', 'actual_payout' => 10216156, 'paid_at' => '2026-11-05']],
+                    'adjustments' => [], 'settlement_total' => 10216156, 'adjustment_total' => 0, 'net_payout' => 10216156,
+                    'holds' => [['month' => '2026-10', 'amount_krw' => 13216156, 'status' => 'held', 'note' => '가불', 'released_at' => null]],
+                    'extras' => [['month' => '2026-10', 'amount_krw' => 3000000, 'status' => 'released_paid', 'note' => '특별지급', 'released_at' => '2026-11-07']],
+                    'held_total' => 13216156, 'extra_total' => 3000000,
+                    'held_payout_part' => 10216156, 'held_extra_part' => 3000000, 'extra_outside_total' => 0,
+                ]],
+                'unbatched_paid' => [],
+            ], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('portal.index')->call('setTab', 'finance');
+        $m = $c->instance()->monthly['2026-11'];
+
+        $this->assertSame(13216156.0, $m['hold_sum']);
+        $this->assertSame(0.0, $m['extra_sum']);          // extra_outside_total 을 읽었다(extra_total 3,000,000 아님)
+        $this->assertSame(3000000.0, $m['hold_extra_part']);
+        $c->assertSee('⏸ +13,216,156')->assertSee('지급 +10,216,156 + 추가 +3,000,000')
+            ->assertDontSee('data-settle-extra-badge')     // ➕ 뱃지 없음
+            ->assertSee('특별지급');                        // 줄 목록엔 남는다(구성)
+    }
+
     /** 로컬 확인용 가짜 /payout-batches 파일은 **local 환경에서만** 읽힌다 — testing(=운영과 같은 비-local)에선 설정돼 있어도 ERP 를 부른다. */
     public function test_fake_payout_batches_fixture_is_ignored_outside_local_env(): void
     {

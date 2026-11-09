@@ -13,12 +13,22 @@
         $kinds[$k] = ['icon' => $icon, 'cls' => $cls, 'title' => $title, 'sum' => (float) ($row[$k.'_sum'] ?? 0), 'lines' => $lines];
     }
     $fmt = fn (float $v) => ($v < 0 ? '−' : '+').number_format(abs($v));
+    // ➕ 뱃지 = 보류가 흡수하지 않은 추가(extra_outside_total)만 — 0 이면 뱃지 없음(줄은 목록에 남긴다). Jin 2026-11-09 「최종 금액 하나만, 구성은 그 안에」.
+    $extraBadge = isset($kinds['extra']) && $kinds['extra']['sum'] != 0.0;
+    // ⏸ 안의 구성 — 보류가 지급합계를 넘어 추가를 흡수했을 때만 「지급 X + 추가 Y」.
+    $holdParts = isset($kinds['hold']) && (float) ($row['hold_extra_part'] ?? 0) != 0.0
+        ? __('portal.settle_hold_parts', ['payout' => $fmt((float) ($row['hold_payout_part'] ?? 0)), 'extra' => $fmt((float) $row['hold_extra_part'])])
+        : null;
 @endphp
 @if ($kinds !== [])
     <span class="inline-flex flex-wrap items-center gap-1 align-middle" x-data="{ hb: false }" @click.stop>
         @foreach ($kinds as $k => $g)
-            <button type="button" class="badge {{ $g['cls'] }} text-[10px]" @click="hb = !hb" title="{{ __('portal.'.$g['title']) }}" data-settle-{{ $k }}-badge>{{ $g['icon'] }} {{ $fmt($g['sum']) }}</button>
+            @continue($k === 'extra' && ! $extraBadge)
+            <button type="button" class="badge {{ $g['cls'] }} text-[10px]" @click="hb = !hb" title="{{ __('portal.'.$g['title']) }}{{ $k === 'hold' && $holdParts ? ' · '.$holdParts : '' }}" data-settle-{{ $k }}-badge>{{ $g['icon'] }} {{ $fmt($g['sum']) }}</button>
         @endforeach
+        @if ($holdParts)
+            <span class="text-[10px] text-gray-500" data-settle-hold-parts>{{ $holdParts }}</span>
+        @endif
         <div x-show="hb" x-cloak class="basis-full text-left text-[11px] font-normal text-gray-600">
             @foreach ($kinds as $k => $g)
                 @foreach ($g['lines'] as $l)
