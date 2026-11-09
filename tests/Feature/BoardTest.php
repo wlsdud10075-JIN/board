@@ -7996,6 +7996,21 @@ class BoardTest extends TestCase
         $this->assertSame(2, substr_count($c->html(), __('portal.settle_col_margin_rate')));
     }
 
+    /** 로컬 확인용 가짜 /payout-batches 파일은 **local 환경에서만** 읽힌다 — testing(=운영과 같은 비-local)에선 설정돼 있어도 ERP 를 부른다. */
+    public function test_fake_payout_batches_fixture_is_ignored_outside_local_env(): void
+    {
+        $this->carErpReadConfig();
+        config(['board.portal_fake_payout_batches' => 'database/dev/payout-batches-hold-demo.json']);
+        $this->assertFileExists(base_path('database/dev/payout-batches-hold-demo.json'));
+        Http::fake(['*/api/internal/board/payout-batches*' => Http::response(['count' => 0, 'data' => [], 'unbatched_paid' => []], 200)]);
+
+        $r = app(CarErpReadService::class)->payoutBatches('kim@board.test');
+
+        $this->assertNotSame('fake', $r['reason']);
+        $this->assertSame([], $r['data']['data']);
+        Http::assertSentCount(1);
+    }
+
     /** 옛 ERP(holds 키 없음) 응답이면 뱃지가 아예 안 뜬다 — 배포 순서가 바뀌어도 깨지지 않는다. */
     public function test_monthly_row_has_no_hold_badge_when_erp_sends_none(): void
     {

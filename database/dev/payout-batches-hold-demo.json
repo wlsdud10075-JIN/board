@@ -1,0 +1,75 @@
+{
+  "_comment": "로컬 화면 확인용 §13 /payout-batches 가짜 응답(지급보류·지급추가 포함, 2026-11-09). .env BOARD_PORTAL_FAKE_PAYOUT_BATCHES=database/dev/payout-batches-hold-demo.json + APP_ENV=local 일 때만 읽힌다. 금액은 전부 더미.",
+  "count": 3,
+  "data": [
+    {
+      "batch_id": 9,
+      "month": "2026-10",
+      "status": "approved",
+      "decided_at": "2026-11-05",
+      "finalized_at": null,
+      "settlements": [
+        {"vehicle_number": "12가3456", "actual_payout": 1250000, "paid_at": "2026-11-05", "margin_rate": 0.1823},
+        {"vehicle_number": "34나5678", "actual_payout": 980000, "paid_at": "2026-11-05", "margin_rate": 0.1511},
+        {"vehicle_number": "56다7890", "actual_payout": -120000, "paid_at": "2026-11-05", "margin_rate": -0.021}
+      ],
+      "adjustments": [
+        {"amount": 300000, "reason": "2026-09월 지급보류분", "kind": "held_release", "source_months": ["2026-09"]}
+      ],
+      "settlement_total": 2110000,
+      "adjustment_total": 300000,
+      "net_payout": 2410000,
+      "holds": [
+        {"month": "2026-10", "amount_krw": 500000, "status": "held", "note": "가불 500,000 정산", "released_at": null}
+      ],
+      "extras": [
+        {"month": "2026-10", "amount_krw": 3000000, "status": "queued", "note": "대표 특별지급 — 10월 실적", "released_at": null}
+      ],
+      "held_total": 500000,
+      "extra_total": 3000000
+    },
+    {
+      "batch_id": 5,
+      "month": "2026-09",
+      "status": "approved",
+      "decided_at": "2026-10-05",
+      "finalized_at": "2026-10-20",
+      "settlements": [
+        {"vehicle_number": "78라1234", "actual_payout": 1500000, "paid_at": "2026-10-05", "margin_rate": 0.2044},
+        {"vehicle_number": "90마5678", "actual_payout": 700000, "paid_at": "2026-10-05", "margin_rate": 0.1207}
+      ],
+      "adjustments": [],
+      "settlement_total": 2200000,
+      "adjustment_total": 0,
+      "net_payout": 2200000,
+      "holds": [
+        {"month": "2026-09", "amount_krw": 300000, "status": "released_batch", "note": "서류 미제출 보류", "released_at": "2026-11-05"}
+      ],
+      "extras": [],
+      "held_total": 300000,
+      "extra_total": 0
+    },
+    {
+      "batch_id": 2,
+      "month": "2026-08",
+      "status": "approved",
+      "decided_at": "2026-09-05",
+      "finalized_at": "2026-09-20",
+      "settlements": [],
+      "adjustments": [],
+      "settlement_total": 0,
+      "adjustment_total": 0,
+      "net_payout": 0,
+      "holds": [],
+      "extras": [
+        {"month": "2026-08", "amount_krw": 1000000, "status": "released_paid", "note": "인센티브 선지급", "released_at": "2026-09-10"}
+      ],
+      "held_total": 0,
+      "extra_total": 1000000
+    }
+  ],
+  "unbatched_paid": [
+    {"vehicle_number": "11바2222", "actual_payout": 650000, "paid_at": "2026-07-15", "margin_rate": 0.1333},
+    {"vehicle_number": "33사4444", "actual_payout": 420000, "paid_at": "2026-07-22", "margin_rate": 0.0987}
+  ]
+}

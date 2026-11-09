@@ -186,6 +186,14 @@ class CarErpReadService
      */
     public function payoutBatches(string $email): array
     {
+        // 로컬 화면 확인용 가짜 응답(config board.portal_fake_payout_batches, 2026-11-09) — local 환경에서만. 운영·테스트는 그대로 ERP.
+        if (app()->environment('local') && ($fake = config('board.portal_fake_payout_batches'))) {
+            $path = base_path($fake);
+            if (is_file($path) && is_array($json = json_decode((string) file_get_contents($path), true))) {
+                return ['ok' => true, 'status' => 200, 'data' => $json, 'reason' => 'fake'];
+            }
+        }
+
         return $this->get('/payout-batches', ['salesman_email' => $email]);
     }
 
