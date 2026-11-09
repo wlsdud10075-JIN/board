@@ -227,5 +227,7 @@ board 추천 = **(가) 를 기본으로 두고 링크(다)를 보조**(대표가
 - **입금일**: 포털 어느 응답에도 없음. ERP `final_payments.payment_date`(확정 `confirmed_at` 있는 줄만 유효, 계약금/중도금/잔금 N건) → 「원 결제일」을 첫 입금일로 볼지 완납일로 볼지 양식 기준이 없다. 노출하려면 `/sales` 행에 `first_paid_at`·`last_paid_at` 키 추가(ERP 코드 1줄급, Jin 결정 뒤). **1차는 2페이지 선택 칸이라 수기**로 두고, 필요해지면 키 요청(Q-R).
 
 ## 22. 4차 질문(선택 — 1차 착수를 막지 않음)
-- **Q-Q** 양식 BUYER NAME/COMPANY 를 ERP `contact_name`/`name` 으로 자동 채울지(ERP 키 1개 추가 요청) — 아니면 COMPANY 만 자동, BUYER NAME 은 영업 수기.
+- ~~**Q-Q**~~ **답(Jin 2026-11-09)**: COMPANY = ERP `buyers.name`(포털 「바이어」 그대로, 자동) · **BUYER NAME 은 영업이 접수 때 적는다**(ERP 키 추가 없음). `last_paid_at` 요청은 그대로 둔다(Jin 확인).
+
+> ⏸ **상태(2026-11-09 저녁): 기획 완료 단계 · 착수 아님.** 코드 0. 착수는 Jin 의 별도 지시 뒤(Jin 「지금 기획만 하는 거지 착수하는 게 아니야」). 외부 대기 = ERP `last_paid_at` 배포 통보 · ssancar.com INSPECTED 검색 착수 보고(Jin 에게 직접).
 - ~~**Q-R**~~ **답(Jin 2026-11-09)**: ORIGINAL PAYMENT DATE = **완납일**. ERP 「판매완료」는 저장 날짜가 아니라 입금 상태로 계산되는 진행상태(= 완납, `Vehicle.php:1299·1726` 주석)라 **`/sales` 행 `last_paid_at`**(확정 입금 max payment_date) 키 추가를 ERP 에 요청(발송 2026-11-09). board 는 키 없으면 「—」·수기.
