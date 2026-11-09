@@ -84,3 +84,57 @@ board 추천 = **(가) 를 기본으로 두고 링크(다)를 보조**(대표가
 ## 8. 착수 순서(확정 뒤)
 
 1. 마이그 `claims`·`claim_files`(S3 prefix `claims/`) + 모델 상태머신 + 감사 → 2. 포털 [클레임 접수] 드로어 → 3. `/claims` 탭(지정 가드·목록·처리 드로어) → 4. 대표 승인 화면(+링크) → 5. PDF 채우기 → 6. ERP 전송(Q7 답 뒤) → 7. 문서(SKILLS §14-30·CLAUDE)·테스트·배포. 예상 = 3~5일(PDF 방식·ERP 전송 범위에 따라).
+
+---
+
+## 9. Jin 1차 회신(2026-11-09) — 확정된 것
+
+| # | 결정 |
+|---|---|
+| 1 | **일단 board 만.** ERP 반영은 나중 — 그때는 ERP 사내직원관리의 지급보류·지급추가와 같은 「특정 항목」으로 미러해 정산에 들어가게 할 수 있을 것(방식 미정). car-erp 세션 통보는 그때. |
+| 2 | **board 기능설정에서 super 가 지정한 사람만** 탭을 본다. |
+| 3 | 영업 접수 진입점은 **목업(.html)을 보면서 같이 정한다.** 판매내역은 판매중~거래완료가 다 보이고 거래완료는 「숨기기」 기본이라, **차량번호·차대번호 검색을 추가**하고 거기서 접수하는 방향. |
+| 4 | **(나) 서명 링크 + 알림톡** — ERP 사내직원월정산 알림톡과 같은 설계. 대표는 **board 로그인 없이 알림톡 링크만으로** PDF 내용·영상 링크를 전부 보고 승인/반려. |
+| 5 | 양식 = `C:\Users\User\Desktop\board\CLAIM Krasniqi Arif.docx`(§10). board 가 기록할 수 있는 건 최대한 기록, 1페이지 NOTES 도 board 에서. |
+| 7 | 1차는 board 기록만, 어느 정도 완성되면 ERP 미러(방식 미정). |
+| 8 | WhatsApp 수동, respond.io 연동 안 함. |
+| 9 | 바이어 합의 금액이 승인액과 달라지면 **재승인**. |
+| 10 | 업로드 한도는 ssancarboard 를 heymanboard(100M/120M)에 맞춘다. |
+
+## 10. 양식 실측 — `CLAIM Krasniqi Arif.docx` (2026-11-09 읽음, 표 1개·2페이지 성격, 이미지 없음)
+
+**1페이지 CLAIM REPORT** / **2페이지 REFUND REQUEST**. 칸별로 board 가 어디서 채우나:
+
+| 칸(원문) | 값 출처 | 비고 |
+|---|---|---|
+| BUYER NAME · COMPANY | ERP 바이어(포털 `buyer`) | 회사명은 ERP `/buyers` 에 있으면 |
+| MEMBER SINCE | 그 바이어 **첫 판매 연도**(포털 `/sales` 전체에서 계산) | ERP 바이어 등록일이 더 정확 — 없으면 첫 판매 연도 |
+| SALES AGENT | 접수한 영업(board 사용자) | |
+| TOTAL PURCHASE HISTORY | `/by-buyer` `vehicle_count` | |
+| 1 YEAR PURCHASE HISTORY | `/sales` 행 중 `sale_date` 최근 12개월 건수 | board 계산 가능 |
+| CLAIM HISTORY (1 YEAR) | **board 클레임 기록**(이 기능 시작 후부터) | 과거 클레임은 0 으로 시작 — 수기 보정 칸 |
+| BUYER PRIORITY | 담당자 선택(HIGH/MEDIUM/LOW) | |
+| CAR DETAILS(모델·차량번호·VIN) | 포털 메타(`vehicle_number`·`vin`·`brand`·`model_type`) | |
+| MILEAGE | ERP `vehicles.mileage` — **포털 메타에 안 실린다**(brand·model_type·vin 만) | ERP 키 1개 추가 요청 또는 수기 |
+| FOB PRICE | `sale_price`+`sale_currency` | |
+| PROFIT (4.5%) | 선행 docx 역산 = **FOB × 환율 × 4.5%** 로 보임(€4,677 → 383,259원) | 공식 확인 필요(§11 Q-C) |
+| INSPECTION REPORT RESULT | 우리 검차 미디어 유무 + 요약(담당자 수기) | ssancar CDN/board 사진 링크 |
+| NOTES(1p) | 담당자 수기(예: 「9월 좋은 마진으로 7대 구매」+ 차량 목록) | Jin: board 에서 기록 |
+| CLAIM REASON · EVIDENCE(VERIFIED) · NOTES · CLAIM AMOUNT · REFUNDABLE | 영업 접수 내용 + 담당자 수기(증빙 종류 체크·확인 여부·청구액·환급액) | 환급률은 계산 표시만 |
+| RESULT · REASON · COMPENSATION TYPE(REFUND/CREDIT) | 담당자 작성 → 대표 승인으로 확정 | REFUND DEPOSIT = 적립금 성격 |
+| CLAIM MANAGER · SALES MANAGER · REVIEWED BY CEO | 담당자·영업(또는 영업 관리)·대표 이름 | 대표 승인 시각 자동 |
+| **2p REFUND REQUEST** 사유·차량·VIN·원 결제액·원 결제일·요청일·담당자 | 위 값 재사용 · **ORIGINAL PAYMENT DATE 는 ERP 입금일**(포털에 없음 — 수기 또는 ERP 키) | |
+| **RECIPIENT'S DETAILS**(IBAN·전화·은행·SWIFT·주소) | **바이어 은행정보 = PII** — board 는 계좌를 `encrypted` 예외로만 보유 | §11 Q-D |
+| APPROVAL DETAILS | 요청자·요청일·승인자·**승인일(링크 결정 시각 자동)**·서명/도장 | 전자 승인 기록으로 대체할지 Q-E |
+
+## 11. 2차 질문(Jin 회신용 — 알파벳)
+
+- **Q-A 대표 휴대폰.** board 는 전화번호를 **보유하지 않는다**(PII 스탠스). 알림톡을 board 가 보내려면 대표 번호가 필요 → (ㄱ) 기능설정에 「대표 휴대폰」 1칸(`encrypted`, 인스턴스별) / (ㄴ) ERP 에 「이 링크로 대표에게 알림톡 보내줘」 요청(ERP 가 번호·템플릿 보유 — 단 1번 「board 만」과 어긋남). **추천 (ㄱ)**.
+- **Q-B BizM 템플릿.** 새 템플릿 **검수 필요**(ERP 월정산 템플릿은 ERP 프로필 것이라 board 에서 못 쓴다). 최소 1종 「클레임 승인요청」(대표에게 링크) × 프로필 2개(heymanboard·ssancarboard). 결과 통지(승인/반려 → 담당자·영업)는 **종·웹푸시**로(템플릿 없이) 가도 되나. 템플릿 문안은 board 가 초안, 검수 제출은 Jin.
+- **Q-C PROFIT(4.5%) 공식** = FOB × 판매환율 × 4.5% 가 맞나(선행 docx 역산). 환율은 ERP `sale_exchange_rate`.
+- **Q-D 바이어 은행정보(2p).** board 에 **암호화 저장**(payee 와 같은 예외)해 양식에 채울지, 아니면 **2페이지 은행 칸은 비워 두고 재무가 ERP/수기로** 채울지. 추천 = 비워 둠(1차 board 만·보상 집행은 ERP/재무 몫).
+- **Q-E 파일 형식.** 대표 링크 화면은 **HTML**(PDF 뷰어 없이 폰에서 바로 — ERP 월정산 링크와 같은 결)로 보여주고, 파일은 **채운 .docx 다운로드**(양식이 docx 라 템플릿 치환으로 라이브러리 없이 가능 · PDF 변환은 박스에 LibreOffice 가 없어 Word/구글에서 저장) — 이렇게 가도 되나. 꼭 PDF 파일이어야 하면 dompdf 추가(레이아웃 재현 하루 추가).
+- **Q-F 담당자 수.** 기능설정 지정은 **여러 명** 가능으로(한 명이면 휴가 때 막힘). 지정자는 그 박스의 클레임 **전부**를 본다.
+- **Q-G 1차 vs 2차.** 「사내직원 지급보류·추가 미러」는 지금 단계 설계에 **넣지 않고**, 승인액·통화·보상방식만 board 가 확정값으로 남겨 두면 되나(나중에 그 값을 ERP 로 보내면 됨).
+- **Q-H 링크 만료·재발송.** ERP 월정산처럼 **5일 만료·10분 연타 방지**로. 만료 뒤 담당자가 [다시 보내기].
+- **Q-I 목업.** 다음 단계 = `mockups/claims-preview.html` — ① 포털 판매내역 차량번호/VIN 검색 + [클레임 접수] 드로어 ② 「클레임」 탭 2줄 목록 + 처리 드로어(양식 칸 포함) ③ 대표 알림톡 링크 화면(모바일 폭, 미디어 비교 + 보고서 + 승인/반려). 이 셋으로 시작하면 되나.
