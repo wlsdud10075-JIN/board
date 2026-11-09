@@ -219,4 +219,13 @@ board 추천 = **(가) 를 기본으로 두고 링크(다)를 보조**(대표가
 - **car-erp 세션**: ① 클레임 앞단 = board 알림 + ERP claim-management Phase 1 보류·보상은 바이어 상계 방향(발송 완료) ② 사실 질문 — 바이어 회사명·등록일 키, 판매 차량 입금일 키(발송 완료, 회신 대기 → §21). 검차 km 키는 **요청 안 함**(사진 비교로 — Jin). 바이어 구매 이력은 **ERP 에 등록된 것만**(ssancar.com 과거 데이터는 안 끌어옴 — heyman 은 올해부터가 최신). BizM 샘플 xlsx = `Desktop\알림톡\{회사}` 폴더(ERP 에 안 물어도 됨).
 - **ssancar.com 세션**(세션이 열리면 발송): ① INSPECTED 차량번호·차대번호 검색 UI 요청 — **어떻게 착수할지 Jin 에게 직접 보고하라고 전달** ② 계기판 사진은 이미 있음(Jin 확인 — board 현지확인에서 넘어간 차도 계기판 사진 있음) → 질문 불필요.
 
-## 21. ERP 회신(바이어 키·입금일) — 대기
+## 21. ERP 회신(2026-11-09, car-erp-b6) — 바이어 키·입금일
+
+- ERP `claim-management.md` Phase 1 **보류 확인**(Jin 이 그쪽에도 「기획으로」). 연동 스펙은 board 씬 완성 뒤.
+- **회사명**: `/buyers` 응답 = id·name·country·salesman·purchase_lock 뿐. ERP `buyers` 에 회사명 컬럼은 따로 없고 **`name` 이 곧 바이어(회사)명**, 담당자는 `contact_name`. ⇒ 양식 BUYER NAME = `contact_name`(없으면 name), COMPANY = `name` 으로 쓰려면 `contact_name` 키 추가 요청 필요 — 1차는 **COMPANY = name, BUYER NAME = 영업이 적는 칸**(선택)으로 가도 됨(Q-Q).
+- **MEMBER SINCE**: `buyers.created_at` 은 있으나 ssancarerp 는 2026-08-28 엑셀 일괄 적재라 거래 시작일이 아니다 → **쓰지 않는다**. board 계산 = **ERP 판매 목록의 첫 판매 연도**(Jin 「ERP 에 등록된 것만」).
+- **입금일**: 포털 어느 응답에도 없음. ERP `final_payments.payment_date`(확정 `confirmed_at` 있는 줄만 유효, 계약금/중도금/잔금 N건) → 「원 결제일」을 첫 입금일로 볼지 완납일로 볼지 양식 기준이 없다. 노출하려면 `/sales` 행에 `first_paid_at`·`last_paid_at` 키 추가(ERP 코드 1줄급, Jin 결정 뒤). **1차는 2페이지 선택 칸이라 수기**로 두고, 필요해지면 키 요청(Q-R).
+
+## 22. 4차 질문(선택 — 1차 착수를 막지 않음)
+- **Q-Q** 양식 BUYER NAME/COMPANY 를 ERP `contact_name`/`name` 으로 자동 채울지(ERP 키 1개 추가 요청) — 아니면 COMPANY 만 자동, BUYER NAME 은 영업 수기.
+- **Q-R** ORIGINAL PAYMENT DATE 를 ERP `first_paid_at`/`last_paid_at` 로 받을지(어느 쪽?) — 아니면 수기.
