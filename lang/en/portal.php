@@ -146,6 +146,15 @@ return [
     'settle_col_vehicle' => 'Vehicle no.',
     'settle_col_margin_rate' => 'Margin rate',
     'settle_col_payout' => 'Payout',
+    // ⏸ Held / ➕ Extra payout badges on the monthly row (mirror of ERP payout_holds). Status wording = ERP payout_batch.hold.status.
+    'settle_hold_title' => 'Held payout',
+    'settle_extra_title' => 'Extra payout',
+    'settle_hold_status_held' => 'Held',
+    'settle_hold_status_queued' => 'Queued for next settlement',
+    'settle_hold_status_released_batch' => 'Included in a settlement',
+    'settle_hold_status_released_paid' => 'Paid outside settlement',
+    'settle_hold_released_on' => 'processed :date',
+    'settle_hold_parts' => 'payout :payout + extra :extra',
     'settle_month_total' => 'Received this month',
 
     // In-progress settlements (not received yet) — confirmed and pending are never merged.

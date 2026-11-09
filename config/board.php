@@ -24,6 +24,11 @@ return [
     // 사진 저장 디스크 — 로컬은 public, 운영은 s3 (FILESYSTEM 분리). 운영 전환 시 .env BOARD_PHOTO_DISK=s3
     'photo_disk' => env('BOARD_PHOTO_DISK', 'public'),
 
+    // 로컬 화면 확인용 — `/payout-batches` 응답을 ERP 대신 이 JSON 파일(base_path 기준)로 대체한다.
+    // **APP_ENV=local 에서만** 동작(CarErpReadService::payoutBatches). ERP 에 아직 없는 §13 확장(지급보류·추가)을 미리 보려고 둔 것.
+    // 운영 .env 에는 절대 넣지 않는다 — 넣어도 environment 가드가 무시한다. 샘플 = database/dev/payout-batches-hold-demo.json
+    'portal_fake_payout_batches' => env('BOARD_PORTAL_FAKE_PAYOUT_BATCHES'),
+
     // ─────────── 첨부사진 계좌 추출 (2026-09-10) ───────────
     // 사내 GPU PC 의 비전 모델로 첨부사진에서 계좌를 읽어 **후보로 제안**한다(자동 기입 없음).
     // Ollama URL 은 assistant.ollama 를 재사용한다 — 같은 호스트다(두 번째 URL 변수를 만들지 않는다).

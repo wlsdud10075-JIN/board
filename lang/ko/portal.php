@@ -150,6 +150,15 @@ return [
     'settle_col_vehicle' => '차량번호',
     'settle_col_margin_rate' => '마진율',
     'settle_col_payout' => '건당금액',
+    // ⏸ 지급보류 · ➕ 지급추가 — 요약 월 행 뱃지(ERP payout_holds 미러, Jin 2026-11-09). 상태 문구는 ERP payout_batch.hold.status 와 동일.
+    'settle_hold_title' => '지급보류',
+    'settle_extra_title' => '지급추가',
+    'settle_hold_status_held' => '보류 중',
+    'settle_hold_status_queued' => '다음 월정산에 추가 대기',
+    'settle_hold_status_released_batch' => '월정산에 반영됨',
+    'settle_hold_status_released_paid' => '지급 완료(월정산 밖)',
+    'settle_hold_released_on' => ':date 처리',
+    'settle_hold_parts' => '지급 :payout + 추가 :extra',   // 보류가 지급합계를 넘어 추가를 흡수했을 때 ⏸ 구성(ERP held_payout_part·held_extra_part)
 
     // 진행 중 정산(아직 안 받은 것) — 확정/확정 전을 **합치지 않는다**(pending 은 금액이 아직 움직인다).
     'inprog_title' => '진행 중 정산',

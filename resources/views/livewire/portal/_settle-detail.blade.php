@@ -17,9 +17,12 @@
             </div>
             {{-- 차량별 표(차량번호·마진율·건당금액 3열, 가운데 정렬) + 조정 행 — ERP 「차량별 보기」 미러(Jin 2026-10-14).
                  조정은 같은 표 안에 사유 colspan 으로 — 금액 열이 한 줄로 맞아야 눈으로 더할 수 있다. --}}
-            <div class="overflow-x-auto">
-                @include('livewire.portal._settle-vehicle-table', ['rows' => (array) data_get($b, 'settlements', []), 'extra' => (array) data_get($b, 'adjustments', [])])
-            </div>
+            {{-- 정산 0건·조정 0건 배치(보류·추가만 있는 사람 — ERP :381 완화, 2026-11-09)는 머리글만 남는 빈 표를 그리지 않는다. --}}
+            @if ((array) data_get($b, 'settlements', []) !== [] || (array) data_get($b, 'adjustments', []) !== [])
+                <div class="overflow-x-auto">
+                    @include('livewire.portal._settle-vehicle-table', ['rows' => (array) data_get($b, 'settlements', []), 'extra' => (array) data_get($b, 'adjustments', [])])
+                </div>
+            @endif
             <div class="mt-1 flex items-center justify-between border-t border-gray-300 pt-1 font-semibold text-gray-800">
                 <span>{{ __('portal.settle_batch_net') }}</span>
                 <span>{{ number_format((float) (data_get($b, 'net_payout') ?? 0)) }}</span>
