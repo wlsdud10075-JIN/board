@@ -26,10 +26,11 @@
             @continue($k === 'extra' && ! $extraBadge)
             <button type="button" class="badge {{ $g['cls'] }} text-[10px]" @click="hb = !hb" title="{{ __('portal.'.$g['title']) }}{{ $k === 'hold' && $holdParts ? ' · '.$holdParts : '' }}" data-settle-{{ $k }}-badge>{{ $g['icon'] }} {{ $fmt($g['sum']) }}</button>
         @endforeach
-        @if ($holdParts)
-            <span class="text-[10px] text-gray-500" data-settle-hold-parts>{{ $holdParts }}</span>
-        @endif
         <div x-show="hb" x-cloak class="basis-full text-left text-[11px] font-normal text-gray-600">
+            {{-- 구성은 펼친 목록 첫 줄에만(툴팁과 중복 금지, Jin 2026-11-09 — 모바일은 호버가 없어 여기가 유일한 자리). --}}
+            @if ($holdParts)
+                <div class="text-gray-500" data-settle-hold-parts>⏸ = {{ $holdParts }}</div>
+            @endif
             @foreach ($kinds as $k => $g)
                 @foreach ($g['lines'] as $l)
                     @php
