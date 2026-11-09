@@ -7942,7 +7942,83 @@ class BoardTest extends TestCase
         $c->assertSee('2026-06')->assertSee('44라4444')->assertSee('600,000')->assertSee('1,000,000');
     }
 
-    /** 월 펼침이 쓰는 lang 키는 ko·en 양쪽에 있어야 한다(fallback=en 이라 한쪽만 넣으면 영문에서 키가 노출된다). */
+    /**
+     * ⏸ 지급보류 · ➕ 지급추가(ERP payout_holds 미러, Jin 2026-11-09) — 요약 월 행 뱃지 + 줄 목록.
+     * ERP 합(held_total·extra_total)을 그대로 뱃지에 쓰고, **settle_sum 은 안 건드린다**(실송금 계산 없음 = Jin (가)).
+     * 부호는 ERP 뱃지와 같이 저장값 그대로(hold 보통 +). 사유(note)는 Jin 결정으로 보인다. 모르는 status 는 원문.
+     * 정산 0건·보류만 있는 배치(ERP :381 완화)도 월 행이 생기고 빈 차량 표는 안 그린다.
+     */
+    public function test_monthly_row_shows_hold_and_extra_badges_without_touching_total(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/payout-batches*' => Http::response([
+                'count' => 2,
+                'data' => [[
+                    'batch_id' => 9, 'month' => '2026-10', 'status' => 'approved', 'decided_at' => '2026-11-05', 'finalized_at' => null,
+                    'settlements' => [['vehicle_number' => '11가1111', 'actual_payout' => 1000000, 'paid_at' => '2026-11-05']],
+                    'adjustments' => [],
+                    'settlement_total' => 1000000, 'adjustment_total' => 0, 'net_payout' => 1000000,
+                    'holds' => [['month' => '2026-10', 'amount_krw' => 200000, 'status' => 'held', 'note' => '가불 정산', 'released_at' => null]],
+                    'extras' => [['month' => '2026-10', 'amount_krw' => 3000000, 'status' => 'mystery_state', 'note' => '대표 특별지급', 'released_at' => '2026-11-07 10:00:00']],
+                    'held_total' => 200000, 'extra_total' => 3000000,
+                ], [
+                    // 정산 0건·보류만 — 월 행은 생기되 빈 차량 표는 없다.
+                    'batch_id' => 5, 'month' => '2026-09', 'status' => 'approved', 'decided_at' => '2026-10-05', 'finalized_at' => '2026-10-20',
+                    'settlements' => [], 'adjustments' => [],
+                    'settlement_total' => 0, 'adjustment_total' => 0, 'net_payout' => 0,
+                    'holds' => [['month' => '2026-09', 'amount_krw' => 50000, 'status' => 'released_paid', 'note' => null, 'released_at' => '2026-10-21']],
+                    'extras' => [], 'held_total' => 50000, 'extra_total' => 0,
+                ]],
+                'unbatched_paid' => [],
+            ], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('portal.index')->call('setTab', 'finance');
+        $m = $c->instance()->monthly;
+
+        $this->assertSame(1000000.0, $m['2026-11']['settle_sum'] ?? null);   // 보류·추가로 바뀌지 않는다
+        $this->assertSame(200000.0, $m['2026-11']['hold_sum'] ?? null);
+        $this->assertSame(3000000.0, $m['2026-11']['extra_sum'] ?? null);
+        $this->assertCount(1, $m['2026-11']['hold_lines']);
+        $this->assertSame(0.0, $m['2026-10']['settle_sum'] ?? null);
+        $this->assertSame(50000.0, $m['2026-10']['hold_sum'] ?? null);
+        $this->assertArrayNotHasKey('extra_sum', $m['2026-10']);
+
+        $c->assertSee('⏸ +200,000')->assertSee('➕ +3,000,000')->assertSee('⏸ +50,000')
+            ->assertSee('보류 중')->assertSee('가불 정산')->assertSee('대표 특별지급')
+            ->assertSee('mystery_state')   // 모르는 상태 = 원문
+            ->assertSee('지급 완료(월정산 밖)')->assertSee('2026-10-21 처리')
+            ->assertDontSee('settle_hold_status_');
+        // 보류만 있는 배치 블록엔 차량 표 머리글이 없어야 한다 — 표가 있는 배치는 1개뿐이라 머리글은 데스크톱·모바일 2번(빈 표까지 그리면 4번).
+        $this->assertSame(2, substr_count($c->html(), __('portal.settle_col_margin_rate')));
+    }
+
+    /** 옛 ERP(holds 키 없음) 응답이면 뱃지가 아예 안 뜬다 — 배포 순서가 바뀌어도 깨지지 않는다. */
+    public function test_monthly_row_has_no_hold_badge_when_erp_sends_none(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/payout-batches*' => Http::response([
+                'count' => 1,
+                'data' => [[
+                    'batch_id' => 12, 'month' => '2026-07', 'status' => 'approved', 'decided_at' => '2026-08-10',
+                    'settlements' => [['vehicle_number' => '11가1111', 'actual_payout' => 1000000, 'paid_at' => '2026-08-10']],
+                    'adjustments' => [], 'settlement_total' => 1000000, 'adjustment_total' => 0, 'net_payout' => 1000000,
+                ]],
+                'unbatched_paid' => [],
+            ], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $this->actingAs($this->mkUser('sales'));
+
+        $c = Volt::test('portal.index')->call('setTab', 'finance');
+        $this->assertArrayNotHasKey('hold_sum', $c->instance()->monthly['2026-08']);
+        $c->assertDontSee('data-settle-hold-badge')->assertDontSee('data-settle-extra-badge');
+    }
+
     /** 월 펼침·진행 중 섹션이 쓰는 lang 키는 ko·en 양쪽에 있어야 한다(fallback=en 이라 한쪽만 넣으면 영문에서 키가 노출된다). */
     public function test_monthly_detail_lang_keys_exist_in_both_locales(): void
     {
