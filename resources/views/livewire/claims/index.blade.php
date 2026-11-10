@@ -465,7 +465,7 @@ new #[Layout('components.layouts.app')] class extends Component
                         <button type="button" class="btn-outline" wire:click="save" wire:loading.attr="disabled">{{ __('common.save') }}</button>
                         @if ($d->canRequestApproval())
                             <button type="button" class="btn-primary" wire:click="requestApproval" wire:loading.attr="disabled"
-                                    @disabled($ceo === null || trim((string) $ceo->phone) === '' && false)
+                                    @disabled($ceo === null)
                                     wire:confirm="{{ __('claims.confirm_request', ['ceo' => $ceo?->name ?? '—', 'rev' => $d->revision + 1]) }}">
                                 {{ $d->revision > 0 ? __('claims.request_again') : __('claims.request') }}
                             </button>

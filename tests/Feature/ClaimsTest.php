@@ -79,8 +79,9 @@ class ClaimsTest extends TestCase
 
     private function row(): array
     {
+        // sale_price 99999 = 브라우저가 조작한 값 — 스냅샷은 ERP 행(12000)으로 덮어써야 한다.
         return ['vehicle_id' => 55, 'vehicle_number' => '12가3456', 'vin' => 'VIN55', 'brand' => 'Audi', 'model_type' => 'A6', 'buyer' => 'Arif', 'buyer_id' => 7,
-            'sale_price' => 12000, 'currency' => 'EUR', 'sale_date' => now()->subMonths(2)->format('Y-m-d'), 'eta_date' => now()->subDays(5)->format('Y-m-d')];
+            'sale_price' => 99999, 'currency' => 'EUR', 'sale_date' => now()->subMonths(2)->format('Y-m-d'), 'eta_date' => now()->subDays(5)->format('Y-m-d')];
     }
 
     /** 영업이 포털 드로어로 접수(필수 5종 전부). */
@@ -113,6 +114,7 @@ class ClaimsTest extends TestCase
         $this->assertSame('Arif', $c->buyer_name);
         $this->assertSame(7, $c->car_erp_buyer_id);
         $this->assertSame('EUR', $c->sale_currency);
+        $this->assertEquals(12000, $c->sale_price);   // ERP 행이 권위(브라우저 값 99999 무시)
         $this->assertSame(123456, $c->received_km);
         $this->assertSame($sales->id, $c->salesman_user_id);
         $this->assertSame(4, $c->files()->count());

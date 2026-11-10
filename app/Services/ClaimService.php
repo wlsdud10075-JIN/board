@@ -37,6 +37,7 @@ class ClaimService
             ->orderByDesc('id')->first();
 
         $claim = Claim::create([
+            'status' => Claim::RECEIVED,
             'car_erp_vehicle_id' => (int) ($row['vehicle_id'] ?? 0),
             'purchase_listing_id' => $listing?->id,
             'vehicle_number' => (string) ($row['vehicle_number'] ?? ''),
@@ -117,7 +118,21 @@ class ClaimService
 
         $sales = $this->erp->sales($email);
         if ($sales['ok'] ?? false) {
-            $rows = collect((array) data_get($sales['data'], 'data', []))
+            $all = collect((array) data_get($sales['data'], 'data', []));
+            // 차량 칸은 ERP 행이 권위 — 접수 드로어가 받은 행은 브라우저를 거친 값이라(public 액션) 같은 vehicle_id 의 ERP 행으로 덮어쓴다.
+            if ($claim->car_erp_vehicle_id && ($v = $all->first(fn ($r) => (int) data_get($r, 'vehicle_id') === (int) $claim->car_erp_vehicle_id))) {
+                $claim->vehicle_number = (string) (data_get($v, 'vehicle_number') ?: $claim->vehicle_number);
+                $claim->vin = data_get($v, 'vin') ?: $claim->vin;
+                $claim->brand = data_get($v, 'brand') ?: $claim->brand;
+                $claim->model_type = data_get($v, 'model_type') ?: $claim->model_type;
+                $claim->buyer_name = data_get($v, 'buyer') ?: $claim->buyer_name;
+                $claim->sale_price = is_numeric(data_get($v, 'sale_price')) ? data_get($v, 'sale_price') : $claim->sale_price;
+                $claim->sale_currency = data_get($v, 'currency') ?: $claim->sale_currency;
+                $claim->sale_date = self::date(data_get($v, 'sale_date')) ?? $claim->sale_date;
+                $claim->eta_date = self::date(data_get($v, 'eta_date')) ?? $claim->eta_date;
+                $got[] = 'vehicle';
+            }
+            $rows = $all
                 ->filter(fn ($r) => (string) data_get($r, 'buyer') === (string) $claim->buyer_name && $claim->buyer_name);
             $since = Carbon::today()->subMonths(12);
             $recent = $rows->filter(fn ($r) => ($d = self::date(data_get($r, 'sale_date'))) && $d->gte($since))
