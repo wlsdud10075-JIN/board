@@ -231,3 +231,20 @@ board 추천 = **(가) 를 기본으로 두고 링크(다)를 보조**(대표가
 
 > ⏸ **상태(2026-11-09 저녁): 기획 완료 단계 · 착수 아님.** 코드 0. 착수는 Jin 의 별도 지시 뒤(Jin 「지금 기획만 하는 거지 착수하는 게 아니야」). 외부 대기 = ssancar.com INSPECTED 검색 착수 보고(Jin 에게 직접). ERP `last_paid_at` 는 **ERP 도 기획 단계로 보류**(Jin 결정, 2026-11-09 ERP 회신 — 착수 지시 때 만들고 배포 때 통보, 정의는 받아 적음). board 는 「—」/수기 전제.
 - ~~**Q-R**~~ **답(Jin 2026-11-09)**: ORIGINAL PAYMENT DATE = **완납일**. ERP 「판매완료」는 저장 날짜가 아니라 입금 상태로 계산되는 진행상태(= 완납, `Vehicle.php:1299·1726` 주석)라 **`/sales` 행 `last_paid_at`**(확정 입금 max payment_date) 키 추가를 ERP 에 요청(발송 2026-11-09). board 는 키 없으면 「—」·수기.
+
+## 23. 착수(2026-11-10 Jin 「클레임 착수 하자」 → 「템플릿 2종부터 엑셀로, 1~5 진행, 로컬 테스트」) — 결정 5건 확정 + 구현
+
+| # | 결정(추천안 그대로 확정) |
+|---|---|
+| 1 | **목업 생략, 바로 코드.** 진입점 = 포털 판매내역 탭 상단 차량번호/차대번호 검색(검색 중엔 거래완료 서버 제외를 푼다) → 행 [클레임 접수]. ERP 변경 0. |
+| 2 | **탭 열람 = 기능설정 지정자만.** super·업무관리자도 지정 없이는 403(다른 탭과 다른 첫 예외). |
+| 3 | **BizM 검수 기간 임시 전달 = 담당자 드로어에 서명 링크 + [링크 복사]**(카톡/WhatsApp 수동). 승인 뒤에도 보조로 유지. |
+| 4 | **상태 전이** = received → reviewing → pending_ceo → approved / rejected · rejected → pending_ceo(재요청) · approved → pending_ceo(합의액 변경 = 재승인, 회차 +1) · approved → closed. |
+| 5 | **알림톡 마스터**: 두 박스 `alimtalk_enabled=0` 이고 A·B tmplId·개별 토글 on → 클레임만 쓰려면 **A·B 개별 토글을 먼저 끄고** 마스터 on(기능설정 경고문 + SKILLS §14-30). 코드 변경 없음 — 운영 설정 절차. |
+
+가정으로 간 것(이견 없음 = 그대로): 도착일 기본값 ERP `eta_date` · 대표 전화 `users.phone` 평문 그대로 · 접수 범위 = 포털 쓰기 범위 · 대표 = `approval_title=대표` 고정(대체 없음) · 영업은 포털 행 칩으로 상태만 · 결과 알림톡 수신자 전화 비면 종·푸시만 · 은행정보는 담당자 드로어 선택 입력.
+
+구현(dev) = 마이그 `2026_11_10_000001`(`claims`·`claim_files`) · `Claim`·`ClaimFile`·`ClaimService`·`ClaimApprovalController` · Volt `claims.index`·`claims.intake` · 포털 패치(검색·칩·버튼) · 기능설정(담당자 체크·템플릿 2종) · 사이드바 「클레임」 · 종(새 접수/결재 결과) · lang `claims.php` ko/en · 감사 라벨 · `tests/Feature/ClaimsTest.php`. 알림톡 템플릿 2종 + 등록 xlsx 4건(`Desktop\알림톡\{회사}확정알림톡\upload_board_{회사}_board_claim_*_신규.xlsx`, 검수 = Jin 업로드). 규칙·함정 = `SKILLS.md §14-30`.
+
+남음 = Jin 로컬 화면 테스트 → BizM 검수 → 운영 준비(담당자 지정·대표 phone·ssancarboard 업로드 한도·A/B 토글 off) → 배포(Jin 허락).
+
