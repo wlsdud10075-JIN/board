@@ -40,6 +40,8 @@ return [
     'exec_error' => '실행파일은 올릴 수 없습니다: :name',
     'row_missing' => '차량 정보가 비어 있습니다. 판매내역을 갱신한 뒤 다시 시도하세요.',
     'flash_created' => ':vehicle 클레임을 접수했습니다.',
+    'ssancar_inspected_link' => 'ssancar.com INSPECTED 에서 찾기',
+    'ssancar_inspected_hint' => '차량번호 부분일치(공백 없이) — 검차 당시 계기판 사진과 비교',
     'chip_title' => '이 차량의 클레임 상태 — 담당자가 처리 중입니다',
     'vehicle_search_ph' => '차량번호 / 차대번호',
     'vehicle_search_hint' => '거래완료 차량도 함께 찾습니다(클레임 접수용).',

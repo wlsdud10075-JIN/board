@@ -168,6 +168,9 @@ new class extends Component
                     <div class="mt-0.5">🧑 {{ $row['buyer'] ?? '—' }}
                         · {{ is_numeric($row['sale_price'] ?? null) ? trim(($row['currency'] ?? '').' '.number_format((float) $row['sale_price'])) : '—' }}
                         · ETA {{ $row['eta_date'] ?? '—' }}</div>
+                    @if ($u = \App\Models\Claim::ssancarInspectedUrl($row['vehicle_number'] ?? ''))
+                        <div class="mt-1"><a href="{{ $u }}" target="_blank" rel="noopener" class="text-[var(--color-primary-text)] hover:underline">🔎 {{ __('claims.ssancar_inspected_link') }}</a> <span class="text-gray-400">— {{ __('claims.ssancar_inspected_hint') }}</span></div>
+                    @endif
                     @if ($existingStatus)
                         <div class="mt-1 text-amber-700">⚠️ {{ __('claims.intake_existing', ['status' => $existingStatus]) }}</div>
                     @endif

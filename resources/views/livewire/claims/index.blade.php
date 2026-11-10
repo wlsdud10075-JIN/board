@@ -367,6 +367,7 @@ new #[Layout('components.layouts.app')] class extends Component
                         <span>ERP {{ $d->erp_snapshot_at?->timezone(config('app.timezone'))->format('m-d H:i') ?? '—' }}</span>
                         <button type="button" class="btn-ghost btn-sm" wire:click="reloadErp" wire:loading.attr="disabled">↻ {{ __('claims.erp_reload') }}</button>
                         @if ($d->listing)<a class="text-[var(--color-primary-text)] hover:underline" href="{{ route('listings') }}" wire:navigate>{{ __('claims.board_listing', ['id' => $d->listing->id]) }}</a>@endif
+                        @if ($iu = \App\Models\Claim::ssancarInspectedUrl($d->vehicle_number))<a class="text-[var(--color-primary-text)] hover:underline" href="{{ $iu }}" target="_blank" rel="noopener">🔎 {{ __('claims.ssancar_inspected_link') }}</a>@endif
                     </div>
                 </div>
 

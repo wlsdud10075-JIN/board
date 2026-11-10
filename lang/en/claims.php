@@ -40,6 +40,8 @@ return [
     'exec_error' => 'Executable files are not allowed: :name',
     'row_missing' => 'Vehicle data is empty. Refresh the sales list and try again.',
     'flash_created' => 'Claim for :vehicle submitted.',
+    'ssancar_inspected_link' => 'Find on ssancar.com INSPECTED',
+    'ssancar_inspected_hint' => 'plate partial match (no spaces) — compare with the odometer photo at inspection',
     'chip_title' => 'Claim status for this vehicle — being handled',
     'vehicle_search_ph' => 'Plate / VIN',
     'vehicle_search_hint' => 'Completed deals are included (for claims).',

@@ -209,6 +209,26 @@ class Claim extends Model
         }
     }
 
+    /**
+     * ssancar.com INSPECTED 검색 링크(2026-11-09 ssancar 세션 실측·Jin 결정 「차량번호로 충분, 개발 없음」) — `/bbs/board.php?bo_table=inspected&no=<차량번호>`
+     * 가 `wr_facebook_user LIKE '%값%'` 부분일치. 검차앱 자유입력이라 `i30 16부5626` 처럼 모델명·공백이 섞여 있어 **공백 없는 숫자+한글만** 넘긴다. VIN 검색은 없다.
+     * 호스트는 미디어 API URL(`services.ssancar_media.base_url`)의 origin — 미설정이면 null(링크 없음).
+     */
+    public static function ssancarInspectedUrl(?string $plate): ?string
+    {
+        $base = (string) config('services.ssancar_media.base_url');
+        $plate = preg_replace('/\s+/u', '', (string) $plate);
+        if ($base === '' || $plate === '' || ! ($p = parse_url($base)) || empty($p['host'])) {
+            return null;
+        }
+        // 세 자리 앞자리는 앞에 숫자가 더 없을 때만(「i30 16부5626」에서 016부5626 이 잡히지 않게).
+        if (preg_match('/(?:(?<!\d)\d)?\d{2}[가-힣]\d{4}/u', $plate, $m)) {
+            $plate = $m[0];   // 모델명 등이 붙어 와도 번호판 부분만
+        }
+
+        return ($p['scheme'] ?? 'https').'://'.$p['host'].'/bbs/board.php?bo_table=inspected&no='.rawurlencode($plate);
+    }
+
     // ── 표시 ──
 
     public function statusLabel(): string

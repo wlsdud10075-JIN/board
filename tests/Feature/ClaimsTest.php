@@ -387,6 +387,16 @@ class ClaimsTest extends TestCase
         $this->assertSame('rejected', $bell->get('claims')[0]['kind']);
     }
 
+    /** ssancar INSPECTED 링크 — 공백·모델명 섞인 번호에서 번호판 부분만, 미설정이면 null(2026-11-09 ssancar 실측·Jin 결정). */
+    public function test_ssancar_inspected_url_uses_plate_part_without_spaces(): void
+    {
+        config(['services.ssancar_media.base_url' => 'https://www.ssancar.com/page/api_car_media.php']);
+        $this->assertSame('https://www.ssancar.com/bbs/board.php?bo_table=inspected&no='.rawurlencode('16부5626'), Claim::ssancarInspectedUrl('i30 16부 5626'));
+        $this->assertSame('https://www.ssancar.com/bbs/board.php?bo_table=inspected&no='.rawurlencode('123가4567'), Claim::ssancarInspectedUrl('123가 4567'));
+        config(['services.ssancar_media.base_url' => '']);
+        $this->assertNull(Claim::ssancarInspectedUrl('12가3456'));
+    }
+
     public function test_portal_sales_row_shows_claim_chip_and_intake_button(): void
     {
         $this->fakeErp();

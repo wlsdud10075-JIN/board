@@ -217,7 +217,7 @@ board 추천 = **(가) 를 기본으로 두고 링크(다)를 보조**(대표가
 ## 20. 세션 간 요청 현황(2026-11-09, Jin 결정)
 
 - **car-erp 세션**: ① 클레임 앞단 = board 알림 + ERP claim-management Phase 1 보류·보상은 바이어 상계 방향(발송 완료) ② 사실 질문 — 바이어 회사명·등록일 키, 판매 차량 입금일 키(발송 완료, 회신 대기 → §21). 검차 km 키는 **요청 안 함**(사진 비교로 — Jin). 바이어 구매 이력은 **ERP 에 등록된 것만**(ssancar.com 과거 데이터는 안 끌어옴 — heyman 은 올해부터가 최신). BizM 샘플 xlsx = `Desktop\알림톡\{회사}` 폴더(ERP 에 안 물어도 됨).
-- **ssancar.com 세션**(세션이 열리면 발송): ① INSPECTED 차량번호·차대번호 검색 UI 요청 — **어떻게 착수할지 Jin 에게 직접 보고하라고 전달** ② 계기판 사진은 이미 있음(Jin 확인 — board 현지확인에서 넘어간 차도 계기판 사진 있음) → 질문 불필요.
+- **ssancar.com 세션**: ① INSPECTED 차량번호 검색 — **✅ 2026-11-09 Jin 결정 「이미 되므로 개발 없음」**(ssancar 세션 실측 회신 2026-11-10): 목록 필터 「Stock / Write Number」 칸이 차량번호 칸(`wr_facebook_user LIKE '%값%'`, `ajax/ajax_car_list2.php:151`), URL `/bbs/board.php?bo_table=inspected&no=<차량번호>`. 검차앱 자유입력이라 `i30 16부5626` 처럼 모델명·공백이 섞여 **공백 없이 숫자+한글만** 치는 게 잘 잡힌다. **VIN 검색은 없다**(검차글에 VIN 컬럼 없음, Jin 「차량번호로 충분」 — 추가 시 보호 파일 2개·대표 확인 선행). board = `Claim::ssancarInspectedUrl()` 로 접수·처리 드로어·대표 화면에 링크(번호판 부분만 추출). 기록 = ssancar `_ops/dev/NEXT_SESSION.md`(dev `668772b9`). ② 계기판 사진은 이미 있음(Jin 확인).
 
 ## 21. ERP 회신(2026-11-09, car-erp-b6) — 바이어 키·입금일
 
@@ -246,5 +246,5 @@ board 추천 = **(가) 를 기본으로 두고 링크(다)를 보조**(대표가
 
 구현(dev) = 마이그 `2026_11_10_000001`(`claims`·`claim_files`) · `Claim`·`ClaimFile`·`ClaimService`·`ClaimApprovalController` · Volt `claims.index`·`claims.intake` · 포털 패치(검색·칩·버튼) · 기능설정(담당자 체크·템플릿 2종) · 사이드바 「클레임」 · 종(새 접수/결재 결과) · lang `claims.php` ko/en · 감사 라벨 · `tests/Feature/ClaimsTest.php`. 알림톡 템플릿 2종 + 등록 xlsx 4건(`Desktop\알림톡\{회사}확정알림톡\upload_board_{회사}_board_claim_*_신규.xlsx`, 검수 = Jin 업로드). 규칙·함정 = `SKILLS.md §14-30`.
 
-남음 = Jin 로컬 화면 테스트 → BizM 검수 → 운영 준비(담당자 지정·대표 phone·ssancarboard 업로드 한도·A/B 토글 off) → 배포(Jin 허락).
+남음 = Jin 로컬 화면 테스트 → BizM 검수 → 운영 준비(담당자 지정·대표 phone·ssancarboard 업로드 한도·A/B 토글 off) → 배포(Jin 허락). 외부 대기였던 ssancar INSPECTED 검색은 **종결**(§20 ① — 개발 없음, 링크만).
 

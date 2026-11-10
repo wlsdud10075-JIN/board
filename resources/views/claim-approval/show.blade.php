@@ -85,7 +85,7 @@
         <div class="sec-title">{{ __('claims.ceo_compare') }}</div>
         <div class="cmp">
             <div>
-                <h4>{{ __('claims.ours_media') }}</h4>
+                <h4>{{ __('claims.ours_media') }}@if ($iu = \App\Models\Claim::ssancarInspectedUrl($claim->vehicle_number)) · <a href="{{ $iu }}" target="_blank" rel="noopener" style="color:var(--p)">{{ __('claims.ssancar_inspected_link') }}</a>@endif</h4>
                 @php $ours = ($media['board'] ?? []) !== [] || ($media['videos'] ?? []) !== [] || ($media['photos'] ?? []) !== []; @endphp
                 @if ($ours)
                     @foreach ($media['videos'] as $v)
