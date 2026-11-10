@@ -77,6 +77,9 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** 바이어가 많아지면 특정 바이어까지 스크롤해야 한다 → 이름 부분일치로 좁힌다. */
     public string $buyerSearch = '';
 
+    /** 판매내역 차량번호/차대번호 검색(2026-11-10 클레임 접수 진입점) — 거래완료는 기본 숨김이라 **검색 중엔 서버 제외를 풀고** 전량에서 찾는다. */
+    public string $vehicleSearch = '';
+
     /**
      * §12 운항 필터 — ''|in_transit|arrived. **ERP 쿼리 파라미터**(진행상태와 직교라 hideDoneSales 와 동시에 걸린다).
      * ⚠️ `/sales` 만 이 필터를 읽는다. 재고(`/inventory`)는 필드만 오고 필터는 없다 — 거기 얹으면 조용히 무시된다.
@@ -301,9 +304,28 @@ new #[Layout('components.layouts.app')] class extends Component {
             $this->invLimit = self::INV_PAGE;
             $this->load();
         }
-        if ($prop === 'hideDoneSales') {
+        if ($prop === 'hideDoneSales' || $prop === 'vehicleSearch') {
             $this->load();
         }
+    }
+
+    /** 판매내역 행에서 [클레임 접수] — 드로어(claims.intake)에 ERP 행 스냅샷 + 명의 영업(지금 보고 있는 사용자)을 넘긴다. */
+    public function openClaimIntake(array $row): void
+    {
+        if ($this->proxyWriteBlocked()) {
+            return;
+        }
+        $this->dispatch('open-claim-intake', row: $row, salesmanId: ($this->viewingUser() ?? Auth::user())->id);
+    }
+
+    /** 이 포털 사용자(명의 영업)의 열린 클레임 — ERP vehicle_id → 상태 라벨(판매내역 행 칩). */
+    #[Computed]
+    public function claimChips(): array
+    {
+        $uid = ($this->viewingUser() ?? Auth::user())->id;
+
+        return \App\Models\Claim::where('salesman_user_id', $uid)->where('status', '!=', \App\Models\Claim::CLOSED)
+            ->get(['car_erp_vehicle_id', 'status'])->mapWithKeys(fn ($c) => [(int) $c->car_erp_vehicle_id => $c->statusLabel()])->all();
     }
 
     public function setTab(string $tab): void
@@ -537,7 +559,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->salesDetail = [];
         if ($this->tab === 'sales') {
             // 거래완료 제외·운항 필터 모두 **서버측**이다(인덱스 컬럼 / ERP scopeSailing) — 받아놓고 감추면 트래픽이 그대로다.
-            $s = $svc->sales($email, $this->hideDoneSales ? ['거래완료'] : [], $this->salesSailing);
+            // 차량 검색 중엔 거래완료 제외를 푼다 — 클레임은 거래완료 차에서 온다(2026-11-10).
+            $s = $svc->sales($email, ($this->hideDoneSales && trim($this->vehicleSearch) === '') ? ['거래완료'] : [], $this->salesSailing);
             $this->salesDetail = ($s['ok'] ?? false) ? (array) data_get($s['data'], 'data', []) : [];
         }
         // 정산 숨김 열람(관리 → 지정 영업) — 응답에 섞인 정산·지급·마진 키를 서버에서 걷어낸다(스냅샷 누출 방지). 정산내역 탭은 setTab 이 막는다.
@@ -2189,6 +2212,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                     $needle = mb_strtolower(trim($buyerSearch));
                     $buyers = collect($buyers)->filter(fn ($b) => str_contains(mb_strtolower((string) data_get($b, 'buyer')), $needle))->values()->all();
                 }
+                // 차량번호(공백 무시)/차대번호 검색 — 행을 거르고, 맞는 행이 없는 바이어는 접는다(2026-11-10 클레임 접수 진입점).
+                $vq = preg_replace('/\s+/u', '', mb_strtolower(trim($vehicleSearch)));
+                if ($vq !== '') {
+                    $detailByBuyer = $detailByBuyer->map(fn ($rows) => $rows->filter(fn ($r) => str_contains(mb_strtolower(preg_replace('/\s+/u', '', (string) data_get($r, 'vehicle_number'))), $vq)
+                        || str_contains(mb_strtolower((string) data_get($r, 'vin')), $vq))->values())->filter(fn ($rows) => $rows->isNotEmpty());
+                    $buyers = collect($buyers)->filter(fn ($b) => isset($detailByBuyer[data_get($b, 'buyer') ?: __('portal.buyer_unassigned_paren')]))->values()->all();
+                }
                 // 운항 필터가 걸리면 대부분의 바이어가 0대라 빈 블록만 늘어선다 → 그때만 접는다.
                 // (거래완료 숨김의 기존 동작은 안 건드린다.)
                 if ($salesSailing !== '') {
@@ -2201,6 +2231,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             <div class="mb-3 flex flex-wrap items-center gap-3">
                 <input class="input-base w-auto max-w-[220px] text-[12px]" wire:model.live.debounce.300ms="buyerSearch"
                        placeholder="{{ __('portal.buyer_search_ph') }}">
+                <input class="input-base w-auto max-w-[200px] text-[12px]" wire:model.live.debounce.400ms="vehicleSearch"
+                       placeholder="{{ __('claims.vehicle_search_ph') }}" title="{{ __('claims.vehicle_search_hint') }}">
                 {{-- 거래완료 제외는 ERP 쿼리 파라미터로 나간다(인덱스 컬럼) — 받아놓고 감추는 게 아니다. --}}
                 <label class="flex cursor-pointer items-center gap-1.5 text-[12px] text-gray-600">
                     <input type="checkbox" wire:model.live="hideDoneSales"> {{ __('portal.hide_done_sales') }}
@@ -2232,7 +2264,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     $bid = (int) data_get($b, 'buyer_id');
                     $picked = $bid ? ($reqPick[$bid] ?? []) : [];
                 @endphp
-                <div class="card-sm mb-2" wire:key="sales-{{ $loop->index }}" x-data="{ open: false }">
+                <div class="card-sm mb-2" wire:key="sales-{{ $loop->index }}" x-data="{ open: {{ $vq !== '' ? 'true' : 'false' }} }">
                     <button type="button" class="flex w-full items-center gap-2 text-left font-bold text-gray-800" @click="open = !open">
                         <span class="w-3 text-gray-400" x-text="open ? '▼' : '▶'"></span>
                         🧑 {{ $bName }} <span class="text-xs font-normal text-gray-400">· {{ __('portal.unit_vehicles', ['count' => data_get($b, 'vehicle_count', 0)]) }}</span>
@@ -2269,7 +2301,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                                             <td>{{ data_get($row, 'currency') ?: '—' }}</td>
                                             <td>{{ ($p = data_get($row, 'sale_price')) !== null && is_numeric($p) ? number_format((float) $p) : '—' }}</td>
                                             <td>{{ data_get($row, 'sale_date') ?: '—' }}</td>
-                                            <td class="text-right">@include('livewire.portal._request-chip')</td>
+                                            <td class="text-right">@include('livewire.portal._request-chip')
+                                                @include('livewire.portal._claim-cell', ['row' => $row, 'bid' => $bid, 'vid' => $vid])</td>
                                         </tr>
                                     @empty
                                         <tr><td colspan="7" class="py-3 text-center text-gray-400">{{ __('portal.sales_detail_empty') }}</td></tr>
@@ -2305,6 +2338,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                         {{ ($p = data_get($row, 'sale_price')) !== null && is_numeric($p) ? number_format((float) $p) : '—' }}
                                         <span class="text-[11px] font-normal text-gray-400">{{ data_get($row, 'currency') ?: '' }}</span>
                                         <div class="mt-0.5">@include('livewire.portal._request-chip')</div>
+                                        <div class="mt-0.5">@include('livewire.portal._claim-cell', ['row' => $row, 'bid' => $bid, 'vid' => $vid])</div>
                                     </div>
                                 </div>
                             @empty
@@ -2327,7 +2361,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 </div>
             @empty
                 {{-- 검색 때문에 빈 것과 판매내역 자체가 없는 것을 구분한다(안 그러면 "판매가 하나도 없다"로 읽힌다). --}}
-                <p class="py-8 text-center text-gray-400">{{ trim($buyerSearch) !== '' ? __('portal.buyer_search_empty') : __('portal.sales_empty') }}</p>
+                <p class="py-8 text-center text-gray-400">{{ $vq !== '' ? __('claims.vehicle_search_empty') : (trim($buyerSearch) !== '' ? __('portal.buyer_search_empty') : __('portal.sales_empty')) }}</p>
             @endforelse
 
         @elseif ($tab === 'settlements')
@@ -2548,4 +2582,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     </div>
 
     <p class="mt-2 text-[11px] text-gray-400">💡 {{ __('portal.footer_note') }}</p>
+
+    {{-- 클레임 접수 드로어(2026-11-10) — 판매내역 행 [클레임 접수] 가 open-claim-intake 로 연다. 루트에 한 번만. --}}
+    <livewire:claims.intake />
 </div>

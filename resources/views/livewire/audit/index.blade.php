@@ -107,6 +107,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         return match ($field) {
             'status' => PurchaseListing::statusOptions()[$value] ?? $value,
+            'claim_status' => (__('claims.status.'.$value) === 'claims.status.'.$value ? $value : __('claims.status.'.$value)),
             'buyer_verdict' => $value === 'none' ? __('common.none') : (__('domain.verdict.'.$value) === 'domain.verdict.'.$value ? $value : __('domain.verdict.'.$value)),
             'source' => __('domain.source.'.$value) === 'domain.source.'.$value ? $value : __('domain.source.'.$value),
             default => $value,

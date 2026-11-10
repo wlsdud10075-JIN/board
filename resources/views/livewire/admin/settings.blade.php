@@ -36,6 +36,17 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public string $alimtalkScheduleTime = '';  // 스케줄 사전알림 시각(HH:MM, Asia/Seoul). 비우면 스케줄 미발송.
 
+    public string $alimtalkTmplClaimReq = '';     // board_claim_approval_request BizM 발급코드(2026-11-10)
+
+    public string $alimtalkTmplClaimDec = '';     // board_claim_decision
+
+    public bool $alimtalkToggleClaimReq = true;
+
+    public bool $alimtalkToggleClaimDec = true;
+
+    /** 클레임 담당자(2026-11-10 Jin) — 지정된 사람만 「클레임」 탭을 본다(super 도 지정 필요). 여러 명 가능. */
+    public array $claimHandlerIds = [];
+
     public string $alimtalkTestPhone = '';     // 테스트 발송 대상
 
     public ?string $alimtalkTestResult = null;
@@ -59,7 +70,28 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->alimtalkTmplForward = (string) (Setting::get('alimtalk_tmpl_board_forward_ready', '') ?: '');
         $this->alimtalkToggleForward = (bool) Setting::get('alimtalk_toggle_board_forward_ready', true);
         $this->alimtalkScheduleTime = (string) (Setting::get('alimtalk_region_schedule_time', '') ?: '');
+        $this->alimtalkTmplClaimReq = (string) (Setting::get('alimtalk_tmpl_board_claim_approval_request', '') ?: '');
+        $this->alimtalkToggleClaimReq = (bool) Setting::get('alimtalk_toggle_board_claim_approval_request', true);
+        $this->alimtalkTmplClaimDec = (string) (Setting::get('alimtalk_tmpl_board_claim_decision', '') ?: '');
+        $this->alimtalkToggleClaimDec = (bool) Setting::get('alimtalk_toggle_board_claim_decision', true);
+        $this->claimHandlerIds = array_map('strval', \App\Models\User::claimHandlerIds());
         // userkey 는 보안상 로드하지 않음(설정돼 있으면 placeholder 로만 안내).
+    }
+
+    /** 클레임 담당자 지정(2026-11-10) — 감사 1행(이전 → 새 id 목록). */
+    public function saveClaimHandlers(): void
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', (array) $this->claimHandlerIds))));
+        $ids = \App\Models\User::whereIn('id', $ids)->pluck('id')->map(fn ($i) => (int) $i)->all();
+        $old = implode(',', \App\Models\User::claimHandlerIds());
+        $new = implode(',', $ids);
+        Setting::updateOrCreate(['key' => 'claim_handler_user_ids'], ['value' => $new, 'type' => 'string', 'description' => '클레임 탭 담당자 user id 목록(쉼표)']);
+        if ($old !== $new) {
+            \App\Models\BoardAuditLog::create(['user_id' => auth()->id(), 'purchase_listing_id' => null, 'action' => 'setting_change', 'field' => 'claim_handlers',
+                'old_value' => $old ?: null, 'new_value' => $new ?: null, 'ip_address' => \App\Models\BoardAuditLog::currentIp()]);
+        }
+        $this->claimHandlerIds = array_map('strval', $ids);
+        $this->dispatch('claim-handlers-saved');
     }
 
     public function saveJournalCutoff(): void
@@ -90,6 +122,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             'alimtalkTmpl' => ['nullable', 'string', 'max:100'],
             'alimtalkTmplForward' => ['nullable', 'string', 'max:100'],
             'alimtalkScheduleTime' => ['nullable', 'date_format:H:i'],
+            'alimtalkTmplClaimReq' => ['nullable', 'string', 'max:100'],
+            'alimtalkTmplClaimDec' => ['nullable', 'string', 'max:100'],
         ]);
 
         $put = fn (string $key, string $value, string $type, string $desc) => Setting::updateOrCreate(
@@ -104,6 +138,10 @@ new #[Layout('components.layouts.app')] class extends Component {
         $put('alimtalk_tmpl_board_forward_ready', trim($this->alimtalkTmplForward), 'string', '전달 대기 안내 템플릿 코드');
         $put('alimtalk_toggle_board_forward_ready', $this->alimtalkToggleForward ? '1' : '0', 'boolean', '전달 대기 알림 개별 on/off');
         $put('alimtalk_region_schedule_time', trim($this->alimtalkScheduleTime), 'string', '지역 검차 사전알림 스케줄 시각(HH:MM KST)');
+        $put('alimtalk_tmpl_board_claim_approval_request', trim($this->alimtalkTmplClaimReq), 'string', '클레임 승인요청 템플릿 코드(대표)');
+        $put('alimtalk_toggle_board_claim_approval_request', $this->alimtalkToggleClaimReq ? '1' : '0', 'boolean', '클레임 승인요청 알림 개별 on/off');
+        $put('alimtalk_tmpl_board_claim_decision', trim($this->alimtalkTmplClaimDec), 'string', '클레임 결재 결과 템플릿 코드(담당자·영업)');
+        $put('alimtalk_toggle_board_claim_decision', $this->alimtalkToggleClaimDec ? '1' : '0', 'boolean', '클레임 결재 결과 알림 개별 on/off');
 
         // userkey 는 채웠을 때만 암호화 갱신(빈칸이면 기존 유지).
         if (filled($this->alimtalkUserkey)) {
@@ -294,6 +332,32 @@ new #[Layout('components.layouts.app')] class extends Component {
         @endif
     </div>
 
+    {{-- 클레임 담당자(2026-11-10 Jin) — 지정된 사람만 「클레임」 탭(super 포함). 여러 명 가능. --}}
+    <div class="card mb-4 max-w-lg">
+        <div class="mb-3 border-b border-gray-100 pb-2">
+            <span class="text-sm font-semibold text-gray-700">{{ __('claims.settings_title') }}</span>
+            <p class="mt-1 text-xs text-gray-400">{{ __('claims.settings_hint') }}</p>
+        </div>
+        <form wire:submit="saveClaimHandlers" class="space-y-3">
+            <div class="grid grid-cols-2 gap-1 text-sm">
+                @foreach (\App\Models\User::where('is_active', true)->orderBy('name')->get(['id', 'name', 'role', 'permission']) as $u)
+                    <label class="flex items-center gap-2 rounded px-1 py-0.5 hover:bg-gray-50">
+                        <input type="checkbox" value="{{ $u->id }}" wire:model="claimHandlerIds">
+                        <span>{{ $u->name }} <span class="text-[11px] text-gray-400">{{ $u->roleLabel() }}</span></span>
+                    </label>
+                @endforeach
+            </div>
+            <div class="flex items-center gap-3">
+                <flux:button variant="primary" type="submit">{{ __('settings.feature.save') }}</flux:button>
+                <x-action-message class="text-sm text-green-600" on="claim-handlers-saved">{{ __('settings.feature.saved') }}</x-action-message>
+            </div>
+            @php $ceoUser = \App\Services\ClaimService::ceo(); @endphp
+            <p class="text-xs {{ $ceoUser && trim((string) $ceoUser->phone) !== '' ? 'text-gray-400' : 'text-amber-600' }}">
+                {{ $ceoUser ? __('claims.settings_ceo', ['name' => $ceoUser->name, 'phone' => trim((string) $ceoUser->phone) !== '' ? $ceoUser->phone : __('claims.settings_ceo_no_phone')]) : __('claims.err_no_ceo') }}
+            </p>
+        </form>
+    </div>
+
     {{-- 업무일지 — 상신 마감 시각 --}}
     <div class="card mb-4 max-w-lg">
         <div class="mb-3 border-b border-gray-100 pb-2">
@@ -323,6 +387,12 @@ new #[Layout('components.layouts.app')] class extends Component {
             <flux:input wire:model="alimtalkTmplForward" :label="__('settings.alimtalk.tmpl_forward_label')" :description="__('settings.alimtalk.tmpl_forward_hint')" maxlength="100" />
             <flux:switch wire:model="alimtalkToggleForward" :label="__('settings.alimtalk.toggle_forward_label')" />
             <flux:input wire:model="alimtalkScheduleTime" :label="__('settings.alimtalk.schedule_label')" :description="__('settings.alimtalk.schedule_hint')" type="time" />
+            {{-- 클레임 2종(2026-11-10). ⚠️ 마스터를 켜면 위 지역검차·전달대기도 같이 발사된다 — 쓰지 않을 템플릿은 개별 토글을 먼저 끌 것. --}}
+            <flux:input wire:model="alimtalkTmplClaimReq" :label="__('settings.alimtalk.tmpl_claim_req_label')" :description="__('settings.alimtalk.tmpl_claim_req_hint')" maxlength="100" />
+            <flux:switch wire:model="alimtalkToggleClaimReq" :label="__('settings.alimtalk.toggle_claim_req_label')" />
+            <flux:input wire:model="alimtalkTmplClaimDec" :label="__('settings.alimtalk.tmpl_claim_dec_label')" :description="__('settings.alimtalk.tmpl_claim_dec_hint')" maxlength="100" />
+            <flux:switch wire:model="alimtalkToggleClaimDec" :label="__('settings.alimtalk.toggle_claim_dec_label')" />
+            <p class="text-xs text-amber-600">{{ __('settings.alimtalk.master_warning') }}</p>
             <flux:input wire:model="alimtalkUserkey" :label="__('settings.alimtalk.userkey_label')" :description="__('settings.alimtalk.userkey_hint')" type="password" maxlength="200" />
 
             <div class="flex items-center gap-3">
