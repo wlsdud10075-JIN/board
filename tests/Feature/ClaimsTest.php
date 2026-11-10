@@ -1,0 +1,398 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\AlimtalkLog;
+use App\Models\Claim;
+use App\Models\Setting;
+use App\Models\User;
+use App\Services\ClaimService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
+use Livewire\Volt\Volt;
+use Tests\TestCase;
+
+/**
+ * 클레임 탭 1차(2026-11-10 Jin, 정본 = meetings/plan-claims-2026-11.md) — 접수 → 담당자 → 대표 서명 링크 → 결과 → 종결.
+ * ERP 는 Http::fake(by-buyer·sales·settlements), BizM 도 Http::fake — 외부 호출 0.
+ */
+class ClaimsTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private int $seq = 0;
+
+    private const BIZM = 'https://alimtalk-api.bizmsg.kr/v2/sender/send';
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Storage::fake('public');
+        config(['board.photo_disk' => 'public', 'services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs']);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
+    }
+
+    private function mk(string $name, string $role = 'sales', string $permission = 'user', array $extra = []): User
+    {
+        return User::create(array_merge([
+            'name' => $name, 'email' => 'u'.(++$this->seq).'@t.test', 'password' => 'password',
+            'role' => $role, 'permission' => $permission, 'is_active' => true, 'email_verified_at' => now(),
+        ], $extra));
+    }
+
+    private function handler(): User
+    {
+        $h = $this->mk('담당자', 'manager');
+        Setting::updateOrCreate(['key' => 'claim_handler_user_ids'], ['value' => (string) $h->id, 'type' => 'string']);
+
+        return $h;
+    }
+
+    private function ceo(string $phone = '010-1111-2222'): User
+    {
+        return $this->mk('홍대표', 'manager', 'admin', ['approval_title' => '대표', 'phone' => $phone]);
+    }
+
+    private function fakeErp(): void
+    {
+        Http::fake([
+            self::BIZM => Http::response([['code' => 'success', 'data' => ['msgid' => 'WEB1'], 'message' => 'K000']], 200),
+            '*/by-buyer*' => Http::response(['data' => [['buyer_id' => 7, 'buyer' => 'Arif', 'vehicle_count' => 12]]], 200),
+            '*/sales*' => Http::response(['data' => [
+                ['vehicle_id' => 55, 'vehicle_number' => '12가3456', 'vin' => 'VIN55', 'brand' => 'Audi', 'model_type' => 'A6', 'buyer' => 'Arif', 'sale_price' => 12000, 'currency' => 'EUR', 'sale_date' => now()->subMonths(2)->format('Y-m-d'), 'eta_date' => now()->subDays(5)->format('Y-m-d')],
+                ['vehicle_id' => 56, 'vehicle_number' => '34나5678', 'buyer' => 'Arif', 'sale_price' => 9000, 'currency' => 'EUR', 'sale_date' => now()->subMonths(20)->format('Y-m-d')],
+                ['vehicle_id' => 57, 'vehicle_number' => '56다0000', 'buyer' => 'Other', 'sale_price' => 1, 'currency' => 'USD', 'sale_date' => now()->format('Y-m-d')],
+            ]], 200),
+            '*/settlements*' => Http::response(['data' => [['vehicle_id' => 55, 'vehicle_number' => '12가3456', 'margin_rate' => 4.5, 'status' => 'paid']]], 200),
+            '*' => Http::response(['data' => []], 200),
+        ]);
+    }
+
+    private function row(): array
+    {
+        return ['vehicle_id' => 55, 'vehicle_number' => '12가3456', 'vin' => 'VIN55', 'brand' => 'Audi', 'model_type' => 'A6', 'buyer' => 'Arif', 'buyer_id' => 7,
+            'sale_price' => 12000, 'currency' => 'EUR', 'sale_date' => now()->subMonths(2)->format('Y-m-d'), 'eta_date' => now()->subDays(5)->format('Y-m-d')];
+    }
+
+    /** 영업이 포털 드로어로 접수(필수 5종 전부). */
+    private function intake(User $sales, ?User $actor = null, array $over = []): Claim
+    {
+        $this->actingAs($actor ?? $sales);
+        $t = Volt::test('claims.intake')->call('openFor', $this->row(), $sales->id)
+            ->set('arrived_at', $over['arrived_at'] ?? now()->subDays(3)->format('Y-m-d'))
+            ->set('received_km', '123456')->set('content', '엔진 소음 · 바이어 정비소 점검')
+            ->set('odometer', [UploadedFile::fake()->image('odo.jpg')])
+            ->set('damage', [UploadedFile::fake()->image('dmg.jpg'), UploadedFile::fake()->create('dmg.mp4', 100, 'video/mp4')])
+            ->set('invoice', [UploadedFile::fake()->create('inv.pdf', 10, 'application/pdf')])
+            ->call('save')->assertHasNoErrors();
+
+        return Claim::latest('id')->firstOrFail();
+    }
+
+    // ── 접수 ──
+
+    public function test_intake_creates_claim_with_files_snapshot_and_audit(): void
+    {
+        $this->fakeErp();
+        $sales = $this->mk('김영업', 'sales', 'user', ['car_erp_salesman_email' => 'kim@ce.test']);
+        $h = $this->handler();
+
+        $c = $this->intake($sales);
+
+        $this->assertSame(Claim::RECEIVED, $c->status);
+        $this->assertSame(55, $c->car_erp_vehicle_id);
+        $this->assertSame('Arif', $c->buyer_name);
+        $this->assertSame(7, $c->car_erp_buyer_id);
+        $this->assertSame('EUR', $c->sale_currency);
+        $this->assertSame(123456, $c->received_km);
+        $this->assertSame($sales->id, $c->salesman_user_id);
+        $this->assertSame(4, $c->files()->count());
+        $this->assertSame(['damage', 'damage', 'invoice', 'odometer'], $c->files->pluck('kind')->sort()->values()->all());
+        Storage::disk('public')->assertExists($c->files->first()->s3_path);
+        // ERP 스냅샷 — 총 12대 · 12개월 1대(20개월 전 건 제외, 다른 바이어 제외) · 첫 판매 연도 · 마진율
+        $this->assertSame(12, $c->total_purchase_count);
+        $this->assertSame(1, $c->year_purchase_count);
+        $this->assertSame((int) now()->subMonths(20)->format('Y'), $c->member_since);
+        $this->assertSame('12가3456', $c->purchase_history[0]['vehicle_number']);
+        $this->assertEquals(4.5, $c->margin_rate);
+        $this->assertFalse($c->isOverdue());
+        // 감사 1행(접수) — action=claim, field=claim_intake
+        $this->assertDatabaseHas('board_audit_logs', ['action' => 'claim', 'field' => 'claim_intake', 'user_id' => $sales->id]);
+    }
+
+    public function test_intake_requires_each_evidence_kind_and_fields(): void
+    {
+        $this->fakeErp();
+        $sales = $this->mk('김영업');
+        $this->actingAs($sales);
+        Volt::test('claims.intake')->call('openFor', $this->row(), $sales->id)
+            ->set('arrived_at', now()->format('Y-m-d'))->set('received_km', '1')->set('content', 'x')
+            ->set('odometer', [UploadedFile::fake()->image('o.jpg')])
+            ->set('damage', [UploadedFile::fake()->image('d.jpg')])
+            ->call('save')->assertHasErrors(['invoice']);
+        $this->assertSame(0, Claim::count());
+    }
+
+    public function test_intake_blocked_for_work_manager_viewing_others(): void
+    {
+        $this->fakeErp();
+        $sales = $this->mk('김영업');
+        $wm = $this->mk('업무관리자', 'manager', 'manager');
+        $this->actingAs($wm);
+        Volt::test('claims.intake')->call('openFor', $this->row(), $sales->id)->assertSet('open', false);
+        // super 는 대리 접수 가능 — 명의는 영업, 접수자는 super
+        $super = $this->mk('super', 'manager', 'super');
+        $c = $this->intake($sales, $super);
+        $this->assertSame($sales->id, $c->salesman_user_id);
+        $this->assertSame($super->id, $c->created_by_user_id);
+    }
+
+    public function test_overdue_is_flag_only_on_intake(): void
+    {
+        $this->fakeErp();
+        $sales = $this->mk('김영업');
+        $c = $this->intake($sales, null, ['arrived_at' => now()->subDays(20)->format('Y-m-d')]);
+        $this->assertTrue($c->isOverdue());
+        $this->assertSame(20, $c->daysAfterArrival());
+    }
+
+    // ── 담당자 탭 ──
+
+    public function test_claims_tab_only_for_designated_handlers(): void
+    {
+        $super = $this->mk('super', 'manager', 'super');
+        $this->actingAs($super)->get(route('claims'))->assertForbidden();   // 지정 없이는 super 도 못 본다(첫 예외)
+        $h = $this->handler();
+        $this->actingAs($h)->get(route('claims'))->assertOk();
+        $this->assertTrue($h->isClaimHandler());
+        $this->assertFalse($super->fresh()->isClaimHandler());
+    }
+
+    public function test_request_approval_requires_ceo_and_overdue_reason_and_sends_button_link(): void
+    {
+        $this->fakeErp();
+        Setting::updateOrCreate(['key' => 'alimtalk_enabled'], ['value' => '1', 'type' => 'boolean']);
+        Setting::updateOrCreate(['key' => 'alimtalk_userid'], ['value' => 'uid', 'type' => 'string']);
+        Setting::updateOrCreate(['key' => 'alimtalk_profile'], ['value' => '@p', 'type' => 'string']);
+        Setting::updateOrCreate(['key' => 'alimtalk_tmpl_board_claim_approval_request'], ['value' => 'TMPL_REQ', 'type' => 'string']);
+        $sales = $this->mk('김영업');
+        $h = $this->handler();
+        $c = $this->intake($sales, null, ['arrived_at' => now()->subDays(20)->format('Y-m-d')]);
+        $svc = app(ClaimService::class);
+
+        // 대표 없음
+        try {
+            $svc->requestApproval($c, $h);
+            $this->fail('no_ceo expected');
+        } catch (\DomainException $e) {
+            $this->assertSame('overdue_reason_required', $e->getMessage());   // 기한 초과 사유가 먼저
+        }
+        $c->forceFill(['overdue_reason' => '바이어 요청·귀책 가능성 있음'])->save();
+        try {
+            $svc->requestApproval($c, $h);
+            $this->fail('no_ceo expected');
+        } catch (\DomainException $e) {
+            $this->assertSame('no_ceo', $e->getMessage());
+        }
+
+        $ceo = $this->ceo();
+        $c->forceFill(['claim_amount' => 1000, 'claim_currency' => 'EUR'])->save();
+        $svc->requestApproval($c->fresh(), $h);
+        $c->refresh();
+        $this->assertSame(Claim::PENDING_CEO, $c->status);
+        $this->assertSame(1, $c->revision);
+        $this->assertSame($ceo->id, $c->approver_user_id);
+        $this->assertNotNull($c->request_notified_at);
+
+        // 알림톡 ① — 버튼 1개, URL 은 APP_URL + /a/claim/{id} 접두(등록본과 같아야 K108 이 안 난다), 본문에 자리표시자 없음
+        $log = AlimtalkLog::where('template_code', 'board_claim_approval_request')->firstOrFail();
+        $this->assertSame('sent', $log->status);
+        $this->assertStringNotContainsString('#{', $log->message);
+        $this->assertStringContainsString('EUR 1,000', $log->message);
+        Http::assertSent(function ($req) use ($c) {
+            if ($req->url() !== self::BIZM) {
+                return false;
+            }
+            $item = $req->data()[0];
+
+            return isset($item['button1']) && $item['button1']['type'] === 'WL'
+                && str_starts_with($item['button1']['url_mobile'], rtrim(config('app.url'), '/').'/a/claim/'.$c->id)
+                && $item['button1']['name'] === '승인/반려 바로가기';
+        });
+        $this->assertDatabaseHas('board_audit_logs', ['action' => 'claim', 'field' => 'claim_request']);
+
+        // 요청 중엔 재요청 불가 · 10분 연타 방지
+        $this->assertFalse($c->canRequestApproval());
+        $this->assertFalse($c->canResend());
+        Carbon::setTestNow(now()->addMinutes(11));
+        $this->assertTrue($c->fresh()->canResend());
+    }
+
+    // ── 대표 링크 ──
+
+    private function pending(): array
+    {
+        $this->fakeErp();
+        $sales = $this->mk('김영업', 'sales', 'user', ['phone' => '010-3333-4444']);
+        $h = $this->handler();
+        $h->forceFill(['phone' => '010-5555-6666'])->save();
+        $ceo = $this->ceo();
+        $c = $this->intake($sales);
+        app(ClaimService::class)->requestApproval($c, $h);
+
+        return [$c->fresh(), $sales, $h, $ceo];
+    }
+
+    private function decideUrl(Claim $c, User $ceo, ?int $rev = null): string
+    {
+        return URL::temporarySignedRoute('claim.approve.decide', now()->addMinutes(60), ['claim' => $c->id, 'u' => $ceo->id, 'rev' => $rev ?? $c->revision]);
+    }
+
+    public function test_ceo_link_shows_and_decides_once(): void
+    {
+        [$c, $sales, $h, $ceo] = $this->pending();
+        Setting::updateOrCreate(['key' => 'alimtalk_enabled'], ['value' => '1', 'type' => 'boolean']);
+        Setting::updateOrCreate(['key' => 'alimtalk_userid'], ['value' => 'uid', 'type' => 'string']);
+        Setting::updateOrCreate(['key' => 'alimtalk_profile'], ['value' => '@p', 'type' => 'string']);
+        Setting::updateOrCreate(['key' => 'alimtalk_tmpl_board_claim_decision'], ['value' => 'TMPL_DEC', 'type' => 'string']);
+
+        $link = $c->approvalLinkFor($ceo);
+        $this->assertStringStartsWith(rtrim(config('app.url'), '/').'/a/claim/'.$c->id, $link);
+        $this->get($link)->assertOk()->assertSee('CLAIM REPORT')->assertSee('12가3456')->assertSee(__('claims.approve'));
+        $this->get(route('claim.approve.show', ['claim' => $c->id, 'u' => $ceo->id, 'rev' => 1]))->assertForbidden();   // 서명 없음
+
+        // GET 은 상태를 안 바꾼다
+        $this->assertSame(Claim::PENDING_CEO, $c->fresh()->status);
+
+        // 반려 — 사유 없으면 422(상태 불변)
+        $this->post($this->decideUrl($c, $ceo), ['action' => 'reject', 'reason' => ''])->assertStatus(422);
+        $this->assertSame(Claim::PENDING_CEO, $c->fresh()->status);
+
+        // 승인
+        $this->post($this->decideUrl($c, $ceo), ['action' => 'approve', 'reason' => '진행'])->assertOk()->assertSee(__('claims.ceo_done_approved'));
+        $c->refresh();
+        $this->assertSame(Claim::APPROVED, $c->status);
+        $this->assertSame('approved', $c->decision);
+        $this->assertNotNull($c->decided_at);
+        $this->assertDatabaseHas('board_audit_logs', ['action' => 'claim', 'field' => 'claim_decision', 'user_id' => $ceo->id]);
+
+        // 알림톡 ② — 담당자 + 영업 2명, 결과/사유 치환
+        $logs = AlimtalkLog::where('template_code', 'board_claim_decision')->get();
+        $this->assertCount(2, $logs);
+        $this->assertEqualsCanonicalizing(['01033334444', '01055556666'], $logs->pluck('phone')->all());
+        $this->assertStringContainsString('■ 결과: 승인', $logs[0]->message);
+        $this->assertStringContainsString('■ 사유: 진행', $logs[0]->message);
+        $this->assertStringNotContainsString('#{', $logs[0]->message);
+
+        // 두 번째 클릭 = 410, 링크 재진입 = 결과만
+        $this->post($this->decideUrl($c, $ceo), ['action' => 'reject', 'reason' => 'x'])->assertStatus(410);
+        $this->get($link)->assertOk()->assertSee(__('claims.ceo_already', ['result' => __('claims.status.approved'), 'at' => $c->decided_at->timezone(config('app.timezone'))->format('Y-m-d H:i')]));
+        $this->assertSame(Claim::APPROVED, $c->fresh()->status);
+    }
+
+    public function test_reject_then_rerequest_invalidates_old_link(): void
+    {
+        [$c, $sales, $h, $ceo] = $this->pending();
+        $this->post($this->decideUrl($c, $ceo), ['action' => 'reject', 'reason' => '증빙 부족'])->assertOk();
+        $c->refresh();
+        $this->assertSame(Claim::REJECTED, $c->status);
+        $this->assertSame('증빙 부족', $c->decision_reason);
+
+        // 담당자 수정 뒤 재요청 → 회차 2, 옛 회차 링크는 410
+        $this->assertTrue($c->canRequestApproval());
+        app(ClaimService::class)->requestApproval($c, $h);
+        $c->refresh();
+        $this->assertSame(2, $c->revision);
+        $this->assertSame(Claim::PENDING_CEO, $c->status);
+        $this->assertNull($c->decision);
+        $this->post($this->decideUrl($c, $ceo, 1), ['action' => 'approve'])->assertStatus(410);
+        $this->assertSame(Claim::PENDING_CEO, $c->fresh()->status);
+        $this->post($this->decideUrl($c, $ceo, 2), ['action' => 'approve'])->assertOk();
+        $this->assertSame(Claim::APPROVED, $c->fresh()->status);
+    }
+
+    public function test_approved_can_be_reapproved_or_closed_and_closed_is_final(): void
+    {
+        [$c, $sales, $h, $ceo] = $this->pending();
+        $this->post($this->decideUrl($c, $ceo), ['action' => 'approve'])->assertOk();
+        $c->refresh();
+
+        // 합의액 변경 → 재승인(회차 2)
+        $this->assertTrue($c->canRequestApproval());
+        app(ClaimService::class)->requestApproval($c, $h);
+        $this->assertSame(2, $c->fresh()->revision);
+        $this->post($this->decideUrl($c->fresh(), $ceo, 2), ['action' => 'approve'])->assertOk();
+
+        app(ClaimService::class)->close($c->fresh(), $h);
+        $c->refresh();
+        $this->assertSame(Claim::CLOSED, $c->status);
+        $this->assertFalse($c->canRequestApproval());
+        $this->expectException(\DomainException::class);
+        $c->status = Claim::PENDING_CEO;
+        $c->save();
+    }
+
+    public function test_handler_drawer_saves_report_fields_with_audit_and_masks_bank(): void
+    {
+        [$c, $sales, $h, $ceo] = [null, null, null, null];
+        $this->fakeErp();
+        $sales = $this->mk('김영업');
+        $h = $this->handler();
+        $c = $this->intake($sales);
+        $this->actingAs($h);
+        Volt::test('claims.index')->call('openDetail', $c->id)
+            ->set('form.buyer_priority', 'high')->set('form.claim_amount', '1500')->set('form.refundable_amount', '750')->set('form.claim_currency', 'eur')
+            ->set('form.result', '부품비 50% 환급')->set('form.compensation_type', 'credit')->set('form.bank_iban', 'AL35202111090000000001234567')
+            ->call('save')->assertHasNoErrors()->assertSet('notice', __('claims.saved'));
+        $c->refresh();
+        $this->assertSame(Claim::REVIEWING, $c->status);
+        $this->assertSame('high', $c->buyer_priority);
+        $this->assertSame('EUR', $c->claim_currency);
+        $this->assertEquals(50.0, $c->refundRate());
+        $this->assertSame('AL35202111090000000001234567', $c->bank_iban);
+        $this->assertDatabaseHas('board_audit_logs', ['field' => 'claim_bank_iban', 'new_value' => '#'.$c->id.' ***']);
+        $this->assertDatabaseHas('board_audit_logs', ['field' => 'claim_claim_amount']);
+        $this->assertDatabaseHas('board_audit_logs', ['field' => 'claim_status', 'old_value' => 'received']);
+        $this->assertDatabaseMissing('board_audit_logs', ['new_value' => '#'.$c->id.' AL35202111090000000001234567']);
+    }
+
+    public function test_bell_counts_new_claim_for_handler_and_decision_for_salesman(): void
+    {
+        [$c, $sales, $h, $ceo] = $this->pending();
+        $this->actingAs($h);
+        $h->forceFill(['portal_seen_at' => now()->subHour()])->save();
+        // 승인 요청 중(pending_ceo)은 「새 접수」가 아니다 → 0. 접수 직후 상태로 되돌려 센다.
+        $c->forceFill(['status' => Claim::RECEIVED])->saveQuietly();
+        $bell = Volt::test('notify.bell')->call('refresh');
+        $this->assertSame(1, $bell->get('unread'));
+
+        $c->forceFill(['status' => Claim::PENDING_CEO])->saveQuietly();
+        $this->post($this->decideUrl($c->fresh(), $ceo), ['action' => 'reject', 'reason' => '사유'])->assertOk();
+        $this->actingAs($sales);
+        $sales->forceFill(['portal_seen_at' => now()->subHour()])->save();
+        $bell = Volt::test('notify.bell')->call('refresh');
+        $this->assertSame(1, $bell->get('unread'));
+        $bell->call('openPanel');
+        $this->assertSame('rejected', $bell->get('claims')[0]['kind']);
+    }
+
+    public function test_portal_sales_row_shows_claim_chip_and_intake_button(): void
+    {
+        $this->fakeErp();
+        $sales = $this->mk('김영업', 'sales', 'user', ['car_erp_salesman_email' => 'kim@ce.test']);
+        $this->actingAs($sales);
+        $t = Volt::test('portal.index')->call('setTab', 'sales')->set('vehicleSearch', '12가 3456');
+        $t->assertSee(__('claims.intake_btn'));
+        $this->intake($sales);
+        Volt::test('portal.index')->call('setTab', 'sales')->set('vehicleSearch', 'VIN55')->assertSee(__('claims.status.received'))->assertDontSee('34나5678');
+    }
+}

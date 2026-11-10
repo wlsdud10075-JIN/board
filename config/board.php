@@ -11,6 +11,9 @@ return [
     'sales_photo_prefix' => 'purchase-board/sales/photos',
     'sales_document_prefix' => 'purchase-board/sales/documents',
 
+    // 클레임 첨부 prefix(2026-11-10) — 바이어 증빙(계기판·손상·INVOICE). 서류 성격이라 바이어 재전송 없음, 대표 링크 화면에서만 보인다.
+    'claims_prefix' => 'purchase-board/claims',
+
     // 영업 첨부 1대당 최대 건수 (car-erp 차량 첨부탭이 10건 cap 이라 맞춤)
     'attachment_max' => (int) env('BOARD_ATTACHMENT_MAX', 10),
 

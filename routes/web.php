@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\BuyerViewController;
+use App\Http\Controllers\ClaimApprovalController;
 use App\Http\Controllers\DevUserSwitchController;
 use App\Http\Controllers\PhotoController;
 use App\Http\Controllers\PushSubscriptionController;
@@ -21,6 +22,15 @@ Route::get('v/{listing}', [BuyerViewController::class, 'show'])
 Route::get('v/{listing}/card.png', [BuyerViewController::class, 'card'])
     ->middleware('signed')
     ->name('buyer.card');
+
+// 클레임 대표 승인 링크(2026-11-10) — 로그인 없음, 서명(5일, claim+u+rev)이 인가를 대신한다. GET = 표시만(카톡 프리페치가 결정 못 함),
+// POST decide = 진입 때 새로 발급한 60분 서명 URL + 트랜잭션 lockForUpdate. CSRF 제외 = bootstrap/app.php(a/claim/*). ERP a/payout 미러.
+Route::get('a/claim/{claim}', [ClaimApprovalController::class, 'show'])
+    ->middleware('signed')
+    ->name('claim.approve.show');
+Route::post('a/claim/{claim}/decide', [ClaimApprovalController::class, 'decide'])
+    ->middleware('signed')
+    ->name('claim.approve.decide');
 
 Route::middleware(['auth'])->group(function () {
     // 로그인 후 role 별 홈으로 분기
@@ -59,6 +69,9 @@ Route::middleware(['auth'])->group(function () {
     // 업무일지 + 업무일지결재(2026-11-04 Jin) — 권한 판정은 화면 mount 에서(작성 = 등급 일반, 결재 = 결재 직급 또는 전체 접근 등급 조회).
     Volt::route('work-journal', 'work-journal.index')->name('work-journal');
     Volt::route('work-journal/approvals', 'work-journal.approvals')->name('work-journal.approvals');
+
+    // 클레임(2026-11-10 Jin) — 기능설정에서 지정한 담당자만(화면 mount 가드, super 도 지정 필요). 접수는 /portal 판매내역 행에서.
+    Volt::route('claims', 'claims.index')->name('claims');
 
     // 사진 같은출처 스트리밍 (모바일 다중 공유 fetch 의 CORS 우회) — 스코프는 컨트롤러에서
     Route::get('photos/{photo}', [PhotoController::class, 'show'])->name('photos.show');

@@ -36,9 +36,10 @@ class BizmAlimtalkService
      * @param  string  $phone  수신 번호(하이픈 무관 — 숫자만 정규화)
      * @param  array  $vars  `#{변수}` 치환값
      * @param  array  $context  ['user_id'=>, 'region'=>] 로그 맥락(선택)
+     * @param  array  $buttons  웹링크 버튼 [['name'=>, 'url'=>]] — 템플릿에 등록된 WL 버튼과 **개수·이름이 같아야** 한다(다르면 K108). 2026-11-10 클레임 승인요청.
      * @return AlimtalkLog status: sent|failed|skipped
      */
-    public function send(string $code, string $phone, array $vars = [], array $context = []): AlimtalkLog
+    public function send(string $code, string $phone, array $vars = [], array $context = [], array $buttons = []): AlimtalkLog
     {
         $phone = $this->normalizePhone($phone);
 
@@ -80,6 +81,16 @@ class BizmAlimtalkService
                 'tmplId' => $this->config->tmplId($code),
                 'msg' => $message,
             ];
+            // 웹링크 버튼 — bizmsg 발송 API 는 button 배열이 아니라 button1~button5 개별 필드(각 JSON object), 키 = name/type(WL)/url_mobile/url_pc
+            //   (car-erp 실측 K000, 2026-07-10). 승인본의 `#{url}` 자리에 실 URL 을 그대로 싣는다(등록 접두와 같아야 함).
+            foreach (array_values($buttons) as $i => $b) {
+                $item['button'.($i + 1)] = [
+                    'name' => (string) ($b['name'] ?? ''),
+                    'type' => 'WL',
+                    'url_mobile' => (string) ($b['url'] ?? ''),
+                    'url_pc' => (string) ($b['url_pc'] ?? $b['url'] ?? ''),
+                ];
+            }
 
             $response = Http::timeout(15)
                 ->withHeaders(['userid' => $this->config->userid])
