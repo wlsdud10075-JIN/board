@@ -69,10 +69,11 @@ class Claim extends Model
         'total_purchase_count', 'year_purchase_count', 'buyer_credit_grade', 'buyer_credit_score', 'member_since', 'purchase_history', 'margin_rate', 'erp_snapshot_at',
         'salesman_user_id', 'created_by_user_id', 'arrived_at', 'received_km', 'content',
         'inspection_result', 'notes', 'review_notes',
-        'claim_amount', 'claim_currency', 'refundable_amount', 'result', 'result_reason', 'compensation_type', 'overdue_reason',
+        'claim_amount', 'claim_currency', 'refundable_amount', 'cs_proposed_amount', 'confirmed_amount', 'result', 'result_reason', 'compensation_type', 'overdue_reason',
         'bank_name', 'bank_iban', 'bank_swift', 'bank_phone', 'bank_address',
         'requested_at', 'requested_by_user_id', 'request_notified_at', 'approver_user_id', 'decided_at', 'decision', 'decision_reason', 'decision_ip',
         'closed_at', 'closed_by_user_id',
+        'erp_claim_id', 'erp_sent_at', 'erp_sent_revision', 'erp_sent_by_user_id', 'erp_send_error',
     ];
 
     protected function casts(): array
@@ -81,7 +82,7 @@ class Claim extends Model
             'purchase_history' => 'array',
             'sale_date' => 'date', 'eta_date' => 'date', 'arrived_at' => 'date',
             'erp_snapshot_at' => 'datetime', 'requested_at' => 'datetime', 'request_notified_at' => 'datetime',
-            'decided_at' => 'datetime', 'closed_at' => 'datetime',
+            'decided_at' => 'datetime', 'closed_at' => 'datetime', 'erp_sent_at' => 'datetime',
             // 2p 은행정보 = PII 범위한정 예외(payee 와 동일) — 화면엔 그대로, 감사·로그는 ***.
             'bank_name' => 'encrypted', 'bank_iban' => 'encrypted', 'bank_swift' => 'encrypted', 'bank_phone' => 'encrypted', 'bank_address' => 'encrypted',
         ];
@@ -91,7 +92,7 @@ class Claim extends Model
     public const EDITABLE = [
         'buyer_contact_name', 'arrived_at', 'received_km', 'content',
         'inspection_result', 'notes', 'review_notes',
-        'claim_amount', 'claim_currency', 'refundable_amount', 'result', 'result_reason', 'compensation_type', 'overdue_reason',
+        'claim_amount', 'claim_currency', 'refundable_amount', 'cs_proposed_amount', 'result', 'result_reason', 'compensation_type', 'overdue_reason',
         'bank_name', 'bank_iban', 'bank_swift', 'bank_phone', 'bank_address',
     ];
 
@@ -341,6 +342,72 @@ class Claim extends Model
         }
 
         return trim(($this->claim_currency ?: $this->sale_currency ?: '').' '.number_format((float) $this->claim_amount, fmod((float) $this->claim_amount, 1.0) === 0.0 ? 0 : 2));
+    }
+
+    /** 금액 칸 표시(통화 = claim_currency, 없으면 판매통화) — 「EUR 1,500」, 비면 「—」. */
+    public function amountDisplay(string $field): string
+    {
+        $v = $this->getAttribute($field);
+        if ($v === null) {
+            return '—';
+        }
+
+        return trim(($this->claim_currency ?: $this->sale_currency ?: '').' '.number_format((float) $v, fmod((float) $v, 1.0) === 0.0 ? 0 : 2));
+    }
+
+    /**
+     * 이 사람이 지금 결정하면 **최종**이 되나 — super(승인 = 즉시 최종) 또는 지금 차례가 결재선 마지막 칸.
+     * 최종 결정자만 확정 금액(confirmed_amount)을 정한다(2026-11-11 Jin 「대표가 확정해준 하나의 금액만 ERP 로」).
+     */
+    public function isFinalTurnFor(?User $u): bool
+    {
+        if (! $this->canDecide($u, (int) $this->revision)) {
+            return false;
+        }
+        if ($u->isSuper()) {
+            return true;
+        }
+        $cur = $this->currentStep();
+
+        return $cur !== null && $this->lineSteps()->first(fn ($s) => $s->seq > $cur->seq && $s->status === 'pending') === null;
+    }
+
+    /** [ERP 로 보내기] 가능 — 결재가 끝났고(승인·반려·종결) 이 회차를 아직 안 보냄. 반려도 보낸다(declined·금액 0, Jin 2026-11-11). */
+    public function canSendToErp(): bool
+    {
+        return $this->decided_at !== null && in_array($this->status, [self::APPROVED, self::REJECTED, self::CLOSED], true)
+            && (int) $this->erp_sent_revision !== (int) $this->revision;
+    }
+
+    /** 이 바이어 누적 클레임 수(board 기록, 이번 건 포함) — ERP 클레임 탭 지표용. */
+    public function buyerClaimCount(): int
+    {
+        $q = static::query();
+        $q = $this->car_erp_buyer_id ? $q->where('car_erp_buyer_id', $this->car_erp_buyer_id) : $q->where('buyer_name', $this->buyer_name);
+
+        return (int) $q->count();
+    }
+
+    /** 확정 금액 입력칸 기본값 — CS 제시 → 영업 제시 → 바이어 청구 순. */
+    public function suggestedConfirmedAmount(): ?string
+    {
+        foreach (['cs_proposed_amount', 'refundable_amount', 'claim_amount'] as $f) {
+            if ($this->getAttribute($f) !== null) {
+                return (string) (float) $this->getAttribute($f);
+            }
+        }
+
+        return null;
+    }
+
+    /** CS 제시 비율(%) — CS PROPOSED AMOUNT ÷ CLAIM AMOUNT, 표시 전용. */
+    public function csRate(): ?float
+    {
+        if (! $this->claim_amount || $this->cs_proposed_amount === null) {
+            return null;
+        }
+
+        return round((float) $this->cs_proposed_amount / (float) $this->claim_amount * 100, 1);
     }
 
     /** 환급률(%) — REFUNDABLE ÷ CLAIM AMOUNT, 표시 전용. */

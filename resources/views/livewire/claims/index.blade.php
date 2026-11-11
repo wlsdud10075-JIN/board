@@ -43,6 +43,9 @@ new #[Layout('components.layouts.app')] class extends Component
     /** 결재선 모달(2026-11-11 Jin — 드로어 안 상시 칸 대신 [결재 요청] 누르면 모달, 모바일은 하단 시트). */
     public bool $lineModal = false;
 
+    /** [ERP 로 보내기] 확인 모달(2026-11-11 Jin — 받을 바이어가 맞는지 한 번 더 보고 보낸다). */
+    public bool $erpModal = false;
+
     /** 모달 안에서만 보이는 오류(드로어 상단 오류와 분리 — 모달에 가려 안 보이므로). */
     public ?string $lineError = null;
 
@@ -162,6 +165,7 @@ new #[Layout('components.layouts.app')] class extends Component
             'form.content' => ['required', 'string', 'max:4000'],
             'form.claim_amount' => ['nullable', 'numeric', 'min:0'],
             'form.refundable_amount' => ['nullable', 'numeric', 'min:0'],
+            'form.cs_proposed_amount' => ['nullable', 'numeric', 'min:0'],
             'form.claim_currency' => ['nullable', 'in:'.implode(',', Claim::CURRENCIES)],
             'form.compensation_type' => ['nullable', 'in:refund,credit'],
         ]);
@@ -242,6 +246,34 @@ new #[Layout('components.layouts.app')] class extends Component
         }
         $svc->close($c, Auth::user());
         $this->notice = __('claims.closed_ok');
+        $this->refreshDetail();
+    }
+
+    /** [ERP 로 보내기] — 결재 끝난 건만(승인·반려), 회차당 1회(재승인 뒤 다시). */
+    public function openErpModal(): void
+    {
+        $this->erpModal = (bool) $this->detail?->canSendToErp();
+    }
+
+    public function closeErpModal(): void
+    {
+        $this->erpModal = false;
+    }
+
+    /** 모달 [이 바이어로 보내기] — 받을 바이어·금액을 확인한 뒤에만(버튼 바로 전송 없음). */
+    public function sendToErp(ClaimService $svc): void
+    {
+        $c = $this->detail;
+        if (! $c) {
+            return;
+        }
+        $this->erpModal = false;
+        $r = $svc->sendToErp($c, Auth::user());
+        if ($r['ok']) {
+            $this->notice = __('claims.erp_sent_ok');
+        } else {
+            $this->error = __('claims.erp_send_failed', ['reason' => $r['message']]);
+        }
         $this->refreshDetail();
     }
 
@@ -388,6 +420,19 @@ new #[Layout('components.layouts.app')] class extends Component
                     <div class="card-sm mb-3 {{ $d->decision === 'approved' ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50' }} text-xs text-gray-700">
                         {{ $d->decision === 'approved' ? '✅' : '⛔' }} {{ __('claims.decided_banner', ['result' => $d->statusLabel(), 'name' => $d->approver?->name ?? '—', 'at' => $d->decided_at->timezone(config('app.timezone'))->format('m-d H:i')]) }}
                         @include('livewire.claims._steps', ['steps' => $d->lineSteps(), 'current' => null])
+                        @if ($d->confirmed_amount !== null)<div class="mt-0.5 font-semibold text-gray-800">FINAL AMOUNT {{ $d->amountDisplay('confirmed_amount') }}</div>@endif
+                        {{-- ERP 바이어 「클레임」 탭 미러(2026-11-11 Jin) — 담당자가 눌러야 간다. 반려도 보낸다(declined·0). --}}
+                        <div class="mt-1.5 flex flex-wrap items-center gap-2 border-t border-black/5 pt-1.5">
+                            @if ($d->erp_sent_at && (int) $d->erp_sent_revision === (int) $d->revision)
+                                <span class="badge badge-green">{{ __('claims.erp_sent_badge', ['id' => $d->erp_claim_id ?? '—', 'at' => $d->erp_sent_at->timezone(config('app.timezone'))->format('m-d H:i')]) }}</span>
+                            @else
+                                @if ($d->erp_sent_at)<span class="badge badge-amber">{{ __('claims.erp_sent_old', ['rev' => $d->erp_sent_revision]) }}</span>@endif
+                                <button type="button" class="btn-primary btn-sm" wire:click="openErpModal">
+                                    {{ $d->erp_sent_at ? __('claims.erp_resend_btn') : __('claims.erp_send_btn') }}
+                                </button>
+                            @endif
+                            @if ($d->erp_send_error)<span class="text-red-600">⚠️ {{ $d->erp_send_error }}</span>@endif
+                        </div>
                         @if ($d->decision_reason)<div class="mt-0.5 whitespace-pre-wrap">{{ $d->decision_reason }}</div>@endif
                         @if ($d->status === 'approved')<div class="mt-1 text-gray-500">{{ __('claims.approved_next') }}</div>@endif
                     </div>
@@ -477,8 +522,10 @@ new #[Layout('components.layouts.app')] class extends Component
                     <div class="col-span-2"><label class="label-base">INSPECTION REPORT RESULT</label><textarea class="input-base" rows="2" wire:model="form.inspection_result" placeholder="{{ __('claims.inspection_result_ph') }}"></textarea></div>
                     <div class="col-span-2"><label class="label-base">NOTES (1p) <span class="font-normal text-gray-400">— {{ __('claims.notes_hint') }}</span></label><textarea class="input-base" rows="2" wire:model="form.notes"></textarea></div>
                     <div class="col-span-2"><label class="label-base">CLAIM NOTES</label><textarea class="input-base" rows="2" wire:model="form.review_notes"></textarea></div>
-                    <div><label class="label-base">CLAIM AMOUNT</label><div class="flex gap-1"><select class="input-base w-20" wire:model="form.claim_currency"><option value="">—</option>@foreach (\App\Models\Claim::CURRENCIES as $cur)<option value="{{ $cur }}">{{ $cur }}</option>@endforeach</select><input type="number" step="0.01" class="input-base" wire:model="form.claim_amount"></div>@error('form.claim_amount')<p class="text-red-600">{{ $message }}</p>@enderror</div>
-                    <div><label class="label-base">REFUNDABLE</label><input type="number" step="0.01" class="input-base" wire:model="form.refundable_amount">@if (($r = $d->refundRate()) !== null)<p class="text-[11px] text-gray-400">{{ $r }}%</p>@endif</div>
+                    {{-- 금액 3종(2026-11-11 Jin): CLAIM AMOUNT = 바이어 청구(수리비 등) · REFUNDABLE = 영업 제시 · CS PROPOSED AMOUNT = 담당자가 사실확인 후 제안. 통화는 셋 다 claim_currency. --}}
+                    <div class="col-span-2"><label class="label-base">CLAIM AMOUNT <span class="font-normal text-gray-400">— {{ __('claims.claim_amount_hint') }}</span></label><div class="flex gap-1"><select class="input-base w-20" wire:model="form.claim_currency"><option value="">—</option>@foreach (\App\Models\Claim::CURRENCIES as $cur)<option value="{{ $cur }}">{{ $cur }}</option>@endforeach</select><input type="number" step="0.01" class="input-base" wire:model="form.claim_amount"></div>@error('form.claim_amount')<p class="text-red-600">{{ $message }}</p>@enderror</div>
+                    <div><label class="label-base">REFUNDABLE <span class="font-normal text-gray-400">— {{ __('claims.refundable_hint') }}</span></label><input type="number" step="0.01" class="input-base" wire:model="form.refundable_amount">@if (($r = $d->refundRate()) !== null)<p class="text-[11px] text-gray-400">{{ $r }}%</p>@endif @error('form.refundable_amount')<p class="text-red-600">{{ $message }}</p>@enderror</div>
+                    <div><label class="label-base">CS PROPOSED AMOUNT <span class="font-normal text-gray-400">— {{ __('claims.cs_proposed_hint') }}</span></label><input type="number" step="0.01" class="input-base" wire:model="form.cs_proposed_amount">@if (($r = $d->csRate()) !== null)<p class="text-[11px] text-gray-400">{{ $r }}%</p>@endif @error('form.cs_proposed_amount')<p class="text-red-600">{{ $message }}</p>@enderror</div>
                     <div class="col-span-2"><label class="label-base">RESULT ({{ __('claims.result') }})</label><textarea class="input-base" rows="2" wire:model="form.result"></textarea></div>
                     <div class="col-span-2"><label class="label-base">REASON</label><textarea class="input-base" rows="2" wire:model="form.result_reason"></textarea></div>
                     <div class="col-span-2 flex flex-wrap items-center gap-3"><span class="label-base">COMPENSATION TYPE</span>
@@ -523,6 +570,45 @@ new #[Layout('components.layouts.app')] class extends Component
                 </details>
             </div>
         </div>
+
+        {{-- ─────────── ERP 보내기 확인 모달 — 받을 바이어·차량·금액을 보고 보낸다(2026-11-11 Jin) ─────────── --}}
+        @if ($erpModal)
+            @php $accepted = $d->decision === 'approved'; @endphp
+            <div class="fixed inset-0 z-[60] bg-black/40" wire:click="closeErpModal"></div>
+            <div class="fixed inset-x-0 bottom-0 z-[70] max-h-[85vh] overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl
+                        sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-[440px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl"
+                 x-data @keydown.escape.window="$wire.closeErpModal()">
+                <div class="mb-1 flex items-center justify-between">
+                    <h4 class="font-bold text-gray-800">{{ __('claims.erp_modal_title') }}</h4>
+                    <button type="button" class="text-gray-400 hover:text-gray-600" wire:click="closeErpModal">✕</button>
+                </div>
+                <p class="mb-3 text-xs text-gray-500">{{ __('claims.erp_modal_hint') }}</p>
+
+                {{-- 받을 바이어 — 가장 크게. 접수 때 ERP 판매 행에서 가져온 바이어(board 가 매칭한 값). --}}
+                <div class="rounded-lg border-2 {{ $d->car_erp_buyer_id ? 'border-[var(--color-primary)] bg-[#f5f8ff]' : 'border-amber-300 bg-amber-50' }} px-3 py-2.5">
+                    <div class="text-[11px] font-semibold text-gray-500">{{ __('claims.erp_modal_buyer') }}</div>
+                    <div class="text-base font-bold text-gray-900">{{ $d->buyer_name ?: '—' }}</div>
+                    <div class="text-xs text-gray-500">{{ $d->car_erp_buyer_id ? __('claims.erp_modal_buyer_id', ['id' => $d->car_erp_buyer_id]) : __('claims.erp_modal_no_buyer_id') }}</div>
+                </div>
+
+                <table class="mt-3 w-full text-sm">
+                    <tr><td class="py-1 text-gray-500">{{ __('claims.erp_modal_vehicle') }}</td><td class="py-1 text-right font-semibold">{{ \App\Support\Plate::show($d->vehicle_number) }}<div class="text-[11px] font-normal text-gray-400">{{ $d->vin ?: '' }}</div></td></tr>
+                    <tr><td class="py-1 text-gray-500">{{ __('claims.erp_modal_result') }}</td><td class="py-1 text-right"><span class="badge {{ $accepted ? 'badge-green' : 'badge-red' }}">{{ $accepted ? 'accepted' : 'declined' }}</span></td></tr>
+                    <tr><td class="py-1 text-gray-500">FINAL AMOUNT</td><td class="py-1 text-right text-base font-bold">{{ $accepted ? $d->amountDisplay('confirmed_amount') : '0' }}</td></tr>
+                    <tr><td class="py-1 text-gray-500">COMPENSATION</td><td class="py-1 text-right">{{ $d->compensation_type ? strtoupper($d->compensation_type) : '—' }}</td></tr>
+                    <tr><td class="py-1 text-gray-500">{{ __('claims.erp_modal_count') }}</td><td class="py-1 text-right">{{ $d->buyerClaimCount() }}</td></tr>
+                </table>
+                <p class="mt-3 text-xs text-gray-500">{{ __('claims.erp_modal_wrong_buyer') }}</p>
+
+                <div class="mt-4 flex gap-2">
+                    <button type="button" class="btn-outline flex-1 justify-center py-2.5" wire:click="closeErpModal">{{ __('common.cancel') }}</button>
+                    <button type="button" class="btn-primary flex-1 justify-center py-2.5" wire:click="sendToErp" wire:loading.attr="disabled" wire:target="sendToErp">
+                        <span wire:loading.remove wire:target="sendToErp">{{ __('claims.erp_modal_send') }}</span>
+                        <span wire:loading wire:target="sendToErp">{{ __('claims.saving') }}</span>
+                    </button>
+                </div>
+            </div>
+        @endif
 
         {{-- ─────────── 결재선 모달(모바일 = 하단 시트 · PC = 가운데 창) ─────────── --}}
         @if ($lineModal)

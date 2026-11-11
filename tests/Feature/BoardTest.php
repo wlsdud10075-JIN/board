@@ -1240,6 +1240,24 @@ class BoardTest extends TestCase
         $this->assertSame(1, PurchaseListing::where('vin', 'DUPVIN00001')->count());
     }
 
+    /** 매물 표시가 = 차값 — 링크 없이 손으로 적은 표시가도 차값이 비어 있으면 차값으로(통화 그대로). 차값을 따로 적었으면 그 값 유지(2026-11-11 김성중 건). */
+    public function test_listings_manual_display_price_mirrors_to_car_cost(): void
+    {
+        $kim = $this->mkUser('sales');
+        $this->actingAs($kim);
+        Volt::test('listings.index')->set('origin', 'self_inspection')->set('source', 'encar')
+            ->set('vehicle_number', '06우7069')->set('expected_price', '53500000')->set('expected_price_currency', 'KRW')
+            ->call('save')->assertHasNoErrors();
+        $l = PurchaseListing::where('vehicle_number', '06우7069')->firstOrFail();
+        $this->assertSame(53500000, (int) $l->car_cost);
+        $this->assertSame('KRW', $l->expected_price_currency);
+
+        Volt::test('listings.index')->set('origin', 'encar')->set('source', 'encar')
+            ->set('vehicle_number', '12가7777')->set('expected_price', '9000')->set('expected_price_currency', 'USD')->set('car_cost', '8500')
+            ->call('save')->assertHasNoErrors();
+        $this->assertSame(8500, (int) PurchaseListing::where('vehicle_number', '12가7777')->value('car_cost'));   // 따로 적은 차값 우선
+    }
+
     public function test_listings_allows_reregister_after_soft_delete(): void
     {
         $kim = $this->mkUser('sales');
@@ -1489,6 +1507,27 @@ class BoardTest extends TestCase
         $this->assertSame(12000000, (int) $l->fresh()->car_cost);
         $this->assertSame('won', $l->fresh()->status);
         Bus::assertDispatched(SyncWonListingToCarErp::class);
+    }
+
+    /**
+     * 2026-11-11 ssancarboard 김성중 — 차값을 적었는데 다른 칸(바이어·첨부 등)에 걸려 확정이 막히면 저장이 안 된다.
+     * 그때 빨간 「차값이 비어 있습니다」가 DB 기준이라 계속 떠서 진짜 이유를 가렸다 → 입력칸 기준이어야 한다.
+     */
+    public function test_auction_car_cost_warning_follows_input_not_saved_value(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'car_cost' => null, 'final_price' => null,
+        ]);
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
+
+        $t = Volt::test('auction.index')->call('openDetail', $l->id)->assertSee(__('auction.car_cost_missing'));
+        $t->set('car_cost', '53500000')
+            ->set('sale_total', '40000')->set('quoteCurrency', 'USD')   // 환율 USD 를 안 적음
+            ->call('conclude', $l->id, 'won')
+            ->assertHasErrors('rate_usd')                      // 진짜 막힌 이유 = 환율
+            ->assertDontSee(__('auction.car_cost_missing'));   // 차값은 적었으니 차값 경고는 없다
+        $this->assertNull($l->fresh()->car_cost);              // 막혔으니 저장 안 됨(종전과 같음)
     }
 
     /**

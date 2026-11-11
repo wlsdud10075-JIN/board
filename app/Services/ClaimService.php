@@ -267,6 +267,7 @@ class ClaimService
                 'requested_at' => now(),
                 'requested_by_user_id' => $handler->id,
                 'decided_at' => null, 'decision' => null, 'decision_reason' => null, 'decision_ip' => null,
+                'confirmed_amount' => null,   // 재요청·재승인 = 확정 금액도 새로(최종 결재자가 다시 정한다)
             ])->save();
         });
         $claim->unsetRelation('steps');
@@ -320,17 +321,23 @@ class ClaimService
      * 승인 = 다음 칸으로(마지막 칸이면 최종 승인) · super 승인 = 남은 칸과 무관하게 즉시 최종(ERP 월정산 대행과 같은 결) · 반려 = 그 건 rejected(사유 필수).
      * 알림 = 다음 결재자에게 요청 / 최종 승인·반려 때만 담당자+영업에게 결과(중간 진행 알림 없음).
      *
-     * @throws \DomainException reason_required · not_decidable
+     * 최종 승인(마지막 칸 또는 super)에는 **확정 금액**(`$confirmed`, ≥0)이 필수 — ERP 로 가는 단 하나의 금액(2026-11-11 Jin). 중간 승인·반려엔 안 쓴다.
+     *
+     * @throws \DomainException reason_required · not_decidable · confirmed_required
      */
-    public function decide(Claim $claim, User $actor, int $revision, string $action, string $reason, ?string $ip): Claim
+    public function decide(Claim $claim, User $actor, int $revision, string $action, string $reason, ?string $ip, mixed $confirmed = null): Claim
     {
         $reason = trim($reason);
         if ($action === 'reject' && $reason === '') {
             throw new \DomainException('reason_required');
         }
+        $confirmed = is_string($confirmed) ? trim(str_replace(',', '', $confirmed)) : $confirmed;
+        if ($action === 'approve' && $claim->isFinalTurnFor($actor) && (! is_numeric($confirmed) || (float) $confirmed < 0)) {
+            throw new \DomainException('confirmed_required');
+        }
 
         $next = null;
-        $fresh = DB::transaction(function () use ($claim, $actor, $revision, $action, $reason, $ip, &$next) {
+        $fresh = DB::transaction(function () use ($claim, $actor, $revision, $action, $reason, $ip, $confirmed, &$next) {
             $fresh = Claim::query()->lockForUpdate()->findOrFail($claim->id);
             if (! $fresh->canDecide($actor, $revision)) {
                 throw new \DomainException('not_decidable');
@@ -353,10 +360,14 @@ class ClaimService
             }
             $to = $action === 'approve' ? Claim::APPROVED : Claim::REJECTED;
             $fresh->forceFill([
+                'confirmed_amount' => $to === Claim::APPROVED ? round((float) $confirmed, 2) : null,
                 'status' => $to, 'current_step' => null, 'approver_user_id' => $actor->id,
                 'decided_at' => now(), 'decision' => $to, 'decision_reason' => $reason !== '' ? $reason : null, 'decision_ip' => $ip,
             ])->save();
             $this->audit($fresh, $actor->id, 'claim_status', Claim::PENDING_CEO, $to, $ip);
+            if ($to === Claim::APPROVED) {
+                $this->audit($fresh, $actor->id, 'claim_confirmed_amount', null, $fresh->amountDisplay('confirmed_amount'), $ip);
+            }
 
             return $fresh;
         });
@@ -389,6 +400,64 @@ class ClaimService
             }
             $this->push($u, $title, $body, $u->isClaimHandler() ? route('claims') : route('portal'), 'claim-dec-'.$claim->id.'-'.$claim->revision);
         }
+    }
+
+    // ── ERP 미러 ──
+
+    /**
+     * [ERP 로 보내기] — 확정된 클레임 1건을 ERP 바이어 「클레임」 탭으로(2026-11-11 Jin: 최종 결재 뒤 담당자가 눌러야 미러, 자동 없음).
+     * 금액 = **확정 금액 하나**(confirmed_amount, 반려 = declined·0). 제시 금액 3종은 board 판정 자료라 보내지 않는다.
+     * 성공 = erp_claim_id·보낸 시각·회차 저장 / 실패 = 사유 저장(ERP 422 원문). 둘 다 감사 1행.
+     *
+     * @return array{ok: bool, message: ?string}
+     */
+    public function sendToErp(Claim $claim, User $handler): array
+    {
+        if (! $claim->canSendToErp()) {
+            return ['ok' => false, 'message' => __('claims.erp_send_not_ready')];
+        }
+        $approved = in_array($claim->status, [Claim::APPROVED, Claim::CLOSED], true) && $claim->decision === Claim::APPROVED;
+        $final = $claim->lineSteps()->last();
+        $sales = $claim->salesman;
+        $email = $sales ? ($sales->car_erp_salesman_email ?: $sales->email) : '';
+        $payload = [
+            'board_claim_id' => $claim->id,
+            'revision' => (int) $claim->revision,
+            'vehicle_id' => $claim->car_erp_vehicle_id ?: null,
+            'buyer_id' => $claim->car_erp_buyer_id ?: null,
+            'buyer_name' => $claim->buyer_name,
+            'vehicle_number' => $claim->vehicle_number,
+            'vin' => $claim->vin,
+            'confirmed_amount' => $approved ? (float) $claim->confirmed_amount : 0.0,
+            'currency' => $claim->claim_currency ?: $claim->sale_currency,
+            'compensation_type' => $claim->compensation_type,
+            'result' => $approved ? 'accepted' : 'declined',
+            'result_reason' => $approved ? ($claim->result_reason ?: $claim->result) : ($claim->decision_reason ?: $claim->result_reason),
+            'approved_at' => $claim->decided_at?->toIso8601String(),
+            'approved_by_name' => $claim->approver?->name ?? $final?->approver?->name,
+            'handler_name' => $claim->requester?->name ?? $handler->name,
+            'salesman_email' => $email,
+            'buyer_claim_count' => $claim->buyerClaimCount(),
+            'board_url' => route('claims'),
+        ];
+
+        $r = $this->erp->sendClaim($email, $payload);
+        if ($r['ok'] ?? false) {
+            $claim->forceFill([
+                'erp_claim_id' => data_get($r['data'], 'erp_claim_id', data_get($r['data'], 'data.erp_claim_id')),
+                'erp_sent_at' => now(), 'erp_sent_revision' => $claim->revision, 'erp_sent_by_user_id' => $handler->id, 'erp_send_error' => null,
+            ])->saveQuietly();
+            $this->audit($claim, $handler->id, 'claim_erp_send', null, __('claims.audit_erp_sent', [
+                'rev' => $claim->revision, 'result' => $payload['result'], 'amount' => $approved ? $claim->amountDisplay('confirmed_amount') : '0', 'erp' => $claim->erp_claim_id ?? '—',
+            ]));
+
+            return ['ok' => true, 'message' => null];
+        }
+        $msg = trim((string) ($r['message'] ?? '')) ?: ($r['reason'] ?? 'HTTP '.($r['status'] ?? 0));
+        $claim->forceFill(['erp_send_error' => mb_substr($msg, 0, 500)])->saveQuietly();
+        $this->audit($claim, $handler->id, 'claim_erp_send', null, __('claims.audit_erp_failed', ['rev' => $claim->revision, 'reason' => $msg]));
+
+        return ['ok' => false, 'message' => $msg];
     }
 
     // ── 종결 ──
