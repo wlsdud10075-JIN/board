@@ -1021,6 +1021,11 @@ new #[Layout('components.layouts.app')] class extends Component {
         @php $d = $this->detail; @endphp
         <div class="fixed inset-0 z-40 bg-black/40" wire:click="closeDetail"></div>
         <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[440px]">
+            {{-- 구매확정이 검사에 걸리면 첫 오류 문구로 스크롤(2026-11-11 — 오류가 드로어 아래쪽에 떠서 안 보였다). 확정 버튼을 누른 직후에만. --}}
+            @if ($errors->any())
+                <div wire:key="auction-err-{{ md5(json_encode($errors->getMessages())) }}-{{ microtime(true) }}" x-data
+                     x-init="if (window.__auctionConclude) { window.__auctionConclude = false; $nextTick(() => { const e = $el.parentElement.querySelector('p.text-red-600:not([data-hint])'); e && e.scrollIntoView({ behavior: 'smooth', block: 'center' }) }) }"></div>
+            @endif
             <div class="flex items-center justify-between border-b border-gray-200 px-5 py-4">
                 <h3 class="font-bold text-gray-800">{{ \App\Support\Plate::show($d->vehicle_number) }} · {{ __('common.detail') }}
                     <span class="badge {{ $d->statusBadge() }} ml-1">{{ $d->statusLabel() }}</span>
@@ -1048,7 +1053,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                      비어 있으면 연동 B 가 car-erp 에서 422 로 죽으므로 구매확정 버튼이 여기서 막힌다. --}}
                 @if (in_array($d->status, ['accepted', 'won'], true))
                     @php $costCur = $d->expected_price_currency ?: 'KRW'; @endphp
-                    <div class="mt-2 rounded-md border p-2.5 {{ $d->car_cost === null ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-gray-50' }}">
+                    {{-- 빨간 표시는 **입력칸 기준**(2026-11-11 ssancarboard 김성중 — 차값을 적었는데 다른 칸에 걸려 저장이 안 되자
+                         DB 기준 경고가 계속 「차값이 비어 있습니다」로 남아 진짜 막힌 이유를 가렸다). --}}
+                    @php $costEmpty = $car_cost === null || $car_cost === ''; @endphp
+                    <div class="mt-2 rounded-md border p-2.5 {{ $costEmpty ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-gray-50' }}">
                         <div class="section-title-sm">{{ __('auction.amount_section') }}</div>
                         <div class="grid grid-cols-2 gap-2">
                             <div>
@@ -1154,7 +1162,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 'fee' => ($selling_fee === null || $selling_fee === '') ? __('auction.fee_none') : number_format((int) $selling_fee).__('common.won_currency'),
                             ]) }}</p>
                         @endif
-                        <p class="mt-1 text-[11px] {{ $d->car_cost === null ? 'text-red-600' : 'text-gray-400' }}">{{ $d->car_cost === null ? __('auction.car_cost_missing') : __('auction.car_cost_hint') }}</p>
+                        <p class="mt-1 text-[11px] {{ $costEmpty ? 'text-red-600' : 'text-gray-400' }}" data-hint>{{ $costEmpty ? __('auction.car_cost_missing') : __('auction.car_cost_hint') }}</p>
                     </div>
                 @endif
                 {{-- 재고매입은 판매 금액이 존재하지 않는다 — '—' 만 띄우면 "값이 빠졌다"로 읽히므로 칸 자체를 바꾼다. --}}
@@ -1498,7 +1506,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <p class="mb-1.5 rounded-md border border-red-300 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700">🔒 {{ $blockWhy }}</p>
                     @endif
                     <div class="flex gap-2">
-                        <button class="btn-green flex-1 justify-center {{ $blockWhy ? 'cursor-not-allowed opacity-40' : '' }}" @disabled($blockWhy !== null) wire:click="conclude({{ $d->id }}, 'won')">{{ $d->isAuction() ? __('auction.won_auction') : __('auction.won_encar') }}</button>
+                        <button class="btn-green flex-1 justify-center {{ $blockWhy ? 'cursor-not-allowed opacity-40' : '' }}" @disabled($blockWhy !== null) wire:click="conclude({{ $d->id }}, 'won')" @click="window.__auctionConclude = true">{{ $d->isAuction() ? __('auction.won_auction') : __('auction.won_encar') }}</button>
                         <button class="btn-ghost flex-1 justify-center" wire:click="conclude({{ $d->id }}, 'failed')">{{ $d->isAuction() ? __('auction.failed_auction') : __('auction.failed_encar') }}</button>
                     </div>
                     {{-- 🚨 [매입취소]가 「닫기」로 읽혀 실제로 매물이 취소됐다(2026-09-10 Jin).
@@ -1509,7 +1517,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                          유일한 문이라 버튼으로 세운다. --}}
                     @if ($errors->first('salesFiles') === __('auction.payee_extract.wait'))
                         <button type="button" class="btn-ghost mt-2 w-full justify-center border-amber-300 bg-amber-50 text-amber-800"
-                                wire:click="$set('skipPayeeWait', true); $wire.conclude({{ $d->id }}, 'won')">{{ __('auction.payee_extract.skip') }}</button>
+                                wire:click="$set('skipPayeeWait', true); $wire.conclude({{ $d->id }}, 'won')" @click="window.__auctionConclude = true">{{ __('auction.payee_extract.skip') }}</button>
                     @endif
                 @elseif ($d->status === 'won')
                     <button class="btn-primary mt-3 w-full justify-center" wire:click="savePayee">{{ __('auction.save_payment_info') }}</button>

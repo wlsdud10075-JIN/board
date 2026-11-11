@@ -1510,6 +1510,27 @@ class BoardTest extends TestCase
     }
 
     /**
+     * 2026-11-11 ssancarboard 김성중 — 차값을 적었는데 다른 칸(바이어·첨부 등)에 걸려 확정이 막히면 저장이 안 된다.
+     * 그때 빨간 「차값이 비어 있습니다」가 DB 기준이라 계속 떠서 진짜 이유를 가렸다 → 입력칸 기준이어야 한다.
+     */
+    public function test_auction_car_cost_warning_follows_input_not_saved_value(): void
+    {
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection',
+            'source' => 'encar', 'car_cost' => null, 'final_price' => null,
+        ]);
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
+
+        $t = Volt::test('auction.index')->call('openDetail', $l->id)->assertSee(__('auction.car_cost_missing'));
+        $t->set('car_cost', '53500000')
+            ->set('sale_total', '40000')->set('quoteCurrency', 'USD')   // 환율 USD 를 안 적음
+            ->call('conclude', $l->id, 'won')
+            ->assertHasErrors('rate_usd')                      // 진짜 막힌 이유 = 환율
+            ->assertDontSee(__('auction.car_cost_missing'));   // 차값은 적었으니 차값 경고는 없다
+        $this->assertNull($l->fresh()->car_cost);              // 막혔으니 저장 안 됨(종전과 같음)
+    }
+
+    /**
      * 이미 won 인데 금액 누락으로 ERP 에 못 넘어간 차 — 금액만 채우면 재발사돼야 한다.
      * 안 그러면 영업이 금액을 넣어도 아무 일도 안 일어나고, /manage 재전송은 super 전용이라 손이 없다.
      */
