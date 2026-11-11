@@ -151,9 +151,9 @@ class ClaimService
             $got[] = 'sales';
         }
 
-        // BUYER PRIORITY = ERP 바이어 신용도(2026-11-11 Jin). `GET /buyers/{id}` 의 credit_grade·credit_score — 키가 없으면(ERP 미배포) 그대로 null = 「—」.
+        // BUYER PRIORITY = ERP 바이어 신용도(2026-11-11 Jin). 신용도 전용 `GET /buyers/{id}/credit`(연락처 없음·영업 매칭 없음) — 없으면(ERP 미배포·404) 그대로 null = 「—」.
         if ($claim->car_erp_buyer_id) {
-            $b = $this->erp->buyer($email, (int) $claim->car_erp_buyer_id);
+            $b = $this->erp->buyerCredit($email, (int) $claim->car_erp_buyer_id);
             $grade = ($b['ok'] ?? false) ? data_get($b['data'], 'data.credit_grade', data_get($b['data'], 'credit_grade')) : null;
             if (is_string($grade) && $grade !== '') {
                 $score = data_get($b['data'], 'data.credit_score', data_get($b['data'], 'credit_score'));

@@ -72,7 +72,7 @@ class ClaimsTest extends TestCase
                 ['vehicle_id' => 56, 'vehicle_number' => '34나5678', 'buyer' => 'Arif', 'sale_price' => 9000, 'currency' => 'EUR', 'sale_date' => now()->subMonths(20)->format('Y-m-d')],
                 ['vehicle_id' => 57, 'vehicle_number' => '56다0000', 'buyer' => 'Other', 'sale_price' => 1, 'currency' => 'USD', 'sale_date' => now()->format('Y-m-d')],
             ]], 200),
-            '*/buyers/7*' => Http::response(['data' => ['id' => 7, 'name' => 'Arif', 'credit_grade' => 'B', 'credit_score' => 72, 'credit_available' => true]], 200),
+            '*/buyers/7/credit*' => Http::response(['data' => ['buyer_id' => 7, 'credit_grade' => 'B', 'credit_score' => 72, 'credit_available' => true]], 200),
             '*/settlements*' => Http::response(['data' => [['vehicle_id' => 55, 'vehicle_number' => '12가3456', 'margin_rate' => 4.5, 'status' => 'paid']]], 200),
             '*' => Http::response(['data' => []], 200),
         ]);

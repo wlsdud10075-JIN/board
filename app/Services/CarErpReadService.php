@@ -217,6 +217,16 @@ class CarErpReadService
     }
 
     /**
+     * 바이어 신용도만(2026-11-11 Jin 「그 바이어의 신용도만 가져와」) — `GET /buyers/{id}/credit` → `{buyer_id, credit_score, credit_grade, credit_available}`.
+     * **연락처 없음 · 영업 매칭 없음**(바이어 id 만, 없는/지워진 id = 404). ERP 감사 `board_buyer_credit_read`. 클레임 스냅샷 전용 — 영업 화면에 그리지 않는다.
+     * `salesman_email` 은 스코프가 아니라 ERP 접근 기록의 요청자 표시용.
+     */
+    public function buyerCredit(string $email, int $buyerId): array
+    {
+        return $this->get('/buyers/'.$buyerId.'/credit', ['salesman_email' => $email]);
+    }
+
+    /**
      * 바이어 1명(서류 생성용, 2026-10-29 ②) — `{id, name, country, address, phone}`. §3 「연락처·주소 PII 금지」의 **문서 생성용 예외**(권위 §4 `GET /buyers/{id}`,
      * car-erp dev `cc4023e5`). 비면 null(「-」 ❌), 비활성 바이어도 읽힘, 남의 바이어·없는 id = 404, ERP 가 접근 기록 1행. **board 저장 0 — 생성 시점에만 읽는다.**
      */
