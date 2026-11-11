@@ -125,6 +125,7 @@ return [
 
     'settings_title' => '클레임 담당자',
     'settings_hint' => '체크한 사람만 사이드바 「클레임」 탭을 봅니다(시스템관리자도 지정해야 보임). 여러 명 가능.',
+    'settings_me' => '(나)',
     'settings_ceo' => '대표 승인 수신 = :name (:phone)',
     'settings_ceo_no_phone' => '전화번호 없음 — 알림톡 불가',
 ];

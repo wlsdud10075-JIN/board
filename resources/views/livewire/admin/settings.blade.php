@@ -340,10 +340,13 @@ new #[Layout('components.layouts.app')] class extends Component {
         </div>
         <form wire:submit="saveClaimHandlers" class="space-y-3">
             <div class="grid grid-cols-2 gap-1 text-sm">
-                @foreach (\App\Models\User::where('is_active', true)->orderBy('name')->get(['id', 'name', 'role', 'permission']) as $u)
-                    <label class="flex items-center gap-2 rounded px-1 py-0.5 hover:bg-gray-50">
-                        <input type="checkbox" value="{{ $u->id }}" wire:model="claimHandlerIds">
-                        <span>{{ $u->name }} <span class="text-[11px] text-gray-400">{{ $u->roleLabel() }}</span></span>
+                {{-- 이름이 같은 계정이 있어(시스템관리자 2개) 이메일을 같이 보인다 — 2026-11-11 Jin 이 다른 계정을 체크한 일. 본인은 「(나)」. --}}
+                @foreach (\App\Models\User::where('is_active', true)->orderBy('name')->get(['id', 'name', 'email', 'role', 'permission']) as $u)
+                    <label class="flex items-start gap-2 rounded px-1 py-0.5 hover:bg-gray-50">
+                        <input type="checkbox" class="mt-1" value="{{ $u->id }}" wire:model="claimHandlerIds">
+                        <span class="min-w-0">{{ $u->name }}@if ($u->id === auth()->id()) <b class="text-[11px] text-[var(--color-primary-text)]">{{ __('claims.settings_me') }}</b>@endif
+                            <span class="text-[11px] text-gray-400">{{ $u->roleLabel() }}</span>
+                            <span class="block truncate text-[11px] text-gray-400">{{ $u->email }}</span></span>
                     </label>
                 @endforeach
             </div>

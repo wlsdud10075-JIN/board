@@ -125,6 +125,7 @@ return [
 
     'settings_title' => 'Claim handlers',
     'settings_hint' => 'Only checked users see the "Claims" menu (system admins too). Multiple allowed.',
+    'settings_me' => '(me)',
     'settings_ceo' => 'CEO approval recipient = :name (:phone)',
     'settings_ceo_no_phone' => 'no phone — no KakaoTalk',
 ];
