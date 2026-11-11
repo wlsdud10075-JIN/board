@@ -31,6 +31,9 @@ return [
     // **APP_ENV=local 에서만** 동작(CarErpReadService::payoutBatches). ERP 에 아직 없는 §13 확장(지급보류·추가)을 미리 보려고 둔 것.
     // 운영 .env 에는 절대 넣지 않는다 — 넣어도 environment 가드가 무시한다. 샘플 = database/dev/payout-batches-hold-demo.json
     'portal_fake_payout_batches' => env('BOARD_PORTAL_FAKE_PAYOUT_BATCHES'),
+    // 로컬 클레임 씬 확인용 — 로컬 ERP 에 없는 차를 `/sales`·`/by-buyer` 응답에 덧붙인다(2026-11-11 Jin, 13라2053). **local 전용**, 파일의 salesman_email 과 같을 때만.
+    // 샘플 = database/dev/claim-demo-sales.json. 운영 .env 에 넣어도 environment 가드가 무시한다.
+    'portal_fake_sales' => env('BOARD_PORTAL_FAKE_SALES'),
 
     // ─────────── 첨부사진 계좌 추출 (2026-09-10) ───────────
     // 사내 GPU PC 의 비전 모델로 첨부사진에서 계좌를 읽어 **후보로 제안**한다(자동 기입 없음).

@@ -6,6 +6,7 @@ use App\Models\AlimtalkLog;
 use App\Models\Claim;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\CarErpReadService;
 use App\Services\ClaimService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -399,6 +400,15 @@ class ClaimsTest extends TestCase
         $this->assertSame('https://www.ssancar.com/bbs/board.php?bo_table=inspected&no='.rawurlencode('123가4567'), Claim::ssancarInspectedUrl('123가 4567'));
         config(['services.ssancar_media.base_url' => '']);
         $this->assertNull(Claim::ssancarInspectedUrl('12가3456'));
+    }
+
+    /** 로컬 클레임 씬용 가짜 판매 행(BOARD_PORTAL_FAKE_SALES)은 local 이 아니면 무시된다(테스트 환경 = testing). */
+    public function test_fake_sales_fixture_is_ignored_outside_local_env(): void
+    {
+        $this->fakeErp();
+        config(['board.portal_fake_sales' => 'database/dev/claim-demo-sales.json']);
+        $rows = (array) data_get(app(CarErpReadService::class)->sales('hwang@car-erp.com')['data'], 'data', []);
+        $this->assertFalse(collect($rows)->contains('vehicle_number', '13라2053'));
     }
 
     public function test_portal_sales_row_shows_claim_chip_and_intake_button(): void

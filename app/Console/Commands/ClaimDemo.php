@@ -23,7 +23,7 @@ use Illuminate\Console\Command;
  */
 class ClaimDemo extends Command
 {
-    protected $signature = 'board:claim-demo {wr : ssancar INSPECTED 검차글 wr_id 또는 게시글 URL}
+    protected $signature = 'board:claim-demo {wr? : ssancar INSPECTED 검차글 wr_id 또는 게시글 URL(비우면 차량번호로 ssancar 교차매칭)}
         {--plate=60마6005 : 연결할 로컬 ERP 판매 차량번호}
         {--user=wlsdud10074@naver.com : 클레임을 접수·처리할 board 계정(포털 명의 + 클레임 담당자로 지정)}';
 
@@ -40,7 +40,7 @@ class ClaimDemo extends Command
         if (preg_match('/wr_id=(\d+)/', $wr, $m)) {
             $wr = $m[1];
         }
-        if (! ctype_digit($wr)) {
+        if ($wr !== '' && ! ctype_digit($wr)) {
             $this->error('wr_id(숫자) 또는 wr_id= 가 들어 있는 게시글 URL 을 넣으세요.');
 
             return self::FAILURE;
@@ -64,9 +64,9 @@ class ClaimDemo extends Command
             return self::FAILURE;
         }
 
-        // ssancar 연결 확인 1회.
-        $media = $ssancar->fetch('inspected', $wr);
-        $this->line('ssancar 검차글 wr_id='.$wr.' → 영상 '.count($media['videos'] ?? []).' · 사진 '.count($media['photos'] ?? []));
+        // ssancar 연결 확인 1회 — wr_id 있으면 그 검차글, 없으면 차량번호 교차매칭.
+        $media = $wr !== '' ? $ssancar->fetch('inspected', $wr) : $ssancar->fetchByVehicle(data_get($row, 'vin'), (string) $row['vehicle_number'], 15);
+        $this->line('ssancar '.($wr !== '' ? '검차글 wr_id='.$wr : '차량번호 '.$row['vehicle_number']).' → 영상 '.count($media['videos'] ?? []).' · 사진 '.count($media['photos'] ?? []));
         if (($media['videos'] ?? []) === [] && ($media['photos'] ?? []) === []) {
             $this->warn('미디어가 비어 있습니다 — wr_id 확인. 연결은 그대로 진행합니다(화면엔 「검차 미디어 없음」).');
         }
@@ -75,7 +75,7 @@ class ClaimDemo extends Command
             ->where('vehicle_number', (string) $row['vehicle_number'])->first();
         $attrs = [
             'created_by_user_id' => $user->id,
-            'ssancar_ref' => 'wr_id:'.$wr,
+            'ssancar_ref' => $wr !== '' ? 'wr_id:'.$wr : null,
             'car_erp_vehicle_id' => (int) $row['vehicle_id'],
             'buyer_name' => data_get($row, 'buyer'),
         ];
@@ -97,7 +97,7 @@ class ClaimDemo extends Command
             Setting::updateOrCreate(['key' => 'claim_handler_user_ids'], ['value' => implode(',', $ids), 'type' => 'string', 'description' => '클레임 탭 담당자 user id 목록(쉼표)']);
         }
 
-        $this->info("✅ 매입예정 #{$listing->id} {$listing->vehicle_number}(ERP {$row['vehicle_id']}) ↔ ssancar 검차글 {$wr} 연결 · {$user->name}({$user->email}) 클레임 담당자 지정");
+        $this->info("✅ 매입예정 #{$listing->id} {$listing->vehicle_number}(ERP {$row['vehicle_id']}) ↔ ssancar ".($wr !== '' ? "검차글 {$wr}" : '차량번호 교차매칭')." 연결 · {$user->name}({$user->email}) 클레임 담당자 지정");
         $this->line("다음: {$user->email} 로 로그인 → 포털 판매내역 → 「{$listing->vehicle_number}」 검색 → [클레임 접수].");
 
         return self::SUCCESS;
