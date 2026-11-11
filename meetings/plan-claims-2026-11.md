@@ -278,3 +278,14 @@ Jin 결정 필요: ① 결재선 후보에 팀장(업무관리자) 포함? (ERP�
 
 구현: 마이그 `2026_11_11_000001`(`claim_steps` + `claims.current_step`) · `ClaimStep` · `Claim::lineCandidates/defaultLine/lineSteps/currentStep/canDecide(super 또는 지금 차례)` · `ClaimService::requestApproval($line)/decide`(승인=다음 칸·반려/마지막=최종, lockForUpdate 승인·반려 둘 다) · 드로어 결재선 select + [결재 요청] + 진행 칩 + 「내 결재 화면 열기」(super·지금 차례) · 결재 화면 「지금은 OO 차례」 · 보고서 REVIEWED BY 단계별 · 종 「결재 차례」 · 템플릿 문구 「대표님」 → 「결재자님」(이름 「클레임 결재요청」, 결과 「최종 결재 결과」) → xlsx 4건 재생성(종전 파일 `.bak-202611111331`). **BizM 업로드는 Jin 보류 중.**
 
+
+## 25. 2차 — 확정 클레임 → ERP 바이어 「클레임」 탭 미러(2026-11-11 Jin 결정 · 협의 중 · 코드 0)
+
+Jin 결정:
+- ERP 바이어 드로어(바이어/컨사이니/적립금 탭)에 **「클레임」 탭**을 새로 두고, board 에서 확정된 클레임 금액을 그 탭으로 보낸다. (11-09 「바이어 단위 클레임 지급비 → 채권현황 상계」 방향의 구체화.)
+- 그 금액을 **특정 차량에 쓰는 씬은 ERP 쪽에서** Jin 이 따로 정한다(board 무관).
+- 보내는 시점 = 결재선 **최종 승인 뒤 클레임 담당자가 [ERP 로 보내기]** 를 눌러야 미러(자동 전송 없음).
+- board ↔ ERP 세션은 「어디에 저장·어떻게 주고받을지」만 협의, 결정은 Jin.
+
+board 제안(car-erp-b6 에 발송 2026-11-11): HMAC 내부 POST(연동 B 틀) `POST /api/internal/board/claims` · 멱등키 (인스턴스, board claim id) · payload = claim id·회차·buyer_id/이름·vehicle_id/번호/VIN·claim_amount·refundable_amount·통화·보상방식·결과·최종 결재자/시각·담당자·영업 이메일 · 응답 `erp_claim_id` 를 board 에 저장·「ERP 반영됨」 표시 · 재승인 후 재전송 = ERP 에서 미사용이면 갱신, 사용됐으면 422.
+열린 질문: 저장 테이블·기존 ERP `claim-management.md`(vehicle_claims) 와의 관계 · 탭 잔액 기준 금액(refundable vs claim_amount) · buyer_id 없을 때 · refund/credit 둘 다 받을지 · 스펙 정본 위치.
