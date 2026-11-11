@@ -289,3 +289,9 @@ Jin 결정:
 
 board 제안(car-erp-b6 에 발송 2026-11-11): HMAC 내부 POST(연동 B 틀) `POST /api/internal/board/claims` · 멱등키 (인스턴스, board claim id) · payload = claim id·회차·buyer_id/이름·vehicle_id/번호/VIN·claim_amount·refundable_amount·통화·보상방식·결과·최종 결재자/시각·담당자·영업 이메일 · 응답 `erp_claim_id` 를 board 에 저장·「ERP 반영됨」 표시 · 재승인 후 재전송 = ERP 에서 미사용이면 갱신, 사용됐으면 422.
 열린 질문: 저장 테이블·기존 ERP `claim-management.md`(vehicle_claims) 와의 관계 · 탭 잔액 기준 금액(refundable vs claim_amount) · buyer_id 없을 때 · refund/credit 둘 다 받을지 · 스펙 정본 위치.
+
+### 25-1. 금액 3종(2026-11-11 Jin)
+- **CLAIM AMOUNT** = 바이어가 청구한 금액(수리비 등) · **REFUNDABLE** = 우리 영업이 제시한 금액 · **CS PROPOSED AMOUNT**(신설 `cs_proposed_amount`) = 클레임 담당자가 사실확인 후 제안한 금액. 통화는 셋 다 `claim_currency`.
+- 드로어 = REFUNDABLE 옆에 나란히 · 보고서(대표 화면) = CLAIM AMOUNT·REFUNDABLE 줄 바로 아래 한 줄(청구 대비 %).
+- ERP 로 보낼 payload 에 3종 모두 포함 — 탭 잔액 기준 금액(§25 질문 ②)은 3종 중 무엇인지로 바뀐다(Jin 결정).
+

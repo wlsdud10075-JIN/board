@@ -65,6 +65,8 @@
         <tr><th>NOTES</th><td colspan="3" class="rep-pre">{{ $f($claim->review_notes) }}</td></tr>
         <tr><th>CLAIM AMOUNT</th><td>{{ $claim->claimAmountDisplay() }}</td>
             <th>REFUNDABLE</th><td>{{ $claim->refundable_amount === null ? '—' : trim(($claim->claim_currency ?: $claim->sale_currency ?: '').' '.number_format((float) $claim->refundable_amount, fmod((float) $claim->refundable_amount, 1.0) === 0.0 ? 0 : 2)) }}@if (($r = $claim->refundRate()) !== null) <span class="rep-muted">({{ $r }}%)</span>@endif</td></tr>
+        {{-- CS 제시금액(2026-11-11 Jin) — CLAIM AMOUNT·REFUNDABLE 바로 아래. 담당자가 사실확인 후 제안한 금액. --}}
+        <tr><th>CS PROPOSED AMOUNT</th><td colspan="3">{{ $claim->amountDisplay('cs_proposed_amount') }}@if (($r = $claim->csRate()) !== null) <span class="rep-muted">({{ $r }}%)</span>@endif</td></tr>
     </table>
 
     <div class="rep-h">RESULT</div>

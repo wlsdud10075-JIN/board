@@ -162,6 +162,7 @@ new #[Layout('components.layouts.app')] class extends Component
             'form.content' => ['required', 'string', 'max:4000'],
             'form.claim_amount' => ['nullable', 'numeric', 'min:0'],
             'form.refundable_amount' => ['nullable', 'numeric', 'min:0'],
+            'form.cs_proposed_amount' => ['nullable', 'numeric', 'min:0'],
             'form.claim_currency' => ['nullable', 'in:'.implode(',', Claim::CURRENCIES)],
             'form.compensation_type' => ['nullable', 'in:refund,credit'],
         ]);
@@ -477,8 +478,10 @@ new #[Layout('components.layouts.app')] class extends Component
                     <div class="col-span-2"><label class="label-base">INSPECTION REPORT RESULT</label><textarea class="input-base" rows="2" wire:model="form.inspection_result" placeholder="{{ __('claims.inspection_result_ph') }}"></textarea></div>
                     <div class="col-span-2"><label class="label-base">NOTES (1p) <span class="font-normal text-gray-400">— {{ __('claims.notes_hint') }}</span></label><textarea class="input-base" rows="2" wire:model="form.notes"></textarea></div>
                     <div class="col-span-2"><label class="label-base">CLAIM NOTES</label><textarea class="input-base" rows="2" wire:model="form.review_notes"></textarea></div>
-                    <div><label class="label-base">CLAIM AMOUNT</label><div class="flex gap-1"><select class="input-base w-20" wire:model="form.claim_currency"><option value="">—</option>@foreach (\App\Models\Claim::CURRENCIES as $cur)<option value="{{ $cur }}">{{ $cur }}</option>@endforeach</select><input type="number" step="0.01" class="input-base" wire:model="form.claim_amount"></div>@error('form.claim_amount')<p class="text-red-600">{{ $message }}</p>@enderror</div>
-                    <div><label class="label-base">REFUNDABLE</label><input type="number" step="0.01" class="input-base" wire:model="form.refundable_amount">@if (($r = $d->refundRate()) !== null)<p class="text-[11px] text-gray-400">{{ $r }}%</p>@endif</div>
+                    {{-- 금액 3종(2026-11-11 Jin): CLAIM AMOUNT = 바이어 청구(수리비 등) · REFUNDABLE = 영업 제시 · CS PROPOSED AMOUNT = 담당자가 사실확인 후 제안. 통화는 셋 다 claim_currency. --}}
+                    <div class="col-span-2"><label class="label-base">CLAIM AMOUNT <span class="font-normal text-gray-400">— {{ __('claims.claim_amount_hint') }}</span></label><div class="flex gap-1"><select class="input-base w-20" wire:model="form.claim_currency"><option value="">—</option>@foreach (\App\Models\Claim::CURRENCIES as $cur)<option value="{{ $cur }}">{{ $cur }}</option>@endforeach</select><input type="number" step="0.01" class="input-base" wire:model="form.claim_amount"></div>@error('form.claim_amount')<p class="text-red-600">{{ $message }}</p>@enderror</div>
+                    <div><label class="label-base">REFUNDABLE <span class="font-normal text-gray-400">— {{ __('claims.refundable_hint') }}</span></label><input type="number" step="0.01" class="input-base" wire:model="form.refundable_amount">@if (($r = $d->refundRate()) !== null)<p class="text-[11px] text-gray-400">{{ $r }}%</p>@endif @error('form.refundable_amount')<p class="text-red-600">{{ $message }}</p>@enderror</div>
+                    <div><label class="label-base">CS PROPOSED AMOUNT <span class="font-normal text-gray-400">— {{ __('claims.cs_proposed_hint') }}</span></label><input type="number" step="0.01" class="input-base" wire:model="form.cs_proposed_amount">@if (($r = $d->csRate()) !== null)<p class="text-[11px] text-gray-400">{{ $r }}%</p>@endif @error('form.cs_proposed_amount')<p class="text-red-600">{{ $message }}</p>@enderror</div>
                     <div class="col-span-2"><label class="label-base">RESULT ({{ __('claims.result') }})</label><textarea class="input-base" rows="2" wire:model="form.result"></textarea></div>
                     <div class="col-span-2"><label class="label-base">REASON</label><textarea class="input-base" rows="2" wire:model="form.result_reason"></textarea></div>
                     <div class="col-span-2 flex flex-wrap items-center gap-3"><span class="label-base">COMPENSATION TYPE</span>

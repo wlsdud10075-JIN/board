@@ -55,6 +55,7 @@ return [
         'claim_review_notes' => 'Claim CLAIM NOTES',
         'claim_claim_amount' => 'Claim CLAIM AMOUNT',
         'claim_claim_currency' => 'Claim currency',
+        'claim_cs_proposed_amount' => 'Claim CS PROPOSED AMOUNT',
         'claim_refundable_amount' => 'Claim REFUNDABLE',
         'claim_result' => 'Claim RESULT',
         'claim_result_reason' => 'Claim REASON',

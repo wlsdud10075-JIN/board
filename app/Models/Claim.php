@@ -69,7 +69,7 @@ class Claim extends Model
         'total_purchase_count', 'year_purchase_count', 'buyer_credit_grade', 'buyer_credit_score', 'member_since', 'purchase_history', 'margin_rate', 'erp_snapshot_at',
         'salesman_user_id', 'created_by_user_id', 'arrived_at', 'received_km', 'content',
         'inspection_result', 'notes', 'review_notes',
-        'claim_amount', 'claim_currency', 'refundable_amount', 'result', 'result_reason', 'compensation_type', 'overdue_reason',
+        'claim_amount', 'claim_currency', 'refundable_amount', 'cs_proposed_amount', 'result', 'result_reason', 'compensation_type', 'overdue_reason',
         'bank_name', 'bank_iban', 'bank_swift', 'bank_phone', 'bank_address',
         'requested_at', 'requested_by_user_id', 'request_notified_at', 'approver_user_id', 'decided_at', 'decision', 'decision_reason', 'decision_ip',
         'closed_at', 'closed_by_user_id',
@@ -91,7 +91,7 @@ class Claim extends Model
     public const EDITABLE = [
         'buyer_contact_name', 'arrived_at', 'received_km', 'content',
         'inspection_result', 'notes', 'review_notes',
-        'claim_amount', 'claim_currency', 'refundable_amount', 'result', 'result_reason', 'compensation_type', 'overdue_reason',
+        'claim_amount', 'claim_currency', 'refundable_amount', 'cs_proposed_amount', 'result', 'result_reason', 'compensation_type', 'overdue_reason',
         'bank_name', 'bank_iban', 'bank_swift', 'bank_phone', 'bank_address',
     ];
 
@@ -341,6 +341,27 @@ class Claim extends Model
         }
 
         return trim(($this->claim_currency ?: $this->sale_currency ?: '').' '.number_format((float) $this->claim_amount, fmod((float) $this->claim_amount, 1.0) === 0.0 ? 0 : 2));
+    }
+
+    /** 금액 칸 표시(통화 = claim_currency, 없으면 판매통화) — 「EUR 1,500」, 비면 「—」. */
+    public function amountDisplay(string $field): string
+    {
+        $v = $this->getAttribute($field);
+        if ($v === null) {
+            return '—';
+        }
+
+        return trim(($this->claim_currency ?: $this->sale_currency ?: '').' '.number_format((float) $v, fmod((float) $v, 1.0) === 0.0 ? 0 : 2));
+    }
+
+    /** CS 제시 비율(%) — CS PROPOSED AMOUNT ÷ CLAIM AMOUNT, 표시 전용. */
+    public function csRate(): ?float
+    {
+        if (! $this->claim_amount || $this->cs_proposed_amount === null) {
+            return null;
+        }
+
+        return round((float) $this->cs_proposed_amount / (float) $this->claim_amount * 100, 1);
     }
 
     /** 환급률(%) — REFUNDABLE ÷ CLAIM AMOUNT, 표시 전용. */

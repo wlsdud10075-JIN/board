@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\AlimtalkLog;
+use App\Models\BoardAuditLog;
 use App\Models\Claim;
 use App\Models\Setting;
 use App\Models\User;
@@ -403,7 +404,7 @@ class ClaimsTest extends TestCase
         $this->assertSame(Claim::APPROVED, $c->status);
         $this->assertSame($ceo->id, $c->approver_user_id);
         $this->assertSame(['approved', 'approved', 'approved'], $c->lineSteps()->pluck('status')->all());
-        $this->assertSame(3, \App\Models\BoardAuditLog::where('field', 'claim_decision')->count());
+        $this->assertSame(3, BoardAuditLog::where('field', 'claim_decision')->count());
     }
 
     /** 대표는 필수 아님 — 상무에서 끝나면 상무가 최종. 반려 = 그 자리에서 종료 → 재요청은 1단계부터. */
@@ -485,13 +486,16 @@ class ClaimsTest extends TestCase
         $c = $this->intake($sales);
         $this->actingAs($h);
         Volt::test('claims.index')->call('openDetail', $c->id)
-            ->set('form.claim_amount', '1500')->set('form.refundable_amount', '750')->set('form.claim_currency', 'EUR')
+            ->set('form.claim_amount', '1500')->set('form.refundable_amount', '750')->set('form.cs_proposed_amount', '600')->set('form.claim_currency', 'EUR')
             ->set('form.result', '부품비 50% 환급')->set('form.compensation_type', 'credit')->set('form.bank_iban', 'AL35202111090000000001234567')
             ->call('save')->assertHasNoErrors()->assertSet('notice', __('claims.saved'));
         $c->refresh();
         $this->assertSame(Claim::REVIEWING, $c->status);
         $this->assertSame('EUR', $c->claim_currency);
         $this->assertEquals(50.0, $c->refundRate());
+        $this->assertEquals(40.0, $c->csRate());
+        $this->assertSame('EUR 600', $c->amountDisplay('cs_proposed_amount'));
+        $this->assertDatabaseHas('board_audit_logs', ['field' => 'claim_cs_proposed_amount']);
         $this->assertSame('AL35202111090000000001234567', $c->bank_iban);
         $this->assertDatabaseHas('board_audit_logs', ['field' => 'claim_bank_iban', 'new_value' => '#'.$c->id.' ***']);
         $this->assertDatabaseHas('board_audit_logs', ['field' => 'claim_claim_amount']);
