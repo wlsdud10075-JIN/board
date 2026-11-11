@@ -8,6 +8,7 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Services\CarErpReadService;
 use App\Services\ClaimService;
+use App\Support\AlimtalkConfig;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
@@ -192,6 +193,7 @@ class ClaimsTest extends TestCase
         Setting::updateOrCreate(['key' => 'alimtalk_userid'], ['value' => 'uid', 'type' => 'string']);
         Setting::updateOrCreate(['key' => 'alimtalk_profile'], ['value' => '@p', 'type' => 'string']);
         Setting::updateOrCreate(['key' => 'alimtalk_tmpl_board_claim_approval_request'], ['value' => 'TMPL_REQ', 'type' => 'string']);
+        Setting::updateOrCreate(['key' => 'alimtalk_toggle_board_claim_approval_request'], ['value' => '1', 'type' => 'boolean']);   // 기본 OFF → 켜고 시험
         $sales = $this->mk('김영업');
         $h = $this->handler();
         $c = $this->intake($sales, null, ['arrived_at' => now()->subDays(20)->format('Y-m-d')]);
@@ -272,6 +274,7 @@ class ClaimsTest extends TestCase
         Setting::updateOrCreate(['key' => 'alimtalk_userid'], ['value' => 'uid', 'type' => 'string']);
         Setting::updateOrCreate(['key' => 'alimtalk_profile'], ['value' => '@p', 'type' => 'string']);
         Setting::updateOrCreate(['key' => 'alimtalk_tmpl_board_claim_decision'], ['value' => 'TMPL_DEC', 'type' => 'string']);
+        Setting::updateOrCreate(['key' => 'alimtalk_toggle_board_claim_decision'], ['value' => '1', 'type' => 'boolean']);
 
         $link = $c->approvalLinkFor($ceo);
         $this->assertStringStartsWith(rtrim(config('app.url'), '/').'/a/claim/'.$c->id, $link);
@@ -403,6 +406,21 @@ class ClaimsTest extends TestCase
     }
 
     /** 로컬 클레임 씬용 가짜 판매 행(BOARD_PORTAL_FAKE_SALES)은 local 이 아니면 무시된다(테스트 환경 = testing). */
+    /** 클레임 알림톡 2종은 기본 OFF — 마스터·tmplId 가 있어도 개별 토글을 안 켜면 skipped(2026-11-11 Jin). 기존 2종은 기본 ON 유지. */
+    public function test_claim_alimtalk_toggles_default_off(): void
+    {
+        Setting::updateOrCreate(['key' => 'alimtalk_enabled'], ['value' => '1', 'type' => 'boolean']);
+        Setting::updateOrCreate(['key' => 'alimtalk_userid'], ['value' => 'uid', 'type' => 'string']);
+        Setting::updateOrCreate(['key' => 'alimtalk_profile'], ['value' => '@p', 'type' => 'string']);
+        foreach (['board_claim_approval_request', 'board_claim_decision', 'board_forward_ready'] as $code) {
+            Setting::updateOrCreate(['key' => "alimtalk_tmpl_{$code}"], ['value' => 'T', 'type' => 'string']);
+        }
+        $cfg = AlimtalkConfig::active();
+        $this->assertFalse($cfg->canSend('board_claim_approval_request'));
+        $this->assertFalse($cfg->canSend('board_claim_decision'));
+        $this->assertTrue($cfg->canSend('board_forward_ready'));
+    }
+
     public function test_fake_sales_fixture_is_ignored_outside_local_env(): void
     {
         $this->fakeErp();

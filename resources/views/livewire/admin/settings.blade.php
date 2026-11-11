@@ -40,9 +40,9 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public string $alimtalkTmplClaimDec = '';     // board_claim_decision
 
-    public bool $alimtalkToggleClaimReq = true;
+    public bool $alimtalkToggleClaimReq = false;   // BizM 승인 전 — 기본 OFF(2026-11-11 Jin)
 
-    public bool $alimtalkToggleClaimDec = true;
+    public bool $alimtalkToggleClaimDec = false;
 
     /** 클레임 담당자(2026-11-10 Jin) — 지정된 사람만 「클레임」 탭을 본다(super 도 지정 필요). 여러 명 가능. */
     public array $claimHandlerIds = [];
@@ -71,9 +71,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->alimtalkToggleForward = (bool) Setting::get('alimtalk_toggle_board_forward_ready', true);
         $this->alimtalkScheduleTime = (string) (Setting::get('alimtalk_region_schedule_time', '') ?: '');
         $this->alimtalkTmplClaimReq = (string) (Setting::get('alimtalk_tmpl_board_claim_approval_request', '') ?: '');
-        $this->alimtalkToggleClaimReq = (bool) Setting::get('alimtalk_toggle_board_claim_approval_request', true);
+        $this->alimtalkToggleClaimReq = (bool) Setting::get('alimtalk_toggle_board_claim_approval_request', false);
         $this->alimtalkTmplClaimDec = (string) (Setting::get('alimtalk_tmpl_board_claim_decision', '') ?: '');
-        $this->alimtalkToggleClaimDec = (bool) Setting::get('alimtalk_toggle_board_claim_decision', true);
+        $this->alimtalkToggleClaimDec = (bool) Setting::get('alimtalk_toggle_board_claim_decision', false);
         $this->claimHandlerIds = array_map('strval', \App\Models\User::claimHandlerIds());
         // userkey 는 보안상 로드하지 않음(설정돼 있으면 placeholder 로만 안내).
     }
