@@ -159,7 +159,23 @@ input, textarea, select { color: #1f2937; background-color: #ffffff; }
 .settle-tbl th { padding:5px 8px; font-size:10px; }
 .settle-tbl td { padding:5px 8px; }
 
-/* ── 사이드바 (car-erp 정렬) ── */
+/* ── 클레임 보고서(양식 docx → HTML, claim-approval/_report) — 담당자 드로어 미리보기용. 대표 링크 화면은 같은 규칙을 inline 로 가진다. ── */
+.rep { font-size:12px; }
+.rep-title { font-size:15px; font-weight:800; text-align:center; letter-spacing:1px; margin:4px 0 10px; }
+.rep-title-2 { margin-top:20px; padding-top:12px; border-top:2px dashed #e5e7eb; }
+.rep-h { font-size:11px; font-weight:700; color:#374151; background:#f3f4f6; padding:4px 8px; margin:10px 0 4px; border-left:3px solid var(--color-primary); }
+.rep-t { width:100%; border-collapse:collapse; }
+.rep-t th, .rep-t td { border:1px solid #e5e7eb; padding:4px 6px; vertical-align:top; text-align:left; }
+.rep-t th { width:22%; background:#fafafa; font-size:10px; color:#6b7280; font-weight:600; white-space:nowrap; }
+.rep-list th { width:auto; }
+.rep-num { text-align:right; white-space:nowrap; }
+.rep-pre { white-space:pre-wrap; word-break:break-word; }
+.rep-muted { color:#9ca3af; font-size:10px; }
+.rep-bad { color:#b91c1c; font-weight:700; font-size:10px; margin-left:4px; }
+.rep-chk { display:inline-block; margin-right:10px; white-space:nowrap; }
+.rep-p { margin:6px 0; }
+
+/* ── 사이드바 (car-erp 정렬) ──*/
 .app-sidebar { background-color:var(--color-sidebar-bg); transition:width .22s ease; }
 .sidebar-section-label { padding:0 14px; margin-bottom:6px; font-size:10px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--color-sidebar-text); white-space:nowrap; overflow:hidden; }
 .sidebar-item { display:flex; align-items:center; gap:10px; margin:0 8px; padding:8px 10px; border-radius:6px; font-size:13px; color:var(--color-sidebar-text); white-space:nowrap; overflow:hidden; transition:background-color .15s, color .15s; }

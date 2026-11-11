@@ -21,6 +21,9 @@ use Illuminate\Support\Facades\Crypt;
  */
 class AlimtalkConfig
 {
+    /** 개별 토글 기본값이 OFF 인 템플릿 — 클레임 2종(2026-11-11 Jin 「알림톡은 아직 승인 안 됐으니 OFF 로 기본」). 기능설정에서 켜야 나간다. */
+    public const DEFAULT_OFF = ['board_claim_approval_request', 'board_claim_decision'];
+
     public function __construct(
         public string $userid,
         public string $profile,
@@ -49,7 +52,8 @@ class AlimtalkConfig
         $toggles = [];
         foreach (array_keys(AlimtalkTemplates::TEMPLATES) as $code) {
             $tmplIds[$code] = (string) (Setting::get("alimtalk_tmpl_{$code}", '') ?: '');
-            $toggles[$code] = (bool) Setting::get("alimtalk_toggle_{$code}", true);   // 기본 켜짐
+            // 기본 켜짐 — 단 BizM 승인 전에 배포된 템플릿은 기본 꺼짐(DEFAULT_OFF): 마스터를 다른 알림 때문에 켜도 같이 나가지 않게.
+            $toggles[$code] = (bool) Setting::get("alimtalk_toggle_{$code}", ! in_array($code, self::DEFAULT_OFF, true));
         }
 
         return new self($userid, $profile, $userkey, $enabled, $tmplIds, $toggles);

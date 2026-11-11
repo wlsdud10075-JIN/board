@@ -3,12 +3,14 @@
 return [
     'group' => [
         'journal' => '업무일지',
+        'claims' => '클레임',
         'work' => '업무',
         'manage' => '관리',
         'system' => '시스템',
     ],
 
     'menu' => [
+        'claims' => '클레임',
         'alimtalk_logs' => '알림톡 로그',
         'work_journal' => '업무일지',
         'work_journal_approvals' => '업무일지결재',
@@ -25,6 +27,7 @@ return [
     ],
 
     'crumb' => [
+        'claims' => '클레임',
         'alimtalk_logs' => '알림톡 로그',
         'work_journal' => '업무일지',
         'work_journal_approvals' => '업무일지결재',
@@ -89,6 +92,15 @@ return [
         'hold_chip' => '보류',
         'toast_hold' => '🔔 검차 보류 :count건 — 종을 눌러 사유를 확인하세요',
         'push_title_hold' => '🔔 검차 보류',
+        // 클레임(2026-11-10) — 담당자: 새 접수 / 영업·담당자: 대표 결재 결과. board DB 값(ERP 아님).
+        'claims_new' => '새 클레임 접수',
+        'claim_new_chip' => '접수',
+        'claims_decided' => '클레임 결재 결과',
+        'claim_chip_approved' => '승인',
+        'claim_chip_rejected' => '반려',
+        'toast_claim_new' => '📋 새 클레임 :count건 — 클레임 탭에서 확인하세요',
+        'toast_claim_approved' => '✅ 클레임 승인 :count건',
+        'toast_claim_rejected' => '⛔ 클레임 반려 :count건 — 종을 눌러 사유를 확인하세요',
         // 긴급 검차 결정(P1, 2026-10-29) — ssancar.com 업무관리자 승인·기각
         'urgents' => '긴급 검차 결정',
         'urgent_chip_approved' => '승인',

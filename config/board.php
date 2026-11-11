@@ -11,6 +11,9 @@ return [
     'sales_photo_prefix' => 'purchase-board/sales/photos',
     'sales_document_prefix' => 'purchase-board/sales/documents',
 
+    // 클레임 첨부 prefix(2026-11-10) — 바이어 증빙(계기판·손상·INVOICE). 서류 성격이라 바이어 재전송 없음, 대표 링크 화면에서만 보인다.
+    'claims_prefix' => 'purchase-board/claims',
+
     // 영업 첨부 1대당 최대 건수 (car-erp 차량 첨부탭이 10건 cap 이라 맞춤)
     'attachment_max' => (int) env('BOARD_ATTACHMENT_MAX', 10),
 
@@ -28,6 +31,9 @@ return [
     // **APP_ENV=local 에서만** 동작(CarErpReadService::payoutBatches). ERP 에 아직 없는 §13 확장(지급보류·추가)을 미리 보려고 둔 것.
     // 운영 .env 에는 절대 넣지 않는다 — 넣어도 environment 가드가 무시한다. 샘플 = database/dev/payout-batches-hold-demo.json
     'portal_fake_payout_batches' => env('BOARD_PORTAL_FAKE_PAYOUT_BATCHES'),
+    // 로컬 클레임 씬 확인용 — 로컬 ERP 에 없는 차를 `/sales`·`/by-buyer` 응답에 덧붙인다(2026-11-11 Jin, 13라2053). **local 전용**, 파일의 salesman_email 과 같을 때만.
+    // 샘플 = database/dev/claim-demo-sales.json. 운영 .env 에 넣어도 environment 가드가 무시한다.
+    'portal_fake_sales' => env('BOARD_PORTAL_FAKE_SALES'),
 
     // ─────────── 첨부사진 계좌 추출 (2026-09-10) ───────────
     // 사내 GPU PC 의 비전 모델로 첨부사진에서 계좌를 읽어 **후보로 제안**한다(자동 기입 없음).

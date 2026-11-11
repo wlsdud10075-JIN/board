@@ -3,12 +3,14 @@
 return [
     'group' => [
         'journal' => 'Work journal',
+        'claims' => 'Claims',
         'work' => 'Work',
         'manage' => 'Management',
         'system' => 'System',
     ],
 
     'menu' => [
+        'claims' => 'Claims',
         'alimtalk_logs' => 'Alimtalk log',
         'work_journal' => 'Work journal',
         'work_journal_approvals' => 'Journal approvals',
@@ -25,6 +27,7 @@ return [
     ],
 
     'crumb' => [
+        'claims' => 'Claims',
         'alimtalk_logs' => 'Alimtalk log',
         'work_journal' => 'Work journal',
         'work_journal_approvals' => 'Journal approvals',
@@ -87,6 +90,14 @@ return [
         'holds' => 'Inspection on hold',
         'hold_chip' => 'On hold',
         'toast_hold' => '🔔 :count inspection(s) put on hold — open the bell for the reason',
+        'claims_new' => 'New claims',
+        'claim_new_chip' => 'New',
+        'claims_decided' => 'Claim decisions',
+        'claim_chip_approved' => 'Approved',
+        'claim_chip_rejected' => 'Rejected',
+        'toast_claim_new' => '📋 :count new claim(s) — see the Claims tab',
+        'toast_claim_approved' => '✅ :count claim(s) approved',
+        'toast_claim_rejected' => '⛔ :count claim(s) rejected — open the bell for the reason',
         'push_title_hold' => '🔔 Inspection on hold',
         // Urgent inspection decisions (P1, 2026-10-29) — approved/rejected by a ssancar.com work manager
         'urgents' => 'Urgent inspection decisions',

@@ -164,7 +164,35 @@ class CarErpReadService
             $query['sailing'] = $sailing;
         }
 
-        return $this->get('/sales', $query);
+        return $this->withFakeRows($this->get('/sales', $query), $email, 'sales', $excludeStatus);
+    }
+
+    /**
+     * 로컬 클레임 씬 확인용 가짜 행 덧붙이기(config board.portal_fake_sales, 2026-11-11) — local 환경 + 파일 salesman_email 일치일 때만.
+     * 운영·테스트는 그대로 ERP. 같은 vehicle_id/buyer_id 가 ERP 에 이미 있으면 덧붙이지 않는다.
+     */
+    private function withFakeRows(array $env, string $email, string $key, array $excludeStatus = []): array
+    {
+        if (! app()->environment('local') || ! ($fake = config('board.portal_fake_sales')) || ! ($env['ok'] ?? false)) {
+            return $env;
+        }
+        $path = base_path($fake);
+        $json = is_file($path) ? json_decode((string) file_get_contents($path), true) : null;
+        if (! is_array($json) || ($json['salesman_email'] ?? '') !== $email) {
+            return $env;
+        }
+        $rows = (array) data_get($env['data'], 'data', []);
+        $idKey = $key === 'sales' ? 'vehicle_id' : 'buyer_id';
+        $have = array_map(fn ($r) => (int) data_get($r, $idKey), $rows);
+        foreach ((array) ($json[$key] ?? []) as $r) {
+            if (in_array((int) ($r[$idKey] ?? 0), $have, true) || in_array((string) ($r['progress_status'] ?? ''), $excludeStatus, true)) {
+                continue;
+            }
+            $rows[] = $r;
+        }
+        $env['data']['data'] = $rows;
+
+        return $env;
     }
 
     public function settlements(string $email): array
@@ -213,7 +241,17 @@ class CarErpReadService
     /** 바이어별 집계 — {buyer_id, buyer, vehicle_count, sales_by_currency{통화:합}, payout_total_krw, payout_paid_krw}. payout 내림차순. */
     public function byBuyer(string $email): array
     {
-        return $this->get('/by-buyer', ['salesman_email' => $email]);
+        return $this->withFakeRows($this->get('/by-buyer', ['salesman_email' => $email]), $email, 'by_buyer');
+    }
+
+    /**
+     * 바이어 신용도만(2026-11-11 Jin 「그 바이어의 신용도만 가져와」) — `GET /buyers/{id}/credit` → `{buyer_id, credit_score, credit_grade, credit_available}`.
+     * **연락처 없음 · 영업 매칭 없음**(바이어 id 만, 없는/지워진 id = 404). ERP 감사 `board_buyer_credit_read`. 클레임 스냅샷 전용 — 영업 화면에 그리지 않는다.
+     * `salesman_email` 은 스코프가 아니라 ERP 접근 기록의 요청자 표시용.
+     */
+    public function buyerCredit(string $email, int $buyerId): array
+    {
+        return $this->get('/buyers/'.$buyerId.'/credit', ['salesman_email' => $email]);
     }
 
     /**

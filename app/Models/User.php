@@ -144,6 +144,23 @@ class User extends Authenticatable // implements MustVerifyEmail
     }
 
     /**
+     * 클레임 담당자 — 기능설정에서 super 가 지정한 사람만(2026-11-10 Jin: 지정자만, super·업무관리자도 지정 없이는 못 본다 — 다른 탭과 다른 첫 예외).
+     * 저장 = Setting `claim_handler_user_ids`(쉼표 구분 id).
+     */
+    public function isClaimHandler(): bool
+    {
+        return $this->is_active && in_array($this->id, self::claimHandlerIds(), true);
+    }
+
+    /** @return list<int> */
+    public static function claimHandlerIds(): array
+    {
+        $raw = (string) (Setting::get('claim_handler_user_ids', '') ?: '');
+
+        return array_values(array_filter(array_map('intval', explode(',', $raw))));
+    }
+
+    /**
      * role 바이패스 등급 = super·최고관리자·업무관리자. 라우트 role 가드·영업 격리·사이드바 메뉴가 이걸 본다.
      * ⚠️ super 전용 기능(기능설정·등급 지정·포털 대리실행·관리자 페이지 삭제/재전송)은 여기 말고 `isSuper()` 로 판정.
      */

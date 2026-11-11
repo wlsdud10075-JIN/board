@@ -44,6 +44,9 @@ new class extends Component
     /** 긴급 검차 결정(ssancar 업무관리자 승인·기각, P1 2026-10-29) — board DB. 내가 등록한 현지확인대기 차만. */
     public array $urgents = [];
 
+    /** 클레임(2026-11-10) — 담당자: 새 접수(received·reviewing) / 영업·요청 담당자: 대표 결재 결과. board DB. */
+    public array $claims = [];
+
     /** 마지막 열람 시각(ISO8601) — 미읽음 판정 기준. 패널을 열 때 now 로 갱신된다. */
     public ?string $seenAt = null;
 
@@ -123,6 +126,25 @@ new class extends Component
             ->orderByDesc('inspection_urgent_decided_at');
     }
 
+    /** 담당자에게 보이는 새 접수 — 종결 전·결재 전 건(접수 시각 기준). 담당자가 아니면 빈 쿼리. */
+    private function claimNewQuery()
+    {
+        $q = \App\Models\Claim::query()->whereIn('status', [\App\Models\Claim::RECEIVED, \App\Models\Claim::REVIEWING])->orderByDesc('created_at');
+        if (! Auth::user()->isClaimHandler()) {
+            $q->whereRaw('1 = 0');
+        }
+
+        return $q;
+    }
+
+    /** 내게 온 결재 결과 — 내가 접수 영업이거나 승인 요청한 담당자인 건(결정 시각 기준). */
+    private function claimDecidedQuery()
+    {
+        return \App\Models\Claim::query()->whereNotNull('decided_at')
+            ->where(fn ($w) => $w->where('salesman_user_id', Auth::id())->orWhere('requested_by_user_id', Auth::id()))
+            ->orderByDesc('decided_at');
+    }
+
     /** 폴링(30초) — 배지 갱신 + 새로 끝난 결과 토스트. 패널이 열려 있으면 목록은 건드리지 않는다(읽는 중 하이라이트가 사라진다). */
     public function refresh(): void
     {
@@ -141,6 +163,22 @@ new class extends Component
         }
         if ($urgentFresh->count() - $urgentOk > 0) {
             $this->dispatch('forward-arrived', type: 'rejected', msg: __('nav.bell.toast_urgent_rejected', ['count' => $urgentFresh->count() - $urgentOk]));
+        }
+
+        // 클레임(board 값) — 담당자: 새 접수(빨간 토스트 무게는 아님 → 초록), 영업·담당자: 승인(초록)·반려(빨강).
+        $holdUnread += $this->claimNewQuery()->where('created_at', '>', Carbon::parse($this->seenAt))->count();
+        $claimNewFresh = $this->claimNewQuery()->where('created_at', '>', Carbon::parse($this->pollFrom))->count();
+        if ($claimNewFresh > 0) {
+            $this->dispatch('forward-arrived', type: 'done', msg: __('nav.bell.toast_claim_new', ['count' => $claimNewFresh]));
+        }
+        $holdUnread += $this->claimDecidedQuery()->where('decided_at', '>', Carbon::parse($this->seenAt))->count();
+        $claimFresh = $this->claimDecidedQuery()->where('decided_at', '>', Carbon::parse($this->pollFrom))->get();
+        $claimOk = $claimFresh->where('decision', 'approved')->count();
+        if ($claimOk > 0) {
+            $this->dispatch('forward-arrived', type: 'done', msg: __('nav.bell.toast_claim_approved', ['count' => $claimOk]));
+        }
+        if ($claimFresh->count() - $claimOk > 0) {
+            $this->dispatch('forward-arrived', type: 'rejected', msg: __('nav.bell.toast_claim_rejected', ['count' => $claimFresh->count() - $claimOk]));
         }
 
         $lines = $this->lines($this->seenAt);
@@ -190,6 +228,19 @@ new class extends Component
             'at' => $l->inspection_urgent_decided_at->timezone(config('app.timezone'))->format('m-d H:i'),
             'new' => $l->inspection_urgent_decided_at->gt($seen),
         ])->all();
+        $this->claims = collect()
+            ->merge($this->claimNewQuery()->limit(10)->get()->map(fn ($c) => [
+                'id' => $c->id, 'kind' => 'new', 'plate' => $c->vehicle_number, 'buyer' => $c->buyer_name,
+                'text' => \Illuminate\Support\Str::limit($c->content, 80),
+                'at' => $c->created_at->timezone(config('app.timezone'))->format('m-d H:i'), 'new' => $c->created_at->gt($seen),
+                'href' => route('claims'),
+            ]))
+            ->merge($this->claimDecidedQuery()->limit(10)->get()->map(fn ($c) => [
+                'id' => $c->id, 'kind' => $c->decision === 'approved' ? 'approved' : 'rejected', 'plate' => $c->vehicle_number, 'buyer' => $c->buyer_name,
+                'text' => trim((string) $c->decision_reason),
+                'at' => $c->decided_at->timezone(config('app.timezone'))->format('m-d H:i'), 'new' => $c->decided_at->gt($seen),
+                'href' => Auth::user()->isClaimHandler() ? route('claims') : route('portal'),
+            ]))->values()->all();
         // 패널도 전체 이력을 끌어오지 않는다 — 최근 PANEL_WINDOW_DAYS 일(ERP `since` = updated_at 기준)만.
         //   진행 중(open) 라인도 같은 호출에서 나오므로 그보다 오래 방치된 open 요청은 여기 안 보인다(포털 칩엔 보인다).
         //   잔금은 지급 시 자동소멸·계약금은 계약금 행 저장 시 소멸이라 90일 넘게 열린 요청은 사실상 없다.
@@ -306,6 +357,29 @@ new class extends Component
                             </div>
                             <p class="mt-0.5 text-[12px] {{ $g['approved'] ? 'text-green-700' : 'text-red-700' }}">{{ $g['text'] }}</p>
                             <p class="mt-0.5 text-[11px] text-gray-400">{{ $g['at'] }}@if ($g['new'])<span class="ml-1 rounded bg-red-600 px-1 text-[10px] font-bold text-white">{{ __('nav.bell.new') }}</span>@endif</p>
+                        </a>
+                    @endforeach
+                @endif
+
+                {{-- 클레임(2026-11-10) — 담당자 새 접수 / 결재 결과. board 값이라 ERP 가 죽어도 보인다. --}}
+                @if ($claims)
+                    <div class="px-3 pt-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">{{ __('nav.menu.claims') }}</div>
+                    @foreach ($claims as $cl)
+                        @php
+                            // Tailwind 는 리터럴만 잡는다 — 동적 접합 금지.
+                            [$bg, $badge, $txt] = match ($cl['kind']) {
+                                'rejected' => ['bg-red-50/60', 'badge-red', 'text-red-700'],
+                                'approved' => ['bg-green-50/60', 'badge-green', 'text-green-700'],
+                                default => ['bg-amber-50/60', 'badge-amber', 'text-amber-700'],
+                            };
+                        @endphp
+                        <a wire:key="bell-c-{{ $cl['kind'] }}-{{ $cl['id'] }}" href="{{ $cl['href'] }}" wire:navigate class="block border-b border-gray-50 px-3 py-2 hover:bg-gray-50 {{ $cl['new'] ? $bg : '' }}">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-[13px] font-semibold text-gray-800">{{ \App\Support\Plate::show($cl['plate']) }}@if ($cl['buyer']) <span class="font-normal text-gray-500">· {{ $cl['buyer'] }}</span>@endif</span>
+                                <span class="badge {{ $badge }} shrink-0 whitespace-nowrap">{{ $cl['kind'] === 'new' ? __('nav.bell.claim_new_chip') : ($cl['kind'] === 'approved' ? __('nav.bell.claim_chip_approved') : __('nav.bell.claim_chip_rejected')) }}</span>
+                            </div>
+                            @if ($cl['text'] !== '')<p class="mt-0.5 text-[12px] {{ $txt }}">{{ $cl['text'] }}</p>@endif
+                            <p class="mt-0.5 text-[11px] text-gray-400">{{ $cl['at'] }}@if ($cl['new'])<span class="ml-1 rounded bg-red-600 px-1 text-[10px] font-bold text-white">{{ __('nav.bell.new') }}</span>@endif</p>
                         </a>
                     @endforeach
                 @endif

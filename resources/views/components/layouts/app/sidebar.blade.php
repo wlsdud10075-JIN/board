@@ -57,6 +57,7 @@
         'admin.alimtalk-logs' => __('nav.crumb.alimtalk_logs'),
         'work-journal' => __('nav.crumb.work_journal'),
         'work-journal.approvals' => __('nav.crumb.work_journal_approvals'),
+        'claims' => __('nav.crumb.claims'),
         default => '',
     };
 
@@ -70,6 +71,11 @@
             ['label' => __('nav.menu.verdicts'), 'href' => route('verdicts'), 'icon' => 'chat', 'active' => request()->routeIs('verdicts'), 'show' => $can(['sales', 'manager'])],
             ['label' => __('nav.menu.auction'), 'href' => route('auction'), 'icon' => 'banknotes', 'active' => request()->routeIs('auction'), 'show' => $can(['sales', 'auction', 'manager'])],
             ['label' => __('nav.menu.portal'), 'href' => route('portal'), 'icon' => 'wallet', 'active' => request()->routeIs('portal'), 'show' => $can(['sales', 'manager'])],
+        ]],
+        ['key' => 'claims', 'label' => __('nav.group.claims'), 'items' => [
+            // 클레임(2026-11-10) — 기능설정 지정자만(super·업무관리자도 지정 없이는 안 보임, 첫 예외). 배지 = 종결 제외 건수.
+            ['label' => __('nav.menu.claims'), 'href' => route('claims'), 'icon' => 'clipboard', 'active' => request()->routeIs('claims'), 'show' => $user->isClaimHandler(),
+                'badge' => $user->isClaimHandler() ? (\App\Models\Claim::where('status', '!=', \App\Models\Claim::CLOSED)->count() ?: null) : null],
         ]],
         ['key' => 'journal', 'label' => __('nav.group.journal'), 'items' => [
             ['label' => __('nav.menu.work_journal'), 'href' => route('work-journal'), 'icon' => 'document', 'active' => request()->routeIs('work-journal'), 'show' => $user->isJournalWriter()],
