@@ -73,6 +73,7 @@ class Claim extends Model
         'bank_name', 'bank_iban', 'bank_swift', 'bank_phone', 'bank_address',
         'requested_at', 'requested_by_user_id', 'request_notified_at', 'approver_user_id', 'decided_at', 'decision', 'decision_reason', 'decision_ip',
         'closed_at', 'closed_by_user_id',
+        'erp_claim_id', 'erp_sent_at', 'erp_sent_revision', 'erp_sent_by_user_id', 'erp_send_error',
     ];
 
     protected function casts(): array
@@ -81,7 +82,7 @@ class Claim extends Model
             'purchase_history' => 'array',
             'sale_date' => 'date', 'eta_date' => 'date', 'arrived_at' => 'date',
             'erp_snapshot_at' => 'datetime', 'requested_at' => 'datetime', 'request_notified_at' => 'datetime',
-            'decided_at' => 'datetime', 'closed_at' => 'datetime',
+            'decided_at' => 'datetime', 'closed_at' => 'datetime', 'erp_sent_at' => 'datetime',
             // 2p 은행정보 = PII 범위한정 예외(payee 와 동일) — 화면엔 그대로, 감사·로그는 ***.
             'bank_name' => 'encrypted', 'bank_iban' => 'encrypted', 'bank_swift' => 'encrypted', 'bank_phone' => 'encrypted', 'bank_address' => 'encrypted',
         ];
@@ -369,6 +370,22 @@ class Claim extends Model
         $cur = $this->currentStep();
 
         return $cur !== null && $this->lineSteps()->first(fn ($s) => $s->seq > $cur->seq && $s->status === 'pending') === null;
+    }
+
+    /** [ERP 로 보내기] 가능 — 결재가 끝났고(승인·반려·종결) 이 회차를 아직 안 보냄. 반려도 보낸다(declined·금액 0, Jin 2026-11-11). */
+    public function canSendToErp(): bool
+    {
+        return $this->decided_at !== null && in_array($this->status, [self::APPROVED, self::REJECTED, self::CLOSED], true)
+            && (int) $this->erp_sent_revision !== (int) $this->revision;
+    }
+
+    /** 이 바이어 누적 클레임 수(board 기록, 이번 건 포함) — ERP 클레임 탭 지표용. */
+    public function buyerClaimCount(): int
+    {
+        $q = static::query();
+        $q = $this->car_erp_buyer_id ? $q->where('car_erp_buyer_id', $this->car_erp_buyer_id) : $q->where('buyer_name', $this->buyer_name);
+
+        return (int) $q->count();
     }
 
     /** 확정 금액 입력칸 기본값 — CS 제시 → 영업 제시 → 바이어 청구 순. */

@@ -402,6 +402,64 @@ class ClaimService
         }
     }
 
+    // ── ERP 미러 ──
+
+    /**
+     * [ERP 로 보내기] — 확정된 클레임 1건을 ERP 바이어 「클레임」 탭으로(2026-11-11 Jin: 최종 결재 뒤 담당자가 눌러야 미러, 자동 없음).
+     * 금액 = **확정 금액 하나**(confirmed_amount, 반려 = declined·0). 제시 금액 3종은 board 판정 자료라 보내지 않는다.
+     * 성공 = erp_claim_id·보낸 시각·회차 저장 / 실패 = 사유 저장(ERP 422 원문). 둘 다 감사 1행.
+     *
+     * @return array{ok: bool, message: ?string}
+     */
+    public function sendToErp(Claim $claim, User $handler): array
+    {
+        if (! $claim->canSendToErp()) {
+            return ['ok' => false, 'message' => __('claims.erp_send_not_ready')];
+        }
+        $approved = in_array($claim->status, [Claim::APPROVED, Claim::CLOSED], true) && $claim->decision === Claim::APPROVED;
+        $final = $claim->lineSteps()->last();
+        $sales = $claim->salesman;
+        $email = $sales ? ($sales->car_erp_salesman_email ?: $sales->email) : '';
+        $payload = [
+            'board_claim_id' => $claim->id,
+            'revision' => (int) $claim->revision,
+            'vehicle_id' => $claim->car_erp_vehicle_id ?: null,
+            'buyer_id' => $claim->car_erp_buyer_id ?: null,
+            'buyer_name' => $claim->buyer_name,
+            'vehicle_number' => $claim->vehicle_number,
+            'vin' => $claim->vin,
+            'confirmed_amount' => $approved ? (float) $claim->confirmed_amount : 0.0,
+            'currency' => $claim->claim_currency ?: $claim->sale_currency,
+            'compensation_type' => $claim->compensation_type,
+            'result' => $approved ? 'accepted' : 'declined',
+            'result_reason' => $approved ? ($claim->result_reason ?: $claim->result) : ($claim->decision_reason ?: $claim->result_reason),
+            'approved_at' => $claim->decided_at?->toIso8601String(),
+            'approved_by_name' => $claim->approver?->name ?? $final?->approver?->name,
+            'handler_name' => $claim->requester?->name ?? $handler->name,
+            'salesman_email' => $email,
+            'buyer_claim_count' => $claim->buyerClaimCount(),
+            'board_url' => route('claims'),
+        ];
+
+        $r = $this->erp->sendClaim($email, $payload);
+        if ($r['ok'] ?? false) {
+            $claim->forceFill([
+                'erp_claim_id' => data_get($r['data'], 'erp_claim_id', data_get($r['data'], 'data.erp_claim_id')),
+                'erp_sent_at' => now(), 'erp_sent_revision' => $claim->revision, 'erp_sent_by_user_id' => $handler->id, 'erp_send_error' => null,
+            ])->saveQuietly();
+            $this->audit($claim, $handler->id, 'claim_erp_send', null, __('claims.audit_erp_sent', [
+                'rev' => $claim->revision, 'result' => $payload['result'], 'amount' => $approved ? $claim->amountDisplay('confirmed_amount') : '0', 'erp' => $claim->erp_claim_id ?? '—',
+            ]));
+
+            return ['ok' => true, 'message' => null];
+        }
+        $msg = trim((string) ($r['message'] ?? '')) ?: ($r['reason'] ?? 'HTTP '.($r['status'] ?? 0));
+        $claim->forceFill(['erp_send_error' => mb_substr($msg, 0, 500)])->saveQuietly();
+        $this->audit($claim, $handler->id, 'claim_erp_send', null, __('claims.audit_erp_failed', ['rev' => $claim->revision, 'reason' => $msg]));
+
+        return ['ok' => false, 'message' => $msg];
+    }
+
     // ── 종결 ──
 
     public function close(Claim $claim, User $handler): void

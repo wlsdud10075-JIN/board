@@ -58,6 +58,7 @@ return [
         'claim_claim_currency' => '클레임 통화',
         'claim_cs_proposed_amount' => '클레임 CS PROPOSED AMOUNT',
         'claim_confirmed_amount' => '클레임 최종 확정 금액',
+        'claim_erp_send' => '클레임 ERP 전송',
         'claim_refundable_amount' => '클레임 REFUNDABLE',
         'claim_result' => '클레임 RESULT',
         'claim_result_reason' => '클레임 REASON',

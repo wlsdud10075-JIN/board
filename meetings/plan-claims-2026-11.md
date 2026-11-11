@@ -295,3 +295,9 @@ board 제안(car-erp-b6 에 발송 2026-11-11): HMAC 내부 POST(연동 B 틀) `
 - 드로어 = REFUNDABLE 옆에 나란히 · 보고서(대표 화면) = CLAIM AMOUNT·REFUNDABLE 줄 바로 아래 한 줄(청구 대비 %).
 - ERP 로 보낼 payload 에 3종 모두 포함 — 탭 잔액 기준 금액(§25 질문 ②)은 3종 중 무엇인지로 바뀐다(Jin 결정).
 
+### 25-2. 확정(2026-11-11, Jin — board·ERP 각 세션에서) + board 구현(dev, 미배포)
+- 최종 결재권자가 승인하며 **확정 금액 하나**(`confirmed_amount`)를 정한다(제시 3종은 판단 자료). ERP 는 그 하나만 받는다.
+- 반려(declined)도 보낸다(금액 0) — 바이어별 횟수·타당성 지표. refund·credit 둘 다 같은 탭(종류 표시).
+- ERP 「클레임」 탭 = 적립금과 별도, 목적 = 바이어별 클레임 횟수·내용·금액·타당성. ERP 는 기록만, 차량 사용 씬은 나중(ERP). 기존 ERP claim-management 기획은 이걸로 대체(ERP 정본 §10).
+- 스펙 = `POST /api/internal/board/claims` (SKILLS §14-30 에 보내는 쪽 요약). board 구현 = 확정 금액 입력(최종 결정자 전용)·[ERP 로 보내기]·결과 표시·테스트 완료(dev). ERP 받는 쪽은 car-erp dev 작업 중. **배포 순서 = ERP 먼저**(board 가 먼저 나가면 버튼이 404 실패 사유를 보여 줄 뿐 데이터 손상 없음).
+

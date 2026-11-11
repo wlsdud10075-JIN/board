@@ -485,6 +485,16 @@ class CarErpReadService
     }
 
     /**
+     * 확정 클레임 → ERP 바이어 「클레임」 탭 미러(2026-11-11 Jin, board 정본 plan-claims §25 · 받는 쪽 권위 = car-erp `board-portal-api.md` claims 행).
+     * `POST /claims` — 멱등키 = (인스턴스, board_claim_id), 같은 키 재전송은 revision 이 클 때만 갱신. 응답 `{erp_claim_id, status}`.
+     * 바이어를 못 정하면 422 「ERP 에서 이 차의 바이어를 먼저 정해 주세요」. ERP 는 적립금·미수·정산에 손대지 않는다(기록만).
+     */
+    public function sendClaim(string $email, array $payload): array
+    {
+        return $this->post('/claims', ['salesman_email' => $email], $payload);
+    }
+
+    /**
      * GET /requests — 상태 폴링(칩 갱신). 응답 = {count, requests[{batch_id,type,status,buyer_name,requested_at,vehicles[]}]}.
      * 묶음 status = open | partial | done | cancelled (ERP 집계값). **board 가 재계산·완료 coerce 금지**(§11-4 항목 4).
      */
@@ -637,6 +647,7 @@ class CarErpReadService
         }
         $type = match (true) {
             $endpoint === '/requests' => 'board_request',
+            $endpoint === '/claims' => 'claim_mirror',
             $endpoint === '/shipping-requests/sync' => 'shipping_sync',
             $endpoint === '/shipping-request' => 'shipping_request',
             $endpoint === '/shipping-requests/change-request' => 'change_request',

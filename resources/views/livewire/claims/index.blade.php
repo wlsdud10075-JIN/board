@@ -246,6 +246,22 @@ new #[Layout('components.layouts.app')] class extends Component
         $this->refreshDetail();
     }
 
+    /** [ERP 로 보내기] — 결재 끝난 건만(승인·반려), 회차당 1회(재승인 뒤 다시). */
+    public function sendToErp(ClaimService $svc): void
+    {
+        $c = $this->detail;
+        if (! $c) {
+            return;
+        }
+        $r = $svc->sendToErp($c, Auth::user());
+        if ($r['ok']) {
+            $this->notice = __('claims.erp_sent_ok');
+        } else {
+            $this->error = __('claims.erp_send_failed', ['reason' => $r['message']]);
+        }
+        $this->refreshDetail();
+    }
+
     public function reloadErp(ClaimService $svc): void
     {
         $c = $this->detail;
@@ -390,6 +406,19 @@ new #[Layout('components.layouts.app')] class extends Component
                         {{ $d->decision === 'approved' ? '✅' : '⛔' }} {{ __('claims.decided_banner', ['result' => $d->statusLabel(), 'name' => $d->approver?->name ?? '—', 'at' => $d->decided_at->timezone(config('app.timezone'))->format('m-d H:i')]) }}
                         @include('livewire.claims._steps', ['steps' => $d->lineSteps(), 'current' => null])
                         @if ($d->confirmed_amount !== null)<div class="mt-0.5 font-semibold text-gray-800">FINAL AMOUNT {{ $d->amountDisplay('confirmed_amount') }}</div>@endif
+                        {{-- ERP 바이어 「클레임」 탭 미러(2026-11-11 Jin) — 담당자가 눌러야 간다. 반려도 보낸다(declined·0). --}}
+                        <div class="mt-1.5 flex flex-wrap items-center gap-2 border-t border-black/5 pt-1.5">
+                            @if ($d->erp_sent_at && (int) $d->erp_sent_revision === (int) $d->revision)
+                                <span class="badge badge-green">{{ __('claims.erp_sent_badge', ['id' => $d->erp_claim_id ?? '—', 'at' => $d->erp_sent_at->timezone(config('app.timezone'))->format('m-d H:i')]) }}</span>
+                            @else
+                                @if ($d->erp_sent_at)<span class="badge badge-amber">{{ __('claims.erp_sent_old', ['rev' => $d->erp_sent_revision]) }}</span>@endif
+                                <button type="button" class="btn-primary btn-sm" wire:click="sendToErp" wire:loading.attr="disabled" wire:target="sendToErp"
+                                        wire:confirm="{{ __('claims.erp_send_confirm', ['amount' => $d->decision === 'approved' ? $d->amountDisplay('confirmed_amount') : '0 (declined)']) }}">
+                                    {{ $d->erp_sent_at ? __('claims.erp_resend_btn') : __('claims.erp_send_btn') }}
+                                </button>
+                            @endif
+                            @if ($d->erp_send_error)<span class="text-red-600">⚠️ {{ $d->erp_send_error }}</span>@endif
+                        </div>
                         @if ($d->decision_reason)<div class="mt-0.5 whitespace-pre-wrap">{{ $d->decision_reason }}</div>@endif
                         @if ($d->status === 'approved')<div class="mt-1 text-gray-500">{{ __('claims.approved_next') }}</div>@endif
                     </div>

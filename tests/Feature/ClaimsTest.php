@@ -29,6 +29,9 @@ class ClaimsTest extends TestCase
 
     private int $seq = 0;
 
+    /** 클레임 ERP 미러 가짜 응답 — 테스트마다 바꾼다(fakeErp 의 `*` 보다 먼저 매칭되게 같은 fake 안에 둔다). */
+    private ?array $claimMirror = null;
+
     private const BIZM = 'https://alimtalk-api.bizmsg.kr/v2/sender/send';
 
     protected function setUp(): void
@@ -76,6 +79,7 @@ class ClaimsTest extends TestCase
                 ['vehicle_id' => 57, 'vehicle_number' => '56다0000', 'buyer' => 'Other', 'sale_price' => 1, 'currency' => 'USD', 'sale_date' => now()->format('Y-m-d')],
             ]], 200),
             '*/buyers/7/credit*' => Http::response(['data' => ['buyer_id' => 7, 'credit_grade' => 'B', 'credit_score' => 72, 'credit_available' => true]], 200),
+            '*/api/internal/board/claims*' => fn () => Http::response($this->claimMirror['body'] ?? ['erp_claim_id' => 41, 'status' => 'created'], $this->claimMirror['status'] ?? 201),
             '*/settlements*' => Http::response(['data' => [['vehicle_id' => 55, 'vehicle_number' => '12가3456', 'margin_rate' => 4.5, 'status' => 'paid']]], 200),
             '*' => Http::response(['data' => []], 200),
         ]);
@@ -436,6 +440,48 @@ class ClaimsTest extends TestCase
 
         app(ClaimService::class)->requestApproval($c->fresh(), $h, ['대표' => $ceo->id]);   // 재승인
         $this->assertNull($c->fresh()->confirmed_amount);
+    }
+
+    /** [ERP 로 보내기] — 최종 승인 뒤 확정 금액 하나만, 회차당 1회. 반려는 declined·0. ERP 422 는 사유 저장. */
+    public function test_send_to_erp_mirrors_confirmed_amount_once_per_revision(): void
+    {
+        [$c, $sales, $h, $ceo] = $this->pending();
+        $this->assertFalse($c->canSendToErp());   // 결재 중엔 못 보냄
+        $c->forceFill(['claim_amount' => 2000, 'refundable_amount' => 1000, 'cs_proposed_amount' => 900, 'compensation_type' => 'credit'])->saveQuietly();
+        $this->post($this->decideUrl($c, $ceo), ['action' => 'approve', 'confirmed_amount' => '850'])->assertOk();
+        $c->refresh();
+        $this->assertTrue($c->canSendToErp());
+
+        $this->actingAs($h);
+        Volt::test('claims.index')->call('openDetail', $c->id)->call('sendToErp')->assertSet('notice', __('claims.erp_sent_ok'));
+        $c->refresh();
+        $this->assertSame(41, (int) $c->erp_claim_id);
+        $this->assertSame(1, (int) $c->erp_sent_revision);
+        $this->assertFalse($c->canSendToErp());   // 같은 회차 재전송 없음
+        Http::assertSent(function ($req) use ($c) {
+            if (! str_contains($req->url(), '/api/internal/board/claims')) {
+                return false;
+            }
+            $d = $req->data();
+
+            return $d['board_claim_id'] === $c->id && $d['confirmed_amount'] == 850 && $d['result'] === 'accepted' && $d['compensation_type'] === 'credit'
+                && ! array_key_exists('claim_amount', $d) && ! array_key_exists('refundable_amount', $d) && ! array_key_exists('cs_proposed_amount', $d)
+                && $d['buyer_claim_count'] === 1 && $d['revision'] === 1;
+        });
+        $this->assertDatabaseHas('board_audit_logs', ['field' => 'claim_erp_send', 'user_id' => $h->id]);
+    }
+
+    public function test_send_to_erp_declined_and_422_reason(): void
+    {
+        [$c, $sales, $h, $ceo] = $this->pending();
+        $this->post($this->decideUrl($c, $ceo), ['action' => 'reject', 'reason' => '귀책 없음'])->assertOk();
+        $c->refresh();
+        $this->claimMirror = ['status' => 422, 'body' => ['message' => 'ERP 에서 이 차의 바이어를 먼저 정해 주세요']];
+        $r = app(ClaimService::class)->sendToErp($c, $h);
+        $this->assertFalse($r['ok']);
+        $this->assertStringContainsString('바이어를 먼저 정해', (string) $c->fresh()->erp_send_error);
+        Http::assertSent(fn ($req) => str_contains($req->url(), '/claims') && $req->data()['result'] === 'declined' && $req->data()['confirmed_amount'] == 0);
+        $this->assertTrue($c->fresh()->canSendToErp());   // 실패 = 다시 보낼 수 있다
     }
 
     /** 대표는 필수 아님 — 상무에서 끝나면 상무가 최종. 반려 = 그 자리에서 종료 → 재요청은 1단계부터. */
