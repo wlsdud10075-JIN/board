@@ -251,6 +251,21 @@ class Claim extends Model
         };
     }
 
+    /**
+     * BUYER PRIORITY = ERP 바이어 신용도 **점수**(2026-11-11 Jin 「점수로」) — 「72점 (B)」. 이력 없음('-') = 「평가 불가」, 아직 못 받음 = 「—」.
+     */
+    public function creditDisplay(): string
+    {
+        if ($this->buyer_credit_grade === null) {
+            return '—';
+        }
+        if ($this->buyer_credit_grade === '-') {
+            return __('claims.credit_unavailable');
+        }
+
+        return __('claims.credit_score', ['score' => (int) $this->buyer_credit_score, 'grade' => $this->buyer_credit_grade]);
+    }
+
     public function salePriceDisplay(): string
     {
         if ($this->sale_price === null) {

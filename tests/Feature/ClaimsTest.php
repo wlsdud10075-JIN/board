@@ -129,6 +129,7 @@ class ClaimsTest extends TestCase
         $this->assertEquals(4.5, $c->margin_rate);
         $this->assertSame('B', $c->buyer_credit_grade);   // BUYER PRIORITY = ERP 신용도
         $this->assertSame(72, $c->buyer_credit_score);
+        $this->assertSame('72점 (B)', $c->creditDisplay());
         $this->assertSame(1, $c->yearClaimCount());       // 자동 카운트(이번 건)
         $this->assertFalse($c->isOverdue());
         // 감사 1행(접수) — action=claim, field=claim_intake

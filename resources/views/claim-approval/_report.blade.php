@@ -19,7 +19,7 @@
         <tr><th>TOTAL PURCHASE HISTORY</th><td>{{ $claim->total_purchase_count === null ? '—' : $claim->total_purchase_count.' '.__('claims.unit_cars') }}</td>
             <th>1 YEAR PURCHASE HISTORY</th><td>{{ $claim->year_purchase_count === null ? '—' : $claim->year_purchase_count.' '.__('claims.unit_cars') }}</td></tr>
         <tr><th>CLAIM HISTORY (1 YEAR)</th><td>{{ $claim->yearClaimCount() }} {{ __('claims.unit_cases') }}</td>
-            <th>BUYER PRIORITY</th><td>{{ $claim->buyer_credit_grade ? __('claims.credit_label').' '.$claim->buyer_credit_grade.($claim->buyer_credit_score !== null && $claim->buyer_credit_grade !== '-' ? ' ('.$claim->buyer_credit_score.__('claims.credit_points').')' : '') : '—' }}</td></tr>
+            <th>BUYER PRIORITY</th><td>{{ $claim->creditDisplay() }}</td></tr>
     </table>
 
     <div class="rep-h">CAR DETAILS</div>

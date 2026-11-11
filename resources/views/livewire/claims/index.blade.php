@@ -425,7 +425,7 @@ new #[Layout('components.layouts.app')] class extends Component
                     <div><label class="label-base">BUYER NAME</label><input class="input-base" wire:model="form.buyer_contact_name" maxlength="120"></div>
                     {{-- BUYER PRIORITY = ERP 바이어 신용도(읽기 전용 스냅샷 · [ERP 다시 불러오기] 로 갱신) --}}
                     <div><label class="label-base">BUYER PRIORITY <span class="font-normal text-gray-400">({{ __('claims.credit_label') }})</span></label>
-                        <div class="input-base bg-gray-50">{{ $d->buyer_credit_grade ? $d->buyer_credit_grade.($d->buyer_credit_score !== null && $d->buyer_credit_grade !== '-' ? ' · '.$d->buyer_credit_score.__('claims.credit_points') : '') : '—' }}</div>
+                        <div class="input-base bg-gray-50">{{ $d->creditDisplay() }}</div>
                         @unless ($d->buyer_credit_grade)<p class="text-[11px] text-gray-400">{{ __('claims.credit_pending') }}</p>@endunless</div>
                     <div><label class="label-base">{{ __('claims.arrived_at') }}</label><input type="date" class="input-base" wire:model="form.arrived_at">@error('form.arrived_at')<p class="text-red-600">{{ $message }}</p>@enderror</div>
                     <div><label class="label-base">{{ __('claims.received_km') }}</label><input type="number" class="input-base" wire:model="form.received_km">@error('form.received_km')<p class="text-red-600">{{ $message }}</p>@enderror</div>
