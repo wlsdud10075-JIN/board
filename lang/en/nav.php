@@ -91,6 +91,8 @@ return [
         'hold_chip' => 'On hold',
         'toast_hold' => '🔔 :count inspection(s) put on hold — open the bell for the reason',
         'claims_new' => 'New claims',
+        'toast_claim_turn' => '📋 :count claim(s) waiting for your approval',
+        'claim_turn_chip' => 'Your turn',
         'claim_new_chip' => 'New',
         'claims_decided' => 'Claim decisions',
         'claim_chip_approved' => 'Approved',

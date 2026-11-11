@@ -76,16 +76,21 @@
             <span class="rep-chk">{{ $claim->compensation_type === 'credit' ? '☑' : '☐' }} CREDIT (REFUND DEPOSIT)</span>
         </td></tr>
         <tr><th>CLAIM MANAGER</th><td>{{ $f($claim->requester?->name) }}</td><th>SALES MANAGER</th><td>{{ $f($claim->salesman?->name) }}</td></tr>
-        <tr><th>REVIEWED BY CEO</th><td colspan="3">
-            @if ($claim->decided_at)
-                {{ $claim->approver?->name }} · {{ $claim->decision === 'approved' ? __('claims.status.approved') : __('claims.status.rejected') }} · {{ $claim->decided_at->timezone(config('app.timezone'))->format('Y-m-d H:i') }}
-                @if ($claim->decision_reason)<div class="rep-pre">{{ $claim->decision_reason }}</div>@endif
-            @elseif ($claim->isPendingCeo())
-                <span class="rep-muted">{{ __('claims.status.pending_ceo') }} · {{ __('claims.rev_n', ['n' => $claim->revision]) }}</span>
-            @else
-                —
-            @endif
-        </td></tr>
+        {{-- 결재선(현재 회차) 단계별 — 부장 → 상무 → 대표 중 지정한 칸. 마지막 칸이 최종(대표면 REVIEWED BY CEO). --}}
+        @forelse ($claim->lineSteps() as $s)
+            <tr><th>{{ $loop->last && $s->title === '대표' ? 'REVIEWED BY CEO' : 'REVIEWED BY '.$s->title }}</th><td colspan="3">
+                {{ $s->approver?->name ?? '—' }}
+                @if ($s->status === 'pending')
+                    <span class="rep-muted">· {{ (int) $s->seq === (int) $claim->current_step ? __('claims.step_turn') : __('claims.step_waiting') }}</span>
+                @else
+                    · {{ $s->status === 'approved' ? __('claims.status.approved') : __('claims.status.rejected') }} · {{ $s->acted_at?->timezone(config('app.timezone'))->format('Y-m-d H:i') }}
+                    @if ($s->byProxy())<span class="rep-muted">({{ __('claims.proxy_by', ['name' => $s->actor?->name]) }})</span>@endif
+                    @if ($s->note)<div class="rep-pre">{{ $s->note }}</div>@endif
+                @endif
+            </td></tr>
+        @empty
+            <tr><th>REVIEWED BY</th><td colspan="3">—</td></tr>
+        @endforelse
     </table>
 
     @if ($refund)

@@ -354,9 +354,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <flux:button variant="primary" type="submit">{{ __('settings.feature.save') }}</flux:button>
                 <x-action-message class="text-sm text-green-600" on="claim-handlers-saved">{{ __('settings.feature.saved') }}</x-action-message>
             </div>
-            @php $ceoUser = \App\Services\ClaimService::ceo(); @endphp
-            <p class="text-xs {{ $ceoUser && trim((string) $ceoUser->phone) !== '' ? 'text-gray-400' : 'text-amber-600' }}">
-                {{ $ceoUser ? __('claims.settings_ceo', ['name' => $ceoUser->name, 'phone' => trim((string) $ceoUser->phone) !== '' ? $ceoUser->phone : __('claims.settings_ceo_no_phone')]) : __('claims.err_no_ceo') }}
+            {{-- 결재선 후보 = 최고관리자 결재 직급(부장·상무·대표). 담당자가 요청할 때 골라 지정한다. --}}
+            <p class="text-xs text-gray-500">{{ __('claims.settings_line') }}
+                @foreach (\App\Models\Claim::lineCandidates() as $title => $u)
+                    <span class="ml-1 whitespace-nowrap {{ $u && trim((string) $u->phone) === '' ? 'text-amber-600' : '' }}">{{ $title }} {{ $u ? $u->name.(trim((string) $u->phone) === '' ? ' ('.__('claims.settings_ceo_no_phone').')' : '') : '—' }}</span>
+                @endforeach
             </p>
         </form>
     </div>
