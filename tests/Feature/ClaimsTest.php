@@ -457,6 +457,25 @@ class ClaimsTest extends TestCase
         $this->assertSame('pending', $c->lineSteps()->last()->status);   // 대표 칸은 손대지 않은 채 최종
     }
 
+    /** [결재 요청] = 모달 — 열면 기본 결재선, 비우고 보내면 모달에 사유(닫히지 않음), 고르고 보내면 결재 중 + 모달 닫힘. */
+    public function test_request_modal_flow_from_drawer(): void
+    {
+        $this->fakeErp();
+        $sales = $this->mk('김영업');
+        $h = $this->handler();
+        $ceo = $this->ceo();
+        $c = $this->intake($sales);
+        $this->actingAs($h);
+        $t = Volt::test('claims.index')->call('openDetail', $c->id)->call('openLineModal')
+            ->assertSet('lineModal', true)->assertSet('line.대표', (string) $ceo->id)
+            ->set('line.대표', '')->call('requestApproval')
+            ->assertSet('lineModal', true)->assertSet('lineError', __('claims.err_no_line'));
+        $this->assertSame(Claim::REVIEWING, $c->fresh()->status);   // 칸 저장은 됐고 요청은 안 됨
+        $t->set('line.대표', (string) $ceo->id)->call('requestApproval')->assertSet('lineModal', false);
+        $this->assertSame(Claim::PENDING_CEO, $c->fresh()->status);
+        $this->assertSame($ceo->id, $c->fresh()->approver_user_id);
+    }
+
     public function test_handler_drawer_saves_report_fields_with_audit_and_masks_bank(): void
     {
         [$c, $sales, $h, $ceo] = [null, null, null, null];

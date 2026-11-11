@@ -40,6 +40,12 @@ new #[Layout('components.layouts.app')] class extends Component
     /** 결재선 선택(직급 => user id, 빈 값 = 건너뜀) — 부장 → 상무 → 대표, 2026-11-11 Jin. */
     public array $line = [];
 
+    /** 결재선 모달(2026-11-11 Jin — 드로어 안 상시 칸 대신 [결재 요청] 누르면 모달, 모바일은 하단 시트). */
+    public bool $lineModal = false;
+
+    /** 모달 안에서만 보이는 오류(드로어 상단 오류와 분리 — 모달에 가려 안 보이므로). */
+    public ?string $lineError = null;
+
     public ?string $error = null;
 
     public function mount(): void
@@ -124,7 +130,6 @@ new #[Layout('components.layouts.app')] class extends Component
             return;
         }
         $this->form = [];
-        $this->line = array_map(fn ($id) => $id ? (string) $id : '', Claim::defaultLine());
         foreach (Claim::EDITABLE as $f) {
             $v = $c->getAttribute($f);
             $this->form[$f] = $v instanceof \Illuminate\Support\Carbon ? $v->format('Y-m-d') : ($v === null ? '' : (is_bool($v) ? $v : (string) $v));
@@ -179,20 +184,38 @@ new #[Layout('components.layouts.app')] class extends Component
         $this->refreshDetail();
     }
 
+    /** [결재 요청] — 결재선 모달 열기(기본값 = 지난 결재선 · 직급 1명뿐이면 그 사람). */
+    public function openLineModal(): void
+    {
+        $this->line = array_map(fn ($id) => $id ? (string) $id : '', Claim::defaultLine());
+        $this->lineError = null;
+        $this->lineModal = true;
+    }
+
+    public function closeLineModal(): void
+    {
+        $this->lineModal = false;
+        $this->lineError = null;
+    }
+
+    /** 모달 [요청 보내기] — 지금 칸을 먼저 저장(보고서 = 저장된 값) 후 결재선 생성·1단계 알림. 실패하면 모달에 사유를 남기고 닫지 않는다. */
     public function requestApproval(ClaimService $svc): void
     {
         $c = $this->detail;
         if (! $c) {
             return;
         }
-        $this->save($svc);   // 눌린 시점의 칸을 먼저 저장(보고서 = 저장된 값)
+        $this->save($svc);
         $c = $this->detail;
         try {
             $svc->requestApproval($c, Auth::user(), $this->line);
-            $this->notice = __('claims.requested', ['name' => $c->fresh()->approver?->name ?? '—']);
         } catch (\DomainException $e) {
-            $this->error = $this->domainMessage($e->getMessage());
+            $this->lineError = $this->domainMessage($e->getMessage());
+
+            return;
         }
+        $this->lineModal = false;
+        $this->notice = __('claims.requested', ['name' => $c->fresh()->approver?->name ?? '—']);
         $this->refreshDetail();
     }
 
@@ -482,41 +505,14 @@ new #[Layout('components.layouts.app')] class extends Component
                 <div class="mt-4 flex flex-wrap gap-2">
                     @if ($editable)
                         <button type="button" class="btn-outline" wire:click="save" wire:loading.attr="disabled">{{ __('common.save') }}</button>
+                        @if ($d->canRequestApproval())
+                            <button type="button" class="btn-primary" wire:click="openLineModal">{{ $d->revision > 0 ? __('claims.request_again') : __('claims.request') }}</button>
+                        @endif
                         @if ($d->status === 'approved')
                             <button type="button" class="btn-green" wire:click="closeClaim" wire:confirm="{{ __('claims.confirm_close') }}">{{ __('claims.close_btn') }}</button>
                         @endif
                     @endif
                 </div>
-
-                {{-- 결재선 지정(부장 → 상무 → 대표, 직급당 1명 · 비우면 건너뜀 · 지정한 마지막 칸 = 최종 결재권자, 2026-11-11 Jin) --}}
-                @if ($editable && $d->canRequestApproval())
-                    @php $picked = collect($cand)->filter(fn ($u, $t) => $u && (string) ($line[$t] ?? '') === (string) $u->id); @endphp
-                    <div class="card-sm mt-3 text-xs">
-                        <div class="mb-1.5 font-semibold text-gray-700">{{ __('claims.line_title') }} <span class="font-normal text-gray-400">— {{ __('claims.line_hint') }}</span></div>
-                        <div class="flex flex-wrap items-end gap-2">
-                            @foreach ($cand as $title => $u)
-                                <label class="flex flex-col">
-                                    <span class="label-base">{{ $title }}</span>
-                                    <select class="input-base w-36" wire:model.live="line.{{ $title }}" @disabled(! $u)>
-                                        <option value="">{{ __('claims.line_skip') }}</option>
-                                        @if ($u)<option value="{{ $u->id }}">{{ $u->name }}{{ trim((string) $u->phone) === '' ? ' ⚠' : '' }}</option>@endif
-                                    </select>
-                                </label>
-                                @if (! $loop->last)<span class="pb-2 text-gray-300">→</span>@endif
-                            @endforeach
-                            <button type="button" class="btn-primary ml-auto" wire:click="requestApproval" wire:loading.attr="disabled"
-                                    @disabled($picked->isEmpty())
-                                    wire:confirm="{{ __('claims.confirm_request', ['line' => $picked->map(fn ($u, $t) => $t.' '.$u->name)->implode(' → ') ?: '—', 'rev' => $d->revision + 1]) }}">
-                                {{ $d->revision > 0 ? __('claims.request_again') : __('claims.request') }}
-                            </button>
-                        </div>
-                        @if (collect($cand)->filter()->isEmpty())
-                            <p class="mt-1 text-red-600">{{ __('claims.err_no_line_candidates') }}</p>
-                        @elseif ($picked->contains(fn ($u) => trim((string) $u->phone) === ''))
-                            <p class="mt-1 text-amber-600">{{ __('claims.warn_no_phone_line') }}</p>
-                        @endif
-                    </div>
-                @endif
 
                 {{-- 보고서 미리보기(양식 그대로) --}}
                 <details class="mt-4" {{ $d->isPendingCeo() || $d->decided_at ? 'open' : '' }}>
@@ -527,5 +523,59 @@ new #[Layout('components.layouts.app')] class extends Component
                 </details>
             </div>
         </div>
+
+        {{-- ─────────── 결재선 모달(모바일 = 하단 시트 · PC = 가운데 창) ─────────── --}}
+        @if ($lineModal)
+            @php $picked = collect($cand)->filter(fn ($u, $t) => $u && (string) ($line[$t] ?? '') === (string) $u->id); @endphp
+            <div class="fixed inset-0 z-[60] bg-black/40" wire:click="closeLineModal"></div>
+            <div class="fixed inset-x-0 bottom-0 z-[70] max-h-[85vh] overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl
+                        sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-[420px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl"
+                 x-data @keydown.escape.window="$wire.closeLineModal()">
+                <div class="mb-1 flex items-center justify-between">
+                    <h4 class="font-bold text-gray-800">{{ __('claims.line_title') }} · {{ __('claims.rev_n', ['n' => $d->revision + 1]) }}</h4>
+                    <button type="button" class="text-gray-400 hover:text-gray-600" wire:click="closeLineModal">✕</button>
+                </div>
+                <p class="mb-3 text-xs text-gray-500">{{ __('claims.line_hint') }}</p>
+
+                @if (collect($cand)->filter()->isEmpty())
+                    <p class="mb-3 text-sm text-red-600">{{ __('claims.err_no_line_candidates') }}</p>
+                @endif
+                <div class="space-y-2">
+                    @foreach ($cand as $title => $u)
+                        <label class="flex items-center gap-3 rounded-lg border px-3 py-2.5 {{ $u ? 'border-gray-200' : 'border-dashed border-gray-200 opacity-50' }}">
+                            <span class="w-10 shrink-0 text-sm font-semibold text-gray-700">{{ $title }}</span>
+                            <select class="input-base flex-1 py-2 text-sm" wire:model.live="line.{{ $title }}" @disabled(! $u)>
+                                <option value="">{{ __('claims.line_skip') }}</option>
+                                @if ($u)<option value="{{ $u->id }}">{{ $u->name }}{{ trim((string) $u->phone) === '' ? ' ⚠' : '' }}</option>@endif
+                            </select>
+                        </label>
+                    @endforeach
+                </div>
+
+                <div class="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm">
+                    @if ($picked->isEmpty())
+                        <span class="text-gray-400">{{ __('claims.err_no_line') }}</span>
+                    @else
+                        {{ $picked->map(fn ($u, $t) => $t.' '.$u->name)->implode(' → ') }}
+                        <div class="mt-0.5 text-xs text-gray-500">{{ __('claims.line_final', ['title' => $picked->keys()->last(), 'name' => $picked->last()->name]) }}</div>
+                    @endif
+                </div>
+                @if ($picked->contains(fn ($u) => trim((string) $u->phone) === ''))
+                    <p class="mt-2 text-xs text-amber-600">{{ __('claims.warn_no_phone_line') }}</p>
+                @endif
+                <p class="mt-2 text-xs text-gray-400">{{ __('claims.line_report_note') }}</p>
+                @if ($lineError)
+                    <p class="mt-2 text-sm text-red-600">⚠️ {{ $lineError }}</p>
+                @endif
+
+                <div class="mt-4 flex gap-2">
+                    <button type="button" class="btn-outline flex-1 justify-center py-2.5" wire:click="closeLineModal">{{ __('common.cancel') }}</button>
+                    <button type="button" class="btn-primary flex-1 justify-center py-2.5" wire:click="requestApproval" wire:loading.attr="disabled" wire:target="requestApproval" @disabled($picked->isEmpty())>
+                        <span wire:loading.remove wire:target="requestApproval">{{ __('claims.line_send') }}</span>
+                        <span wire:loading wire:target="requestApproval">{{ __('claims.saving') }}</span>
+                    </button>
+                </div>
+            </div>
+        @endif
     @endif
 </div>
