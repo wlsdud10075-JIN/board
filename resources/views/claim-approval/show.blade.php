@@ -147,6 +147,13 @@
             <div class="sec-title">{{ __('claims.ceo_decide') }}</div>
             @if ($error)<p class="err">{{ $error }}</p>@endif
             <form method="post" action="{{ $decideUrl }}" onsubmit="return window.__claimSubmit(this)">
+                @if ($claim->isFinalTurnFor($user))
+                    {{-- 최종 결재자만 — 확정 금액 하나(ERP 로 가는 금액). 기본값 = CS 제시 → 영업 제시 → 바이어 청구. --}}
+                    <label style="display:block;font-size:13px;font-weight:700;margin-bottom:4px">FINAL AMOUNT — {{ __('claims.confirmed_label') }} ({{ $claim->claim_currency ?: $claim->sale_currency ?: '—' }})</label>
+                    <input name="confirmed_amount" type="number" step="0.01" min="0" inputmode="decimal" value="{{ old('confirmed_amount', $claim->suggestedConfirmedAmount()) }}"
+                           style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:10px;font-size:16px;margin-bottom:4px">
+                    <p class="hint" style="margin:0 0 10px">{{ __('claims.confirmed_hint') }}</p>
+                @endif
                 <textarea name="reason" placeholder="{{ __('claims.ceo_reason_ph') }}">{{ old('reason') }}</textarea>
                 <div class="btns">
                     <button class="btn ok" type="submit" name="action" value="approve">{{ __('claims.approve') }}</button>
@@ -160,6 +167,7 @@
             window.__claimSubmit = function (form) {
                 var btn = document.activeElement;
                 if (btn && btn.value === 'reject' && !form.reason.value.trim()) { alert(@json(__('claims.reject_reason_required'))); return false; }
+                if (btn && btn.value === 'approve' && form.confirmed_amount && form.confirmed_amount.value.trim() === '') { alert(@json(__('claims.confirmed_required'))); return false; }
                 if (form.__sent) return false; form.__sent = true;
                 form.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
                 // disabled 버튼은 값이 안 실린다 → hidden 으로 보존

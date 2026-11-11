@@ -267,6 +267,7 @@ class ClaimService
                 'requested_at' => now(),
                 'requested_by_user_id' => $handler->id,
                 'decided_at' => null, 'decision' => null, 'decision_reason' => null, 'decision_ip' => null,
+                'confirmed_amount' => null,   // 재요청·재승인 = 확정 금액도 새로(최종 결재자가 다시 정한다)
             ])->save();
         });
         $claim->unsetRelation('steps');
@@ -320,17 +321,23 @@ class ClaimService
      * 승인 = 다음 칸으로(마지막 칸이면 최종 승인) · super 승인 = 남은 칸과 무관하게 즉시 최종(ERP 월정산 대행과 같은 결) · 반려 = 그 건 rejected(사유 필수).
      * 알림 = 다음 결재자에게 요청 / 최종 승인·반려 때만 담당자+영업에게 결과(중간 진행 알림 없음).
      *
-     * @throws \DomainException reason_required · not_decidable
+     * 최종 승인(마지막 칸 또는 super)에는 **확정 금액**(`$confirmed`, ≥0)이 필수 — ERP 로 가는 단 하나의 금액(2026-11-11 Jin). 중간 승인·반려엔 안 쓴다.
+     *
+     * @throws \DomainException reason_required · not_decidable · confirmed_required
      */
-    public function decide(Claim $claim, User $actor, int $revision, string $action, string $reason, ?string $ip): Claim
+    public function decide(Claim $claim, User $actor, int $revision, string $action, string $reason, ?string $ip, mixed $confirmed = null): Claim
     {
         $reason = trim($reason);
         if ($action === 'reject' && $reason === '') {
             throw new \DomainException('reason_required');
         }
+        $confirmed = is_string($confirmed) ? trim(str_replace(',', '', $confirmed)) : $confirmed;
+        if ($action === 'approve' && $claim->isFinalTurnFor($actor) && (! is_numeric($confirmed) || (float) $confirmed < 0)) {
+            throw new \DomainException('confirmed_required');
+        }
 
         $next = null;
-        $fresh = DB::transaction(function () use ($claim, $actor, $revision, $action, $reason, $ip, &$next) {
+        $fresh = DB::transaction(function () use ($claim, $actor, $revision, $action, $reason, $ip, $confirmed, &$next) {
             $fresh = Claim::query()->lockForUpdate()->findOrFail($claim->id);
             if (! $fresh->canDecide($actor, $revision)) {
                 throw new \DomainException('not_decidable');
@@ -353,10 +360,14 @@ class ClaimService
             }
             $to = $action === 'approve' ? Claim::APPROVED : Claim::REJECTED;
             $fresh->forceFill([
+                'confirmed_amount' => $to === Claim::APPROVED ? round((float) $confirmed, 2) : null,
                 'status' => $to, 'current_step' => null, 'approver_user_id' => $actor->id,
                 'decided_at' => now(), 'decision' => $to, 'decision_reason' => $reason !== '' ? $reason : null, 'decision_ip' => $ip,
             ])->save();
             $this->audit($fresh, $actor->id, 'claim_status', Claim::PENDING_CEO, $to, $ip);
+            if ($to === Claim::APPROVED) {
+                $this->audit($fresh, $actor->id, 'claim_confirmed_amount', null, $fresh->amountDisplay('confirmed_amount'), $ip);
+            }
 
             return $fresh;
         });

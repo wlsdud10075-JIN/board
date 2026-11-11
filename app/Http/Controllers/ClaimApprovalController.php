@@ -39,10 +39,13 @@ class ClaimApprovalController extends Controller
         }
 
         try {
-            $after = $svc->decide($claim, $user, $rev, $action, $reason, $request->ip());
+            $after = $svc->decide($claim, $user, $rev, $action, $reason, $request->ip(), $request->input('confirmed_amount'));
         } catch (\DomainException $e) {
             if ($e->getMessage() === 'reason_required') {
                 return response()->view('claim-approval.show', $this->viewData($request, $claim, $ssancar, __('claims.reject_reason_required')), 422);
+            }
+            if ($e->getMessage() === 'confirmed_required') {
+                return response()->view('claim-approval.show', $this->viewData($request, $claim, $ssancar, __('claims.confirmed_required')), 422);
             }
 
             return response()->view('claim-approval.result', ['claim' => $claim->fresh(), 'result' => 'error', 'message' => __('claims.link_not_decidable')], 410);

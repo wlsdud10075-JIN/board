@@ -389,6 +389,7 @@ new #[Layout('components.layouts.app')] class extends Component
                     <div class="card-sm mb-3 {{ $d->decision === 'approved' ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50' }} text-xs text-gray-700">
                         {{ $d->decision === 'approved' ? '✅' : '⛔' }} {{ __('claims.decided_banner', ['result' => $d->statusLabel(), 'name' => $d->approver?->name ?? '—', 'at' => $d->decided_at->timezone(config('app.timezone'))->format('m-d H:i')]) }}
                         @include('livewire.claims._steps', ['steps' => $d->lineSteps(), 'current' => null])
+                        @if ($d->confirmed_amount !== null)<div class="mt-0.5 font-semibold text-gray-800">FINAL AMOUNT {{ $d->amountDisplay('confirmed_amount') }}</div>@endif
                         @if ($d->decision_reason)<div class="mt-0.5 whitespace-pre-wrap">{{ $d->decision_reason }}</div>@endif
                         @if ($d->status === 'approved')<div class="mt-1 text-gray-500">{{ __('claims.approved_next') }}</div>@endif
                     </div>

@@ -69,7 +69,7 @@ class Claim extends Model
         'total_purchase_count', 'year_purchase_count', 'buyer_credit_grade', 'buyer_credit_score', 'member_since', 'purchase_history', 'margin_rate', 'erp_snapshot_at',
         'salesman_user_id', 'created_by_user_id', 'arrived_at', 'received_km', 'content',
         'inspection_result', 'notes', 'review_notes',
-        'claim_amount', 'claim_currency', 'refundable_amount', 'cs_proposed_amount', 'result', 'result_reason', 'compensation_type', 'overdue_reason',
+        'claim_amount', 'claim_currency', 'refundable_amount', 'cs_proposed_amount', 'confirmed_amount', 'result', 'result_reason', 'compensation_type', 'overdue_reason',
         'bank_name', 'bank_iban', 'bank_swift', 'bank_phone', 'bank_address',
         'requested_at', 'requested_by_user_id', 'request_notified_at', 'approver_user_id', 'decided_at', 'decision', 'decision_reason', 'decision_ip',
         'closed_at', 'closed_by_user_id',
@@ -352,6 +352,35 @@ class Claim extends Model
         }
 
         return trim(($this->claim_currency ?: $this->sale_currency ?: '').' '.number_format((float) $v, fmod((float) $v, 1.0) === 0.0 ? 0 : 2));
+    }
+
+    /**
+     * 이 사람이 지금 결정하면 **최종**이 되나 — super(승인 = 즉시 최종) 또는 지금 차례가 결재선 마지막 칸.
+     * 최종 결정자만 확정 금액(confirmed_amount)을 정한다(2026-11-11 Jin 「대표가 확정해준 하나의 금액만 ERP 로」).
+     */
+    public function isFinalTurnFor(?User $u): bool
+    {
+        if (! $this->canDecide($u, (int) $this->revision)) {
+            return false;
+        }
+        if ($u->isSuper()) {
+            return true;
+        }
+        $cur = $this->currentStep();
+
+        return $cur !== null && $this->lineSteps()->first(fn ($s) => $s->seq > $cur->seq && $s->status === 'pending') === null;
+    }
+
+    /** 확정 금액 입력칸 기본값 — CS 제시 → 영업 제시 → 바이어 청구 순. */
+    public function suggestedConfirmedAmount(): ?string
+    {
+        foreach (['cs_proposed_amount', 'refundable_amount', 'claim_amount'] as $f) {
+            if ($this->getAttribute($f) !== null) {
+                return (string) (float) $this->getAttribute($f);
+            }
+        }
+
+        return null;
     }
 
     /** CS 제시 비율(%) — CS PROPOSED AMOUNT ÷ CLAIM AMOUNT, 표시 전용. */

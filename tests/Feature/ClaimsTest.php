@@ -294,11 +294,17 @@ class ClaimsTest extends TestCase
         $this->post($this->decideUrl($c, $ceo), ['action' => 'reject', 'reason' => ''])->assertStatus(422);
         $this->assertSame(Claim::PENDING_CEO, $c->fresh()->status);
 
-        // 승인
-        $this->post($this->decideUrl($c, $ceo), ['action' => 'approve', 'reason' => '진행'])->assertOk()->assertSee(__('claims.ceo_done_approved'));
+        // 최종 승인인데 확정 금액 없음 = 422(상태 불변)
+        $this->post($this->decideUrl($c, $ceo), ['action' => 'approve', 'reason' => '진행'])->assertStatus(422);
+        $this->assertSame(Claim::PENDING_CEO, $c->fresh()->status);
+
+        // 승인(확정 금액)
+        $this->post($this->decideUrl($c, $ceo), ['action' => 'approve', 'reason' => '진행', 'confirmed_amount' => '800'])->assertOk()->assertSee(__('claims.ceo_done_approved'));
         $c->refresh();
         $this->assertSame(Claim::APPROVED, $c->status);
         $this->assertSame('approved', $c->decision);
+        $this->assertEquals(800, $c->confirmed_amount);
+        $this->assertDatabaseHas('board_audit_logs', ['field' => 'claim_confirmed_amount']);
         $this->assertNotNull($c->decided_at);
         $this->assertDatabaseHas('board_audit_logs', ['action' => 'claim', 'field' => 'claim_decision', 'user_id' => $ceo->id]);
 
@@ -333,21 +339,21 @@ class ClaimsTest extends TestCase
         $this->assertNull($c->decision);
         $this->post($this->decideUrl($c, $ceo, 1), ['action' => 'approve'])->assertStatus(410);
         $this->assertSame(Claim::PENDING_CEO, $c->fresh()->status);
-        $this->post($this->decideUrl($c, $ceo, 2), ['action' => 'approve'])->assertOk();
+        $this->post($this->decideUrl($c, $ceo, 2), ['action' => 'approve', 'confirmed_amount' => '500'])->assertOk();
         $this->assertSame(Claim::APPROVED, $c->fresh()->status);
     }
 
     public function test_approved_can_be_reapproved_or_closed_and_closed_is_final(): void
     {
         [$c, $sales, $h, $ceo] = $this->pending();
-        $this->post($this->decideUrl($c, $ceo), ['action' => 'approve'])->assertOk();
+        $this->post($this->decideUrl($c, $ceo), ['action' => 'approve', 'confirmed_amount' => '500'])->assertOk();
         $c->refresh();
 
         // 합의액 변경 → 재승인(회차 2)
         $this->assertTrue($c->canRequestApproval());
         app(ClaimService::class)->requestApproval($c, $h, ['대표' => $ceo->id]);
         $this->assertSame(2, $c->fresh()->revision);
-        $this->post($this->decideUrl($c->fresh(), $ceo, 2), ['action' => 'approve'])->assertOk();
+        $this->post($this->decideUrl($c->fresh(), $ceo, 2), ['action' => 'approve', 'confirmed_amount' => '500'])->assertOk();
 
         app(ClaimService::class)->close($c->fresh(), $h);
         $c->refresh();
@@ -387,7 +393,7 @@ class ClaimsTest extends TestCase
         $this->get($c->approvalLinkFor($ceo))->assertOk()->assertSee(__('claims.link_not_your_turn', ['title' => '부장', 'name' => '임부장']));
 
         // 부장 승인 → 상무 차례(최종 아님 · 결과 알림 없음)
-        $this->post($this->decideUrl($c, $bujang), ['action' => 'approve', 'reason' => '확인'])->assertOk()
+        $this->post($this->decideUrl($c, $bujang), ['action' => 'approve', 'reason' => '확인', 'confirmed_amount' => '500'])->assertOk()
             ->assertSee(__('claims.passed_to_next', ['title' => '상무', 'name' => '오상무']));
         $c->refresh();
         $this->assertSame(Claim::PENDING_CEO, $c->status);
@@ -398,13 +404,38 @@ class ClaimsTest extends TestCase
         // 같은 부장 링크 다시 = 410(이미 지나간 차례)
         $this->post($this->decideUrl($c, $bujang), ['action' => 'approve'])->assertStatus(410);
 
-        $this->post($this->decideUrl($c, $sangmu), ['action' => 'approve'])->assertOk();
-        $this->post($this->decideUrl($c->fresh(), $ceo), ['action' => 'approve'])->assertOk();
+        $this->post($this->decideUrl($c, $sangmu), ['action' => 'approve', 'confirmed_amount' => '500'])->assertOk();
+        $this->post($this->decideUrl($c->fresh(), $ceo), ['action' => 'approve', 'confirmed_amount' => '500'])->assertOk();
         $c->refresh();
         $this->assertSame(Claim::APPROVED, $c->status);
         $this->assertSame($ceo->id, $c->approver_user_id);
         $this->assertSame(['approved', 'approved', 'approved'], $c->lineSteps()->pluck('status')->all());
         $this->assertSame(3, BoardAuditLog::where('field', 'claim_decision')->count());
+    }
+
+    /** 확정 금액 칸은 최종 결정자(마지막 칸·super)에게만 — 중간 결재자 화면엔 없다. 재요청하면 비워진다. */
+    public function test_confirmed_amount_only_for_final_turn_and_reset_on_rerequest(): void
+    {
+        $this->fakeErp();
+        $sales = $this->mk('김영업');
+        $h = $this->handler();
+        $bujang = $this->mk('임부장', 'manager', 'admin', ['approval_title' => '부장']);
+        $ceo = $this->ceo();
+        $c = $this->intake($sales);
+        $c->forceFill(['cs_proposed_amount' => 700])->save();
+        app(ClaimService::class)->requestApproval($c, $h, ['부장' => $bujang->id, '대표' => $ceo->id]);
+        $c->refresh();
+        $this->assertFalse($c->isFinalTurnFor($bujang));
+        $this->get($c->approvalLinkFor($bujang))->assertOk()->assertDontSee('name="confirmed_amount"', false);
+        $this->post($this->decideUrl($c, $bujang), ['action' => 'approve'])->assertOk();   // 중간 = 금액 없이 통과
+        $c->refresh();
+        $this->assertTrue($c->isFinalTurnFor($ceo));
+        $this->get($c->approvalLinkFor($ceo))->assertOk()->assertSee('name="confirmed_amount"', false)->assertSee('value="700"', false);   // 기본값 = CS 제시
+        $this->post($this->decideUrl($c, $ceo), ['action' => 'approve', 'confirmed_amount' => '650'])->assertOk();
+        $this->assertEquals(650, $c->fresh()->confirmed_amount);
+
+        app(ClaimService::class)->requestApproval($c->fresh(), $h, ['대표' => $ceo->id]);   // 재승인
+        $this->assertNull($c->fresh()->confirmed_amount);
     }
 
     /** 대표는 필수 아님 — 상무에서 끝나면 상무가 최종. 반려 = 그 자리에서 종료 → 재요청은 1단계부터. */
@@ -418,7 +449,7 @@ class ClaimsTest extends TestCase
         $c = $this->intake($sales);
         app(ClaimService::class)->requestApproval($c, $h, ['부장' => $bujang->id, '상무' => $sangmu->id]);
         $c->refresh();
-        $this->post($this->decideUrl($c, $bujang), ['action' => 'approve'])->assertOk();
+        $this->post($this->decideUrl($c, $bujang), ['action' => 'approve', 'confirmed_amount' => '500'])->assertOk();
         $this->post($this->decideUrl($c->fresh(), $sangmu), ['action' => 'reject', 'reason' => '증빙 부족'])->assertOk();
         $c->refresh();
         $this->assertSame(Claim::REJECTED, $c->status);
@@ -429,8 +460,8 @@ class ClaimsTest extends TestCase
         $this->assertSame(2, $c->revision);
         $this->assertSame(1, $c->current_step);   // 이미 승인했던 부장부터 다시
         $this->assertSame($bujang->id, $c->approver_user_id);
-        $this->post($this->decideUrl($c, $bujang), ['action' => 'approve'])->assertOk();
-        $this->post($this->decideUrl($c->fresh(), $sangmu), ['action' => 'approve'])->assertOk();
+        $this->post($this->decideUrl($c, $bujang), ['action' => 'approve', 'confirmed_amount' => '500'])->assertOk();
+        $this->post($this->decideUrl($c->fresh(), $sangmu), ['action' => 'approve', 'confirmed_amount' => '500'])->assertOk();
         $this->assertSame(Claim::APPROVED, $c->fresh()->status);   // 상무 = 최종
     }
 
@@ -448,7 +479,7 @@ class ClaimsTest extends TestCase
         $c->refresh();
         $this->assertTrue($c->canDecide($super, 1));
         $this->get($c->approvalLinkFor($super))->assertOk()->assertSee(__('claims.proxy_banner'));
-        $this->post($this->decideUrl($c, $super), ['action' => 'approve'])->assertOk();
+        $this->post($this->decideUrl($c, $super), ['action' => 'approve', 'confirmed_amount' => '500'])->assertOk();
         $c->refresh();
         $this->assertSame(Claim::APPROVED, $c->status);
         $step = $c->lineSteps()->first();

@@ -67,6 +67,8 @@
             <th>REFUNDABLE</th><td>{{ $claim->refundable_amount === null ? '—' : trim(($claim->claim_currency ?: $claim->sale_currency ?: '').' '.number_format((float) $claim->refundable_amount, fmod((float) $claim->refundable_amount, 1.0) === 0.0 ? 0 : 2)) }}@if (($r = $claim->refundRate()) !== null) <span class="rep-muted">({{ $r }}%)</span>@endif</td></tr>
         {{-- CS 제시금액(2026-11-11 Jin) — CLAIM AMOUNT·REFUNDABLE 바로 아래. 담당자가 사실확인 후 제안한 금액. --}}
         <tr><th>CS PROPOSED AMOUNT</th><td colspan="3">{{ $claim->amountDisplay('cs_proposed_amount') }}@if (($r = $claim->csRate()) !== null) <span class="rep-muted">({{ $r }}%)</span>@endif</td></tr>
+        {{-- 확정 금액 — 최종 결재권자가 승인하며 정한 하나(ERP 로 가는 금액). 결재 전 = 「—」. --}}
+        <tr><th>FINAL AMOUNT</th><td colspan="3"><b>{{ $claim->amountDisplay('confirmed_amount') }}</b>@if ($claim->confirmed_amount === null && $claim->isOpen()) <span class="rep-muted">{{ __('claims.confirmed_pending') }}</span>@endif</td></tr>
     </table>
 
     <div class="rep-h">RESULT</div>
