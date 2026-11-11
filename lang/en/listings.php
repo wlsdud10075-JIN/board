@@ -339,6 +339,7 @@ return [
         'download' => 'Download invoice',
         'download_needs_name' => 'Save a Name before creating the invoice.',
         'no_template' => 'This instance has no invoice template.',
+        'buyer_handover_needed' => 'Ask an ERP manager to hand this buyer over — the buyer belongs to another salesperson, so address and phone were not provided.',
         'downloaded' => 'Created :name. Address, phone and brand are filled only when ERP provides them.',
     ],
 
