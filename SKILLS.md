@@ -858,6 +858,7 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
   ⚠️ 드로어 안내는 계산식 대신 **"매입가 N원 · 매도비 M원으로 각각 전달"**(`auction.amount_split_hint`).
 - 가드 = `test_selling_fee_is_sent_only_when_entered` · `test_selling_fee_goes_through_when_entered` ·
   `test_selling_fee_field_is_shown_for_every_origin`.
+- **매물 표시가 → 차값 미러(2026-11-11 Jin)**: 등록 때 링크 없이 「매물 표시가 (= 차값)」를 손으로 적어도, 차값이 비어 있으면 그 금액을 **선택 통화 그대로** 차값으로 저장한다(`listings` `save()`, 링크 추출 `parseLink`·`pickCurrency` 와 같은 규칙). 종전엔 손으로 적은 값이 안 옮겨져 셀프검차 구매확정이 「차값이 비어 있습니다」로 막혔다(ssancarboard 김성중 06우7069, 등록·삭제 6회). ⚠️ 위 「자동 기입 폐지」(매도비 440,000 같은 지어낸 상수)와 다르다 — 사람이 적은 값을 라벨대로 옮기는 것. 차값을 따로 적었으면 그 값이 우선. 가드 = `test_listings_manual_display_price_mirrors_to_car_cost`.
 
 ### 14-19. 상단 종 + 웹푸시 — 내 §11 요청 결과를 운전 중에도 (2026-10-12 Jin)
 

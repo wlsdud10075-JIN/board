@@ -1240,6 +1240,24 @@ class BoardTest extends TestCase
         $this->assertSame(1, PurchaseListing::where('vin', 'DUPVIN00001')->count());
     }
 
+    /** 매물 표시가 = 차값 — 링크 없이 손으로 적은 표시가도 차값이 비어 있으면 차값으로(통화 그대로). 차값을 따로 적었으면 그 값 유지(2026-11-11 김성중 건). */
+    public function test_listings_manual_display_price_mirrors_to_car_cost(): void
+    {
+        $kim = $this->mkUser('sales');
+        $this->actingAs($kim);
+        Volt::test('listings.index')->set('origin', 'self_inspection')->set('source', 'encar')
+            ->set('vehicle_number', '06우7069')->set('expected_price', '53500000')->set('expected_price_currency', 'KRW')
+            ->call('save')->assertHasNoErrors();
+        $l = PurchaseListing::where('vehicle_number', '06우7069')->firstOrFail();
+        $this->assertSame(53500000, (int) $l->car_cost);
+        $this->assertSame('KRW', $l->expected_price_currency);
+
+        Volt::test('listings.index')->set('origin', 'encar')->set('source', 'encar')
+            ->set('vehicle_number', '12가7777')->set('expected_price', '9000')->set('expected_price_currency', 'USD')->set('car_cost', '8500')
+            ->call('save')->assertHasNoErrors();
+        $this->assertSame(8500, (int) PurchaseListing::where('vehicle_number', '12가7777')->value('car_cost'));   // 따로 적은 차값 우선
+    }
+
     public function test_listings_allows_reregister_after_soft_delete(): void
     {
         $kim = $this->mkUser('sales');

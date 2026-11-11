@@ -1514,6 +1514,12 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         $selfInspection = $this->origin === PurchaseListing::ORIGIN_SELF_INSPECTION;
         $carCost = ($this->car_cost === null || $this->car_cost === '') ? null : (int) $this->car_cost;
+        // 매물 표시가 = 차값(라벨 그대로) — 링크 추출(parseLink·pickCurrency)은 이미 옮기는데 **손으로 적은 표시가는 안 옮겨져**
+        // 차값이 빈 채로 저장됐다(2026-11-11 ssancarboard 김성중 06우7069 등록·삭제 6회, Jin 「미러가 안 돼서 생긴 문제」).
+        // 같은 규칙: 차값이 비어 있을 때만, 선택 통화 금액 그대로(환산 X — expected_price_currency 와 함께 보관).
+        if ($carCost === null && $this->expected_price !== null && $this->expected_price !== '') {
+            $carCost = (int) $this->expected_price;
+        }
         $discount = ($this->discount_rate === null || $this->discount_rate === '') ? null : (float) $this->discount_rate;
         $shipping = $this->shipping_usd ?: null;
 
