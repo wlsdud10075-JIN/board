@@ -453,7 +453,9 @@ class ClaimsTest extends TestCase
         $this->assertTrue($c->canSendToErp());
 
         $this->actingAs($h);
-        Volt::test('claims.index')->call('openDetail', $c->id)->call('sendToErp')->assertSet('notice', __('claims.erp_sent_ok'));
+        Volt::test('claims.index')->call('openDetail', $c->id)->call('openErpModal')->assertSet('erpModal', true)
+            ->assertSee(__('claims.erp_modal_buyer_id', ['id' => 7]))->assertSee('EUR 850')
+            ->call('sendToErp')->assertSet('erpModal', false)->assertSet('notice', __('claims.erp_sent_ok'));
         $c->refresh();
         $this->assertSame(41, (int) $c->erp_claim_id);
         $this->assertSame(1, (int) $c->erp_sent_revision);

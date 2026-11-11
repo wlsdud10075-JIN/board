@@ -43,6 +43,9 @@ new #[Layout('components.layouts.app')] class extends Component
     /** 결재선 모달(2026-11-11 Jin — 드로어 안 상시 칸 대신 [결재 요청] 누르면 모달, 모바일은 하단 시트). */
     public bool $lineModal = false;
 
+    /** [ERP 로 보내기] 확인 모달(2026-11-11 Jin — 받을 바이어가 맞는지 한 번 더 보고 보낸다). */
+    public bool $erpModal = false;
+
     /** 모달 안에서만 보이는 오류(드로어 상단 오류와 분리 — 모달에 가려 안 보이므로). */
     public ?string $lineError = null;
 
@@ -247,12 +250,24 @@ new #[Layout('components.layouts.app')] class extends Component
     }
 
     /** [ERP 로 보내기] — 결재 끝난 건만(승인·반려), 회차당 1회(재승인 뒤 다시). */
+    public function openErpModal(): void
+    {
+        $this->erpModal = (bool) $this->detail?->canSendToErp();
+    }
+
+    public function closeErpModal(): void
+    {
+        $this->erpModal = false;
+    }
+
+    /** 모달 [이 바이어로 보내기] — 받을 바이어·금액을 확인한 뒤에만(버튼 바로 전송 없음). */
     public function sendToErp(ClaimService $svc): void
     {
         $c = $this->detail;
         if (! $c) {
             return;
         }
+        $this->erpModal = false;
         $r = $svc->sendToErp($c, Auth::user());
         if ($r['ok']) {
             $this->notice = __('claims.erp_sent_ok');
@@ -412,8 +427,7 @@ new #[Layout('components.layouts.app')] class extends Component
                                 <span class="badge badge-green">{{ __('claims.erp_sent_badge', ['id' => $d->erp_claim_id ?? '—', 'at' => $d->erp_sent_at->timezone(config('app.timezone'))->format('m-d H:i')]) }}</span>
                             @else
                                 @if ($d->erp_sent_at)<span class="badge badge-amber">{{ __('claims.erp_sent_old', ['rev' => $d->erp_sent_revision]) }}</span>@endif
-                                <button type="button" class="btn-primary btn-sm" wire:click="sendToErp" wire:loading.attr="disabled" wire:target="sendToErp"
-                                        wire:confirm="{{ __('claims.erp_send_confirm', ['amount' => $d->decision === 'approved' ? $d->amountDisplay('confirmed_amount') : '0 (declined)']) }}">
+                                <button type="button" class="btn-primary btn-sm" wire:click="openErpModal">
                                     {{ $d->erp_sent_at ? __('claims.erp_resend_btn') : __('claims.erp_send_btn') }}
                                 </button>
                             @endif
@@ -556,6 +570,45 @@ new #[Layout('components.layouts.app')] class extends Component
                 </details>
             </div>
         </div>
+
+        {{-- ─────────── ERP 보내기 확인 모달 — 받을 바이어·차량·금액을 보고 보낸다(2026-11-11 Jin) ─────────── --}}
+        @if ($erpModal)
+            @php $accepted = $d->decision === 'approved'; @endphp
+            <div class="fixed inset-0 z-[60] bg-black/40" wire:click="closeErpModal"></div>
+            <div class="fixed inset-x-0 bottom-0 z-[70] max-h-[85vh] overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl
+                        sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-[440px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl"
+                 x-data @keydown.escape.window="$wire.closeErpModal()">
+                <div class="mb-1 flex items-center justify-between">
+                    <h4 class="font-bold text-gray-800">{{ __('claims.erp_modal_title') }}</h4>
+                    <button type="button" class="text-gray-400 hover:text-gray-600" wire:click="closeErpModal">✕</button>
+                </div>
+                <p class="mb-3 text-xs text-gray-500">{{ __('claims.erp_modal_hint') }}</p>
+
+                {{-- 받을 바이어 — 가장 크게. 접수 때 ERP 판매 행에서 가져온 바이어(board 가 매칭한 값). --}}
+                <div class="rounded-lg border-2 {{ $d->car_erp_buyer_id ? 'border-[var(--color-primary)] bg-[#f5f8ff]' : 'border-amber-300 bg-amber-50' }} px-3 py-2.5">
+                    <div class="text-[11px] font-semibold text-gray-500">{{ __('claims.erp_modal_buyer') }}</div>
+                    <div class="text-base font-bold text-gray-900">{{ $d->buyer_name ?: '—' }}</div>
+                    <div class="text-xs text-gray-500">{{ $d->car_erp_buyer_id ? __('claims.erp_modal_buyer_id', ['id' => $d->car_erp_buyer_id]) : __('claims.erp_modal_no_buyer_id') }}</div>
+                </div>
+
+                <table class="mt-3 w-full text-sm">
+                    <tr><td class="py-1 text-gray-500">{{ __('claims.erp_modal_vehicle') }}</td><td class="py-1 text-right font-semibold">{{ \App\Support\Plate::show($d->vehicle_number) }}<div class="text-[11px] font-normal text-gray-400">{{ $d->vin ?: '' }}</div></td></tr>
+                    <tr><td class="py-1 text-gray-500">{{ __('claims.erp_modal_result') }}</td><td class="py-1 text-right"><span class="badge {{ $accepted ? 'badge-green' : 'badge-red' }}">{{ $accepted ? 'accepted' : 'declined' }}</span></td></tr>
+                    <tr><td class="py-1 text-gray-500">FINAL AMOUNT</td><td class="py-1 text-right text-base font-bold">{{ $accepted ? $d->amountDisplay('confirmed_amount') : '0' }}</td></tr>
+                    <tr><td class="py-1 text-gray-500">COMPENSATION</td><td class="py-1 text-right">{{ $d->compensation_type ? strtoupper($d->compensation_type) : '—' }}</td></tr>
+                    <tr><td class="py-1 text-gray-500">{{ __('claims.erp_modal_count') }}</td><td class="py-1 text-right">{{ $d->buyerClaimCount() }}</td></tr>
+                </table>
+                <p class="mt-3 text-xs text-gray-500">{{ __('claims.erp_modal_wrong_buyer') }}</p>
+
+                <div class="mt-4 flex gap-2">
+                    <button type="button" class="btn-outline flex-1 justify-center py-2.5" wire:click="closeErpModal">{{ __('common.cancel') }}</button>
+                    <button type="button" class="btn-primary flex-1 justify-center py-2.5" wire:click="sendToErp" wire:loading.attr="disabled" wire:target="sendToErp">
+                        <span wire:loading.remove wire:target="sendToErp">{{ __('claims.erp_modal_send') }}</span>
+                        <span wire:loading wire:target="sendToErp">{{ __('claims.saving') }}</span>
+                    </button>
+                </div>
+            </div>
+        @endif
 
         {{-- ─────────── 결재선 모달(모바일 = 하단 시트 · PC = 가운데 창) ─────────── --}}
         @if ($lineModal)
