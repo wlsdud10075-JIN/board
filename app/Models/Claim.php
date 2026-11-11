@@ -63,7 +63,7 @@ class Claim extends Model
     public const RESEND_COOLDOWN_MINUTES = 10;
 
     protected $fillable = [
-        'status', 'revision',
+        'status', 'revision', 'current_step',
         'car_erp_vehicle_id', 'purchase_listing_id', 'vehicle_number', 'vin', 'brand', 'model_type',
         'car_erp_buyer_id', 'buyer_name', 'buyer_contact_name', 'sale_price', 'sale_currency', 'sale_date', 'eta_date',
         'total_purchase_count', 'year_purchase_count', 'buyer_credit_grade', 'buyer_credit_score', 'member_since', 'purchase_history', 'margin_rate', 'erp_snapshot_at',
@@ -133,9 +133,60 @@ class Claim extends Model
         return $this->belongsTo(User::class, 'requested_by_user_id');
     }
 
+    /** 지금 차례 결재자(결재 중) 또는 마지막으로 결정한 사람(결재 끝). */
     public function approver(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approver_user_id');
+    }
+
+    /** 결재선 전 회차. 화면은 `lineSteps()`(현재 회차)만 쓴다. */
+    public function steps(): HasMany
+    {
+        return $this->hasMany(ClaimStep::class)->orderBy('revision')->orderBy('seq');
+    }
+
+    /** 현재 회차 결재선(부장 → 상무 → 대표 중 지정한 칸). */
+    public function lineSteps()
+    {
+        return $this->steps->where('revision', $this->revision)->sortBy('seq')->values();
+    }
+
+    public function currentStep(): ?ClaimStep
+    {
+        return $this->current_step ? $this->lineSteps()->firstWhere('seq', (int) $this->current_step) : null;
+    }
+
+    /**
+     * 결재선 후보(2026-11-11 Jin) — 최고관리자 등급 + 결재 직급(부장·상무·대표), 직급당 1명(사용자관리 규칙). 순서 = 부장 → 상무 → 대표.
+     *
+     * @return array<string, ?User> 직급 => 그 사람(없으면 null)
+     */
+    public static function lineCandidates(): array
+    {
+        $out = [];
+        foreach (User::TOP_TITLES as $title) {
+            $out[$title] = User::where('approval_title', $title)->where('permission', 'admin')->where('is_active', true)->orderBy('id')->first();
+        }
+
+        return $out;
+    }
+
+    /**
+     * 결재선 기본값 — 지난 클레임 결재선(그 사람이 아직 그 직급이면), 없으면 직급 보유자 전원(ERP 월정산과 같은 결).
+     *
+     * @return array<string, ?int> 직급 => user id|null
+     */
+    public static function defaultLine(): array
+    {
+        $cand = self::lineCandidates();
+        $last = ClaimStep::query()->latest('id')->first();
+        if ($last) {
+            $prev = ClaimStep::where('claim_id', $last->claim_id)->where('revision', $last->revision)->pluck('approver_user_id', 'title')->all();
+
+            return collect($cand)->map(fn ($u, $t) => ($u && (int) ($prev[$t] ?? 0) === $u->id) ? $u->id : null)->all();
+        }
+
+        return collect($cand)->map(fn ($u) => $u?->id)->all();
     }
 
     public function listing(): BelongsTo
@@ -174,12 +225,20 @@ class Claim extends Model
     }
 
     /**
-     * 이 사람·이 회차 링크로 결정할 수 있나 — 상태 pending_ceo + 지정 승인자 + 링크의 revision 이 현재 회차.
-     * 옛 링크(이전 회차)가 재승인 요청을 결정하지 못하게 revision 을 서명에 묶는다.
+     * 이 사람·이 회차 링크로 지금 결정할 수 있나 — 결재 중 + 링크 회차 = 현재 회차 + (지금 차례 결재자 본인 또는 super).
+     * 링크는 사람에 묶이고 「차례」는 결정 시점에 판정(ERP 월정산 canDecide 와 같은 결) — 지난 단계 사람의 링크로 다음 단계를 못 누른다.
+     * super = 어느 단계든 결정 가능(Jin 2026-11-11 「SUPER 는 무조건 전부 다 권한」).
      */
     public function canDecide(?User $u, int $revision): bool
     {
-        return $u !== null && $this->isPendingCeo() && (int) $this->approver_user_id === (int) $u->id && (int) $this->revision === $revision;
+        if ($u === null || ! $this->isPendingCeo() || (int) $this->revision !== $revision || ! $u->is_active) {
+            return false;
+        }
+        if ($u->isSuper()) {
+            return true;
+        }
+
+        return (int) $this->currentStep()?->approver_user_id === (int) $u->id;
     }
 
     /** 재전송 연타 방지 — 마지막 알림 뒤 10분. */

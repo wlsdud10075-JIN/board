@@ -137,6 +137,13 @@ new class extends Component
         return $q;
     }
 
+    /** 내 결재 차례 — 결재 중이고 지금 차례가 나인 건(알림 시각 기준). 부장·상무·대표가 링크 없이도 종에서 본다. */
+    private function claimTurnQuery()
+    {
+        return \App\Models\Claim::query()->where('status', \App\Models\Claim::PENDING_CEO)
+            ->where('approver_user_id', Auth::id())->whereNotNull('request_notified_at')->orderByDesc('request_notified_at');
+    }
+
     /** 내게 온 결재 결과 — 내가 접수 영업이거나 승인 요청한 담당자인 건(결정 시각 기준). */
     private function claimDecidedQuery()
     {
@@ -172,6 +179,10 @@ new class extends Component
             $this->dispatch('forward-arrived', type: 'done', msg: __('nav.bell.toast_claim_new', ['count' => $claimNewFresh]));
         }
         $holdUnread += $this->claimDecidedQuery()->where('decided_at', '>', Carbon::parse($this->seenAt))->count();
+        $holdUnread += $this->claimTurnQuery()->where('request_notified_at', '>', Carbon::parse($this->seenAt))->count();
+        if (($turnFresh = $this->claimTurnQuery()->where('request_notified_at', '>', Carbon::parse($this->pollFrom))->count()) > 0) {
+            $this->dispatch('forward-arrived', type: 'done', msg: __('nav.bell.toast_claim_turn', ['count' => $turnFresh]));
+        }
         $claimFresh = $this->claimDecidedQuery()->where('decided_at', '>', Carbon::parse($this->pollFrom))->get();
         $claimOk = $claimFresh->where('decision', 'approved')->count();
         if ($claimOk > 0) {
@@ -234,6 +245,12 @@ new class extends Component
                 'text' => \Illuminate\Support\Str::limit($c->content, 80),
                 'at' => $c->created_at->timezone(config('app.timezone'))->format('m-d H:i'), 'new' => $c->created_at->gt($seen),
                 'href' => route('claims'),
+            ]))
+            ->merge($this->claimTurnQuery()->limit(10)->get()->map(fn ($c) => [
+                'id' => $c->id, 'kind' => 'turn', 'plate' => $c->vehicle_number, 'buyer' => $c->buyer_name,
+                'text' => $c->claimAmountDisplay(),
+                'at' => $c->request_notified_at->timezone(config('app.timezone'))->format('m-d H:i'), 'new' => $c->request_notified_at->gt($seen),
+                'href' => $c->approvalLinkFor(Auth::user()),
             ]))
             ->merge($this->claimDecidedQuery()->limit(10)->get()->map(fn ($c) => [
                 'id' => $c->id, 'kind' => $c->decision === 'approved' ? 'approved' : 'rejected', 'plate' => $c->vehicle_number, 'buyer' => $c->buyer_name,
@@ -373,10 +390,10 @@ new class extends Component
                                 default => ['bg-amber-50/60', 'badge-amber', 'text-amber-700'],
                             };
                         @endphp
-                        <a wire:key="bell-c-{{ $cl['kind'] }}-{{ $cl['id'] }}" href="{{ $cl['href'] }}" wire:navigate class="block border-b border-gray-50 px-3 py-2 hover:bg-gray-50 {{ $cl['new'] ? $bg : '' }}">
+                        <a wire:key="bell-c-{{ $cl['kind'] }}-{{ $cl['id'] }}" href="{{ $cl['href'] }}" @if ($cl['kind'] === 'turn') target="_blank" @else wire:navigate @endif class="block border-b border-gray-50 px-3 py-2 hover:bg-gray-50 {{ $cl['new'] ? $bg : '' }}">
                             <div class="flex items-center justify-between gap-2">
                                 <span class="text-[13px] font-semibold text-gray-800">{{ \App\Support\Plate::show($cl['plate']) }}@if ($cl['buyer']) <span class="font-normal text-gray-500">· {{ $cl['buyer'] }}</span>@endif</span>
-                                <span class="badge {{ $badge }} shrink-0 whitespace-nowrap">{{ $cl['kind'] === 'new' ? __('nav.bell.claim_new_chip') : ($cl['kind'] === 'approved' ? __('nav.bell.claim_chip_approved') : __('nav.bell.claim_chip_rejected')) }}</span>
+                                <span class="badge {{ $badge }} shrink-0 whitespace-nowrap">{{ match ($cl['kind']) { 'new' => __('nav.bell.claim_new_chip'), 'turn' => __('nav.bell.claim_turn_chip'), 'approved' => __('nav.bell.claim_chip_approved'), default => __('nav.bell.claim_chip_rejected') } }}</span>
                             </div>
                             @if ($cl['text'] !== '')<p class="mt-0.5 text-[12px] {{ $txt }}">{{ $cl['text'] }}</p>@endif
                             <p class="mt-0.5 text-[11px] text-gray-400">{{ $cl['at'] }}@if ($cl['new'])<span class="ml-1 rounded bg-red-600 px-1 text-[10px] font-bold text-white">{{ __('nav.bell.new') }}</span>@endif</p>

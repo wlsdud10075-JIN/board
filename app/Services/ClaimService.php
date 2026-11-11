@@ -218,18 +218,15 @@ class ClaimService
         }
     }
 
-    /** 대표 계정 — approval_title=대표 활성 1명. 없으면 null(요청 버튼 비활성 + 안내). 상무·부장 대체 없음(2026-11-10 가정). */
-    public static function ceo(): ?User
-    {
-        return User::where('approval_title', '대표')->where('is_active', true)->orderBy('id')->first();
-    }
-
     /**
-     * [대표 승인 요청] — 상태 pending_ceo + 회차 +1 + 알림톡 ①(버튼 = 서명 링크) + 웹푸시.
+     * [결재 요청] — 결재선(부장 → 상무 → 대표 중 지정한 칸) 을 이 회차로 만들고 1단계 결재자에게 알림톡·푸시(2026-11-11 Jin 결재트리).
+     * 대표는 필수 아님 — 지정한 마지막 칸이 최종 결재권자(상무에서 끝나면 상무). 회차 +1 = 반려 뒤 재요청·합의액 변경 재승인 모두 1단계부터.
      *
-     * @throws \DomainException no_ceo · no_phone · overdue_reason_required · not_requestable
+     * @param  array<string, int|string|null>  $line  직급 => user id(빈 값 = 그 직급 건너뜀)
+     *
+     * @throws \DomainException not_requestable · overdue_reason_required · no_line · bad_line
      */
-    public function requestApproval(Claim $claim, User $handler): Claim
+    public function requestApproval(Claim $claim, User $handler, array $line): Claim
     {
         if (! $claim->canRequestApproval()) {
             throw new \DomainException('not_requestable');
@@ -237,99 +234,141 @@ class ClaimService
         if ($claim->isOverdue() && trim((string) $claim->overdue_reason) === '') {
             throw new \DomainException('overdue_reason_required');
         }
-        $ceo = self::ceo();
-        if ($ceo === null) {
-            throw new \DomainException('no_ceo');
+        $cand = Claim::lineCandidates();
+        $picked = [];
+        foreach (User::TOP_TITLES as $title) {
+            $id = (int) ($line[$title] ?? 0);
+            if ($id === 0) {
+                continue;
+            }
+            if (! $cand[$title] || $cand[$title]->id !== $id) {
+                throw new \DomainException('bad_line');   // 그 직급 사람이 아니다(화면 조작·직급 변경)
+            }
+            $picked[$title] = $cand[$title];
+        }
+        if ($picked === []) {
+            throw new \DomainException('no_line');
         }
 
         $from = $claim->status;
-        $claim->forceFill([
-            'status' => Claim::PENDING_CEO,
-            'revision' => $claim->revision + 1,
-            'approver_user_id' => $ceo->id,
-            'requested_at' => now(),
-            'requested_by_user_id' => $handler->id,
-            'decided_at' => null, 'decision' => null, 'decision_reason' => null, 'decision_ip' => null,
-        ])->save();
+        $first = null;
+        DB::transaction(function () use ($claim, $handler, $picked, &$first) {
+            $rev = $claim->revision + 1;
+            $seq = 0;
+            foreach ($picked as $title => $u) {
+                $claim->steps()->create(['revision' => $rev, 'seq' => ++$seq, 'title' => $title, 'approver_user_id' => $u->id, 'status' => 'pending']);
+            }
+            $first = reset($picked);
+            $claim->forceFill([
+                'status' => Claim::PENDING_CEO,
+                'revision' => $rev,
+                'current_step' => 1,
+                'approver_user_id' => $first->id,
+                'requested_at' => now(),
+                'requested_by_user_id' => $handler->id,
+                'decided_at' => null, 'decision' => null, 'decision_reason' => null, 'decision_ip' => null,
+            ])->save();
+        });
+        $claim->unsetRelation('steps');
 
         $this->audit($claim, $handler->id, 'claim_status', $from, Claim::PENDING_CEO);
         $this->audit($claim, $handler->id, 'claim_request', null, __('claims.audit_request', [
-            'rev' => $claim->revision, 'ceo' => $ceo->name, 'amount' => $claim->claimAmountDisplay(),
+            'rev' => $claim->revision, 'line' => collect($picked)->map(fn ($u, $t) => $t.' '.$u->name)->implode(' → '), 'amount' => $claim->claimAmountDisplay(),
         ]));
 
-        $this->notifyCeo($claim, $ceo, $handler);
+        $this->notifyStep($claim, $first);
 
         return $claim;
     }
 
-    /** [다시 보내기] — 같은 회차 링크를 다시 알림(10분 연타 방지). */
+    /** [다시 보내기] — 지금 차례 결재자에게 같은 회차 링크를 다시(10분 연타 방지). */
     public function resend(Claim $claim, User $handler): void
     {
         if (! $claim->canResend()) {
             throw new \DomainException('resend_cooldown');
         }
-        $ceo = $claim->approver ?? self::ceo();
-        if ($ceo === null) {
-            throw new \DomainException('no_ceo');
+        $u = $claim->currentStep()?->approver;
+        if ($u === null) {
+            throw new \DomainException('not_requestable');
         }
-        $this->audit($claim, $handler->id, 'claim_request', null, __('claims.audit_resend', ['rev' => $claim->revision, 'ceo' => $ceo->name]));
-        $this->notifyCeo($claim, $ceo, $handler);
+        $this->audit($claim, $handler->id, 'claim_request', null, __('claims.audit_resend', ['rev' => $claim->revision, 'name' => $u->name]));
+        $this->notifyStep($claim, $u);
     }
 
-    private function notifyCeo(Claim $claim, User $ceo, User $handler): void
+    /** 차례가 온 결재자 1명에게 — 알림톡(버튼 = 그 사람 서명 링크) + 웹푸시. 단계마다 같은 템플릿(ERP 월정산과 같은 결). */
+    private function notifyStep(Claim $claim, User $approver): void
     {
-        $link = $claim->approvalLinkFor($ceo);
-        if (trim((string) $ceo->phone) !== '') {
-            BizmAlimtalkService::active()->send('board_claim_approval_request', $ceo->phone, [
+        $link = $claim->approvalLinkFor($approver);
+        if (trim((string) $approver->phone) !== '') {
+            BizmAlimtalkService::active()->send('board_claim_approval_request', $approver->phone, [
                 '차량번호' => $claim->vehicle_number,
                 '바이어' => $claim->buyer_name ?: '—',
                 '청구액' => $claim->claimAmountDisplay(),
-                '담당자' => $handler->name,
-            ], ['user_id' => $ceo->id], [
+                '담당자' => $claim->requester?->name ?? '—',
+            ], ['user_id' => $approver->id], [
                 ['name' => AlimtalkTemplates::TEMPLATES['board_claim_approval_request']['button'][0]['name'], 'url' => $link],
             ]);
         }
-        $this->push($ceo, __('claims.push_request_title'), Plate::show($claim->vehicle_number).' · '.($claim->buyer_name ?: '—').' · '.$claim->claimAmountDisplay(), $link, 'claim-req-'.$claim->id);
+        $this->push($approver, __('claims.push_request_title'), Plate::show($claim->vehicle_number).' · '.($claim->buyer_name ?: '—').' · '.$claim->claimAmountDisplay(), $link, 'claim-req-'.$claim->id);
         $claim->forceFill(['request_notified_at' => now()])->saveQuietly();
     }
 
-    // ── 대표 ──
+    // ── 결재 ──
 
     /**
-     * 승인/반려(서명 링크 POST). 트랜잭션 + lockForUpdate 재조회(더블클릭 2회 처리 방지, ERP 11-09 교훈) + canDecide(상태·승인자·회차).
+     * 승인/반려(서명 링크 POST 또는 super). 트랜잭션 + lockForUpdate 재조회(더블클릭 2회 처리 방지 — 승인·반려 둘 다) + canDecide(상태·차례·회차).
+     * 승인 = 다음 칸으로(마지막 칸이면 최종 승인) · super 승인 = 남은 칸과 무관하게 즉시 최종(ERP 월정산 대행과 같은 결) · 반려 = 그 건 rejected(사유 필수).
+     * 알림 = 다음 결재자에게 요청 / 최종 승인·반려 때만 담당자+영업에게 결과(중간 진행 알림 없음).
      *
      * @throws \DomainException reason_required · not_decidable
      */
-    public function decide(Claim $claim, User $ceo, int $revision, string $action, string $reason, ?string $ip): Claim
+    public function decide(Claim $claim, User $actor, int $revision, string $action, string $reason, ?string $ip): Claim
     {
         $reason = trim($reason);
         if ($action === 'reject' && $reason === '') {
             throw new \DomainException('reason_required');
         }
 
-        return DB::transaction(function () use ($claim, $ceo, $revision, $action, $reason, $ip) {
+        $next = null;
+        $fresh = DB::transaction(function () use ($claim, $actor, $revision, $action, $reason, $ip, &$next) {
             $fresh = Claim::query()->lockForUpdate()->findOrFail($claim->id);
-            if (! $fresh->canDecide($ceo, $revision)) {
+            if (! $fresh->canDecide($actor, $revision)) {
                 throw new \DomainException('not_decidable');
+            }
+            $step = $fresh->currentStep();
+            $proxy = (int) $step->approver_user_id !== (int) $actor->id;   // super 대행
+            $note = trim($reason.($proxy ? ' '.__('claims.proxy_note') : '')) ?: null;
+            $step->update(['status' => $action === 'approve' ? 'approved' : 'rejected', 'acted_at' => now(), 'acted_by_user_id' => $actor->id, 'note' => $note]);
+
+            $next = $action === 'approve' && ! $proxy ? $fresh->lineSteps()->first(fn ($s) => $s->seq > $step->seq && $s->status === 'pending') : null;
+            $this->audit($fresh, $actor->id, 'claim_decision', null, __('claims.audit_step', [
+                'rev' => $fresh->revision, 'title' => $step->title, 'result' => $action === 'approve' ? __('claims.status.approved') : __('claims.status.rejected'),
+                'reason' => $reason !== '' ? $reason : '—', 'proxy' => $proxy ? ' '.__('claims.proxy_note') : '',
+            ]), $ip);
+
+            if ($next) {
+                $fresh->forceFill(['current_step' => $next->seq, 'approver_user_id' => $next->approver_user_id])->save();
+
+                return $fresh;
             }
             $to = $action === 'approve' ? Claim::APPROVED : Claim::REJECTED;
             $fresh->forceFill([
-                'status' => $to,
-                'decided_at' => now(),
-                'decision' => $to,
-                'decision_reason' => $reason !== '' ? $reason : null,
-                'decision_ip' => $ip,
+                'status' => $to, 'current_step' => null, 'approver_user_id' => $actor->id,
+                'decided_at' => now(), 'decision' => $to, 'decision_reason' => $reason !== '' ? $reason : null, 'decision_ip' => $ip,
             ])->save();
-
-            $this->audit($fresh, $ceo->id, 'claim_status', Claim::PENDING_CEO, $to, $ip);
-            $this->audit($fresh, $ceo->id, 'claim_decision', null, __('claims.audit_decision', [
-                'rev' => $fresh->revision, 'result' => $fresh->statusLabel(), 'reason' => $reason !== '' ? $reason : '—',
-            ]), $ip);
-
-            $this->notifyDecision($fresh);
+            $this->audit($fresh, $actor->id, 'claim_status', Claim::PENDING_CEO, $to, $ip);
 
             return $fresh;
         });
+
+        $fresh->unsetRelation('steps');
+        if ($next) {
+            $this->notifyStep($fresh, $next->approver);
+        } else {
+            $this->notifyDecision($fresh);
+        }
+
+        return $fresh;
     }
 
     private function notifyDecision(Claim $claim): void

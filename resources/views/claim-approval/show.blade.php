@@ -74,7 +74,17 @@
             {{ __('claims.ceo_already', ['result' => $claim->statusLabel(), 'at' => $claim->decided_at?->timezone(config('app.timezone'))->format('Y-m-d H:i') ?? '—']) }}
         </div>
     @elseif (! $decidable)
-        <div class="banner warn">{{ __('claims.link_not_decidable') }}</div>
+        @php $cur = $claim->currentStep(); @endphp
+        <div class="banner warn">{{ $cur ? __('claims.link_not_your_turn', ['title' => $cur->title, 'name' => $cur->approver?->name ?? '—']) : __('claims.link_not_decidable') }}</div>
+    @elseif ($user && $user->isSuper() && (int) $claim->currentStep()?->approver_user_id !== (int) $user->id)
+        <div class="banner warn">{{ __('claims.proxy_banner') }}</div>
+    @endif
+    @if ($claim->lineSteps()->isNotEmpty())
+        <div class="card" style="padding:10px 16px;font-size:13px">
+            @foreach ($claim->lineSteps() as $s)
+                <span style="white-space:nowrap">{{ $s->status === 'approved' ? '✅' : ($s->status === 'rejected' ? '⛔' : ((int) $s->seq === (int) $claim->current_step ? '⏳' : '·')) }} {{ $s->title }} {{ $s->approver?->name ?? '—' }}</span>@if (! $loop->last) <span style="color:#d1d5db">→</span> @endif
+            @endforeach
+        </div>
     @endif
     @if ($claim->isOverdue())
         <div class="banner warn">⚠️ {{ __('claims.overdue_banner', ['days' => $claim->daysAfterArrival()]) }}</div>

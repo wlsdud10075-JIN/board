@@ -94,6 +94,8 @@ return [
         'push_title_hold' => '🔔 검차 보류',
         // 클레임(2026-11-10) — 담당자: 새 접수 / 영업·담당자: 대표 결재 결과. board DB 값(ERP 아님).
         'claims_new' => '새 클레임 접수',
+        'toast_claim_turn' => '📋 클레임 결재 차례 :count건 — 종을 눌러 결재하세요',
+        'claim_turn_chip' => '결재 차례',
         'claim_new_chip' => '접수',
         'claims_decided' => '클레임 결재 결과',
         'claim_chip_approved' => '승인',

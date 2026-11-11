@@ -39,7 +39,7 @@ class ClaimApprovalController extends Controller
         }
 
         try {
-            $svc->decide($claim, $user, $rev, $action, $reason, $request->ip());
+            $after = $svc->decide($claim, $user, $rev, $action, $reason, $request->ip());
         } catch (\DomainException $e) {
             if ($e->getMessage() === 'reason_required') {
                 return response()->view('claim-approval.show', $this->viewData($request, $claim, $ssancar, __('claims.reject_reason_required')), 422);
@@ -48,7 +48,12 @@ class ClaimApprovalController extends Controller
             return response()->view('claim-approval.result', ['claim' => $claim->fresh(), 'result' => 'error', 'message' => __('claims.link_not_decidable')], 410);
         }
 
-        return view('claim-approval.result', ['claim' => $claim->fresh(), 'result' => $action, 'message' => null]);
+        // 중간 결재자 승인 = 다음 칸으로 넘어감(최종 아님) — 결과 화면에 누구에게 넘어갔는지.
+        $message = $after->isPendingCeo() && ($n = $after->currentStep())
+            ? __('claims.passed_to_next', ['title' => $n->title, 'name' => $n->approver?->name ?? '—'])
+            : null;
+
+        return view('claim-approval.result', ['claim' => $after, 'result' => $action, 'message' => $message]);
     }
 
     private function viewData(Request $request, Claim $claim, SsancarMediaService $ssancar, ?string $error): array
@@ -61,7 +66,7 @@ class ClaimApprovalController extends Controller
             : null;
 
         return [
-            'claim' => $claim->load(['files', 'salesman', 'requester', 'approver', 'listing']),
+            'claim' => $claim->load(['files', 'salesman', 'requester', 'approver', 'listing', 'steps.approver', 'steps.actor']),
             'user' => $user,
             'decidable' => $decidable,
             'decideUrl' => $decideUrl,

@@ -199,24 +199,29 @@ class ClaimsTest extends TestCase
         $c = $this->intake($sales, null, ['arrived_at' => now()->subDays(20)->format('Y-m-d')]);
         $svc = app(ClaimService::class);
 
-        // 대표 없음
+        $ceo = $this->ceo();
         try {
-            $svc->requestApproval($c, $h);
-            $this->fail('no_ceo expected');
+            $svc->requestApproval($c, $h, ['대표' => $ceo->id]);
+            $this->fail('overdue expected');
         } catch (\DomainException $e) {
             $this->assertSame('overdue_reason_required', $e->getMessage());   // 기한 초과 사유가 먼저
         }
         $c->forceFill(['overdue_reason' => '바이어 요청·귀책 가능성 있음'])->save();
         try {
-            $svc->requestApproval($c, $h);
-            $this->fail('no_ceo expected');
+            $svc->requestApproval($c, $h, []);   // 결재선 비움
+            $this->fail('no_line expected');
         } catch (\DomainException $e) {
-            $this->assertSame('no_ceo', $e->getMessage());
+            $this->assertSame('no_line', $e->getMessage());
+        }
+        try {
+            $svc->requestApproval($c, $h, ['부장' => $ceo->id]);   // 대표를 부장 칸에 — 그 직급 사람이 아님
+            $this->fail('bad_line expected');
+        } catch (\DomainException $e) {
+            $this->assertSame('bad_line', $e->getMessage());
         }
 
-        $ceo = $this->ceo();
         $c->forceFill(['claim_amount' => 1000, 'claim_currency' => 'EUR'])->save();
-        $svc->requestApproval($c->fresh(), $h);
+        $svc->requestApproval($c->fresh(), $h, ['대표' => $ceo->id]);
         $c->refresh();
         $this->assertSame(Claim::PENDING_CEO, $c->status);
         $this->assertSame(1, $c->revision);
@@ -257,7 +262,7 @@ class ClaimsTest extends TestCase
         $h->forceFill(['phone' => '010-5555-6666'])->save();
         $ceo = $this->ceo();
         $c = $this->intake($sales);
-        app(ClaimService::class)->requestApproval($c, $h);
+        app(ClaimService::class)->requestApproval($c, $h, ['대표' => $ceo->id]);
 
         return [$c->fresh(), $sales, $h, $ceo];
     }
@@ -320,7 +325,7 @@ class ClaimsTest extends TestCase
 
         // 담당자 수정 뒤 재요청 → 회차 2, 옛 회차 링크는 410
         $this->assertTrue($c->canRequestApproval());
-        app(ClaimService::class)->requestApproval($c, $h);
+        app(ClaimService::class)->requestApproval($c, $h, ['대표' => $ceo->id]);
         $c->refresh();
         $this->assertSame(2, $c->revision);
         $this->assertSame(Claim::PENDING_CEO, $c->status);
@@ -339,7 +344,7 @@ class ClaimsTest extends TestCase
 
         // 합의액 변경 → 재승인(회차 2)
         $this->assertTrue($c->canRequestApproval());
-        app(ClaimService::class)->requestApproval($c, $h);
+        app(ClaimService::class)->requestApproval($c, $h, ['대표' => $ceo->id]);
         $this->assertSame(2, $c->fresh()->revision);
         $this->post($this->decideUrl($c->fresh(), $ceo, 2), ['action' => 'approve'])->assertOk();
 
@@ -350,6 +355,125 @@ class ClaimsTest extends TestCase
         $this->expectException(\DomainException::class);
         $c->status = Claim::PENDING_CEO;
         $c->save();
+    }
+
+    // ── 결재트리(2026-11-11 Jin) ──
+
+    /** 부장 → 상무 → 대표 차례로 — 중간 승인은 다음 칸으로(요청 알림톡이 다음 사람에게), 대표 승인 = 최종. 차례 아닌 사람 링크 = 410. */
+    public function test_approval_line_runs_in_order_and_notifies_each_turn(): void
+    {
+        $this->fakeErp();
+        foreach (['alimtalk_enabled' => '1', 'alimtalk_toggle_board_claim_approval_request' => '1'] as $k => $v) {
+            Setting::updateOrCreate(['key' => $k], ['value' => $v, 'type' => 'boolean']);
+        }
+        foreach (['alimtalk_userid' => 'uid', 'alimtalk_profile' => '@p', 'alimtalk_tmpl_board_claim_approval_request' => 'T'] as $k => $v) {
+            Setting::updateOrCreate(['key' => $k], ['value' => $v, 'type' => 'string']);
+        }
+        $sales = $this->mk('김영업');
+        $h = $this->handler();
+        $bujang = $this->mk('임부장', 'manager', 'admin', ['approval_title' => '부장', 'phone' => '010-7777-0001']);
+        $sangmu = $this->mk('오상무', 'manager', 'admin', ['approval_title' => '상무', 'phone' => '010-7777-0002']);
+        $ceo = $this->ceo('010-7777-0003');
+        $c = $this->intake($sales);
+        app(ClaimService::class)->requestApproval($c, $h, ['부장' => $bujang->id, '상무' => $sangmu->id, '대표' => $ceo->id]);
+        $c->refresh();
+        $this->assertSame(1, $c->current_step);
+        $this->assertSame($bujang->id, $c->approver_user_id);
+        $this->assertSame(['01077770001'], AlimtalkLog::where('template_code', 'board_claim_approval_request')->pluck('phone')->all());
+
+        // 대표 링크로 지금(부장 차례) 결정 시도 = 410, 상태 불변
+        $this->post($this->decideUrl($c, $ceo), ['action' => 'approve'])->assertStatus(410);
+        $this->get($c->approvalLinkFor($ceo))->assertOk()->assertSee(__('claims.link_not_your_turn', ['title' => '부장', 'name' => '임부장']));
+
+        // 부장 승인 → 상무 차례(최종 아님 · 결과 알림 없음)
+        $this->post($this->decideUrl($c, $bujang), ['action' => 'approve', 'reason' => '확인'])->assertOk()
+            ->assertSee(__('claims.passed_to_next', ['title' => '상무', 'name' => '오상무']));
+        $c->refresh();
+        $this->assertSame(Claim::PENDING_CEO, $c->status);
+        $this->assertSame(2, $c->current_step);
+        $this->assertSame($sangmu->id, $c->approver_user_id);
+        $this->assertSame(0, AlimtalkLog::where('template_code', 'board_claim_decision')->count());
+        $this->assertContains('01077770002', AlimtalkLog::where('template_code', 'board_claim_approval_request')->pluck('phone')->all());
+        // 같은 부장 링크 다시 = 410(이미 지나간 차례)
+        $this->post($this->decideUrl($c, $bujang), ['action' => 'approve'])->assertStatus(410);
+
+        $this->post($this->decideUrl($c, $sangmu), ['action' => 'approve'])->assertOk();
+        $this->post($this->decideUrl($c->fresh(), $ceo), ['action' => 'approve'])->assertOk();
+        $c->refresh();
+        $this->assertSame(Claim::APPROVED, $c->status);
+        $this->assertSame($ceo->id, $c->approver_user_id);
+        $this->assertSame(['approved', 'approved', 'approved'], $c->lineSteps()->pluck('status')->all());
+        $this->assertSame(3, \App\Models\BoardAuditLog::where('field', 'claim_decision')->count());
+    }
+
+    /** 대표는 필수 아님 — 상무에서 끝나면 상무가 최종. 반려 = 그 자리에서 종료 → 재요청은 1단계부터. */
+    public function test_line_without_ceo_ends_at_last_step_and_reject_restarts(): void
+    {
+        $this->fakeErp();
+        $sales = $this->mk('김영업');
+        $h = $this->handler();
+        $bujang = $this->mk('임부장', 'manager', 'admin', ['approval_title' => '부장']);
+        $sangmu = $this->mk('오상무', 'manager', 'admin', ['approval_title' => '상무']);
+        $c = $this->intake($sales);
+        app(ClaimService::class)->requestApproval($c, $h, ['부장' => $bujang->id, '상무' => $sangmu->id]);
+        $c->refresh();
+        $this->post($this->decideUrl($c, $bujang), ['action' => 'approve'])->assertOk();
+        $this->post($this->decideUrl($c->fresh(), $sangmu), ['action' => 'reject', 'reason' => '증빙 부족'])->assertOk();
+        $c->refresh();
+        $this->assertSame(Claim::REJECTED, $c->status);
+        $this->assertSame('증빙 부족', $c->decision_reason);
+
+        app(ClaimService::class)->requestApproval($c, $h, ['부장' => $bujang->id, '상무' => $sangmu->id]);
+        $c->refresh();
+        $this->assertSame(2, $c->revision);
+        $this->assertSame(1, $c->current_step);   // 이미 승인했던 부장부터 다시
+        $this->assertSame($bujang->id, $c->approver_user_id);
+        $this->post($this->decideUrl($c, $bujang), ['action' => 'approve'])->assertOk();
+        $this->post($this->decideUrl($c->fresh(), $sangmu), ['action' => 'approve'])->assertOk();
+        $this->assertSame(Claim::APPROVED, $c->fresh()->status);   // 상무 = 최종
+    }
+
+    /** super = 어느 단계든 결정, 승인하면 남은 칸과 무관하게 즉시 최종(대행 표시). */
+    public function test_super_can_decide_any_step_and_approval_is_final(): void
+    {
+        $this->fakeErp();
+        $sales = $this->mk('김영업');
+        $h = $this->handler();
+        $bujang = $this->mk('임부장', 'manager', 'admin', ['approval_title' => '부장']);
+        $ceo = $this->ceo();
+        $super = $this->mk('시스템관리자', 'manager', 'super');
+        $c = $this->intake($sales);
+        app(ClaimService::class)->requestApproval($c, $h, ['부장' => $bujang->id, '대표' => $ceo->id]);
+        $c->refresh();
+        $this->assertTrue($c->canDecide($super, 1));
+        $this->get($c->approvalLinkFor($super))->assertOk()->assertSee(__('claims.proxy_banner'));
+        $this->post($this->decideUrl($c, $super), ['action' => 'approve'])->assertOk();
+        $c->refresh();
+        $this->assertSame(Claim::APPROVED, $c->status);
+        $step = $c->lineSteps()->first();
+        $this->assertSame($super->id, $step->acted_by_user_id);
+        $this->assertTrue($step->byProxy());
+        $this->assertStringContainsString(__('claims.proxy_note'), (string) $step->note);
+        $this->assertSame('pending', $c->lineSteps()->last()->status);   // 대표 칸은 손대지 않은 채 최종
+    }
+
+    /** [결재 요청] = 모달 — 열면 기본 결재선, 비우고 보내면 모달에 사유(닫히지 않음), 고르고 보내면 결재 중 + 모달 닫힘. */
+    public function test_request_modal_flow_from_drawer(): void
+    {
+        $this->fakeErp();
+        $sales = $this->mk('김영업');
+        $h = $this->handler();
+        $ceo = $this->ceo();
+        $c = $this->intake($sales);
+        $this->actingAs($h);
+        $t = Volt::test('claims.index')->call('openDetail', $c->id)->call('openLineModal')
+            ->assertSet('lineModal', true)->assertSet('line.대표', (string) $ceo->id)
+            ->set('line.대표', '')->call('requestApproval')
+            ->assertSet('lineModal', true)->assertSet('lineError', __('claims.err_no_line'));
+        $this->assertSame(Claim::REVIEWING, $c->fresh()->status);   // 칸 저장은 됐고 요청은 안 됨
+        $t->set('line.대표', (string) $ceo->id)->call('requestApproval')->assertSet('lineModal', false);
+        $this->assertSame(Claim::PENDING_CEO, $c->fresh()->status);
+        $this->assertSame($ceo->id, $c->fresh()->approver_user_id);
     }
 
     public function test_handler_drawer_saves_report_fields_with_audit_and_masks_bank(): void
