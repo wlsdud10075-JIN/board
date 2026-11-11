@@ -343,6 +343,7 @@ return [
         'download' => '인보이스 다운로드',
         'download_needs_name' => 'Name 을 저장해야 인보이스를 만들 수 있습니다.',
         'no_template' => '이 인스턴스엔 인보이스 양식이 없습니다.',
+        'buyer_handover_needed' => 'ERP 관리자에게 바이어 승계가 필요합니다 — 이 바이어의 담당 영업이 달라 주소·전화를 받지 못했습니다.',
         'downloaded' => ':name 을 만들었습니다. 주소·전화·브랜드는 ERP 값이 있을 때만 채워집니다.',
     ],
 

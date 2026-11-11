@@ -1077,6 +1077,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             return null;
         }
         $erp = [];
+        $handover = null;
         $svc = app(CarErpReadService::class);
         $email = $this->erpEmailFor($l);
         if ($l->car_erp_buyer_id) {
@@ -1084,6 +1085,10 @@ new #[Layout('components.layouts.app')] class extends Component {
             if ($b['ok'] ?? false) {
                 $erp['address'] = data_get($b['data'], 'address');
                 $erp['phone'] = data_get($b['data'], 'phone');
+            } elseif (($b['status'] ?? 0) === 403) {
+                // 바이어 담당이 다른 영업이거나 비어 있음(그만둔 영업 미승계) — ERP 가 403 + 「ERP 관리자에게 바이어 승계가 필요합니다…」(2026-11-11 Jin, ERP add99b41).
+                //   그 문구를 그대로 보여 주고 주소·전화는 빈 칸으로 만든다(종전엔 404 를 조용히 삼켜 빈 칸만 나갔다).
+                $handover = trim((string) ($b['message'] ?? '')) ?: __('listings.invoice.buyer_handover_needed');
             }
         }
         if ($l->car_erp_vehicle_id) {
@@ -1099,7 +1104,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'user_id' => Auth::id(), 'purchase_listing_id' => $l->id, 'action' => 'download', 'field' => 'commercial_invoice',
             'old_value' => null, 'new_value' => $name, 'ip_address' => BoardAuditLog::currentIp(),
         ]);
-        $this->invoiceNote = __('listings.invoice.downloaded', ['name' => $name]);
+        $this->invoiceNote = __('listings.invoice.downloaded', ['name' => $name]).($handover ? ' ⚠️ '.$handover : '');
 
         return response()->streamDownload(fn () => print ($bytes), $name, [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

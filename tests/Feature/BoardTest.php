@@ -240,6 +240,24 @@ class BoardTest extends TestCase
         $this->assertSame('SHINHAN BANK', $ws->getCell('E13')->getValue());   // 회사 블록 리터럴 유지
     }
 
+    /** 바이어 담당이 다른 영업(승계 안 됨) — ERP 403 문구를 그대로 안내하고 주소·전화는 빈 칸으로 만든다(2026-11-11 Jin, ERP add99b41). */
+    public function test_listings_invoice_shows_buyer_handover_message_on_403(): void
+    {
+        $this->carErpReadConfig();
+        config(['board.invoice_template' => 'invoice-heyman.xlsx']);
+        $msg = 'ERP 관리자에게 바이어 승계가 필요합니다 — 이 바이어의 담당 영업이 다른 사람이어서 연락처를 내려 줄 수 없습니다.';
+        Http::fake([
+            '*/api/internal/board/buyers/7*' => Http::response(['message' => $msg, 'reason' => 'handover_needed', 'buyer_id' => 7, 'current_owner' => '박영업'], 403),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $kim = $this->mkUser('sales');
+        $l = $this->mkListing($kim, ['status' => 'synced', 'car_erp_vehicle_id' => 188, 'car_erp_buyer_id' => 7, 'remitter_name' => 'ERIKSSON ANNA MARIA']);
+        $this->actingAs($kim);
+
+        $t = Volt::test('listings.index')->call('openEdit', $l->id)->call('downloadInvoice')->assertFileDownloaded();
+        $this->assertStringContainsString($msg, (string) $t->get('invoiceNote'));
+    }
+
     /** 목록 「Invoice」 칸·/manage 2칸 — 미입력/입력됨/ERP 전송됨 판정은 invoiceState() 하나. */
     public function test_listings_invoice_column_and_manage_fields(): void
     {
