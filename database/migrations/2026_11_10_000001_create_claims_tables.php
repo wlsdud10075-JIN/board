@@ -48,11 +48,10 @@ return new class extends Migration
             $table->text('content');                                          // 클레임 내용
 
             // ── 담당자 처리(양식 1p·2p 칸) ──
-            $table->string('buyer_priority', 8)->nullable();                  // high · medium · low
-            $table->integer('claim_history_adjust')->default(0);              // CLAIM HISTORY(1 YEAR) 수기 보정(기능 시작 전 건수)
+            $table->string('buyer_credit_grade', 2)->nullable();              // BUYER PRIORITY = ERP 바이어 신용도 등급(A~E, 이력 없음 '-') 스냅샷(2026-11-11 Jin)
+            $table->unsignedSmallInteger('buyer_credit_score')->nullable();   // ERP 신용도 점수
             $table->text('inspection_result')->nullable();                    // INSPECTION REPORT RESULT 요약
             $table->text('notes')->nullable();                                // 1p NOTES 수기
-            $table->boolean('evidence_verified')->default(false);             // EVIDENCE (VERIFIED)
             $table->text('review_notes')->nullable();                         // CLAIM 블록 NOTES
             $table->decimal('claim_amount', 14, 2)->nullable();               // CLAIM AMOUNT
             $table->string('claim_currency', 3)->nullable();

@@ -50,7 +50,8 @@ class Claim extends Model
     /** 도착일 기준 접수 기한(일) — 실무자 조건(§12 #1). 초과는 칩 + 담당자 사유, 차단 아님. */
     public const ARRIVAL_WINDOW_DAYS = 14;
 
-    public const PRIORITIES = ['high', 'medium', 'low'];
+    /** 클레임 통화 — ERP 바이어 화면 드롭다운과 같은 목록·순서(2026-11-11 Jin 「ERP 에 있는 통화 그대로」). */
+    public const CURRENCIES = ['USD', 'JPY', 'EUR', 'GBP', 'CNY', 'KRW'];
 
     public const COMPENSATIONS = ['refund', 'credit'];
 
@@ -65,9 +66,9 @@ class Claim extends Model
         'status', 'revision',
         'car_erp_vehicle_id', 'purchase_listing_id', 'vehicle_number', 'vin', 'brand', 'model_type',
         'car_erp_buyer_id', 'buyer_name', 'buyer_contact_name', 'sale_price', 'sale_currency', 'sale_date', 'eta_date',
-        'total_purchase_count', 'year_purchase_count', 'member_since', 'purchase_history', 'margin_rate', 'erp_snapshot_at',
+        'total_purchase_count', 'year_purchase_count', 'buyer_credit_grade', 'buyer_credit_score', 'member_since', 'purchase_history', 'margin_rate', 'erp_snapshot_at',
         'salesman_user_id', 'created_by_user_id', 'arrived_at', 'received_km', 'content',
-        'buyer_priority', 'claim_history_adjust', 'inspection_result', 'notes', 'evidence_verified', 'review_notes',
+        'inspection_result', 'notes', 'review_notes',
         'claim_amount', 'claim_currency', 'refundable_amount', 'result', 'result_reason', 'compensation_type', 'overdue_reason',
         'bank_name', 'bank_iban', 'bank_swift', 'bank_phone', 'bank_address',
         'requested_at', 'requested_by_user_id', 'request_notified_at', 'approver_user_id', 'decided_at', 'decision', 'decision_reason', 'decision_ip',
@@ -81,7 +82,6 @@ class Claim extends Model
             'sale_date' => 'date', 'eta_date' => 'date', 'arrived_at' => 'date',
             'erp_snapshot_at' => 'datetime', 'requested_at' => 'datetime', 'request_notified_at' => 'datetime',
             'decided_at' => 'datetime', 'closed_at' => 'datetime',
-            'evidence_verified' => 'boolean',
             // 2p 은행정보 = PII 범위한정 예외(payee 와 동일) — 화면엔 그대로, 감사·로그는 ***.
             'bank_name' => 'encrypted', 'bank_iban' => 'encrypted', 'bank_swift' => 'encrypted', 'bank_phone' => 'encrypted', 'bank_address' => 'encrypted',
         ];
@@ -90,7 +90,7 @@ class Claim extends Model
     /** 담당자가 수정하는 보고서 칸(저장 감사 대상). 민감 칸은 *** 로 기록. */
     public const EDITABLE = [
         'buyer_contact_name', 'arrived_at', 'received_km', 'content',
-        'buyer_priority', 'claim_history_adjust', 'inspection_result', 'notes', 'evidence_verified', 'review_notes',
+        'inspection_result', 'notes', 'review_notes',
         'claim_amount', 'claim_currency', 'refundable_amount', 'result', 'result_reason', 'compensation_type', 'overdue_reason',
         'bank_name', 'bank_iban', 'bank_swift', 'bank_phone', 'bank_address',
     ];
@@ -279,12 +279,12 @@ class Claim extends Model
         return round((float) $this->refundable_amount / (float) $this->claim_amount * 100, 1);
     }
 
-    /** CLAIM HISTORY(1 YEAR) = 이 바이어의 board 클레임(최근 12개월, 본 건 포함) + 수기 보정. */
+    /** CLAIM HISTORY(1 YEAR) = 이 바이어의 board 클레임 자동 카운트(최근 12개월, 본 건 포함 · 수기 보정 없음 — 2026-11-11 Jin). */
     public function yearClaimCount(): int
     {
         $q = static::query()->where('created_at', '>=', now()->subMonths(12));
         $q = $this->car_erp_buyer_id ? $q->where('car_erp_buyer_id', $this->car_erp_buyer_id) : $q->where('buyer_name', $this->buyer_name);
 
-        return (int) $q->count() + (int) $this->claim_history_adjust;
+        return (int) $q->count();
     }
 }

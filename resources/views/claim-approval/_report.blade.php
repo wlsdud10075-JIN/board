@@ -19,7 +19,7 @@
         <tr><th>TOTAL PURCHASE HISTORY</th><td>{{ $claim->total_purchase_count === null ? '—' : $claim->total_purchase_count.' '.__('claims.unit_cars') }}</td>
             <th>1 YEAR PURCHASE HISTORY</th><td>{{ $claim->year_purchase_count === null ? '—' : $claim->year_purchase_count.' '.__('claims.unit_cars') }}</td></tr>
         <tr><th>CLAIM HISTORY (1 YEAR)</th><td>{{ $claim->yearClaimCount() }} {{ __('claims.unit_cases') }}</td>
-            <th>BUYER PRIORITY</th><td>{{ $claim->buyer_priority ? strtoupper($claim->buyer_priority) : '—' }}</td></tr>
+            <th>BUYER PRIORITY</th><td>{{ $claim->buyer_credit_grade ? __('claims.credit_label').' '.$claim->buyer_credit_grade.($claim->buyer_credit_score !== null && $claim->buyer_credit_grade !== '-' ? ' ('.$claim->buyer_credit_score.__('claims.credit_points').')' : '') : '—' }}</td></tr>
     </table>
 
     <div class="rep-h">CAR DETAILS</div>
@@ -57,11 +57,10 @@
     <div class="rep-h">CLAIM</div>
     <table class="rep-t">
         <tr><th>CLAIM REASON</th><td colspan="3" class="rep-pre">{{ $claim->content }}</td></tr>
-        <tr><th>EVIDENCE (VERIFIED)</th><td colspan="3">
+        <tr><th>EVIDENCE</th><td colspan="3">
             @foreach (\App\Models\ClaimFile::KINDS as $k)
                 <span class="rep-chk">{{ ($kinds[$k] ?? collect())->isNotEmpty() ? '☑' : '☐' }} {{ __('claims.kind.'.$k) }}@if (($n = ($kinds[$k] ?? collect())->count()) > 0) ({{ $n }})@endif</span>
             @endforeach
-            <span class="rep-chk">{{ $claim->evidence_verified ? '☑' : '☐' }} VERIFIED</span>
         </td></tr>
         <tr><th>NOTES</th><td colspan="3" class="rep-pre">{{ $f($claim->review_notes) }}</td></tr>
         <tr><th>CLAIM AMOUNT</th><td>{{ $claim->claimAmountDisplay() }}</td>

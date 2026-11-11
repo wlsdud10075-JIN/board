@@ -125,7 +125,6 @@ new #[Layout('components.layouts.app')] class extends Component
             $v = $c->getAttribute($f);
             $this->form[$f] = $v instanceof \Illuminate\Support\Carbon ? $v->format('Y-m-d') : ($v === null ? '' : (is_bool($v) ? $v : (string) $v));
         }
-        $this->form['evidence_verified'] = (bool) $c->evidence_verified;
     }
 
     public function closeDetail(): void
@@ -152,17 +151,13 @@ new #[Layout('components.layouts.app')] class extends Component
             'form.arrived_at' => ['required', 'date'],
             'form.received_km' => ['required', 'integer', 'min:0'],
             'form.content' => ['required', 'string', 'max:4000'],
-            'form.buyer_priority' => ['nullable', 'in:high,medium,low'],
-            'form.claim_history_adjust' => ['nullable', 'integer', 'min:-999', 'max:999'],
             'form.claim_amount' => ['nullable', 'numeric', 'min:0'],
             'form.refundable_amount' => ['nullable', 'numeric', 'min:0'],
-            'form.claim_currency' => ['nullable', 'string', 'max:3'],
+            'form.claim_currency' => ['nullable', 'in:'.implode(',', Claim::CURRENCIES)],
             'form.compensation_type' => ['nullable', 'in:refund,credit'],
         ]);
         $fields = $this->form;
-        $fields['claim_history_adjust'] = (int) ($fields['claim_history_adjust'] ?: 0);
-        $fields['evidence_verified'] = (bool) ($fields['evidence_verified'] ?? false);
-        $fields['claim_currency'] = strtoupper(trim((string) ($fields['claim_currency'] ?? ''))) ?: null;
+        $fields['claim_currency'] = ($fields['claim_currency'] ?? '') ?: null;
         $svc->saveReport($c, Auth::user(), $fields);
 
         // 담당자 추가 첨부(바이어가 나중에 보낸 것) — other 로.
@@ -317,7 +312,9 @@ new #[Layout('components.layouts.app')] class extends Component
             $editable = $d->isOpen() && ! $d->isPendingCeo();
         @endphp
         <div class="fixed inset-0 z-40 bg-black/40" wire:click="closeDetail"></div>
-        <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[720px]">
+        <div wire:key="claim-drawer-{{ $d->id }}" style="overflow-anchor:none"
+             x-data x-init="$el.scrollTop = 0; $nextTick(() => $el.scrollTop = 0); setTimeout(() => $el.scrollTop = 0, 300)"
+             class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[720px]">
             <div class="flex items-center justify-between border-b border-gray-200 px-5 py-3">
                 <h3 class="font-bold text-gray-800">{{ \App\Support\Plate::show($d->vehicle_number) }} · {{ $d->buyer_name ?: '—' }}
                     <span class="badge {{ $d->statusBadge() }} ml-1">{{ $d->statusLabel() }}</span>
@@ -426,17 +423,19 @@ new #[Layout('components.layouts.app')] class extends Component
                 <div class="section-title-sm">{{ __('claims.report_fields') }}</div>
                 <fieldset @disabled(! $editable) class="grid grid-cols-2 gap-2 text-xs {{ $editable ? '' : 'opacity-70' }}">
                     <div><label class="label-base">BUYER NAME</label><input class="input-base" wire:model="form.buyer_contact_name" maxlength="120"></div>
-                    <div><label class="label-base">BUYER PRIORITY</label>
-                        <select class="input-base" wire:model="form.buyer_priority"><option value="">—</option>@foreach (\App\Models\Claim::PRIORITIES as $p)<option value="{{ $p }}">{{ strtoupper($p) }}</option>@endforeach</select></div>
+                    {{-- BUYER PRIORITY = ERP 바이어 신용도(읽기 전용 스냅샷 · [ERP 다시 불러오기] 로 갱신) --}}
+                    <div><label class="label-base">BUYER PRIORITY <span class="font-normal text-gray-400">({{ __('claims.credit_label') }})</span></label>
+                        <div class="input-base bg-gray-50">{{ $d->buyer_credit_grade ? $d->buyer_credit_grade.($d->buyer_credit_score !== null && $d->buyer_credit_grade !== '-' ? ' · '.$d->buyer_credit_score.__('claims.credit_points') : '') : '—' }}</div>
+                        @unless ($d->buyer_credit_grade)<p class="text-[11px] text-gray-400">{{ __('claims.credit_pending') }}</p>@endunless</div>
                     <div><label class="label-base">{{ __('claims.arrived_at') }}</label><input type="date" class="input-base" wire:model="form.arrived_at">@error('form.arrived_at')<p class="text-red-600">{{ $message }}</p>@enderror</div>
                     <div><label class="label-base">{{ __('claims.received_km') }}</label><input type="number" class="input-base" wire:model="form.received_km">@error('form.received_km')<p class="text-red-600">{{ $message }}</p>@enderror</div>
-                    <div><label class="label-base">CLAIM HISTORY {{ __('claims.history_adjust') }}</label><input type="number" class="input-base" wire:model="form.claim_history_adjust"><p class="text-[11px] text-gray-400">{{ __('claims.history_adjust_hint', ['n' => $d->yearClaimCount()]) }}</p></div>
-                    <div class="flex items-end gap-2 pb-1"><label class="flex items-center gap-1.5"><input type="checkbox" wire:model="form.evidence_verified"> EVIDENCE VERIFIED</label></div>
+                    <div class="col-span-2"><label class="label-base">CLAIM HISTORY (1 YEAR)</label>
+                        <div class="input-base bg-gray-50">{{ $d->yearClaimCount() }} {{ __('claims.unit_cases') }} <span class="text-[11px] text-gray-400">— {{ __('claims.history_auto_hint') }}</span></div></div>
                     <div class="col-span-2"><label class="label-base">CLAIM REASON ({{ __('claims.content') }})</label><textarea class="input-base" rows="3" wire:model="form.content"></textarea>@error('form.content')<p class="text-red-600">{{ $message }}</p>@enderror</div>
                     <div class="col-span-2"><label class="label-base">INSPECTION REPORT RESULT</label><textarea class="input-base" rows="2" wire:model="form.inspection_result" placeholder="{{ __('claims.inspection_result_ph') }}"></textarea></div>
                     <div class="col-span-2"><label class="label-base">NOTES (1p) <span class="font-normal text-gray-400">— {{ __('claims.notes_hint') }}</span></label><textarea class="input-base" rows="2" wire:model="form.notes"></textarea></div>
                     <div class="col-span-2"><label class="label-base">CLAIM NOTES</label><textarea class="input-base" rows="2" wire:model="form.review_notes"></textarea></div>
-                    <div><label class="label-base">CLAIM AMOUNT</label><div class="flex gap-1"><input class="input-base w-16" wire:model="form.claim_currency" maxlength="3" placeholder="{{ $d->sale_currency ?: 'EUR' }}"><input type="number" step="0.01" class="input-base" wire:model="form.claim_amount"></div>@error('form.claim_amount')<p class="text-red-600">{{ $message }}</p>@enderror</div>
+                    <div><label class="label-base">CLAIM AMOUNT</label><div class="flex gap-1"><select class="input-base w-20" wire:model="form.claim_currency"><option value="">—</option>@foreach (\App\Models\Claim::CURRENCIES as $cur)<option value="{{ $cur }}">{{ $cur }}</option>@endforeach</select><input type="number" step="0.01" class="input-base" wire:model="form.claim_amount"></div>@error('form.claim_amount')<p class="text-red-600">{{ $message }}</p>@enderror</div>
                     <div><label class="label-base">REFUNDABLE</label><input type="number" step="0.01" class="input-base" wire:model="form.refundable_amount">@if (($r = $d->refundRate()) !== null)<p class="text-[11px] text-gray-400">{{ $r }}%</p>@endif</div>
                     <div class="col-span-2"><label class="label-base">RESULT ({{ __('claims.result') }})</label><textarea class="input-base" rows="2" wire:model="form.result"></textarea></div>
                     <div class="col-span-2"><label class="label-base">REASON</label><textarea class="input-base" rows="2" wire:model="form.result_reason"></textarea></div>

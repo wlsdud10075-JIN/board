@@ -72,6 +72,7 @@ class ClaimsTest extends TestCase
                 ['vehicle_id' => 56, 'vehicle_number' => '34나5678', 'buyer' => 'Arif', 'sale_price' => 9000, 'currency' => 'EUR', 'sale_date' => now()->subMonths(20)->format('Y-m-d')],
                 ['vehicle_id' => 57, 'vehicle_number' => '56다0000', 'buyer' => 'Other', 'sale_price' => 1, 'currency' => 'USD', 'sale_date' => now()->format('Y-m-d')],
             ]], 200),
+            '*/buyers/7*' => Http::response(['data' => ['id' => 7, 'name' => 'Arif', 'credit_grade' => 'B', 'credit_score' => 72, 'credit_available' => true]], 200),
             '*/settlements*' => Http::response(['data' => [['vehicle_id' => 55, 'vehicle_number' => '12가3456', 'margin_rate' => 4.5, 'status' => 'paid']]], 200),
             '*' => Http::response(['data' => []], 200),
         ]);
@@ -126,6 +127,9 @@ class ClaimsTest extends TestCase
         $this->assertSame((int) now()->subMonths(20)->format('Y'), $c->member_since);
         $this->assertSame('12가3456', $c->purchase_history[0]['vehicle_number']);
         $this->assertEquals(4.5, $c->margin_rate);
+        $this->assertSame('B', $c->buyer_credit_grade);   // BUYER PRIORITY = ERP 신용도
+        $this->assertSame(72, $c->buyer_credit_score);
+        $this->assertSame(1, $c->yearClaimCount());       // 자동 카운트(이번 건)
         $this->assertFalse($c->isOverdue());
         // 감사 1행(접수) — action=claim, field=claim_intake
         $this->assertDatabaseHas('board_audit_logs', ['action' => 'claim', 'field' => 'claim_intake', 'user_id' => $sales->id]);
@@ -352,12 +356,11 @@ class ClaimsTest extends TestCase
         $c = $this->intake($sales);
         $this->actingAs($h);
         Volt::test('claims.index')->call('openDetail', $c->id)
-            ->set('form.buyer_priority', 'high')->set('form.claim_amount', '1500')->set('form.refundable_amount', '750')->set('form.claim_currency', 'eur')
+            ->set('form.claim_amount', '1500')->set('form.refundable_amount', '750')->set('form.claim_currency', 'EUR')
             ->set('form.result', '부품비 50% 환급')->set('form.compensation_type', 'credit')->set('form.bank_iban', 'AL35202111090000000001234567')
             ->call('save')->assertHasNoErrors()->assertSet('notice', __('claims.saved'));
         $c->refresh();
         $this->assertSame(Claim::REVIEWING, $c->status);
-        $this->assertSame('high', $c->buyer_priority);
         $this->assertSame('EUR', $c->claim_currency);
         $this->assertEquals(50.0, $c->refundRate());
         $this->assertSame('AL35202111090000000001234567', $c->bank_iban);
