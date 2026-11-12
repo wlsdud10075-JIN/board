@@ -368,7 +368,7 @@ return [
     ],
 
     'drawer' => [
-        'tab' => ['basic' => 'Basic', 'inspection' => 'Inspection', 'attach' => 'Files', 'invoice' => 'Invoice'],
+        'tab' => ['basic' => 'Basic', 'inspection' => 'Inspection', 'attach' => 'Files', 'invoice' => 'Invoice', 'transport' => 'Transport'],
         'inspection_past' => 'Inspection stage is over — current status :status. Inspection photos/videos are under "Files" and the forwarding screen.',
         'title' => ':number · Edit purchase',
         'money_moved' => 'Amount, payout account, and vehicle attachments are entered in later steps (Quote/Forward · Purchase confirm).',

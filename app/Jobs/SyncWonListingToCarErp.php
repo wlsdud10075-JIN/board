@@ -101,7 +101,7 @@ class SyncWonListingToCarErp implements ShouldQueue
         $carCostKrw = $l->carCostKrw($usdR, $eurR);
         // 매입가(구입금액) — Model A(2026-07-06): 원가 그대로(할인 미반영). car-erp 부가세마진 =
         //   purchase_price × 0.09 라 원가여야 정합하고, 할인은 sell-side(판매가)에만 태운다.
-        //   ⚠️ 2026-09-11 Jin — **매도비를 빼던 셀프검차 예외 제거**. 차값·매도비를 각각 그대로 보낸다.
+        //   2026-11-12 Jin — 매입가 = **차값 − 매도비**(전 출처). ERP 원가 = 매입가 + 매도비 = 차값. 단일 출처 = 모델 purchasePriceKrw().
         $purchasePriceKrw = $l->purchasePriceKrw($usdR, $eurR);
         $sellingFeeKrw = $l->sellingFeeKrw($usdR, $eurR);   // 입력값 우선, 없으면 고정값(회사 부담)
         $carPriceKrw = $l->carPriceKrw($usdR, $eurR);   // 판매가 = 원가 − 관례할인 − 차감액 (매도비 제외)
@@ -208,6 +208,9 @@ class SyncWonListingToCarErp implements ShouldQueue
             //    확정 전에 적어 둔 값이 won 과 함께 간다. 덮어쓰기는 전용 엔드포인트(드로어 [ERP 로 전송]) 몫.
             'remitter_name' => $l->remitter_name !== null && $l->remitter_name !== '' ? $l->remitter_name : null,
             'remitter_id' => $l->remitter_name !== null && $l->remitter_name !== '' ? $l->remitter_id : null,
+            // 탁송 도착 위치(2026-11-12) — ERP 보관 위치 fill-if-empty(목록 밖 값은 ERP 가 그 칸만 건너뜀, contract_version 무변). 요청이 없으면 안 싣는다.
+            'stock_location' => $l->transportStockLocation()['stock_location'] ?? null,
+            'stock_location_note' => $l->transportStockLocation()['stock_location_note'] ?? null,
             'attachments' => $attachments,
             // v3 매입측(KRW)
             'purchase_price_krw' => $purchasePriceKrw,

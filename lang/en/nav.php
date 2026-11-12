@@ -22,12 +22,14 @@ return [
         'auction' => 'Auction / Purchase',
         'manage' => 'Admin',
         'users' => 'User Management',
+        'transport_companies' => 'Transport companies',
         'audit' => 'Audit Log',
         'settings' => 'Feature Settings',
     ],
 
     'crumb' => [
         'claims' => 'Claims',
+        'transport_companies' => 'Transport companies',
         'alimtalk_logs' => 'Alimtalk log',
         'work_journal' => 'Work journal',
         'work_journal_approvals' => 'Journal approvals',
@@ -93,6 +95,8 @@ return [
         'claims_new' => 'New claims',
         'toast_claim_turn' => '📋 :count claim(s) waiting for your approval',
         'claim_turn_chip' => 'Your turn',
+        'toast_transport_accepted' => ':count dispatched',
+        'toast_transport_rejected' => ':count declined',
         'claim_new_chip' => 'New',
         'claims_decided' => 'Claim decisions',
         'claim_chip_approved' => 'Approved',

@@ -120,16 +120,24 @@ class PurchaseListing extends Model
     }
 
     /**
-     * ERP 로 보낼 매입가(KRW) — **연동 B `purchase_price_krw` 단일 출처**. **차값 그대로**다.
+     * ERP 로 보낼 매입가(KRW) — **연동 B `purchase_price_krw` 단일 출처** = **차값 − 매도비**(2026-11-12 Jin, 전 출처 공통).
      *
-     * 🚫 셀프검차매입에서 `차값 − 매도비` 를 하던 예외를 **제거**했다(2026-09-11 Jin).
-     *    그 계산은 "차값 칸에 매도비가 포함돼 들어온다"는 전제에 기대고 있었는데, 전제 자체를 바꿨다 —
-     *    **차값 칸엔 차값만, 매도비 칸엔 매도비만** 적고 둘을 각각 그대로 ERP 에 준다.
-     *    ⚠️ 그래서 셀프검차 차값 칸에 **매도비까지 합친 금액을 적으면 안 된다**(매입가가 그만큼 커진다).
+     * 차값 칸 = 딜러가 부른 총액(매도비 포함), 매도비 칸 = 그중 딜러 몫. ERP 는 총 매입원가를 `purchase_price + selling_fee`
+     * 로 계산하므로(car-erp `Settlement` 5곳) 매입가에서 매도비를 빼야 ERP 원가 = 차값이 된다(안 빼면 매도비만큼 부풀었다).
+     * 매도비가 없거나 0 이면 차값 그대로. 매도비 ≥ 차값은 화면 검증이 막는다(여기선 0 아래로 내려가지 않게만).
+     *
+     * 이력: 2026-07 셀프검차만 차감 → 2026-09-11 차감 폐지(「차값 칸엔 차값만」) → 2026-11-12 전 출처 차감으로 확정.
+     *    ⚠️ 운영 관행이 다시 바뀐다 — 차값 칸에 **매도비를 합친 총액**을 적는다(9-11 공지의 반대). 공지는 Jin.
      */
     public function purchasePriceKrw(?int $krwPerUsd = null, ?int $krwPerEur = null): ?int
     {
-        return $this->carCostKrw($krwPerUsd, $krwPerEur);
+        $cost = $this->carCostKrw($krwPerUsd, $krwPerEur);
+        $fee = (int) ($this->selling_fee ?? 0);
+        if ($cost === null || $fee <= 0) {
+            return $cost;
+        }
+
+        return max(0, $cost - $fee);
     }
 
     public function carPriceKrw(?int $krwPerUsd = null, ?int $krwPerEur = null): ?int
@@ -312,7 +320,7 @@ class PurchaseListing extends Model
      * 재료는 폴러가 남긴 마지막 판정(`ssancar_checked_at`·소스별 개수)뿐이다. 화면에서 ssancar 를 직접 묻지 않는다.
      *
      * @return array{key:string, params:array, alert?:bool}|null lang 키(inspection.hold_*) + 치환값. draft 아니면 null.
-     *   `alert` = 영업이 손을 써야 하는 경우(검차 보류·지역 미지정) — 화면이 빨간 굵은 글씨 + ⚠ 로 띄운다(2026-10-24 Jin).
+     *                                                           `alert` = 영업이 손을 써야 하는 경우(검차 보류·지역 미지정) — 화면이 빨간 굵은 글씨 + ⚠ 로 띄운다(2026-10-24 Jin).
      */
     public function ssancarHoldHint(): ?array
     {
@@ -662,6 +670,23 @@ class PurchaseListing extends Model
     }
 
     // ─────────────────────── 관계 ───────────────────────
+
+    /** 탁송 배차 요청들(2026-11-12) — 최신 회차가 앞. */
+    public function transportRequests(): HasMany
+    {
+        return $this->hasMany(TransportRequest::class)->orderByDesc('revision');
+    }
+
+    /** 연동 B 에 동봉할 도착 위치 — 배차완료 > 그 외 최신 회차의 값(없으면 null). ERP 는 빈 칸만 채운다(fill-if-empty). */
+    public function transportStockLocation(): ?array
+    {
+        $req = $this->transportRequests()->whereNotNull('stock_location')->orderByRaw("CASE WHEN status = 'accepted' THEN 0 ELSE 1 END")->orderByDesc('revision')->first();
+        if (! $req) {
+            return null;
+        }
+
+        return ['stock_location' => $req->stock_location, 'stock_location_note' => mb_substr(__('transport.balance.note_prefix').$req->dispatchLine(), 0, 255)];
+    }
 
     public function creator(): BelongsTo
     {

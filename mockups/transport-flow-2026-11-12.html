@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>탁송 배차 흐름도 · 루프 테스트 2026-11-12</title>
+<style>
+  :root { --p:#0f766e; --sales:#1d4ed8; --kakao:#b45309; --company:#7c3aed; --erp:#be123c; --ink:#111827; --mute:#6b7280; --line:#e5e7eb; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans KR",sans-serif; background:#f3f4f6; color:var(--ink); }
+  .wrap { max-width:1180px; margin:0 auto; padding:24px 16px 60px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:var(--mute); font-size:14px; margin-bottom:18px; line-height:1.6; }
+  .legend { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px; font-size:13px; }
+  .legend span { padding:3px 10px; border-radius:999px; color:#fff; font-weight:700; }
+  .step { display:grid; grid-template-columns:150px 1fr; gap:14px; margin-bottom:14px; }
+  .lane { border-radius:12px; padding:12px; color:#fff; font-weight:800; font-size:14px; display:flex; flex-direction:column; justify-content:center; }
+  .lane small { font-weight:400; opacity:.9; font-size:12px; margin-top:4px; line-height:1.4; }
+  .card { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.08); padding:14px 16px; }
+  .card h2 { font-size:16px; margin:0 0 6px; }
+  .card h2 .n { display:inline-block; width:24px; height:24px; line-height:24px; text-align:center; border-radius:999px; background:var(--ink); color:#fff; font-size:13px; margin-right:6px; }
+  .desc { font-size:14px; color:#374151; line-height:1.6; margin:0 0 8px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:860px) { .step { grid-template-columns:1fr; } .grid { grid-template-columns:1fr; } }
+  .kakao { background:#fef3c7; border:1px solid #fcd34d; border-radius:12px; padding:12px 14px; font-size:14px; white-space:pre-wrap; line-height:1.55; }
+  .kakao .btn { display:block; margin-top:10px; background:#fff; border:1px solid #f59e0b; border-radius:8px; text-align:center; padding:9px; font-weight:700; color:#92400e; }
+  .kakao .to { font-size:12px; color:#92400e; margin-bottom:6px; font-weight:700; }
+  .mono { font-family:ui-monospace,Consolas,monospace; font-size:13px; background:#f9fafb; border:1px solid var(--line); border-radius:8px; padding:10px 12px; white-space:pre-wrap; word-break:break-all; line-height:1.5; }
+  .ok { color:#047857; font-weight:700; } .bad { color:#b91c1c; font-weight:700; } .warn { color:#92400e; font-weight:700; }
+  .note { background:#eff6ff; border:1px solid #bfdbfe; padding:8px 12px; font-size:13px; color:#1e3a8a; border-radius:8px; margin-top:8px; line-height:1.55; }
+  .shot { border:1px solid var(--line); border-radius:10px; max-width:100%; display:block; }
+  .shot.mobile { max-width:300px; }
+  .cap { font-size:12px; color:var(--mute); margin-top:4px; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th, td { border:1px solid var(--line); padding:5px 8px; text-align:left; vertical-align:top; }
+  th { background:#f9fafb; white-space:nowrap; }
+  .arrow { text-align:center; color:#9ca3af; font-size:20px; margin:-6px 0 6px; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:700; }
+  .pill.g { background:#d1fae5; color:#065f46; } .pill.r { background:#fee2e2; color:#991b1b; } .pill.b { background:#dbeafe; color:#1e40af; } .pill.y { background:#fef3c7; color:#92400e; }
+  .open { margin-top:28px; }
+  .open li { font-size:14px; line-height:1.6; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🚚 탁송 배차 요청 — 전체 흐름도 (로컬 루프 테스트 실측, 2026-11-12)</h1>
+  <p class="sub">
+    board(8003) ↔ 로컬 ERP(8001, car-erp dev <code>c1301619</code>) 연동 상태에서 매물 <b>91샘0001</b>(ERP 차량 273)로 씬을 끝까지 돌렸습니다.
+    알림톡은 로컬에 BizM 발급 코드가 없어 <b>실발송은 되지 않았고</b>(발송 기록에 「건너뜀」으로 남음), 아래 카톡 말풍선은 <b>BizM 에 승인 요청한 본문 그대로</b>를 실제 값으로 치환해 「운영에서 이렇게 간다」를 보여주는 것입니다.
+    코드의 본문과 제출한 엑셀 본문이 <b>바이트 단위로 같음</b>을 확인했습니다(요청 209자·결과 210자).
+  </p>
+  <div class="legend">
+    <span style="background:var(--sales)">영업 · board 화면</span>
+    <span style="background:var(--kakao)">알림톡(카톡)</span>
+    <span style="background:var(--company)">탁송 업체 · 링크 페이지</span>
+    <span style="background:var(--erp)">ERP(car-erp)</span>
+  </div>
+
+  <!-- 0 -->
+  <div class="step">
+    <div class="lane" style="background:var(--sales)">관리 · board<small>/transport-companies<br>관리 role 이상</small></div>
+    <div class="card">
+      <h2><span class="n">0</span>탁송 업체·번호 등록 (한 번만)</h2>
+      <p class="desc">업체와 번호 n개를 넣으면 영업의 드로어 탭에 <b>즉시</b> 뜹니다. 배포·알림톡 재승인 없음. 번호는 암호화 저장, 감사·로그엔 <code>***</code>.</p>
+      <img class="shot" src="transport-flow/00-companies.png" alt="탁송 업체 관리 화면">
+      <div class="cap">실측: 위카(김기사·이기사·사무실) · 현대A1(박기사)</div>
+    </div>
+  </div>
+  <div class="arrow">↓</div>
+
+  <!-- 1 -->
+  <div class="step">
+    <div class="lane" style="background:var(--sales)">영업 · board<small>/listings 드로어<br>「탁송 배차」 탭 (전 상태)</small></div>
+    <div class="card">
+      <h2><span class="n">1</span>배차 요청 보내기</h2>
+      <p class="desc">업체 <b>위카</b> · 차량 위치 「경기 안산시 단원구 OO매매단지 B-12」 · 도착 위치 <b>홈플</b> · 사진(명함·외관 ≤5) · 「배차신청 요청드립니다.」 · <b>지금 보내기</b>(또는 예약 시각).<br>
+      함께 받는 사람 = 등록 영업(시스템관리자) + 그 영업의 관리(관리자). 도착 위치 버튼은 ERP 가 준 회사별 목록(홈플·화물·야드)로 그려지고, ERP 에 이미 값이 있으면 「ERP 현재: …」로 미리 찍힌 뒤 바꿀 때 확인창.</p>
+      <div class="grid">
+        <div>
+          <img class="shot" src="transport-flow/01-drawer-form.png" alt="드로어 탁송 탭 폼">
+          <div class="cap">드로어 「탁송 배차」 탭 — 요청 전 폼</div>
+        </div>
+        <div>
+          <div class="mono">요청 #2 · 1회차 · status <span class="pill b">sent</span>
+company 위카 · stock_location 홈플
+sent_at 2026-11-12 21:50:20
+
+수신자 스냅샷 (번호 기준 중복 제거)
+ 업체   김기사  010-1111-0001  건너뜀*
+ 업체   이기사  010-1111-0002  건너뜀*
+ 업체   사무실  02-1234-5678   건너뜀*
+ 영업   시스템관리자 010-0000-0001 건너뜀*
+ 관리   관리자  010-0000-0002  건너뜀*
+ * 로컬: tmplId 없음 → 발송 안 함. 운영: 「발송」</div>
+          <div class="note">감사 행: <code>transport_request_create</code> 「1회차 · 위카 · 사진 0 · 발송 11-12 21:50 · 도착 홈플」 → <code>transport_request_sent</code> 「수신 5명 (발송 0 · 실패 0 · 건너뜀 5)」</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">↓</div>
+
+  <!-- 2 -->
+  <div class="step">
+    <div class="lane" style="background:var(--kakao)">알림톡<small>board_transport_request<br>업체 3명 + 영업 + 관리 (5통)</small></div>
+    <div class="card">
+      <h2><span class="n">2</span>「배차 요청」 알림톡 — 운영에서 가는 본문 (승인 요청본 그대로)</h2>
+      <div class="grid">
+        <div class="kakao"><div class="to">→ 김기사 · 이기사 · 사무실 · 시스템관리자 · 관리자</div>[배차 요청] 헤이맨
+
+헤이맨에서 91샘0001 차량의 탁송 배차를 요청드립니다.
+
+■ 차량: 91샘0001
+■ 차량 위치: 경기 안산시 단원구 OO매매단지 B-12
+■ 요청 일시: 11-12 21:50
+
+아래 버튼에서 차량 사진과 위치를 확인하신 뒤 배차 가능 여부(배차완료/배차거절)를 알려 주세요.
+이 메시지는 헤이맨가 배차를 요청한 탁송 업체 담당자와 요청 영업담당자에게 발송됩니다.<span class="btn">배차 확인</span></div>
+        <div>
+          <p class="desc">• 버튼 = <b>수신자마다 다른 서명 링크</b>(5일 만료) <code>https://board.heysellcar.com/a/transport/2?r=&lt;수신자&gt;&amp;expires=…&amp;signature=…</code> — 누가 눌렀는지 이 링크로 안다.<br>
+          • <code>#{요청회사}</code> = 인스턴스 회사명(헤이맨/싼카). <code>#{주소}</code> 가 비면 「페이지에서 확인」.<br>
+          • 사진은 알림톡에 못 실린다(BizM 제약) → 버튼 너머 페이지에서 본다.<br>
+          • 영업·관리도 같은 알림톡을 받지만 그 링크는 <b>보기 전용</b>.</p>
+          <div class="note">ssancarboard 는 발신 프로필 <code>@site_condition</code>, 요청회사 「싼카」, 링크 <code>board.heymancar.com</code> 로 간다(인스턴스별 설정).</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">↓</div>
+
+  <!-- 3 -->
+  <div class="step">
+    <div class="lane" style="background:var(--erp)">ERP<small>GET/POST<br>/vehicles/273/stock-location</small></div>
+    <div class="card">
+      <h2><span class="n">3</span>도착 위치 → ERP 보관 위치 (요청과 동시에, 실측 200)</h2>
+      <div class="grid">
+        <div class="mono">요청 전 GET → 200
+{ stock_location: null, note: null, updated_by_name: null,
+  options: ["홈플","화물","야드"] }
+
+POST { stock_location: "홈플",
+       stock_location_note: "배차: 위카 · 11-12 21:50" } → 200
+{ previous: { stock_location: null, note: null },
+  updated: ["stock_location","stock_location_note"] }
+
+다시 GET → 200
+{ stock_location: "홈플", note: "배차: 위카 · 11-12 21:50",
+  updated_at: 2026-11-12T21:50:23+09:00, updated_by_name: "김영업" }</div>
+        <div>
+          <p class="desc">ERP 재고 탭의 「보관 위치」가 <b>홈플</b>로 찍히고 메모에 배차 요청이 남습니다(ERP 감사 행도 생김). 배차완료 때 메모가 「배차: 위카 · 김기사 010-****-0001 · 일시」로 갱신됩니다.<br>
+          ERP 가 아직 이 경로를 안 열었으면(운영 배포 전) 탭에 「ERP 연동 대기」로 표시되고 요청 흐름은 그대로 진행됩니다. 실패는 행에 남고 [다시 보내기].</p>
+          <div class="note">감사 행: <code>transport_location_sent</code> 「OK · 홈플 · 배차: 위카 · 11-12 21:50」 · 전송 표(/audit): <code>stock_location</code> 200</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">↓</div>
+
+  <!-- 4 -->
+  <div class="step">
+    <div class="lane" style="background:var(--company)">탁송 업체<small>알림톡 버튼 → 링크 페이지<br>로그인 없음</small></div>
+    <div class="card">
+      <h2><span class="n">4</span>업체 기사가 페이지에서 결정</h2>
+      <div class="grid">
+        <div>
+          <img class="shot mobile" src="transport-flow/03-company-page.png" alt="업체 링크 페이지(모바일)">
+          <div class="cap">업체 번호 링크(모바일) — 사진·차량 위치·도착지·[배차완료]/[배차거절]</div>
+        </div>
+        <div>
+          <div class="mono">김기사 링크 GET → 200
+ "배차신청 요청드립니다. 요청: 시스템관리자 · 11-12 21:50
+  차량 위치 경기 안산시 단원구 OO매매단지 B-12 · 도착지 홈플
+  처리자 이름(선택) · 거절 사유(선택) · [배차완료] [배차거절]"
+
+영업(시스템관리자) 링크 GET → 200
+ "이 링크는 보기 전용입니다 — 배차 결정은 탁송 업체
+  담당자 링크에서 합니다."  (버튼 없음)
+
+김기사 [배차완료] POST (이름 '김기사') → 200
+ "✅ 배차완료로 처리했습니다. 감사합니다."
+
+이기사 [배차거절] POST (사유 '늦음') → <span class="bad">410</span>
+ "이미 처리된 요청입니다 — 배차완료 (김기사 · 11-12 21:50)"
+ ← 선착순: 먼저 누른 사람이 확정, 나머지는 안내만</div>
+          <div class="note">페이지는 GET 으로는 아무것도 바꾸지 않습니다(카톡 링크 미리보기가 눌러 버리는 사고 방지). 결정은 진입 때 새로 만든 60분짜리 서명 POST 로만. 감사 행: <code>transport_request_decided</code> 「accepted · 위카 · 김기사 010-****-0001 · 11-12 21:50」(기사 IP 포함).</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">↓</div>
+
+  <!-- 5 -->
+  <div class="step">
+    <div class="lane" style="background:var(--kakao)">알림톡 + 종 + 웹푸시<small>board_transport_result<br>영업 + 관리 (2통)</small></div>
+    <div class="card">
+      <h2><span class="n">5</span>「배차 결과」 — 영업·관리에게 (알림톡 · 상단 종 · 폰 푸시)</h2>
+      <div class="grid">
+        <div>
+          <div class="kakao"><div class="to">→ 시스템관리자(영업) · 관리자(관리) — 배차완료</div>[배차 결과] 91샘0001
+
+담당자님, 요청하신 91샘0001 차량의 탁송 배차 결과를 안내드립니다.
+
+■ 결과: 배차완료
+■ 업체: 위카
+■ 처리: 김기사 010-****-0001 · 11-12 21:50
+■ 사유: —
+
+사내 업무 시스템(board) 매입예정 탁송 탭에서 상세를 확인하고 다음 단계(매입잔금 요청 등)를 진행해 주세요.
+요청한 영업담당자와 담당 관리자에게 발송됩니다.</div>
+          <div class="kakao" style="margin-top:10px;background:#fee2e2;border-color:#fca5a5"><div class="to" style="color:#991b1b">(거절이었다면 — 같은 템플릿)</div>[배차 결과] 91샘0001
+
+담당자님, 요청하신 91샘0001 차량의 탁송 배차 결과를 안내드립니다.
+
+■ 결과: 배차거절
+■ 업체: 위카
+■ 처리: 이기사 010-****-0002 · 11-12 21:50
+■ 사유: 늦음
+
+사내 업무 시스템(board) 매입예정 탁송 탭에서 상세를 확인하고 다음 단계(매입잔금 요청 등)를 진행해 주세요.
+요청한 영업담당자와 담당 관리자에게 발송됩니다.</div>
+        </div>
+        <div>
+          <img class="shot" src="transport-flow/04-bell.png" alt="상단 종 패널">
+          <div class="cap">상단 종 — 「탁송 배차」 항목, 누르면 그 매물 드로어의 탁송 탭이 열림(<code>?edit=</code>). 폰 푸시(웹푸시)도 같은 내용·같은 링크.</div>
+          <div class="note">기사 전화는 어디서나 <b>가운데 마스킹</b>(알림톡·종·감사·ERP 메모). 거절이면 영업이 같은 탭에서 <b>다른 업체로 다시 요청</b>(2회차).</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">↓</div>
+
+  <!-- 6 -->
+  <div class="step">
+    <div class="lane" style="background:var(--sales)">영업 · board<small>드로어 탁송 탭<br>[매입잔금 요청]</small></div>
+    <div class="card">
+      <h2><span class="n">6</span>매입잔금 요청 (v1 = 사람이 누름 · 자동은 써본 뒤 2차)</h2>
+      <div class="grid">
+        <div>
+          <img class="shot" src="transport-flow/05-drawer-after-accept.png" alt="드로어 — 배차완료 후 이력과 매입잔금 요청">
+          <div class="cap">배차완료 뒤 탁송 탭 — 이력·수신자·ERP 보관 위치 전송됨 · [매입잔금 요청](금액 비우면 ERP 미지급 전액)</div>
+        </div>
+        <div class="mono">ERP 지급대기 행 읽기 GET /inventory?category=awaiting_payment → 200
+{ vehicle_id: 273, vehicle_number: "91샘0001",
+  purchase_unpaid: 8,700,000,
+  stock_location: "홈플", note: "배차: 위카 · 11-12 21:50" }
+
+[매입잔금 요청] → POST /requests → <span class="ok">201</span>
+{ type: "purchase_balance", vehicle_ids: [273], amount_krw: 8700000,
+  note: "배차: 위카 · 김기사 010-****-0001 · 11-12 21:50" }
+응답 { created: ["91샘0001"] }
+
+board 화면: "매입잔금 8,700,000원 요청을 ERP 로 보냈습니다."
+ERP board_requests #14: purchase_balance · open · 8,700,000 · note 저장됨</div>
+      </div>
+      <div class="note">감사 행: <code>transport_balance_request</code> 「OK · 8,700,000원 · 배차: … · sales@car-erp.test」. 요청은 <b>등록 영업의 ERP 명의</b>로 나가고, 누를 수 있는 사람 = 등록 영업·공유받은 관리·시스템관리자(업무관리자·최고관리자는 조회 전용).</div>
+    </div>
+  </div>
+  <div class="arrow">↓</div>
+
+  <!-- 7 -->
+  <div class="step">
+    <div class="lane" style="background:var(--erp)">ERP 알림톡<small>erp_board_request<br>→ 관리·업무관리자(시각 규칙 표)</small></div>
+    <div class="card">
+      <h2><span class="n">7</span>ERP 가 보내는 「매입잔금 요청」 알림톡 — 배차 정보 한 줄 동봉 (ERP dev c1301619)</h2>
+      <div class="grid">
+        <div class="kakao"><div class="to">→ 평일 09:00~17:30 관리+업무관리자 / 그 밖·주말 업무관리자 (heymanerp·ssancarerp 기능설정 「시각 규칙 표」 실측 2026-11-12, 공휴일 행 없음 — 회사별 설정값이라 바뀔 수 있음)</div>[사내 업무용] board 요청 접수 1건
+
+사내 차량관리 ERP에서 입금 처리 담당자로 지정된 임직원에게 발송되는 내부 업무 알림입니다.
+
+■ 매입잔금 · 91샘0001
+  8,700,000원
+  (매입처 계좌 줄 — ERP 가 차량 계좌로 조립, 없으면 「계좌 미등록」)
+  배차: 위카 · 김기사 010-****-0001 · 11-12 21:50
+
+사내 업무 시스템(ERP) 차량관리에서 확인 후 처리해 주세요.</div>
+        <div>
+          <p class="desc">고정문은 이미 승인된 <code>erp_board_request</code> 그대로이고, 배차 줄은 변수 <code>#{요청내역}</code> 안에 들어가므로 <b>BizM 재승인 없음</b>. 로컬 ERP 는 알림톡 미설정이라 발송은 「건너뜀」, 본문은 ERP 조립 규칙(<code>BoardRequestController</code> 255~262행)대로 예상한 것입니다.</p>
+          <div class="note">대표에게는 가지 않습니다(두 회사 운영 표에 대표 행 없음 — 대표계약금만 직행). 줄 순서(금액 → 계좌 → 배차)는 ERP 코드가 이 흐름도에 맞춰졌습니다(car-erp dev 0b354b10). ERP 드로어에서도 메모로 보입니다.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card open">
+    <h2>남은 것 · 운영 전 체크</h2>
+    <ul>
+      <li><b>BizM 승인</b>(요청·결과 × 헤이맨·싼카 = 4건, 11-12 제출) → 승인되면 기능설정에 tmplId 2개 입력 + 토글 on → 그때부터 2·5번이 실제 카톡으로 나갑니다.</li>
+      <li><b>배포</b>: board(dev 10커밋, 마이그 1개) + ERP(dev c1301619, 마이그 0) — 순서 제약 없음. ERP 가 먼저 없으면 3번만 「연동 대기」.</li>
+      <li>매입잔금 <b>자동 전송</b>(배차완료 즉시)은 heymanerp·heymanboard 에서 써본 뒤 결정(2차). 지금은 6번 버튼.</li>
+      <li>사진(명함·외관)은 공개 페이지에 만료 임시 URL 로만 — 소유자명·계좌는 페이지에 없음.</li>
+      <li>이 흐름도의 숫자·시각은 2026-11-12 21:50 로컬 실측값입니다(스크린샷 5장 = <code>mockups/transport-flow/</code>).</li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>

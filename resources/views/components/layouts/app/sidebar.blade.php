@@ -58,6 +58,7 @@
         'work-journal' => __('nav.crumb.work_journal'),
         'work-journal.approvals' => __('nav.crumb.work_journal_approvals'),
         'claims' => __('nav.crumb.claims'),
+        'transport.companies' => __('nav.crumb.transport_companies'),
         default => '',
     };
 
@@ -86,6 +87,7 @@
         ]],
         ['key' => 'system', 'label' => __('nav.group.system'), 'items' => [
             ['label' => __('nav.menu.users'), 'href' => route('users'), 'icon' => 'user-group', 'active' => request()->routeIs('users'), 'show' => $can(['manager'])],
+            ['label' => __('nav.menu.transport_companies'), 'href' => route('transport.companies'), 'icon' => 'truck', 'active' => request()->routeIs('transport.companies'), 'show' => $can(['manager'])],
             ['label' => __('nav.menu.audit'), 'href' => route('audit'), 'icon' => 'document', 'active' => request()->routeIs('audit'), 'show' => $user->hasFullAccess()],
             ['label' => __('nav.menu.alimtalk_logs'), 'href' => route('admin.alimtalk-logs'), 'icon' => 'chat', 'active' => request()->routeIs('admin.alimtalk-logs'), 'show' => $user->isSuper(), 'badge' => $alimtalkAttention ?: null],
             ['label' => __('nav.menu.settings'), 'href' => route('admin.settings'), 'icon' => 'cog', 'active' => request()->routeIs('admin.settings'), 'show' => $user->isSuper()],
@@ -93,6 +95,7 @@
     ];
 
     $icons = [
+        'truck' => '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zm10 0a2 2 0 11-4 0 2 2 0 014 0zM13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10h10zm0-6h4l3 4v2h-7v-6z"/>',
         'clipboard' => '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>',
         'chat' => '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4-.8L3 20l1.3-3.9A7.96 7.96 0 013 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>',
         'wallet' => '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M21 12V7H5a2 2 0 010-4h14v4M3 5v14a2 2 0 002 2h16v-5M18 12a2 2 0 000 4h4v-4h-4z"/>',

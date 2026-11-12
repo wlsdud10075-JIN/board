@@ -26,7 +26,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [SetLocale::class]);
 
         // 클레임 대표 승인 링크(로그인 없음) — 서명 URL(60분)이 인가·위조 방지를 맡는다(ERP a/payout/* 미러).
-        $middleware->validateCsrfTokens(except: ['a/claim/*']);
+        $middleware->validateCsrfTokens(except: ['a/claim/*', 'a/transport/*']);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

@@ -5,6 +5,7 @@ use App\Http\Controllers\ClaimApprovalController;
 use App\Http\Controllers\DevUserSwitchController;
 use App\Http\Controllers\PhotoController;
 use App\Http\Controllers\PushSubscriptionController;
+use App\Http\Controllers\TransportDecisionController;
 use App\Models\Setting;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -25,6 +26,15 @@ Route::get('v/{listing}/card.png', [BuyerViewController::class, 'card'])
 
 // 클레임 대표 승인 링크(2026-11-10) — 로그인 없음, 서명(5일, claim+u+rev)이 인가를 대신한다. GET = 표시만(카톡 프리페치가 결정 못 함),
 // POST decide = 진입 때 새로 발급한 60분 서명 URL + 트랜잭션 lockForUpdate. CSRF 제외 = bootstrap/app.php(a/claim/*). ERP a/payout 미러.
+// 탁송 배차 결정 링크(2026-11-12) — 로그인 없음, 서명(req + 수신자 r + 5일)이 인가를 대신한다. GET = 표시만, POST decide = 진입 때 발급한 60분 서명 URL(선착순).
+// CSRF 제외 = bootstrap/app.php(a/transport/*). 클레임 승인 링크 미러.
+Route::get('a/transport/{req}', [TransportDecisionController::class, 'show'])
+    ->middleware('signed')
+    ->name('transport.show');
+Route::post('a/transport/{req}/decide', [TransportDecisionController::class, 'decide'])
+    ->middleware('signed')
+    ->name('transport.decide');
+
 Route::get('a/claim/{claim}', [ClaimApprovalController::class, 'show'])
     ->middleware('signed')
     ->name('claim.approve.show');
@@ -72,6 +82,9 @@ Route::middleware(['auth'])->group(function () {
 
     // 클레임(2026-11-10 Jin) — 기능설정에서 지정한 담당자만(화면 mount 가드, super 도 지정 필요). 접수는 /portal 판매내역 행에서.
     Volt::route('claims', 'claims.index')->name('claims');
+
+    // 탁송 업체(2026-11-12 Jin) — 관리 이상이 업체·번호를 넣으면 영업 드로어 「탁송 배차」 탭에 즉시 뜬다.
+    Volt::route('transport-companies', 'transport.companies')->middleware('role:manager')->name('transport.companies');
 
     // 사진 같은출처 스트리밍 (모바일 다중 공유 fetch 의 CORS 우회) — 스코프는 컨트롤러에서
     Route::get('photos/{photo}', [PhotoController::class, 'show'])->name('photos.show');

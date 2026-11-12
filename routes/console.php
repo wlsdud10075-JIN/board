@@ -63,3 +63,6 @@ if (is_string($alimtalkTime) && preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $alimt
 // 관제센터(2026-11-12) — 스케줄러 하트비트(매분)와 GPU PC 응답 확인(5분). 요약 API 는 이 캐시만 읽는다(허브 timeout 4초).
 Schedule::call(fn () => OpsSummary::beat())->everyMinute()->name('ops-heartbeat');
 Schedule::call(fn () => OpsSummary::pingGpu())->everyFiveMinutes()->name('ops-gpu-ping')->withoutOverlapping();
+
+// 탁송 배차 예약 발송(매분) + 5일 무응답 만료(2026-11-12). 알림톡 skipped 여도 요청은 sent 로 간다(승인 전·로컬).
+Schedule::command('board:transport-send')->everyMinute()->withoutOverlapping();
