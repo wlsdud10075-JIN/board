@@ -52,6 +52,11 @@ return [
     // 검차 큐 연동(ssancar.com, 2026-10-23) — board → ssancar 큐 등록·철회(HMAC) / ssancar → board 진행·완료 웹훅.
     // 시크릿은 **인스턴스별·방향별 별개**(값은 Jin 이 직접 투입). url·hmac_secret 둘 다 있어야 보낸다(없으면 no-op).
     // tenant 미설정이면 APP_NAME 으로 `board.instances.*.tenant` 를 찾는다(heymanboard/ssancarboard).
+    // 관제센터 요약 API 수신(2026-11-12) — ssancarerp 허브가 서명해 읽는다. 값은 3사 ERP 의 OPS_HMAC_SECRET 과 같다(Jin 투입). 비면 401.
+    'ops' => [
+        'hmac_secret' => env('OPS_HMAC_SECRET'),
+    ],
+
     'ssancar_inspection' => [
         'url' => env('SSANCAR_INSPECTION_URL'),                         // 운영 https://www.ssancar.com/page/api_inspect_queue.php (www 필수 — 없으면 301) · 로컬 http://localhost:8002/page/api_inspect_queue.php
         'hmac_secret' => env('SSANCAR_INSPECTION_HMAC_SECRET'),         // board → ssancar (보내는 쪽)
