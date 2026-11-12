@@ -2,6 +2,7 @@
 
 use App\Models\Setting;
 use App\Services\ExchangeRateService;
+use App\Services\Ops\OpsSummary;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -58,3 +59,7 @@ $alimtalkTime = Setting::get('alimtalk_region_schedule_time', '');
 if (is_string($alimtalkTime) && preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $alimtalkTime)) {
     Schedule::command('board:alimtalk-region-inspection')->dailyAt($alimtalkTime)->withoutOverlapping();
 }
+
+// 관제센터(2026-11-12) — 스케줄러 하트비트(매분)와 GPU PC 응답 확인(5분). 요약 API 는 이 캐시만 읽는다(허브 timeout 4초).
+Schedule::call(fn () => OpsSummary::beat())->everyMinute()->name('ops-heartbeat');
+Schedule::call(fn () => OpsSummary::pingGpu())->everyFiveMinutes()->name('ops-gpu-ping')->withoutOverlapping();
