@@ -8,6 +8,7 @@ use App\Models\ExchangeRate;
 use App\Models\IntegrationEvent;
 use App\Models\PurchaseListing;
 use App\Models\Scopes\SalesmanScope;
+use App\Models\Setting;
 use App\Support\Instance;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -350,9 +351,10 @@ class OpsSummary
         return $n ? ['level' => 2, 'kind' => '클레임 ERP 전송 실패', 'count' => $n, 'text' => "[ERP 로 보내기]가 실패로 남은 클레임 {$n}건"] : null;
     }
 
+    /** 기능설정 토글(운영 on/off)이 꺼져 있으면 안 낸다 — OCR 과 VRAM 을 같이 못 써 챗봇을 꺼둔 동안 색인 push 도 멈춘다(Jin 2026-11-12). */
     private static function assistantIndexOld(): ?array
     {
-        if (! config('assistant.enabled')) {
+        if (! config('assistant.enabled') || ! Setting::get('assistant_enabled', false)) {
             return null;
         }
         $path = (string) config('assistant.index_path');

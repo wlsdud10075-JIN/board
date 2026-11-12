@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Http\Middleware\VerifyOpsHmac;
 use App\Models\IntegrationEvent;
 use App\Models\PurchaseListing;
+use App\Models\Setting;
 use App\Models\User;
 use App\Services\Ops\OpsSummary;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -179,5 +180,17 @@ class OpsSummaryTest extends TestCase
 
         Cache::forever(OpsSummary::GPU_PING_KEY, ['ok' => false, 'at' => now()->timestamp, 'last_ok_at' => now()->subMinutes(20)->timestamp]);
         $this->assertContains('OCR·챗봇 GPU 응답 없음', $kinds());
+    }
+
+    /** 챗봇 운영 토글(Setting)이 꺼져 있으면 색인 나이를 묻지 않는다 — 꺼둔 동안은 push 도 멈추는 게 정상. */
+    public function test_assistant_index_age_only_when_operational_toggle_on(): void
+    {
+        config(['assistant.enabled' => true, 'assistant.index_path' => '/nonexistent/index.json']);
+        $kinds = fn () => array_column(OpsSummary::anomalies(), 'kind');
+
+        $this->assertNotContains('챗봇 색인 오래됨', $kinds());
+
+        Setting::updateOrCreate(['key' => 'assistant_enabled'], ['value' => '1', 'type' => 'boolean']);
+        $this->assertContains('챗봇 색인 오래됨', $kinds());
     }
 }
