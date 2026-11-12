@@ -671,6 +671,23 @@ class PurchaseListing extends Model
 
     // ─────────────────────── 관계 ───────────────────────
 
+    /** 탁송 배차 요청들(2026-11-12) — 최신 회차가 앞. */
+    public function transportRequests(): HasMany
+    {
+        return $this->hasMany(TransportRequest::class)->orderByDesc('revision');
+    }
+
+    /** 연동 B 에 동봉할 도착 위치 — 배차완료 > 그 외 최신 회차의 값(없으면 null). ERP 는 빈 칸만 채운다(fill-if-empty). */
+    public function transportStockLocation(): ?array
+    {
+        $req = $this->transportRequests()->whereNotNull('stock_location')->orderByRaw("CASE WHEN status = 'accepted' THEN 0 ELSE 1 END")->orderByDesc('revision')->first();
+        if (! $req) {
+            return null;
+        }
+
+        return ['stock_location' => $req->stock_location, 'stock_location_note' => mb_substr(__('transport.balance.note_prefix').$req->dispatchLine(), 0, 255)];
+    }
+
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');

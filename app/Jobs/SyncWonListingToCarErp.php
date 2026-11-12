@@ -208,6 +208,9 @@ class SyncWonListingToCarErp implements ShouldQueue
             //    확정 전에 적어 둔 값이 won 과 함께 간다. 덮어쓰기는 전용 엔드포인트(드로어 [ERP 로 전송]) 몫.
             'remitter_name' => $l->remitter_name !== null && $l->remitter_name !== '' ? $l->remitter_name : null,
             'remitter_id' => $l->remitter_name !== null && $l->remitter_name !== '' ? $l->remitter_id : null,
+            // 탁송 도착 위치(2026-11-12) — ERP 보관 위치 fill-if-empty(목록 밖 값은 ERP 가 그 칸만 건너뜀, contract_version 무변). 요청이 없으면 안 싣는다.
+            'stock_location' => $l->transportStockLocation()['stock_location'] ?? null,
+            'stock_location_note' => $l->transportStockLocation()['stock_location_note'] ?? null,
             'attachments' => $attachments,
             // v3 매입측(KRW)
             'purchase_price_krw' => $purchasePriceKrw,

@@ -101,9 +101,10 @@ new class extends Component
         return $users->map(fn ($u) => ['name' => $u->name, 'has_phone' => (bool) $u->phone])->all();
     }
 
+    /** 버튼 목록 — ERP 가 `options` 를 주면 그것(회사별, karaba 쇼링·항입고·야드), 아니면 board 설정. */
     public function locations(): array
     {
-        return TransportService::stockLocations();
+        return ! empty($this->erpLocation['options']) ? $this->erpLocation['options'] : TransportService::stockLocations();
     }
 
     /** ERP 현재 보관 위치(10분 캐시) — ERP 가 권위. 경로가 아직 없으면 available=false(「연동 대기」). */
@@ -118,7 +119,8 @@ new class extends Component
         $this->erpLocation = Cache::remember('transport:erploc:'.$l->id, now()->addMinutes(10), function () use ($l) {
             $r = app(TransportService::class)->erpLocation($l);
 
-            return ['available' => $r['available'], 'value' => data_get($r['data'], 'stock_location'), 'note' => data_get($r['data'], 'stock_location_note')];
+            return ['available' => $r['available'], 'value' => data_get($r['data'], 'stock_location'), 'note' => data_get($r['data'], 'stock_location_note'),
+                'options' => array_values(array_filter((array) data_get($r['data'], 'options', []), 'is_string'))];   // ERP 회사별 목록(§16) — 있으면 상수 대신 이걸로 버튼
         });
         if ($this->stock_location === '' && ! empty($this->erpLocation['value'])) {
             $this->stock_location = (string) $this->erpLocation['value'];
@@ -154,6 +156,7 @@ new class extends Component
             $req = $svc->create($this->listing, Auth::user(), [
                 'company_id' => $this->company_id, 'extra_phone' => $this->extra_phone, 'address' => $this->address,
                 'stock_location' => $this->stock_location, 'message' => $this->message, 'send_at' => $sendAt,
+                'allowed_locations' => $this->locations(),
             ], $this->photos);
         } catch (\DomainException $e) {
             $this->error = __('transport.errors.'.$e->getMessage(), ['max' => TransportRequest::MAX_FILES]);

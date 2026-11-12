@@ -668,6 +668,7 @@ class CarErpReadService
         $type = match (true) {
             $endpoint === '/requests' => 'board_request',
             $endpoint === '/claims' => 'claim_mirror',
+            str_ends_with($endpoint, '/stock-location') => 'stock_location',   // 탁송 도착 위치 → ERP 보관 위치(2026-11-12)
             $endpoint === '/shipping-requests/sync' => 'shipping_sync',
             $endpoint === '/shipping-request' => 'shipping_request',
             $endpoint === '/shipping-requests/change-request' => 'change_request',

@@ -71,7 +71,8 @@ class TransportService
             throw new \DomainException('recipient_required');
         }
         $loc = trim((string) ($data['stock_location'] ?? ''));
-        if ($loc !== '' && ! in_array($loc, self::stockLocations(), true)) {
+        $allowed = array_values(array_unique(array_merge(self::stockLocations(), (array) ($data['allowed_locations'] ?? []))));   // ERP options(회사별)가 있으면 그것도 허용
+        if ($loc !== '' && ! in_array($loc, $allowed, true)) {
             throw new \DomainException('bad_location');
         }
         if (count($files) > TransportRequest::MAX_FILES) {
@@ -357,7 +358,7 @@ class TransportService
         $email = $l->creator?->car_erp_salesman_email ?: $l->creator?->email;
         $r = $this->erp->getStockLocation((string) $email, (int) $l->car_erp_vehicle_id);
 
-        return ['ok' => (bool) ($r['ok'] ?? false), 'available' => ($r['status'] ?? 0) !== 404, 'data' => $r['ok'] ?? false ? (array) $r['data'] : null];
+        return ['ok' => (bool) ($r['ok'] ?? false), 'available' => ! self::erpMissing($r), 'data' => $r['ok'] ?? false ? (array) $r['data'] : null];
     }
 
     /** 요청 때 위치 + 메모, 배차완료 때 메모 갱신. 실패는 행에 남기고 흐름은 안 끊는다. */
@@ -370,12 +371,32 @@ class TransportService
         $email = $l->creator?->car_erp_salesman_email ?: $l->creator?->email;
         $r = $this->erp->setStockLocation((string) $email, (int) $l->car_erp_vehicle_id, $req->stock_location, $note);
         $ok = (bool) ($r['ok'] ?? false);
-        $err = $ok ? null : (($r['status'] ?? 0) === 404 ? __('transport.location.erp_pending') : (string) ($r['message'] ?? $r['reason'] ?? 'HTTP '.($r['status'] ?? 0)));
+        $err = $ok ? null : self::erpError($r);
         $req->forceFill(['erp_location_synced_at' => $ok ? now() : $req->erp_location_synced_at, 'erp_location_error' => $err ? mb_substr($err, 0, 500) : null])->save();
         $this->audit($req, $by?->id, 'transport_location_sent', null, ($ok ? 'OK' : 'FAIL').' · '.$req->stock_location.' · '.$note.($err ? ' · '.$err : ''));
     }
 
     // ─────────── 도우미 ───────────
+
+    /** ERP 에 경로가 아직 없다(404·405 — car-erp 요청 ①③ 배포 전) 또는 서버가 라우트 밖 예외를 JSON 으로 뱉은 경우. */
+    private static function erpMissing(array $r): bool
+    {
+        return in_array((int) ($r['status'] ?? 0), [404, 405], true);
+    }
+
+    /** 사람이 읽을 짧은 실패 문구 — 로컬 ERP 가 예외를 JSON 덤프로 주면 그대로 화면에 찍히던 것(2026-11-12 씬 실측)을 막는다. */
+    private static function erpError(array $r): string
+    {
+        if (self::erpMissing($r)) {
+            return __('transport.location.erp_pending');
+        }
+        $msg = trim((string) ($r['message'] ?? ''));
+        if ($msg === '' || str_starts_with($msg, '{') || str_starts_with($msg, '<')) {
+            $msg = (string) ($r['reason'] ?? '');
+        }
+
+        return 'HTTP '.(int) ($r['status'] ?? 0).($msg !== '' ? ' · '.mb_substr($msg, 0, 120) : '');
+    }
 
     /** @return list<string> */
     public static function stockLocations(): array

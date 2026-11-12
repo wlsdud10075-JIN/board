@@ -183,6 +183,7 @@ public function closeEdit(): void { $this->reset([...]); unset($this->editing); 
 23. **PHPDoc 안에 `*/` 가 들어가면 주석이 거기서 끝난다 (2026-08-10)** — URL 패턴(`*` + `/buyers*`)을 주석에 그대로 적었다가 **파일 전체 파스 에러**가 났다. 테스트가 아니라 `php -l` 로만 잡힌다. 주석엔 경로만 쓰고 글롭 별표는 빼거나 백틱 밖으로 옮길 것.
 
 ## 12. 연동 B 계약 — board "보내는 절반" (수신 = car-erp/heyman)
+- **2026-11-12 탁송 도착 위치 동봉**: payload 에 `stock_location`·`stock_location_note`(배차완료 > 최신 회차의 값, 없으면 null) — ERP 는 **빈 칸만** 채우고 목록 밖 값은 그 칸만 건너뜀(`fields_skipped.stock_location='invalid'`), `contract_version` 무변. 받는 쪽 = car-erp `purchase-sync-receiver.md` 「보관위치 동봉」·`board-portal-api.md §16`(stock-location GET/POST, `options` 회사별 목록).
 > 두 앱(board·car-erp)이 만나는 **유일한 접점 = 이 API 계약**. DB·보안경계 다른 별도 앱이라 합치지 않고 계약으로 느슨하게 연결.
 > **계약은 두 면**: board=보내는 스펙(여기), car-erp=받는 스펙(car-erp docs). **문서 복사 금지(drift) → 각자 자기 절반 + 상호 링크.** 수신 로직(VIN 멱등·영업 매칭·vehicle 생성)은 car-erp 책임.
 
