@@ -1088,7 +1088,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <div class="grid grid-cols-2 gap-2">
                             <div>
                                 {{-- 차값·매도비는 **항상 원화** — 견적통화 토글의 영향을 받지 않는다(2026-08-10 Jin). --}}
-                                <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.car_cost') }} <span class="text-gray-400">({{ $d->isSelfInspection() ? __('common.won_currency') : \App\Support\Money::symbol($costCur) }})</span></label>
+                                @php $costKrwNow = $this->carCostKrwInput(); $feeNow = ($selling_fee === null || $selling_fee === '') ? 0 : (int) $selling_fee; @endphp
+                                <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.car_cost') }} <span class="text-gray-400">({{ $d->isSelfInspection() ? __('common.won_currency') : \App\Support\Money::symbol($costCur) }})</span>
+                                    {{-- 매도비가 있으면 차값 칸 옆에 최종 매입가를 작은 칩으로(Jin 2026-11-12 — 아래 「▶ 최종 매입가」 줄은 눈에 안 띄어 보조로) --}}
+                                    @if ($costKrwNow !== null && $feeNow > 0)
+                                        <span class="ml-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700">{{ __('auction.final_purchase') }} {{ number_format(max(0, $costKrwNow - $feeNow)) }}{{ __('common.won_currency') }}</span>
+                                    @endif
+                                </label>
                                 <input type="number" min="0" class="input-base" wire:model.live.debounce.400ms="car_cost" placeholder="{{ __('auction.car_cost_ph') }}">
                                 @error('car_cost') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
                             </div>
