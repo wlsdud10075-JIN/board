@@ -12,8 +12,8 @@ use Symfony\Component\HttpFoundation\Response;
  * 관제센터(ssancarerp /admin/control 허브)가 board 요약을 읽을 때의 서명 검증(2026-11-12).
  * 계약 권위 = car-erp `docs/design/ops-control-center.md` §4 — 허브는 `VerifyErpPeerHmac::canonical` 로 서명한다.
  *
- *   canonical = METHOD\npath?ksort+http_build_query(query)\nts\nbody → hmac sha256(OPS_HMAC_SECRET)
- *   v2(2026-11-12 Jin) = ts 와 body 사이에 nonce 한 줄 추가 — 전환기엔 v2·v1 둘 다 받는다.
+ *   canonical(v2) = METHOD\npath?ksort+http_build_query(query)\nts\nnonce\nbody → hmac sha256(OPS_HMAC_SECRET)
+ *   (v1 = nonce 줄 없음 — 2026-11-12 전환 완료 후 삭제. 허브(ERP 1ec946c8)는 v2 만 보낸다.)
  *   헤더 = X-Timestamp(초, ±300) · X-Nonce(1회용) · X-Board-Signature: sha256=<hex>
  *
  * 시크릿이 비면 401(fail-closed). 다른 연동 시크릿을 재사용하지 않는다(값은 3사 ERP 와 같고 Jin 이 넣는다).
@@ -43,13 +43,8 @@ class VerifyOpsHmac
 
         $provided = (string) $request->header('X-Board-Signature', '');
         $provided = str_starts_with($provided, 'sha256=') ? substr($provided, 7) : $provided;
-        // v2(nonce 포함) 먼저, 안 맞으면 v1 — 전환기 동안 둘 다 받는다(Jin 2026-11-12). 허브가 v2 로 넘어가고 며칠 뒤 v1 삭제(car-erp 세션이 알림).
-        $args = [$request->getMethod(), $request->getPathInfo(), $request->query->all(), $ts];
-        $ok = $provided !== '' && (
-            hash_equals(hash_hmac('sha256', self::canonicalV2(...$args, nonce: $nonce, body: $request->getContent()), $secret), $provided)
-            || hash_equals(hash_hmac('sha256', self::canonical(...$args, body: $request->getContent()), $secret), $provided)
-        );
-        if (! $ok) {
+        $expected = hash_hmac('sha256', self::canonical($request->getMethod(), $request->getPathInfo(), $request->query->all(), $ts, $nonce, $request->getContent()), $secret);
+        if ($provided === '' || ! hash_equals($expected, $provided)) {
             return $this->reject($request, 'signature');
         }
 
@@ -61,20 +56,12 @@ class VerifyOpsHmac
         return $next($request);
     }
 
-    /** v2 — nonce 가 서명 안에 들어간다(ts 와 body 사이). car-erp `docs/design/ops-control-center.md` §4. */
-    public static function canonicalV2(string $method, string $path, array $query, int $ts, string $nonce, string $body = ''): string
+    /** nonce 가 서명 안에 들어간다(ts 와 body 사이). 허브 `OpsHub` 와 바이트 일치 — car-erp `docs/design/ops-control-center.md` §4. */
+    public static function canonical(string $method, string $path, array $query, int $ts, string $nonce, string $body = ''): string
     {
         ksort($query);
 
         return strtoupper($method)."\n".$path.'?'.http_build_query($query)."\n".$ts."\n".$nonce."\n".$body;
-    }
-
-    /** v1 — car-erp `VerifyErpPeerHmac::canonical` 과 바이트 일치. 전환기 호환용, 허브가 v2 로 간 뒤 삭제. */
-    public static function canonical(string $method, string $path, array $query, int $ts, string $body = ''): string
-    {
-        ksort($query);
-
-        return strtoupper($method)."\n".$path.'?'.http_build_query($query)."\n".$ts."\n".$body;
     }
 
     private function reject(Request $request, string $why): Response

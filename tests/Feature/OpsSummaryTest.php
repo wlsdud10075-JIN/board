@@ -31,13 +31,11 @@ class OpsSummaryTest extends TestCase
     }
 
     /** @return array<string,string> */
-    private function signed(?int $ts = null, ?string $nonce = null, string $secret = 'ops-sek', int $v = 2): array
+    private function signed(?int $ts = null, ?string $nonce = null, string $secret = 'ops-sek'): array
     {
         $ts ??= now()->timestamp;
         $nonce ??= (string) Str::uuid();
-        $canonical = $v === 2
-            ? VerifyOpsHmac::canonicalV2('GET', self::PATH, [], $ts, $nonce)
-            : VerifyOpsHmac::canonical('GET', self::PATH, [], $ts);
+        $canonical = VerifyOpsHmac::canonical('GET', self::PATH, [], $ts, $nonce);
 
         return [
             'X-Timestamp' => (string) $ts,
@@ -54,19 +52,22 @@ class OpsSummaryTest extends TestCase
 
     public function test_canonical_matches_erp_peer_format(): void
     {
-        $this->assertSame("GET\n/api/internal/ops/summary?\n1700000000\n", VerifyOpsHmac::canonical('get', self::PATH, [], 1700000000));
-        $this->assertSame("GET\n/api/internal/ops/summary?\n1700000000\nN1\n", VerifyOpsHmac::canonicalV2('get', self::PATH, [], 1700000000, 'N1'));
+        $this->assertSame("GET\n/api/internal/ops/summary?\n1700000000\nN1\n", VerifyOpsHmac::canonical('get', self::PATH, [], 1700000000, 'N1'));
     }
 
-    /** 전환기 — v2(nonce 포함)·v1 둘 다 받는다. nonce 를 바꿔치기한 v2 는 서명이 깨진다. */
-    public function test_accepts_v2_and_v1_signatures_during_transition(): void
+    /** nonce 가 서명 안에 있다 — 바꿔치기하면 서명이 깨진다. nonce 없는 옛 서명(v1)은 더 이상 안 받는다(2026-11-12 전환 완료). */
+    public function test_nonce_is_part_of_signature_and_v1_is_rejected(): void
     {
-        $this->hit($this->signed(v: 2))->assertOk();
-        $this->hit($this->signed(v: 1))->assertOk();
-
-        $h = $this->signed(nonce: 'real', v: 2);
+        $h = $this->signed(nonce: 'real');
         $h['X-Nonce'] = 'swapped';
         $this->hit($h)->assertUnauthorized();
+
+        $ts = now()->timestamp;
+        $v1 = "GET\n".self::PATH."?\n".$ts."\n";
+        $this->hit([
+            'X-Timestamp' => (string) $ts, 'X-Nonce' => 'old-style',
+            'X-Board-Signature' => 'sha256='.hash_hmac('sha256', $v1, 'ops-sek'),
+        ])->assertUnauthorized();
     }
 
     public function test_signed_request_returns_contract_shape(): void
