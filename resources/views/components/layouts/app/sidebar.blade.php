@@ -393,7 +393,14 @@
 document.addEventListener('livewire:init', () => {
     if (window.__drawerErrorScroll) return;
     window.__drawerErrorScroll = true;
-    Livewire.hook('commit', ({ succeed }) => {
+    // 🚫 **버튼 액션일 때만** 돈다(2026-11-12 Jin, 구매탭 실측): 통화 라디오·금액칸 같은 wire:model 동기화 요청에도 돌면
+    //    항상 떠 있는 빨간 안내(「바이어를 선택해야 구매확정…」)로 끌려 내려간다 — 아직 다 적지도 않았는데.
+    //    에러 스크롤의 뜻은 「확정/저장을 눌렀는데 왜 안 됐나」이므로 commit 의 호출 목록에 저장·확정 계열 메서드가 있을 때만.
+    //    (통화 라디오 = pickQuoteCurrency, 사진 적용 = apply* 는 일부러 뺀다.) 드로어 저장·확정 계열 메서드 이름 — 새 드로어 버튼을 만들면 여기도.
+    const ACTIONS = ['conclude', 'save', 'update', 'saveApplied', 'saveAmount', 'savePayee', 'submit', 'forward', 'forwardManual', 'accept', 'reject', 'requote', 'sendToErp', 'resend', 'requestApproval', 'requestBalance'];
+    Livewire.hook('commit', ({ commit, succeed }) => {
+        const calls = Array.isArray(commit?.calls) ? commit.calls : [];
+        if (!calls.some(c => ACTIONS.includes(c?.method))) return;
         succeed(() => {
             requestAnimationFrame(() => {
                 const panel = document.querySelector('div.fixed.inset-y-0.right-0');
