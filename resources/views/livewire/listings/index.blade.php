@@ -48,6 +48,10 @@ new #[Layout('components.layouts.app')] class extends Component {
     #[Url]
     public int $owner = 0;
 
+    /** `?edit=<id>` 로 들어오면 그 매물 드로어의 탁송 탭을 연다(종·웹푸시의 배차 결과 링크, 2026-11-12). 스코프 밖이면 조용히 무시. */
+    #[Url]
+    public int $edit = 0;
+
     /**
      * 검색(2026-11-05 Jin) — 차량번호·바이어·담당자 한 칸 + 차대번호 한 칸. 목록·탭 건수가 같은 조건(tabQuery·tabCounts → applySearch).
      * 차량번호는 공백을 무시하고 부분일치(「12가 3456」도 걸린다). 바이어 = 직접 적은 이름·ERP 바이어 이름 둘 다.
@@ -240,6 +244,11 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function mount(ExchangeRateService $rates): void
     {
+        if ($this->edit > 0 && PurchaseListing::whereKey($this->edit)->exists()) {
+            $this->openEdit($this->edit);
+            $this->drawerTab = 'transport';
+        }
+        $this->edit = 0;
         $this->qInput = $this->q;      // ?q= 로 들어오면 입력칸에도 보이게
         $this->vinInput = $this->qVin;
         $rates->refreshIfStale();   // 오래됐을 때만 갱신(lazy, cron 불필요)
@@ -2072,7 +2081,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                 {{-- 탭 pill — 폰은 가로 스크롤. Invoice 미입력이면 빨간 점. --}}
                 <div class="-mx-1 mb-3 flex gap-1 overflow-x-auto px-1 pb-1" role="tablist">
-                    @foreach (['basic', 'inspection', 'attach', 'invoice'] as $t)
+                    @foreach (['basic', 'inspection', 'attach', 'invoice', 'transport'] as $t)
                         <button type="button" role="tab" wire:click="$set('drawerTab', '{{ $t }}')" aria-selected="{{ $drawerTab === $t ? 'true' : 'false' }}"
                             class="shrink-0 whitespace-nowrap rounded-md border px-3 py-1.5 text-[12px] font-semibold {{ $drawerTab === $t ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">
                             {{ __('listings.drawer.tab.'.$t) }}@if ($t === 'invoice' && $e->invoiceState() === 'none')<span class="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-red-500 align-middle" title="{{ __('listings.invoice_state.none') }}"></span>@endif
@@ -2208,6 +2217,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                 {{-- ④ Invoice — 송금인(여권/ID) Name·문서번호 → ERP · COMMERCIAL INVOICE --}}
                 <div class="{{ $drawerTab === 'invoice' ? '' : 'hidden' }}" role="tabpanel">
                     @include('livewire.listings._invoice')
+                </div>
+
+                {{-- ⑤ 탁송 배차(2026-11-12 Jin) — 중첩 컴포넌트. 자기 저장을 가지며 부모 update()/reset 과 무관. 전 상태에서 열린다(Jin 결정 1). --}}
+                <div class="{{ $drawerTab === 'transport' ? '' : 'hidden' }}" role="tabpanel">
+                    <livewire:transport.tab :listing-id="$e->id" wire:key="transport-tab-{{ $e->id }}" />
                 </div>
 
                 @if ($errors->any())

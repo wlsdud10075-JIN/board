@@ -47,6 +47,9 @@ new class extends Component
     /** 클레임(2026-11-10) — 담당자: 새 접수(received·reviewing) / 영업·요청 담당자: 대표 결재 결과. board DB. */
     public array $claims = [];
 
+    /** 탁송 배차 결과(2026-11-12) — 내가 등록·요청했거나 수신자(영업·관리)로 받은 요청의 완료·거절. board 값. */
+    public array $transports = [];
+
     /** 마지막 열람 시각(ISO8601) — 미읽음 판정 기준. 패널을 열 때 now 로 갱신된다. */
     public ?string $seenAt = null;
 
@@ -152,6 +155,13 @@ new class extends Component
             ->orderByDesc('decided_at');
     }
 
+    private function transportDecidedQuery()
+    {
+        return \App\Models\TransportRequest::query()->whereNotNull('decided_at')
+            ->where(fn ($w) => $w->where('requested_by_user_id', Auth::id())->orWhereHas('recipients', fn ($q) => $q->where('user_id', Auth::id())))
+            ->orderByDesc('decided_at');
+    }
+
     /** 폴링(30초) — 배지 갱신 + 새로 끝난 결과 토스트. 패널이 열려 있으면 목록은 건드리지 않는다(읽는 중 하이라이트가 사라진다). */
     public function refresh(): void
     {
@@ -182,6 +192,14 @@ new class extends Component
         $holdUnread += $this->claimTurnQuery()->where('request_notified_at', '>', Carbon::parse($this->seenAt))->count();
         if (($turnFresh = $this->claimTurnQuery()->where('request_notified_at', '>', Carbon::parse($this->pollFrom))->count()) > 0) {
             $this->dispatch('forward-arrived', type: 'done', msg: __('nav.bell.toast_claim_turn', ['count' => $turnFresh]));
+        }
+        $holdUnread += $this->transportDecidedQuery()->where('decided_at', '>', Carbon::parse($this->seenAt))->count();
+        $trFresh = $this->transportDecidedQuery()->where('decided_at', '>', Carbon::parse($this->pollFrom))->get();
+        if (($trOk = $trFresh->where('status', 'accepted')->count()) > 0) {
+            $this->dispatch('forward-arrived', type: 'done', msg: __('nav.bell.toast_transport_accepted', ['count' => $trOk]));
+        }
+        if ($trFresh->count() - $trOk > 0) {
+            $this->dispatch('forward-arrived', type: 'rejected', msg: __('nav.bell.toast_transport_rejected', ['count' => $trFresh->count() - $trOk]));
         }
         $claimFresh = $this->claimDecidedQuery()->where('decided_at', '>', Carbon::parse($this->pollFrom))->get();
         $claimOk = $claimFresh->where('decision', 'approved')->count();
@@ -238,6 +256,12 @@ new class extends Component
                 : __('nav.bell.urgent_rejected_body', ['by' => $l->inspection_urgent_decided_by ?: '—', 'note' => $l->inspection_urgent_decision_note ? ' · '.$l->inspection_urgent_decision_note : '']),
             'at' => $l->inspection_urgent_decided_at->timezone(config('app.timezone'))->format('m-d H:i'),
             'new' => $l->inspection_urgent_decided_at->gt($seen),
+        ])->all();
+        $this->transports = $this->transportDecidedQuery()->with(['listing', 'decidedRecipient'])->limit(10)->get()->map(fn ($t) => [
+            'id' => $t->id, 'kind' => $t->status, 'plate' => $t->listing?->vehicle_number ?? '—',
+            'text' => trim($t->dispatchLine().($t->reject_reason ? ' · '.$t->reject_reason : '')),
+            'at' => $t->decided_at->timezone(config('app.timezone'))->format('m-d H:i'), 'new' => $t->decided_at->gt($seen),
+            'href' => route('listings', ['edit' => $t->purchase_listing_id]),
         ])->all();
         $this->claims = collect()
             ->merge($this->claimNewQuery()->limit(10)->get()->map(fn ($c) => [
@@ -397,6 +421,21 @@ new class extends Component
                             </div>
                             @if ($cl['text'] !== '')<p class="mt-0.5 text-[12px] {{ $txt }}">{{ $cl['text'] }}</p>@endif
                             <p class="mt-0.5 text-[11px] text-gray-400">{{ $cl['at'] }}@if ($cl['new'])<span class="ml-1 rounded bg-red-600 px-1 text-[10px] font-bold text-white">{{ __('nav.bell.new') }}</span>@endif</p>
+                        </a>
+                    @endforeach
+                @endif
+
+                {{-- 탁송 배차 결과(2026-11-12) — 완료/거절. 누르면 그 매물 드로어 탁송 탭(?edit=). --}}
+                @if ($transports)
+                    <div class="px-3 pt-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">{{ __('transport.tab_title') }}</div>
+                    @foreach ($transports as $tr)
+                        <a wire:key="bell-t-{{ $tr['id'] }}" href="{{ $tr['href'] }}" class="block border-b border-gray-50 px-3 py-2 hover:bg-gray-50 {{ $tr['new'] ? ($tr['kind'] === 'accepted' ? 'bg-green-50/60' : 'bg-red-50/60') : '' }}">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-[13px] font-semibold text-gray-800">{{ \App\Support\Plate::show($tr['plate']) }}</span>
+                                <span class="badge {{ $tr['kind'] === 'accepted' ? 'badge-green' : 'badge-red' }} shrink-0 whitespace-nowrap">{{ $tr['kind'] === 'accepted' ? __('transport.bell.accepted') : __('transport.bell.rejected') }}</span>
+                            </div>
+                            @if ($tr['text'] !== '')<p class="mt-0.5 text-[12px] {{ $tr['kind'] === 'accepted' ? 'text-green-700' : 'text-red-700' }}">{{ $tr['text'] }}</p>@endif
+                            <p class="mt-0.5 text-[11px] text-gray-400">{{ $tr['at'] }}@if ($tr['new'])<span class="ml-1 rounded bg-red-600 px-1 text-[10px] font-bold text-white">{{ __('nav.bell.new') }}</span>@endif</p>
                         </a>
                     @endforeach
                 @endif

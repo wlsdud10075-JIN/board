@@ -117,3 +117,13 @@ BizM 알림톡 = **승인된 고정 본문 + 변수 + 웹링크 버튼(WL, 최�
 
 ### ERP 요청 묶음 (Jin 승인 뒤 car-erp 세션에 보낼 것 — 4건)
 ① `POST /vehicles/{id}/stock-location` {stock_location, stock_location_note} — `stockLocations()` 검증·본인 차·감사·응답에 `previous` ② 연동 B payload `stock_location`·`stock_location_note`(수신측 fill, §12 권위 갱신) ③ `GET /vehicles/{id}/stock-location` {stock_location, note, updated_at, updated_by_name} ④ §11 `note` → `#{요청내역}` 한 줄 동봉(템플릿 불변).
+
+## 12. 구현 (2026-11-12 dev) · 로컬 시험 절차
+- 코드: 마이그 `2026_11_12_000001_create_transport_tables`(5표) · 모델 `TransportCompany/Phone/Request/Recipient/File` · `TransportService`(생성·예약·발송·결정·알림·매입잔금·ERP 위치) · 명령 `board:transport-send`(매분)·`board:transport-demo`(local) · 공개 페이지 `TransportDecisionController` + `resources/views/transport/{show,result}` · 드로어 탭 `livewire/transport/tab`(중첩, `?edit=<id>` 로 열림) · 업체 관리 `/transport-companies`(`livewire/transport/companies`, 관리 이상) · 종 패널 탁송 결과 · 기능설정 tmplId/토글 2쌍 · 템플릿 2종(`AlimtalkTemplates`, DEFAULT_OFF) · lang `transport.php` ko/en · 테스트 `tests/Feature/TransportTest.php`.
+- ERP 요청 4건(§11 끝)은 car-erp 세션에 전달(11-12). board 는 ①③ 없이도 돌아간다(탭 「ERP 연동 대기」, 전송 실패 행 + 재시도).
+- **로컬 시험**(알림톡은 tmplId 없이 skipped 로 남고 흐름은 끝까지):
+  1. `php artisan board:transport-demo --phone=010-xxxx-xxxx`(업체 2개·번호 시드, 로컬 계정 전화)
+  2. `/listings` 드로어 → 「탁송 배차」 탭 → 업체·주소·도착 위치·사진 ≤5 → [배차 요청 보내기]. 예약이면 `php artisan board:transport-send` 1회.
+  3. 이력의 업체 수신자 옆 **[링크 열기]**(시스템관리자만) → 업체 페이지 → [배차완료]/[배차거절]. 두 번째 번호로 또 열면 「이미 처리됨」.
+  4. 상단 종 → 「탁송 배차」 항목(새 배지) → 드로어 탁송 탭 → [매입잔금 요청](로컬 ERP 가 떠 있으면 §11 로 감, note 에 배차 정보).
+  5. 감사 = `/audit` 변경이력에서 `transport_*` 행, 알림톡 = `/admin/alimtalk-logs`(skipped).

@@ -284,6 +284,26 @@ class CarErpReadService
     }
 
     /**
+     * ERP 보관 위치 읽기(탁송, 2026-11-12 — ERP 요청 ③, 권위 = car-erp board-portal-api.md). ERP 가 아직 없으면 404 → 호출측은 「연동 대기」.
+     *
+     * @return array{ok:bool, status:int, data:mixed, reason:?string}
+     */
+    public function getStockLocation(string $email, int $vehicleId): array
+    {
+        return $this->get('/vehicles/'.$vehicleId.'/stock-location', ['salesman_email' => $email]);
+    }
+
+    /** ERP 보관 위치 쓰기(탁송 — ERP 요청 ①, 덮어쓰기·ERP 감사). 값 검증은 ERP(`stockLocations()`), board 는 config 목록만 본다. */
+    public function setStockLocation(string $email, int $vehicleId, string $location, ?string $note = null): array
+    {
+        return $this->post('/vehicles/'.$vehicleId.'/stock-location', ['salesman_email' => $email], array_filter([
+            'salesman_email' => $email,
+            'stock_location' => $location,
+            'stock_location_note' => $note,
+        ], fn ($v) => $v !== null && $v !== ''));
+    }
+
+    /**
      * 송금인 전용 엔드포인트(2026-10-29 ②, 권위 = `board-portal-api.md` §14, car-erp dev `ec19b348`) — **덮어쓰기 + ERP 감사**. 응답 `{vehicle_id, updated[], had_previous}`,
      * 같은 값이면 `updated: []`. `remitter_id` 빈 문자열은 무시(비우기는 ERP 화면). 남의 차·없는 차 = **403**, 이름 없음·길이 초과 = 422.
      * purchase-sync 동봉분은 **빈 칸만**(규칙이 다르다 — SKILLS §12).

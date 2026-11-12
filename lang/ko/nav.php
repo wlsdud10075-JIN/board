@@ -22,12 +22,14 @@ return [
         'auction' => '경매/구매',
         'manage' => '관리자',
         'users' => '사용자 관리',
+        'transport_companies' => '탁송 업체',
         'audit' => '감사 로그',
         'settings' => '기능설정',
     ],
 
     'crumb' => [
         'claims' => '클레임',
+        'transport_companies' => '탁송 업체',
         'alimtalk_logs' => '알림톡 로그',
         'work_journal' => '업무일지',
         'work_journal_approvals' => '업무일지결재',
@@ -96,6 +98,8 @@ return [
         'claims_new' => '새 클레임 접수',
         'toast_claim_turn' => '📋 클레임 결재 차례 :count건 — 종을 눌러 결재하세요',
         'claim_turn_chip' => '결재 차례',
+        'toast_transport_accepted' => '배차완료 :count건',
+        'toast_transport_rejected' => '배차거절 :count건',
         'claim_new_chip' => '접수',
         'claims_decided' => '클레임 결재 결과',
         'claim_chip_approved' => '승인',

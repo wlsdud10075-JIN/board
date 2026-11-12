@@ -22,7 +22,7 @@ use Illuminate\Support\Facades\Crypt;
 class AlimtalkConfig
 {
     /** 개별 토글 기본값이 OFF 인 템플릿 — 클레임 2종(2026-11-11 Jin 「알림톡은 아직 승인 안 됐으니 OFF 로 기본」). 기능설정에서 켜야 나간다. */
-    public const DEFAULT_OFF = ['board_claim_approval_request', 'board_claim_decision'];
+    public const DEFAULT_OFF = ['board_claim_approval_request', 'board_claim_decision', 'board_transport_request', 'board_transport_result'];
 
     public function __construct(
         public string $userid,

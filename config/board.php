@@ -161,12 +161,17 @@ return [
     //    octet-stream 으로 나간다. 두 박스 nginx 를 건드리지 않으려고 `.json`(application/json) 으로 둔다.
     // ⚠️ 목록에 없는 APP_NAME(로컬 `board`, 아직 없는 karababoard)은 **선언 자체를 생략**한다.
     //    아무거나 폴백하면 그 박스에 **다른 회사 로고**가 뜬다 — 조용히 틀리는 부류라 안 그리는 게 낫다.
+    // 탁송 도착 위치 = ERP 재고 「보관 위치」와 같은 값(car-erp Vehicle::STOCK_LOCATIONS, 2026-11-12 Jin). karaba 는 board 가 없어 목록은 여기 고정 —
+    //   karababoard 를 만들 때 instances.* 에 쇼링·항입고·야드를 넣고 TransportService::stockLocations() 가 그걸 보게 바꾼다.
+    'stock_locations' => ['홈플', '화물', '야드'],
+
     'instances' => [
         'board-heyman' => [
             'favicon' => 'favicon-heyman.ico',
             'manifest' => 'manifest-heyman.json',
             'apple_icon' => 'icons/heyman-180.png',
             'title' => 'HeymanBoard',
+            'company_name' => '헤이맨',   // 알림톡 `#{요청회사}`(탁송) 등 사람에게 보이는 회사명
             'tenant' => 'heymanboard',   // 검차 큐 연동 X-Board-Tenant
             'invoice_template' => 'invoice-heyman.xlsx',   // resources/templates/ — COMMERCIAL INVOICE 양식(회사 계좌 블록 포함)
         ],
@@ -175,6 +180,7 @@ return [
             'manifest' => 'manifest-ssancar.json',
             'apple_icon' => 'icons/ssancar-180.png',
             'title' => 'SsancarBoard',
+            'company_name' => '싼카',
             'tenant' => 'ssancarboard',
             'invoice_template' => 'invoice-ssancar.xlsx',
         ],

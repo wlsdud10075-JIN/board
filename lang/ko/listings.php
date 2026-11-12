@@ -374,7 +374,7 @@ return [
     'drawer' => [
         'title' => ':number · 매입예정 수정',
         // 탭 4개(2026-10-29 ②)
-        'tab' => ['basic' => '기본', 'inspection' => '검차', 'attach' => '첨부', 'invoice' => 'Invoice'],
+        'tab' => ['basic' => '기본', 'inspection' => '검차', 'attach' => '첨부', 'invoice' => 'Invoice', 'transport' => '탁송 배차'],
         'inspection_past' => '검차 단계는 지났습니다 — 현재 상태 :status. 검차 사진·영상은 「첨부」와 전달 화면에서 봅니다.',
         'money_moved' => '금액·입금계좌·차량첨부는 이후 단계(견적·전달 / 구매확정)에서 입력합니다.',
         'summary_locked' => '식별값(차량번호·VIN)·출처는 수정 불가',
