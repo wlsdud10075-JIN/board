@@ -262,7 +262,7 @@ ERP board_requests #14: purchase_balance · open · 8,700,000 · note 저장됨<
     <div class="card">
       <h2><span class="n">7</span>ERP 가 보내는 「매입잔금 요청」 알림톡 — 배차 정보 한 줄 동봉 (ERP dev c1301619)</h2>
       <div class="grid">
-        <div class="kakao"><div class="to">→ 평일 09:00~17:30 관리+업무관리자 / 그 밖·주말 업무관리자 (운영 표 실측)</div>[사내 업무용] board 요청 접수 1건
+        <div class="kakao"><div class="to">→ 평일 09:00~17:30 관리+업무관리자 / 그 밖·주말 업무관리자 (heymanerp·ssancarerp 기능설정 「시각 규칙 표」 실측 2026-11-12, 공휴일 행 없음 — 회사별 설정값이라 바뀔 수 있음)</div>[사내 업무용] board 요청 접수 1건
 
 사내 차량관리 ERP에서 입금 처리 담당자로 지정된 임직원에게 발송되는 내부 업무 알림입니다.
 
@@ -274,7 +274,7 @@ ERP board_requests #14: purchase_balance · open · 8,700,000 · note 저장됨<
 사내 업무 시스템(ERP) 차량관리에서 확인 후 처리해 주세요.</div>
         <div>
           <p class="desc">고정문은 이미 승인된 <code>erp_board_request</code> 그대로이고, 배차 줄은 변수 <code>#{요청내역}</code> 안에 들어가므로 <b>BizM 재승인 없음</b>. 로컬 ERP 는 알림톡 미설정이라 발송은 「건너뜀」, 본문은 ERP 조립 규칙(<code>BoardRequestController</code> 255~262행)대로 예상한 것입니다.</p>
-          <div class="note">대표에게는 가지 않습니다(운영 시각 규칙 표에 대표 행 없음 — 대표계약금만 직행). ERP 드로어에서도 메모로 보입니다.</div>
+          <div class="note">대표에게는 가지 않습니다(두 회사 운영 표에 대표 행 없음 — 대표계약금만 직행). 줄 순서(금액 → 계좌 → 배차)는 ERP 코드가 이 흐름도에 맞춰졌습니다(car-erp dev 0b354b10). ERP 드로어에서도 메모로 보입니다.</div>
         </div>
       </div>
     </div>
