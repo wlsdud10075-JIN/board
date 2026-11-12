@@ -108,6 +108,25 @@ new #[Layout('components.layouts.app')] class extends Component {
         return $this->krwPerEur ?: (int) config('board.default_krw_per_eur');
     }
 
+    /**
+     * 입력칸의 차값을 KRW 로(외화 차값은 입력 환율 → 오늘 환율 순). 「최종 매입가」 줄과 매도비 상한 검증이 같은 값을 본다(2026-11-12).
+     * 저장값이 아니라 **입력칸** 기준 — 다른 칸에 막혀 저장이 안 된 상태에서도 줄이 맞게 보여야 한다(11-11 차값 경고와 같은 이유).
+     */
+    public function carCostKrwInput(): ?int
+    {
+        if ($this->car_cost === null || $this->car_cost === '' || ! $this->detail) {
+            return null;
+        }
+        $cost = (float) $this->car_cost;
+        $num = fn ($v) => ($v === null || $v === '') ? null : (float) $v;
+
+        return (int) round(match ($this->detail->expected_price_currency ?: 'KRW') {
+            'USD' => $cost * ($num($this->rate_usd) ?: $this->usdRate()),
+            'EUR' => $cost * ($num($this->rate_eur) ?: $this->eurRate()),
+            default => $cost,
+        });
+    }
+
     /** 통화별 오늘 환율(KRW 는 1) — 셀프검차 환율칸 기본값. */
     private function rateFor(string $cur): int
     {
@@ -293,8 +312,13 @@ new #[Layout('components.layouts.app')] class extends Component {
             'seller_ceo' => 'nullable|string|max:50',
             'seller_phone' => ['nullable', 'string', 'max:25', 'regex:/^[0-9\-\s]+$/'],
             'car_cost' => 'nullable|numeric|min:0',
-            // 매도비 — 출처 무관 공통(차값과 별개 금액이라 상한을 걸지 않는다).
-            'selling_fee' => 'nullable|numeric|min:0',
+            // 매도비 — 출처 무관 공통. 2026-11-12 Jin: 매입가 = 차값 − 매도비 라 **차값(KRW 환산)보다 작아야** 한다(같거나 크면 매입가 0 이하).
+            'selling_fee' => ['nullable', 'numeric', 'min:0', function (string $attr, $value, \Closure $fail) {
+                $costKrw = $this->carCostKrwInput();
+                if ($value !== null && $value !== '' && $costKrw !== null && (int) $value >= $costKrw) {
+                    $fail(__('auction.selling_fee_exceeds', ['cost' => number_format($costKrw)]));
+                }
+            }],
             'salesFiles.*' => 'file|max:204800',
         ];
 
@@ -563,8 +587,11 @@ new #[Layout('components.layouts.app')] class extends Component {
             'EUR' => $cost * ($eur ?: $this->eurRate()),
             default => $cost,
         };
-        $vat = $costKrw * (float) config('board.ideal_vat_rate') * (float) config('board.ideal_vat_share');
-        $krw = (int) round($costKrw + ($num($this->selling_fee) ?? 0) - $vat);
+        // 2026-11-12 — 매입가 = 차값 − 매도비, 매도비는 따로 더하므로 「매입가 + 매도비」 = 차값. 부가세 기준은 매입가(차값 − 매도비).
+        $fee = $num($this->selling_fee) ?? 0;
+        $purchaseKrw = max(0.0, $costKrw - $fee);
+        $vat = $purchaseKrw * (float) config('board.ideal_vat_rate') * (float) config('board.ideal_vat_share');
+        $krw = (int) round($purchaseKrw + $fee - $vat);
 
         $quoteRate = match ($this->quoteCurrency) {
             'KRW' => 1.0,
@@ -1153,14 +1180,12 @@ new #[Layout('components.layouts.app')] class extends Component {
                             </div>
                         @endif
                         @endif
-                        {{-- ERP 로 가는 금액을 그대로 보여준다 — 차값은 차값, 매도비는 매도비(2026-09-11 Jin).
-                             🚫 예전엔 셀프검차만 `차값 − 매도비` 를 매입가로 보냈다. 그 전제(차값에 매도비 포함)를
-                                버렸으므로 계산식도 화면에서 없앤다. --}}
-                        @if ($car_cost !== null && $car_cost !== '')
-                            <p class="mt-0.5 text-[11px] text-gray-500">{{ __('auction.amount_split_hint', [
-                                'purchase' => number_format((int) $car_cost),
-                                'fee' => ($selling_fee === null || $selling_fee === '') ? __('auction.fee_none') : number_format((int) $selling_fee).__('common.won_currency'),
-                            ]) }}</p>
+                        {{-- 최종 매입가 = 차값 − 매도비(2026-11-12 Jin, 전 출처). 매도비를 적는 순간 여기서 바뀌는 게 보여야 한다 —
+                             차값 입력칸은 딜러 총액 기록이라 그대로 두고, 이 줄이 ERP 로 가는 매입가다. 매도비 없으면 차값과 같다. --}}
+                        @php $finalKrw = $this->carCostKrwInput(); $feeInt = ($selling_fee === null || $selling_fee === '') ? 0 : (int) $selling_fee; @endphp
+                        @if ($finalKrw !== null)
+                            <p class="mt-1 text-[12px] font-semibold text-gray-800">▶ {{ __('auction.final_purchase') }} {{ number_format(max(0, $finalKrw - $feeInt)) }}{{ __('common.won_currency') }}
+                                <span class="font-normal text-gray-500">{{ $feeInt > 0 ? __('auction.final_purchase_with_fee', ['cost' => number_format($finalKrw), 'fee' => number_format($feeInt)]) : __('auction.final_purchase_no_fee') }}</span></p>
                         @endif
                         <p class="mt-1 text-[11px] {{ $costEmpty ? 'text-red-600' : 'text-gray-400' }}" data-hint>{{ $costEmpty ? __('auction.car_cost_missing') : __('auction.car_cost_hint') }}</p>
                     </div>

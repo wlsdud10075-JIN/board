@@ -1435,8 +1435,8 @@ class BoardTest extends TestCase
 
         Http::assertSent(function ($r) {
             return $r['contract_version'] === 5
-                && $r['purchase_price_krw'] === 10000000         // 원가 그대로(할인 미반영, Model A)
-                && $r['selling_fee_krw'] === 440000              // 매도비(매입탭 별도, 회사 부담)
+                && $r['purchase_price_krw'] === 9560000          // 차값 1,000만 − 매도비 44만(2026-11-12 Jin) — ERP 원가 = 매입가 + 매도비 = 차값
+                && $r['selling_fee_krw'] === 440000              // 매도비(매입탭 별도, 딜러 몫)
                 && $r['sale_currency'] === 'EUR'
                 && $r['sale_exchange_rate'] === 1500
                 && (float) $r['sale_price'] === 6600.0            // 판매가 9,900,000(=1000만−1%) / 1500, 매도비 제외 (whole → JSON int)
@@ -1591,7 +1591,7 @@ class BoardTest extends TestCase
                 'car_cost' => 13600000, 'expected_price_currency' => 'KRW', 'selling_fee' => 440000,
             ]);
 
-            $this->assertSame(13600000, $l->purchasePriceKrw(1400, 1500), $origin);   // 안 뺀다
+            $this->assertSame(13160000, $l->purchasePriceKrw(1400, 1500), $origin);   // 차값 − 매도비(2026-11-12, 전 출처)
             $this->assertSame(440000, $l->sellingFeeKrw(1400, 1500), $origin);        // 따로 간다
         }
     }
@@ -1642,7 +1642,7 @@ class BoardTest extends TestCase
             }
             $b = json_decode($r->body(), true);
             $this->assertSame(300000, $b['selling_fee_krw']);
-            $this->assertSame(13600000, $b['purchase_price_krw']);   // 차값 그대로(매도비를 빼지 않는다)
+            $this->assertSame(13300000, $b['purchase_price_krw']);   // 차값 − 매도비(2026-11-12)
 
             return true;
         });
@@ -1671,7 +1671,7 @@ class BoardTest extends TestCase
         $this->assertSame(250000, (int) $l->fresh()->selling_fee);
     }
 
-    /** 다른 출처는 매도비가 **회사 부담 별도**라 차값에서 빼면 안 된다 — 빼면 매입가가 깎인다. */
+    /** 매도비 없으면 차값 그대로, 적으면 전 출처 공통으로 차값 − 매도비(2026-11-12 Jin — ERP 원가 = 매입가 + 매도비 = 차값). */
     public function test_non_self_inspection_purchase_price_keeps_full_car_cost(): void
     {
         $l = $this->mkListing($this->mkUser('sales'), [
@@ -1685,7 +1685,7 @@ class BoardTest extends TestCase
 
         $l->selling_fee = 300000;
         $this->assertSame(300000, $l->sellingFeeKrw(1400, 1500));        // 적으면 적은 값 그대로
-        $this->assertSame(13600000, $l->purchasePriceKrw(1400, 1500));   // 일반 출처는 차값에서 빼지 않는다
+        $this->assertSame(13300000, $l->purchasePriceKrw(1400, 1500));   // 전 출처 차값 − 매도비(2026-11-12)
     }
 
     /** 셀프검차 6칸 — 판매가·통화·환율·운임비를 적은 그대로 저장하고 최종금액은 판매가×환율. */
@@ -1744,7 +1744,7 @@ class BoardTest extends TestCase
             }
             $b = json_decode($req->body(), true);
 
-            return ($b['purchase_price_krw'] ?? null) === 13600000   // 차값 그대로(2026-09-11)
+            return ($b['purchase_price_krw'] ?? null) === 13160000   // 차값 − 매도비(2026-11-12)
                 && ($b['selling_fee_krw'] ?? null) === 440000
                 && (float) ($b['sale_price'] ?? 0) === 8590.0
                 && ($b['sale_currency'] ?? null) === 'USD'
@@ -1893,10 +1893,10 @@ class BoardTest extends TestCase
     }
 
     /**
-     * 🚫 매도비 상한(`lte:car_cost`) **폐지**(2026-09-11 Jin) — 매도비는 이제 차값과 **무관한 별개 금액**이라
-     * 차값보다 커도 막을 근거가 없다. 예전엔 차값에 포함된 값이라 넘으면 매입가가 0 으로 깎였다.
+     * 매도비 상한 **복귀**(2026-11-12 Jin) — 매입가 = 차값 − 매도비 라 매도비가 차값 이상이면 매입가가 0 이하가 된다.
+     * (2026-09-11 에 폐지했던 `lte:car_cost` 의 KRW 환산판 — 외화 차값도 환산해서 본다.) 「최종 매입가」 줄이 그 숫자를 보여준다.
      */
-    public function test_selling_fee_may_exceed_car_cost_now(): void
+    public function test_selling_fee_must_be_below_car_cost_and_final_purchase_line_shows_deduction(): void
     {
         Bus::fake();   // 상태 전이만 본다(전송은 다른 테스트가 검증한다)
         $l = $this->mkListing($this->mkUser('sales'), [
@@ -1905,15 +1905,20 @@ class BoardTest extends TestCase
         ]);
         $this->actingAs($this->mkUser('manager', null, 'manager'));
 
-        Volt::test('auction.index')->call('openDetail', $l->id)
-            ->set('car_cost', '400000')
+        $c = Volt::test('auction.index')->call('openDetail', $l->id)
+            ->set('car_cost', '9000000')
             ->set('selling_fee', '440000')
             ->set('quoteCurrency', 'KRW')
-            ->set('sale_total', '400000')
-            ->set('rate_usd', '1400')   // 2026-10-29 환율 USD 필수(통화 무관) — 이 테스트의 관심사는 매도비 규칙
-            ->call('conclude', $l->id, 'won')
-            ->assertHasNoErrors();
+            ->set('sale_total', '9000000')
+            ->set('rate_usd', '1400');
+        $c->assertSee(__('auction.final_purchase'))->assertSee('8,560,000');   // 차값 − 매도비가 화면에 바로 보인다
 
+        $c->set('selling_fee', '9000000')
+            ->call('conclude', $l->id, 'won')
+            ->assertHasErrors('selling_fee');
+        $this->assertSame('accepted', $l->fresh()->status);
+
+        $c->set('selling_fee', '440000')->call('conclude', $l->id, 'won')->assertHasNoErrors();
         $this->assertSame('won', $l->fresh()->status);
     }
 
@@ -2006,7 +2011,7 @@ class BoardTest extends TestCase
         $this->assertSame('accepted', $b->fresh()->status);
     }
 
-    /** 이상 총판매가 = 매입가 + 매도비 − 매입가 × 9% × 45% (보여주기 전용). 입력 총판매가 대비 % 도. */
+    /** 이상 총판매가 = 매입가 + 매도비 − 매입가 × 9% × 45% (보여주기 전용), 매입가 = 차값 − 매도비(2026-11-12). 입력 총판매가 대비 % 도. */
     public function test_ideal_price_formula_and_diff(): void
     {
         $l = $this->mkListing($this->mkUser('sales'), [
@@ -2019,12 +2024,12 @@ class BoardTest extends TestCase
             ->set('selling_fee', '440000')->set('rate_usd', '1400')->set('rate_eur', '1600')
             ->set('quoteCurrency', 'EUR')->set('sale_total', '6600');
         // 10,000,000 + 440,000 − 900,000 × 45% = 10,035,000 / (판매가 + 운임비) = 6600 × 1600 = 10,560,000 원 → +5.2%
-        $this->assertSame(['krw' => 10035000, 'usd' => 7167.86, 'eur' => 6271.88, 'sale_krw' => 10560000, 'diff' => 5.2], $c->instance()->idealPrice());
+        $this->assertSame(['krw' => 9612820, 'usd' => 6866.3, 'eur' => 6008.01, 'sale_krw' => 10560000, 'diff' => 9.9], $c->instance()->idealPrice());
 
         // Jin 실측(2026-10-22 50서3741): 870만 + 44만 − 783,000 × 45% = 8,787,650 / 5800 × 1500 = 8,700,000 → −1.0%
         $c->set('car_cost', '8700000')->set('rate_usd', '1300')->set('rate_eur', '1500')->set('sale_total', '5800')->set('transport_fee_usd', '2040');
         $this->assertSame(8700000, $c->instance()->idealPrice()['sale_krw']);
-        $this->assertSame(-1.0, $c->instance()->idealPrice()['diff']);
+        $this->assertSame(4.0, $c->instance()->idealPrice()['diff']);
         $c->assertSee(__('auction.ideal_title'));
         $this->assertNull($l->fresh()->sale_price);   // 저장 없음
     }
@@ -8371,7 +8376,7 @@ class BoardTest extends TestCase
                 && $r['buyer_id'] === null && $r['consignee_id'] === null   // 컬럼에 42/66 이 남아 있어도 안 싣는다
                 && $r['sale_price'] === null && $r['sale_currency'] === null
                 && $r['sale_exchange_rate'] === null && $r['transport_fee'] === null
-                && $r['purchase_price_krw'] === 10000000                    // 매입측은 그대로 간다
+                && $r['purchase_price_krw'] === 9560000                     // 매입측 = 차값 − 매도비(2026-11-12)
                 && $r['selling_fee_krw'] === 440000;
         });
     }

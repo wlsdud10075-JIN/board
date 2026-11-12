@@ -829,6 +829,7 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
 - ℹ️ 구매확정한 차는 「진행중」에서 빠져 「ERP 전환완료」로 간다 — 사라진 게 아니다(탭 배지가 그걸 보여준다).
 
 ### 14-18. 매도비는 **적은 것만 간다** (2026-09-11 Jin — 자동 기입 폐지)
+- **2026-11-12 Jin — 매입가 = 차값 − 매도비 로 복귀(전 출처)**: 아래 「차감 폐지」는 이 날짜로 뒤집혔다. `PurchaseListing::purchasePriceKrw()` = carCostKrw − selling_fee(fee>0, 0 아래 금지), 구매탭 `carCostKrwInput()`(입력칸 기준 KRW 환산)을 「▶ 최종 매입가」 줄과 `selling_fee` 상한 검증(차값 이상 = 422 `auction.selling_fee_exceeds`)이 같이 본다. 이상 총판매가 부가세 기준도 매입가(차값−매도비). ERP 무변경(원가 = purchase_price + selling_fee). 재전송은 판매측만이라 **이미 synced 된 차의 ERP 매입가는 안 바뀐다**. 가드 = `test_purchase_price_is_car_cost_for_every_origin`(13,600,000−440,000) · `test_selling_fee_must_be_below_car_cost_and_final_purchase_line_shows_deduction`.
 
 매도비가 **세 곳에서 자동으로 붙고** 있었다. 셋 다 사람이 적은 적 없는 숫자다.
 

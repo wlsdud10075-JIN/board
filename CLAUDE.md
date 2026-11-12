@@ -260,7 +260,7 @@ board = "살게요" 한 차를 실제로 매입·검차·경매하는 업무보�
 
 ## 현재 도메인 규칙 (§6 재설계 반영 — 코딩 시 준수)
 
-- **금액 (Model A)**: 매입 = **원가(차값 그대로)**, 판매 = **매도비 제외**, 차감액 별도 컬럼. **매도비 = 수기 입력만**(`/auction` 드로어, 출처 무관 공통 칸 — 2026-09-11 Jin). 안 적으면 **안 보낸다**(ERP 매도비 0). 🚫 고정값 자동 기입(440,000) 폐지 · 🚫 **매입가에서 매도비 차감 폐지**(셀프검차 예외 포함) — 차값·매도비를 **별도로 적어 각각 그대로** ERP 전달. ⚠️ 셀프검차 차값 칸에 매도비를 합쳐 적지 말 것. 상세 = [board-flow-model-a-deployed / board-amount-mapping].
+- **금액 (Model A)**: 매입 = **원가(차값 그대로)**, 판매 = **매도비 제외**, 차감액 별도 컬럼. **매도비 = 수기 입력만**(`/auction` 드로어, 출처 무관 공통 칸 — 2026-09-11 Jin). 안 적으면 **안 보낸다**(ERP 매도비 0). 🚫 고정값 자동 기입(440,000) 폐지. **매입가 = 차값 − 매도비**(2026-11-12 Jin, 전 출처 공통 — 9-11 「차감 폐지」를 뒤집음): 차값 칸 = 딜러 총액(매도비 포함), 매도비 칸 = 딜러 몫 → ERP 에 매입가(차값−매도비)·매도비 각각 전달, ERP 원가 = 매입가+매도비 = 차값. 구매탭 「▶ 최종 매입가」 줄이 매도비 입력 즉시 바뀐다, 매도비 ≥ 차값은 저장 차단. 단일 출처 = `PurchaseListing::purchasePriceKrw()`. ⚠️ 운영 관행 재변경(차값 칸에 매도비 합쳐 적기) — 공지는 Jin. 상세 = [board-flow-model-a-deployed / board-amount-mapping].
 - **차값 통화**: 엔카 = KRW, 싼카 = 원/미/유로 토글 택1을 `car_cost` 에 **외화 그대로** 보관(`expected_price_currency`). KRW 환산은 **계산 시에만** — 단일 경로 `App\Support\Money::toKrw()` ↔ 모델 `carCostKrw/carPriceKrw/totalKrw`. **매물표시가 토글 = 차값 선택 / `displayCurrency` = 표시만**(차값 불변). `expected_price` 컬럼은 **재활용·리네임 금지**. final_price = KRW 스냅샷(연동 B 무변).
 - **환율**: board 가 car-erp `/rates`(네이버 전신환매입률) 받아씀 — 값 일치. [board-exchange-rate-source]
 - **입금정보**: `payee_name·payee_bank·payee_account`(**`payee_account` = `encrypted` 캐스트**). 입력 = `/listings`(영업 선택) → `/auction` 드로어 자동표시 → 연동 B 로 car-erp 전달. 은행 datalist + 계좌 동적 마스킹(`Alpine.store('koreanBanks')`).
