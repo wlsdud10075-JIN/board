@@ -382,7 +382,7 @@ new #[Layout('components.layouts.app')] class extends Component
         @endphp
         <div class="fixed inset-0 z-40 bg-black/40" wire:click="closeDetail"></div>
         <div wire:key="claim-drawer-{{ $d->id }}" style="overflow-anchor:none"
-             x-data x-init="$el.scrollTop = 0; $nextTick(() => $el.scrollTop = 0); setTimeout(() => $el.scrollTop = 0, 300)"
+             x-data x-init="$el.scrollTop = 0"
              class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[720px]">
             <div class="flex items-center justify-between border-b border-gray-200 px-5 py-3">
                 <h3 class="font-bold text-gray-800">{{ \App\Support\Plate::show($d->vehicle_number) }} · {{ $d->buyer_name ?: '—' }}
