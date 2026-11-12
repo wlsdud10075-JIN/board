@@ -1088,8 +1088,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <div class="grid grid-cols-2 gap-2">
                             <div>
                                 {{-- 차값·매도비는 **항상 원화** — 견적통화 토글의 영향을 받지 않는다(2026-08-10 Jin). --}}
-                                <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.car_cost') }} <span class="text-gray-400">({{ $d->isSelfInspection() ? __('common.won_currency') : \App\Support\Money::symbol($costCur) }})</span></label>
+                                @php $costKrwNow = $this->carCostKrwInput(); $feeNow = ($selling_fee === null || $selling_fee === '') ? 0 : (int) $selling_fee; @endphp
+                                <label class="mb-0.5 block whitespace-nowrap text-xs text-gray-500">{{ __('auction.car_cost') }} <span class="text-gray-400">({{ $d->isSelfInspection() ? __('common.won_currency') : \App\Support\Money::symbol($costCur) }})</span></label>
                                 <input type="number" min="0" class="input-base" wire:model.live.debounce.400ms="car_cost" placeholder="{{ __('auction.car_cost_ph') }}">
+                                {{-- 매도비가 있으면 차값 칸 **아래**에 최종 매입가 작은 칩(Jin 2026-11-12). 라벨 옆에 두면 폰에서 칩이 내려와 차값 입력칸이 매도비 칸보다 한 줄 낮아진다(실측) — 입력칸 아래가 두 칸 정렬을 안 깬다. --}}
+                                @if ($costKrwNow !== null && $feeNow > 0)
+                                    <p class="mt-1"><span class="inline-block whitespace-nowrap rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-emerald-700">{{ __('auction.final_purchase') }} {{ number_format(max(0, $costKrwNow - $feeNow)) }}{{ __('common.won_currency') }}</span></p>
+                                @endif
                                 @error('car_cost') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
                             </div>
 
@@ -1184,8 +1189,11 @@ new #[Layout('components.layouts.app')] class extends Component {
                              차값 입력칸은 딜러 총액 기록이라 그대로 두고, 이 줄이 ERP 로 가는 매입가다. 매도비 없으면 차값과 같다. --}}
                         @php $finalKrw = $this->carCostKrwInput(); $feeInt = ($selling_fee === null || $selling_fee === '') ? 0 : (int) $selling_fee; @endphp
                         @if ($finalKrw !== null)
-                            <p class="mt-1 text-[12px] font-semibold text-gray-800">▶ {{ __('auction.final_purchase') }} {{ number_format(max(0, $finalKrw - $feeInt)) }}{{ __('common.won_currency') }}
-                                <span class="font-normal text-gray-500">{{ $feeInt > 0 ? __('auction.final_purchase_with_fee', ['cost' => number_format($finalKrw), 'fee' => number_format($feeInt)]) : __('auction.final_purchase_no_fee') }}</span></p>
+                            {{-- 금액은 한 덩어리(nowrap), 설명은 폰에서 다음 줄로 자연스럽게(break-keep = 단어 단위 줄바꿈). --}}
+                            <p class="mt-1 flex flex-wrap items-baseline gap-x-1.5 gap-y-0 text-[12px] font-semibold text-gray-800">
+                                <span class="whitespace-nowrap tabular-nums">▶ {{ __('auction.final_purchase') }} {{ number_format(max(0, $finalKrw - $feeInt)) }}{{ __('common.won_currency') }}</span>
+                                <span class="min-w-0 break-keep font-normal text-gray-500">{{ $feeInt > 0 ? __('auction.final_purchase_with_fee', ['cost' => number_format($finalKrw), 'fee' => number_format($feeInt)]) : __('auction.final_purchase_no_fee') }}</span>
+                            </p>
                         @endif
                         <p class="mt-1 text-[11px] {{ $costEmpty ? 'text-red-600' : 'text-gray-400' }}" data-hint>{{ $costEmpty ? __('auction.car_cost_missing') : __('auction.car_cost_hint') }}</p>
                     </div>
