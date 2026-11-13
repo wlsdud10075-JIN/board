@@ -208,7 +208,15 @@
 
         {{-- 하단: 업무가이드 + 내 설정 + 로그아웃 --}}
         <div class="border-t border-white/5 py-2 shrink-0">
-            @if ($workGuideUrl)
+            {{-- 📖 2026-11-13 (Jin) — 앱 안 업무 가이드(/guides). 볼 수 있는 씬이 하나라도 올라오면 Notion 링크 대신 이쪽으로 간다.
+                 씬이 아직 0장인 동안은 종전 Notion 링크 그대로(빈 목록으로 보내지 않는다). car-erp 사이드바와 같은 규칙. --}}
+            @if (\App\Services\Guides\GuideCatalog::hasAny())
+                <a href="{{ route('guides.index') }}" wire:navigate @click="if(isMobile) closeMobile()"
+                   :title="(isMobile || open) ? '' : '{{ __('nav.action.work_guide') }}'" class="sidebar-item {{ request()->routeIs('guides.*') ? 'is-active' : '' }}" :class="{ 'sidebar-item-collapsed': !isMobile && !open }">
+                    <svg class="sidebar-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">{!! $icons['book'] !!}</svg>
+                    <span x-show="isMobile || open" class="flex-1 truncate">{{ __('nav.action.work_guide') }}</span>
+                </a>
+            @elseif ($workGuideUrl)
                 <a href="{{ $workGuideUrl }}" target="_blank" rel="noopener noreferrer" @click="if(isMobile) closeMobile()"
                    :title="(isMobile || open) ? '' : '{{ __('nav.action.work_guide') }}'" class="sidebar-item" :class="{ 'sidebar-item-collapsed': !isMobile && !open }">
                     <svg class="sidebar-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">{!! $icons['book'] !!}</svg>

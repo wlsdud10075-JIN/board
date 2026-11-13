@@ -3,6 +3,7 @@
 use App\Http\Controllers\BuyerViewController;
 use App\Http\Controllers\ClaimApprovalController;
 use App\Http\Controllers\DevUserSwitchController;
+use App\Http\Controllers\GuideController;
 use App\Http\Controllers\PhotoController;
 use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\TransportDecisionController;
@@ -85,6 +86,12 @@ Route::middleware(['auth'])->group(function () {
 
     // 탁송 업체(2026-11-12 Jin) — 관리 이상이 업체·번호를 넣으면 영업 드로어 「탁송 배차」 탭에 즉시 뜬다.
     Volt::route('transport-companies', 'transport.companies')->middleware('role:manager')->name('transport.companies');
+
+    // 📖 업무 가이드(2026-11-13 Jin) — 로그인한 전 직원(활성 계정 — 컨트롤러 가드). 본문·그림은 resources/guides 에서 컨트롤러가 내보낸다(public 아님).
+    //    car-erp 의 /guides 와 같은 구조(slug 규칙·라우트 3개). 목록 = config/guides.php.
+    Route::get('guides', [GuideController::class, 'index'])->name('guides.index');
+    Route::get('guides/{slug}', [GuideController::class, 'show'])->where('slug', '[a-z0-9-]+')->name('guides.show');
+    Route::get('guides/{slug}/{file}', [GuideController::class, 'asset'])->where('slug', '[a-z0-9-]+')->name('guides.asset');
 
     // 사진 같은출처 스트리밍 (모바일 다중 공유 fetch 의 CORS 우회) — 스코프는 컨트롤러에서
     Route::get('photos/{photo}', [PhotoController::class, 'show'])->name('photos.show');

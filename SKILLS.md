@@ -766,6 +766,18 @@ car-erp 의 매입 락 4겹은 전부 **차량관리 화면 `save()` 안**이라
 - **안 고쳐진 것**: EXIF 없이 누운 **통장·자동차등록증**은 확인 수단이 없어 종전 그대로다(계좌는 숫자라 누워도 읽히는 편, 예금주·소유자 한글이 위험).
 - 가드 = `PayeeExtractionTest` 끝 4건(실제 응답을 fixture 로) — `test_job_takes_seller_only_from_the_rotation_where_both_answers_agree` 등.
 
+### 14-33. 업무 가이드 `/guides` — 본문 파일이 곧 상태 (2026-11-13 Jin, dev)
+car-erp 의 `/guides` 와 **같은 구조**로 만든 직원용 씬 워크스루 화면(Jin 「board 도 같은 구성 + 서로 링크」). 틀 코드는 ERP 것(`GuideCatalog`·`GuideController`·뷰 2개)을 옮겨 온 것이라 **한쪽을 고치면 다른 쪽도 같이 본다**(car-erp 세션에 알릴 것).
+- **목록 단일 출처 = `config/guides.php`**: `scenes[slug] = [묶음, 제목, 요약, 누가[], 찾는 말]` · `scenes_en[slug] = [제목, 요약]`(같은 키·순서 — 테스트가 강제) · `groups`(순서) · `lap`(한 바퀴 순서). 화면 문구·묶음 이름·역할 이름 = `lang/{ko,en}/guides.php`. **씬을 추가하면 세 곳**(scenes · scenes_en · 새 역할이면 lang roles) — 빠지면 `GuidesPageTest::test_every_scene_has_an_english_title_and_known_group_and_roles` 가 잡는다.
+- **상태는 config 에 적지 않는다** — `resources/guides/{slug}/index.html` 없음 = 「준비 중」(404) / 있음 = 「사용 중」 / 파일 수정 뒤 14일 = 「새로 올라옴」(파일 mtime — 배포가 `git reset` 으로 mtime 을 바꾸면 전부 「새로 올라옴」으로 보일 수 있다, 미확인).
+- **본문 = 조각 HTML**(레이아웃 없음). 클래스는 `.gd-lane`(+`.gd-who2` `.gd-l-board/.gd-l-erp/.gd-l-talk/.gd-l-out`) · `.gd-step`(`.gd-n`) · `.gd-bubble` · `details`(개발 상세 — 검색 색인에서 빠진다) · 끝에 `.gd-check`. 그림은 `src="01.png"` 파일명만(컨트롤러가 `/guides/{slug}/01.png` 로 바꿔 서빙, png·jpg·webp, 파일명 화이트리스트). 영어판 = `index.en.html`(없으면 한국어 본문 + 「Korean only」).
+- 🚫 **시스템관리자 일은 목록에도 본문 단계에도 넣지 않는다**(기능설정·알림톡 로그 화면을 거치는 단계 금지 — Jin). 본문은 사용자 말로(변수명·엔드포인트 금지, 기획 §2).
+- 접근 = 로그인한 **활성** 계정 전부(역할 미들웨어 없음 → 컨트롤러 세 메서드가 `is_active` 를 본다. 🚫 생성자에서 `auth()->user()` 를 보지 말 것 — 미들웨어 전에 돌아 전원 403).
+- 사이드바 = `GuideCatalog::hasAny()`(파일 존재만 봄) 이면 앱 안 `/guides`, 아니면 종전 Notion 링크(빈 목록으로 안 보낸다).
+- **ERP 링크** = `guides.erp_urls[APP_NAME]`(board-heyman → heysellcar.com, board-ssancar → heymancar.com) + `erp_link_live`(ERP 운영 배포 통보 전엔 false — 404 로 안 보낸다). 로컬(`board`)은 링크 없음.
+- 한 바퀴 순번 「i / n」은 **볼 수 있는 씬끼리** 센다(`neighbours()['lapPos']`). config 순번을 쓰면 앞 씬이 준비 중일 때 「6 / 3」이 된다(로컬 캡처 실측 → board 수정, ERP 에도 같은 식이 있어 알림).
+- 색·모양은 뷰 안 `<style>` 에만(새 Tailwind 유틸을 쓰면 빌드 CSS 에 없어 조용히 안 먹는다).
+
 ### 14-16. ERP 로 넘어간 차에 **사진을 나중에 추가** (2026-09-11 Jin)
 
 딜러가 사진을 늦게 주면 board 에는 올릴 데가 없었다 — 업로드 화면은 `/auction` 하나뿐인데 그 화면은
