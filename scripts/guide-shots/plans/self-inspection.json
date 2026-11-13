@@ -1,0 +1,23 @@
+{
+  "slug": "self-inspection",
+  "base": "http://localhost:8003",
+  "login": { "email": "guide-demo@local.test" },
+  "viewport": "pc",
+  "steps": [
+    { "goto": "/listings" },
+    { "clickText": "매입예정 추가", "in": "button" },
+    { "wait": 1000 },
+    { "clickText": "셀프검차매입", "in": "button" },
+    { "wait": 600 },
+    { "type": "input@model(expected_price)", "text": "9800000" },
+    { "type": "input@model(vehicle_number)", "text": "11가1002" },
+    { "type": "input@model(owner_name)", "text": "김차주" },
+    { "type": "input[placeholder^='수원']", "text": "경기 수원시" },
+    { "click": "h2, h1" },
+    { "wait": 500 },
+    { "shot": "_01-form", "full": true },
+    { "clickText": "저장", "in": "button.btn-primary" },
+    { "wait": 3000 },
+    { "shot": "_02-after", "full": true }
+  ]
+}
