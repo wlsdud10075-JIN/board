@@ -1,0 +1,95 @@
+{
+ "slug": "purchase-confirm",
+ "base": "http://localhost:8003",
+ "login": {
+  "email": "guide-demo@local.test"
+ },
+ "viewport": "pc",
+ "steps": [
+  {
+   "goto": "/auction"
+  },
+  {
+   "shot": "_01-list",
+   "full": true
+  },
+  {
+   "viewport": "xtall"
+  },
+  {
+   "goto": "/auction"
+  },
+  {
+   "clickText": "11가1001",
+   "in": "td, tr, a, button"
+  },
+  {
+   "wait": 2000
+  },
+  {
+   "type": "input@model(selling_fee)",
+   "text": "440000"
+  },
+  {
+   "type": "input@model(sale_total)",
+   "text": "10500"
+  },
+  {
+   "type": "input@model(transport_fee_usd)",
+   "text": "1500"
+  },
+  {
+   "wait": 1200
+  },
+  {
+   "shot": "_02-amounts",
+   "clip": {
+    "x": 840,
+    "y": 0,
+    "width": 440,
+    "height": 900
+   }
+  },
+  {
+   "select": "select@model(buyerId)",
+   "text": "GUIDE SAMPLE"
+  },
+  {
+   "wait": 2000
+  },
+  {
+   "upload": "input@model(salesFiles)",
+   "files": [
+    "fixtures/bankbook-sample.jpg",
+    "fixtures/bizreg-sample.jpg",
+    "fixtures/card-sample.jpg"
+   ],
+   "after": 3000
+  },
+  {
+   "shot": "_03-after-upload",
+   "clip": {
+    "x": 840,
+    "y": 0,
+    "width": 440,
+    "height": 3400
+   }
+  },
+  {
+   "clickText": "이미지에서 정보 찾기",
+   "in": "button"
+  },
+  {
+   "wait": 45000
+  },
+  {
+   "shot": "_04-found",
+   "clip": {
+    "x": 840,
+    "y": 0,
+    "width": 440,
+    "height": 3400
+   }
+  }
+ ]
+}

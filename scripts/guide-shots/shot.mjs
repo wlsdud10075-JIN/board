@@ -12,6 +12,8 @@
 //   {"type": "css 선택자", "text": "5000000"}    입력 (선택자 줄임말: "input@model(address)" = wire:model 이 address 인 input)
 //   {"select": "select@model(company_id)", "text": "위카"}   글자가 들어간 option 고르기
 //   {"scrollText": "요청 이력"}                그 글자가 보이게 스크롤
+//   {"upload": "input@model(salesFiles)", "files": ["fixtures/a.jpg"]}   파일 올리기(숨은 입력도)
+//   {"select": "...", "index": 1}             option 을 순서로 고르기
 //   {"wait": 800}                               ms 대기 / {"waitFor": "css 선택자"} 요소가 나타날 때까지
 //   {"viewport": "phone"}                       도중에 폭 바꾸기
 //   {"login": {"email": "..."}}                 도중에 다른 계정으로 다시 로그인
@@ -26,7 +28,7 @@ import puppeteer from 'puppeteer-core';
 
 const CHROME = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
     'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find((p) => fs.existsSync(p));
-const VIEW = { pc: { width: 1280, height: 900, deviceScaleFactor: 1 }, tall: { width: 1280, height: 1500, deviceScaleFactor: 1 }, phone: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true } };
+const VIEW = { pc: { width: 1280, height: 900, deviceScaleFactor: 1 }, tall: { width: 1280, height: 1500, deviceScaleFactor: 1 }, xtall: { width: 1280, height: 3400, deviceScaleFactor: 1 }, phone: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true } };
 
 const planPath = process.argv[2];
 if (!planPath) { console.error('사용: node shot.mjs plans/<씬>.json'); process.exit(1); }
@@ -43,7 +45,7 @@ let dialogMode = 'accept';
 page.on('dialog', async (d) => { console.log('  dialog: ' + d.message().slice(0, 80)); dialogMode === 'dismiss' ? await d.dismiss() : await d.accept(); });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 선택자 줄임말 — "select@model(company_id)" → wire:model(.live) 가 company_id 인 select. JSON 에 역슬래시를 안 쓰려고 둔다.
-const sel = (q) => q.replace(/@model\(([^)]+)\)/g, (_, m) => `:is([wire\\:model="${m}"],[wire\\:model\\.live="${m}"],[wire\\:model\\.blur="${m}"])`).replace(/@click\(([^)]+)\)/g, (_, m) => `[wire\\:click="${m}"]`)   // "button@click(openPanel)" → wire:click 이 openPanel 인 버튼
+const sel = (q) => q.replace(/@model\(([^)]+)\)/g, (_, m) => `:is([wire\\:model="${m}"],[wire\\:model\\.live="${m}"],[wire\\:model\\.blur="${m}"],[wire\\:model\\.live\\.debounce\\.400ms="${m}"],[wire\\:model\\.live\\.debounce\\.300ms="${m}"])`).replace(/@click\(([^)]+)\)/g, (_, m) => `[wire\\:click="${m}"]`)   // "button@click(openPanel)" → wire:click 이 openPanel 인 버튼
     .replace(/@key\(([^)]+)\)/g, (_, m) => `[wire\\:key="${m}"]`);   // "div@key(tr-4)" → wire:key 가 tr-4 인 요소
 const settle = async () => { try { await page.waitForNetworkIdle({ idleTime: 400, timeout: 8000 }); } catch {} await sleep(250); };
 
@@ -79,11 +81,11 @@ try {
         else if (s.type) { await page.waitForSelector(sel(s.type), { visible: true, timeout: 8000 }); await page.click(sel(s.type), { clickCount: 3 }); await page.type(sel(s.type), String(s.text)); await page.keyboard.press('Tab'); await settle(); }
         else if (s.select) {   // {"select": "select@model(company_id)", "text": "위카"} — 글자가 들어간 option 고르기
             await page.waitForSelector(sel(s.select), { visible: true, timeout: 8000 });
-            const ok = await page.evaluate((q, text) => {
-                const el = document.querySelector(q); const o = [...el.options].find((x) => x.textContent.includes(text));
+            const ok = await page.evaluate((q, text, index) => {   // "index": 1 = 첫 번째 실제 항목(0 은 「선택」 자리)
+                const el = document.querySelector(q); const o = index != null ? el.options[index] : [...el.options].find((x) => x.textContent.includes(text));
                 if (o) { el.value = o.value; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }
                 return !!o;
-            }, sel(s.select), s.text);
+            }, sel(s.select), s.text ?? '', s.index ?? null);
             if (!ok) throw new Error('option 못 찾음: ' + s.text);
             await settle();
         }
@@ -93,6 +95,11 @@ try {
                 if (els[0]) els[0].scrollIntoView({ block: 'start' });
             }, s.scrollText);
             await sleep(400);
+        }
+        else if (s.upload) {   // {"upload": "input@model(salesFiles)", "files": ["fixtures/a.jpg"]} — 숨은 file 입력에도 된다(경로는 이 폴더 기준)
+            const el = await page.waitForSelector(sel(s.upload), { timeout: 8000 });
+            await el.uploadFile(...s.files.map((f) => path.resolve(path.dirname(outDir), '..', f)));
+            await settle(); await sleep(s.after ?? 1500);
         }
         else if (s.waitFor) { await page.waitForSelector(sel(s.waitFor), { visible: true, timeout: 15000 }); }
         else if (s.wait) { await sleep(s.wait); }

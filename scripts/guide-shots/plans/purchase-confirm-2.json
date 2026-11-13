@@ -1,0 +1,27 @@
+{
+  "slug": "purchase-confirm",
+  "base": "http://localhost:8003",
+  "login": { "email": "guide-demo@local.test" },
+  "viewport": "xtall",
+  "steps": [
+    { "goto": "/auction" },
+    { "clickText": "11가1001", "in": "td, tr, a, button" },
+    { "wait": 2000 },
+    { "type": "input@model(selling_fee)", "text": "440000" },
+    { "type": "input@model(sale_total)", "text": "10500" },
+    { "type": "input@model(transport_fee_usd)", "text": "1500" },
+    { "select": "select@model(buyerId)", "text": "GUIDE SAMPLE" },
+    { "wait": 2000 },
+    { "shot": "_05-candidates", "clip": { "x": 840, "y": 0, "width": 440, "height": 3400 } },
+    { "clickText": "차값에 적용", "in": "button" },
+    { "wait": 1500 },
+    { "clickText": "매입처에 적용", "in": "button" },
+    { "wait": 1500 },
+    { "clickText": "연락처에 적용", "in": "button" },
+    { "wait": 1500 },
+    { "shot": "_06-applied", "clip": { "x": 840, "y": 0, "width": 440, "height": 3400 } },
+    { "clickText": "구매확정", "in": "button.btn-green" },
+    { "wait": 6000 },
+    { "shot": "_07-confirmed", "full": true }
+  ]
+}
