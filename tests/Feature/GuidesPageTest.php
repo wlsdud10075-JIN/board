@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Setting;
 use App\Models\User;
 use App\Services\Guides\GuideCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -176,6 +177,22 @@ class GuidesPageTest extends TestCase
         File::ensureDirectoryExists($this->dir.'/claim-handle');
         File::put($this->dir.'/claim-handle/index.en.html', '<p>orphan</p>');
         $this->assertSame('wait', collect(GuideCatalog::all())->firstWhere('slug', 'claim-handle')['status'], '한국어 본문이 기준 — 영어판만으로는 열리지 않는다');
+    }
+
+    /** 저장된 언어가 영어인 사용자의 **실제 요청** — 미들웨어(SetLocale)를 거쳐 화면이 영어로 나온다. 영어가 꺼져 있으면 한국어. */
+    public function test_a_user_whose_saved_language_is_english_gets_the_english_guide(): void
+    {
+        $this->scene('payment-request', '<p>매입잔금을 요청합니다.</p>');
+        $user = $this->staff();
+        $user->forceFill(['locale' => 'en'])->save();
+
+        $this->actingAs($user)->get('/guides')->assertOk()->assertSee('업무 가이드')->assertDontSee('Work Guide');   // 기능설정에서 영어가 꺼져 있다
+
+        Setting::updateOrCreate(['key' => 'locale_en_enabled'], ['value' => '1', 'type' => 'boolean']);
+        $this->actingAs($user)->get('/guides')->assertOk()
+            ->assertSee('Work Guide')->assertSee('Payment requests')->assertSee('Korean only');
+        $this->actingAs($user)->get('/guides/payment-request')->assertOk()
+            ->assertSee('Payment requests')->assertSee('This guide has no English version yet')->assertSee('매입잔금을 요청합니다');
     }
 
     public function test_every_scene_has_an_english_title_and_known_group_and_roles(): void
