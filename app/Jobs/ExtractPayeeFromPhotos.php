@@ -83,6 +83,10 @@ class ExtractPayeeFromPhotos implements ShouldQueue
                         // 2차가 실패해도 1차 결과는 쓴다
                     }
                 }
+                // 사업자등록증이면 매입처는 확인 질의를 통과한 값만 쓴다(1차 값은 버린다 — PayeeExtractor::BIZ_PROMPT_A 주석).
+                if ($one['seller'] !== null || $extractor->isExplicitBusinessRegistration($one['doc_type'])) {
+                    $one['seller'] = $this->verifiedSeller($photo, $extractor, $client, $model, $numCtx);
+                }
                 $perPhoto[] = $one;
             } catch (\Throwable $e) {
                 $failed++;
@@ -125,13 +129,19 @@ class ExtractPayeeFromPhotos implements ShouldQueue
      * ⚠️ 해상도를 올리면 비전 토큰이 num_ctx 를 넘겨 HTTP 400 이 난다(1500px 실측 3300~4100 토큰).
      *    대략 `가로 × 세로 / 770` 이 토큰 수다.
      */
-    private function prepare(InspectionPhoto $photo, ?float $topRatio = null): ?string
+    private function prepare(InspectionPhoto $photo, ?float $topRatio = null, int $clockwise = 0): ?string
     {
         try {
             $raw = Storage::disk(config('board.photo_disk'))->get($photo->s3_path);
             $im = $raw ? @imagecreatefromstring($raw) : false;
             if (! $im) {
                 return null;
+            }
+            // 방향 — GD 는 EXIF Orientation 을 무시한다(폰으로 세워 찍은 사진이 누운 채 모델에 간다). 자르기 **전에** 돌린다:
+            // 누운 채로 위쪽 45% 를 자르면 등록증 소유자 칸이 아니라 옆구리를 본다. $clockwise = 확인 질의가 더 돌려 보는 각도.
+            $turn = ($this->exifRotation((string) $raw) + $clockwise) % 360;
+            if ($turn !== 0) {
+                $im = imagerotate($im, -$turn, 0) ?: $im;   // imagerotate 는 반시계
             }
             // 위쪽 일부만(등록증 소유자 칸) — 자른 뒤 같은 폭으로 늘리면 글자가 커진다.
             if ($topRatio !== null) {
@@ -146,6 +156,56 @@ class ExtractPayeeFromPhotos implements ShouldQueue
         } catch (\Throwable $e) {
             return null;
         }
+    }
+
+    /**
+     * 사업자등록증 매입처 — 방향을 바꿔 가며 확인 질의 A·B 를 묻고, 상호가 처음 일치한 방향의 값을 쓴다. 없으면 null
+     * (후보를 안 낸다 — 틀린 상호가 ERP 로 가느니 사람이 직접 적는다). 바로 선 사진은 2번, 누운 사진은 최대 8번 더 부른다.
+     * 🚫 이 응답들에서 계좌·휴대폰을 꺼내 쓰지 말 것 — 누운 방향에서 문서번호를 계좌로, 없는 휴대폰을 지어낸 실측이 있다.
+     *
+     * @return ?array{company: string, ceo: string, source_photo_ids: list<int>}
+     */
+    private function verifiedSeller(InspectionPhoto $photo, PayeeExtractor $extractor, OllamaClient $client, string $model, int $numCtx): ?array
+    {
+        try {
+            foreach (PayeeExtractor::BIZ_ROTATIONS as $clockwise) {
+                $image = $this->prepare($photo, null, $clockwise);
+                if ($image === null) {
+                    return null;
+                }
+                $seller = $extractor->parseBusiness(
+                    $client->vision($model, PayeeExtractor::BIZ_PROMPT_A, $image, $numCtx),
+                    $client->vision($model, PayeeExtractor::BIZ_PROMPT_B, $image, $numCtx),
+                );
+                if ($seller !== null) {
+                    return $seller + ['source_photo_ids' => [$photo->id]];
+                }
+            }
+        } catch (\Throwable $e) {
+            // 확인 질의 실패 = 확인 못 함 → 후보 없음(계좌·소유자 등 1차 결과는 그대로 쓴다)
+        }
+
+        return null;
+    }
+
+    /** EXIF Orientation → 바로 세우려면 돌릴 시계 방향 각도(ExtractPassportFromImage 와 같은 표). EXIF 없음·PNG = 0. */
+    private function exifRotation(string $raw): int
+    {
+        if (! function_exists('exif_read_data')) {
+            return 0;
+        }
+        try {
+            $exif = @exif_read_data('data://image/jpeg;base64,'.base64_encode($raw));
+        } catch (\Throwable) {
+            return 0;
+        }
+
+        return match ((int) (($exif ?: [])['Orientation'] ?? 1)) {
+            3 => 180,
+            6 => 90,
+            8 => 270,
+            default => 0,
+        };
     }
 
     /**
