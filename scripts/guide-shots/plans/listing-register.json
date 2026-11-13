@@ -1,0 +1,114 @@
+{
+  "slug": "listing-register",
+  "base": "http://localhost:8003",
+  "login": {
+    "email": "guide-demo@local.test"
+  },
+  "viewport": "pc",
+  "steps": [
+    {
+      "goto": "/listings"
+    },
+    {
+      "shot": "01-add-button",
+      "clip": {
+        "x": 276,
+        "y": 270,
+        "width": 948,
+        "height": 60
+      }
+    },
+    {
+      "clickText": "매입예정 추가",
+      "in": "button"
+    },
+    {
+      "wait": 1000
+    },
+    {
+      "clickText": "엔카",
+      "in": "button"
+    },
+    {
+      "wait": 600
+    },
+    {
+      "type": "input@model(expected_price)",
+      "text": "13500000"
+    },
+    {
+      "type": "input@model(vehicle_number)",
+      "text": "11가1001"
+    },
+    {
+      "type": "input@model(owner_name)",
+      "text": "홍길동"
+    },
+    {
+      "type": "input[placeholder^='수원']",
+      "text": "경기 안산시"
+    },
+    {
+      "wait": 300
+    },
+    {
+      "click": "h2, h1"
+    },
+    {
+      "type": "input@model(inspection_request)",
+      "text": "하부 누유 꼭 확인, 실내 냄새 확인"
+    },
+    {
+      "wait": 400
+    },
+    {
+      "shot": "02-form-filled",
+      "clip": {
+        "x": 293,
+        "y": 420,
+        "width": 914,
+        "height": 600
+      }
+    },
+    {
+      "select": "div.mt-3 select.input-base",
+      "text": "직접 입력"
+    },
+    {
+      "wait": 500
+    },
+    {
+      "type": "input@model(loc_address)",
+      "text": "경기 안산시 단원구 OO매매단지 B-12"
+    },
+    {
+      "shot": "03-location",
+      "clip": {
+        "x": 293,
+        "y": 880,
+        "width": 914,
+        "height": 180
+      }
+    },
+    {
+      "clickText": "저장",
+      "in": "button.btn-primary"
+    },
+    {
+      "wait": 2500
+    },
+    {
+      "shot": "04-saved",
+      "clip": {
+        "x": 276,
+        "y": 200,
+        "width": 948,
+        "height": 360
+      }
+    },
+    {
+      "shot": "_04-full",
+      "full": true
+    }
+  ]
+}
