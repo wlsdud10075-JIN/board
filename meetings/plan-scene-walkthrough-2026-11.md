@@ -118,3 +118,61 @@
 2. board — php-start 세션(집 PC, Remote Control)에 티스토리 자동 포스팅 방식 문의 → 재사용 가능하면 `mockups/*.html` → 티스토리 보호글 올리는 스크립트 1개.
 3. Codex — §5 카드 8장 Notion 발행(패킷 = `CODEX_NOTION_HANDOFF.md §9-A2` 절차 그대로).
 4. 이후 씬 1~5 순서로 루프 테스트 + 흐름도 1장씩(각 기능 배포 전 체크리스트에 포함).
+
+## 7. 작업 준비 (2026-11-13 Jin 「씬 워크스루 준비해줘」 — 주말 본문 작업용)
+
+### 7-1. 갖춰진 것
+- **화면 틀** = 두 박스 운영 배포됨(11-13 master `8ef55b9`). 본문 0장이라 직원 화면은 그대로(사이드바 Notion). 씬 한 장을 `resources/guides/{slug}/index.html` 로 올려 배포하면 그때부터 앱 안 가이드로 바뀐다.
+- **캡처 도구** = `scripts/guide-shots/`(로컬 전용 — puppeteer-core + 설치된 Chrome). `npm install` 한 번 → `node shot.mjs plans/<씬>.json`. 계획 파일(JSON)에 로그인 계정·이동·누르기·입력·캡처를 순서대로 적는다(step 종류 = `shot.mjs` 머리 주석). 결과 = `scripts/guide-shots/out/<slug>/*.png`(git 제외) → 쓸 것만 골라 `resources/guides/{slug}/` 로 옮긴다. 로컬 주소만 허용(운영 주소면 거부). 시험 = `plans/_sample.json`(김영업 로그인 → 매입예정·가이드 3장, 11-13 동작 확인).
+  - ⚠️ `base` 는 `.env` `APP_URL` 과 같은 호스트(`http://localhost:8003`) — `127.0.0.1` 로 열면 Livewire 버튼이 죽는다.
+  - 로컬 서버(8003·ERP 8001)는 Jin 이 띄운다 — 안 떠 있으면 캡처 전에 알린다.
+- **본문 견본** = `scripts/guide-shots/template.html`(레인 4색·카드·말풍선·접힌 개발 상세·「알아 둘 것」 + 쓰는 규칙).
+- **현지확인 검차 자료** = `mockups/inspection-flow/`(뼈대 `outline.md`, ssancar 캡처 12장, 검차앱 실화면 5장).
+
+### 7-2. 등장인물 (로컬 DB 에 이미 있는 가짜 계정 — 캡처는 이 이름만 나오게)
+| 역할 | 이름 | 로컬 계정 | 비고 |
+|---|---|---|---|
+| 영업 | 김영업 | `guide-demo@local.test` | 로컬 ERP 영업(`sales@car-erp.test`)에 연결돼 있어 포털·입금요청이 돈다 |
+| 관리 | 관리자 | `manager@board.test` | |
+| 업무관리자(팀장) | 정팀장 | `leader@board.test` | 업무일지 결재 1단계 |
+| 결재(부장·상무·대표) | 임부장 · 오상무 · 홍대표 | `bujang@` · `sangmu@` · `ceo@board.test` | 클레임·업무일지 결재선 |
+- 비밀번호는 전부 시드 기본값. 🚫 `hwang@car-erp.com`·`wlsdud…` 등 실명 계정으로 찍지 않는다.
+- **차량·바이어도 가짜로 새로 만든다** — 지금 김영업 목록엔 시험 찌꺼기(`12ㅍ123123`, `[SAVDEMO] AUTO B…`)가 있어 그대로 찍으면 안 된다. 씬 작업 첫 단계 = 가이드용 차 3~4대(번호판 `11가1001` 식)와 ERP 쪽 가짜 바이어 1명을 만든다(로컬 board·로컬 ERP 둘 다, ERP 쪽 데이터는 car-erp 세션과 맞춘다).
+
+### 7-3. 씬별 준비 상태 (24개 — 무엇이 있어야 끝까지 눌러 볼 수 있나)
+| 묶음 | 씬(slug) | 필요한 것 | 준비 |
+|---|---|---|---|
+| 매입 | listing-register | board 만. 엔카 링크 추출은 엔카 실호출(로컬 PC 는 됨) — 실매물이 찍히므로 **직접 입력 경로로 찍거나 캡처에서 매물 정보를 가린다** | 바로 가능 |
+| 매입 | inspection-wait | 검차상태 문구는 폴러 저장값 — 로컬 draft 에 샘플 판정값을 심어 찍는다. 긴급 검차 요청은 `.env` 게이트 + ssancar 왕복이라 **버튼·확인창까지만** 찍고 결과 화면은 값 주입 | 바로 가능(일부 주입) |
+| 매입 | inspection-visit | ssancar.com 자료 완비. board 쪽 앞뒤 2장만 추가 | 자료 있음 — 독자 결정 필요(§7-5) |
+| 매입 | buyer-forward | board 만(검차완료 차 1대 필요 — 관리자 화면에서 상태를 만들거나 「사진만으로 넘기기」). 바이어 링크 화면 포함 | 바로 가능 |
+| 매입 | purchase-confirm | 로컬 ERP(바이어 목록·연동 B) + 계좌 찾기는 GPU PC(가짜 통장·사업자등록증 이미지 필요) | ERP 가짜 바이어 필요 |
+| 매입 | self-inspection · stock-purchase | purchase-confirm 과 같은 준비 | 〃 |
+| 매입 | erp-resend | ERP 로 넘어간 가짜 차 1대 | purchase-confirm 뒤 |
+| 매입 | remitter-invoice | 가짜 여권 이미지(샘플 폴더 `Desktop\스크린샷\passport` 확인 필요 — 실제 여권이면 쓰지 않는다) + GPU PC + 로컬 ERP | 이미지 준비 필요 |
+| 매입 | listing-delete | board 만 | 바로 가능 |
+| 입금·탁송 | payment-request | 로컬 ERP 왕복(요청 → ERP 확인/거절 → 종). ERP 화면 캡처는 car-erp 짝 씬(`board-payment-request`)과 맞춘다 | 지급대기 가짜 차 필요 |
+| 입금·탁송 | sale-payment-check | 로컬 ERP(판매된 가짜 차) | 〃 |
+| 입금·탁송 | transport-dispatch | 11-12 루프 테스트 완료 — **사용자용 문장으로 다시 쓰기만** 남음. 캡처 5장 `mockups/transport-flow/`(다시 찍어 가짜 이름 확인) | **첫 장** |
+| 포털 | portal-read · settlement-read | 로컬 ERP 데이터(재고·판매·정산). 정산은 `.env` `BOARD_PORTAL_FAKE_PAYOUT_BATCHES` 훅으로 보류·추가 뱃지까지 | ERP 가짜 데이터 양에 달림 |
+| 포털 | shipping-plan | 로컬 ERP(판매가 있는 가짜 차 2~3대·바이어 1명) + 서류 다운로드 + 전자서명 링크 | 가장 무거움 |
+| 포털 | portal-share | board 만(김영업 → 관리자 체크) | 바로 가능 |
+| 클레임 | claim-handle | 포털 판매내역의 가짜 판매 행(`.env` 클레임 데모 줄 — `.env.bak-claimdemo-20261111` 참고) + 결재선 계정 + 기능설정의 담당자 지정(설정 화면 자체는 씬에 안 넣는다) | 데모 줄 확인 필요 |
+| 업무일지 | work-journal | board 만 + 결재선 계정 | 바로 가능 |
+| 관리 | manage-edit · users-manage · audit-find | board 만. users-manage 는 가짜 계정만 보이게 **화면을 걸러 찍는다**(목록에 실명 계정 2개 있음) | 바로 가능(가림 주의) |
+| 공통 | first-steps | 로그인 화면·홈 화면 추가(폰 실기 캡처 = Jin)·종 패널 「휴대폰 알림 켜기」·언어 | 폰 캡처 필요 |
+| 공통 | when-blocked | 각 씬에서 막히는 장면을 모아 쓴다 — **맨 마지막** | 다른 씬 뒤 |
+
+### 7-4. 순서 제안 (주말)
+1. `transport-dispatch`(재작성 — 틀·서식·사이드바 전환을 한 장으로 검증) → 배포해 사이드바가 바뀌는지 확인.
+2. board 만으로 되는 것: `listing-register` → `buyer-forward` → `work-journal` → `portal-share` → `listing-delete`.
+3. 로컬 ERP 가 필요한 것(car-erp 세션과 가짜 바이어·차를 맞춘 뒤): `purchase-confirm` → `payment-request` → `sale-payment-check` → `erp-resend` → `shipping-plan` → `claim-handle`.
+4. 자료·주입형: `inspection-visit` · `inspection-wait` · `portal-read` · `settlement-read` · `remitter-invoice`.
+5. 관리 3장 → `first-steps` → `when-blocked`.
+- 씬 한 장의 작업 순서 = ① lang 에서 화면 라벨 확인 ② 로컬에서 끝까지 눌러 보기(루프) ③ `plans/<slug>.json` 으로 캡처 ④ 견본을 복사해 본문 쓰기 ⑤ 캡처에 실명·실차량 없는지 눈으로 확인 ⑥ `/guides/{slug}` 로컬 확인(PC·폰) ⑦ dev 커밋. 배포는 묶어서 Jin 지시 때.
+
+### 7-5. Jin 이 정해 줄 것
+- `inspection-visit` 의 독자 — 검차원·팀장은 board 계정이 없다. (가) 영업·관리가 「검차가 어떻게 돌아가나」를 아는 용도로 쓴다 / (나) 검차원용 문서로 쓰고 ssancar.com 쪽에도 싣는다.
+- 임시로 정한 묶음 7개·한 바퀴 8장·역할 칩 5개·씬 주소 이름(§3-2 뒤 config) 그대로 갈지.
+- 영어 본문을 한국어판과 같이 쓸지, 나중에 쓸지(지금 기본 = 한국어만, 영어 화면엔 「Korean only」).
+- 엔카 실매물이 찍히는 화면(링크 추출)을 어떻게 다룰지 — 가리기 / 직접 입력 경로만.

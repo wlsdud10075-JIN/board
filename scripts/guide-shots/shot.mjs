@@ -1,0 +1,90 @@
+// 업무 가이드(씬 워크스루) 화면 캡처 — 로컬 전용 (2026-11-13).
+//
+//   cd scripts/guide-shots && npm install
+//   node shot.mjs plans/<씬>.json
+//
+// plan(JSON) = { "slug": "payment-request", "base": "http://localhost:8003", "login": {"email": "...", "password": "password"},
+//                "viewport": "pc" | "phone", "steps": [ ... ] }
+// step 종류 (위에서 아래로 실행):
+//   {"goto": "/listings"}                       주소 이동(base 뒤에 붙는다)
+//   {"click": "css 선택자"}                      누르기
+//   {"clickText": "매입잔금", "in": "button"}     글자가 들어간 요소 누르기("in" 생략 = button, a, [role=button], summary)
+//   {"type": "css 선택자", "text": "5000000"}    입력
+//   {"wait": 800}                               ms 대기 / {"waitFor": "css 선택자"} 요소가 나타날 때까지
+//   {"viewport": "phone"}                       도중에 폭 바꾸기
+//   {"login": {"email": "..."}}                 도중에 다른 계정으로 다시 로그인
+//   {"dialog": "accept" | "dismiss"}            다음에 뜨는 confirm/alert 처리(기본 = accept)
+//   {"shot": "01", "of": "css 선택자", "full": true}   out/<slug>/01.png — "of" 가 있으면 그 요소만, "full" 이면 페이지 전체
+//
+// 🚫 운영 주소로 돌리지 말 것 — 가이드 캡처는 로컬의 가짜 계정·가짜 차량으로만 찍는다(실명·전화·실차량번호 금지).
+// ⚠️ base 는 .env 의 APP_URL 과 같은 호스트로(localhost ≠ 127.0.0.1 — 다르면 Livewire 버튼이 죽는다).
+import fs from 'node:fs';
+import path from 'node:path';
+import puppeteer from 'puppeteer-core';
+
+const CHROME = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+    'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find((p) => fs.existsSync(p));
+const VIEW = { pc: { width: 1280, height: 900, deviceScaleFactor: 1 }, phone: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true } };
+
+const planPath = process.argv[2];
+if (!planPath) { console.error('사용: node shot.mjs plans/<씬>.json'); process.exit(1); }
+const plan = JSON.parse(fs.readFileSync(planPath, 'utf8'));
+const base = (plan.base || 'http://localhost:8003').replace(/\/$/, '');
+if (!/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(base)) { console.error('로컬 주소만 허용합니다: ' + base); process.exit(1); }
+const outDir = path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), 'out', plan.slug);
+fs.mkdirSync(outDir, { recursive: true });
+
+const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--hide-scrollbars'] });
+const page = await browser.newPage();
+await page.setViewport(VIEW[plan.viewport || 'pc']);
+let dialogMode = 'accept';
+page.on('dialog', async (d) => { console.log('  dialog: ' + d.message().slice(0, 80)); dialogMode === 'dismiss' ? await d.dismiss() : await d.accept(); });
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const settle = async () => { try { await page.waitForNetworkIdle({ idleTime: 400, timeout: 8000 }); } catch {} await sleep(250); };
+
+async function login({ email, password = 'password' }) {
+    const client = await page.createCDPSession();
+    await client.send('Network.clearBrowserCookies');
+    await page.goto(base + '/login', { waitUntil: 'networkidle2' });
+    await page.type('input[type=email], input[name=email]', email);
+    await page.type('input[type=password]', password);
+    await Promise.all([page.waitForNavigation({ waitUntil: 'networkidle2' }).catch(() => {}), page.keyboard.press('Enter')]);
+    await settle();
+    if (page.url().includes('/login')) { throw new Error('로그인 실패: ' + email); }
+    console.log('  login ' + email + ' → ' + page.url());
+}
+
+try {
+    if (plan.login) await login(plan.login);
+    for (const s of plan.steps) {
+        if (s.goto) { await page.goto(base + s.goto, { waitUntil: 'networkidle2' }); await settle(); }
+        else if (s.login) { await login(s.login); }
+        else if (s.viewport) { await page.setViewport(VIEW[s.viewport]); await settle(); }
+        else if (s.dialog) { dialogMode = s.dialog; }
+        else if (s.click) { await page.waitForSelector(s.click, { visible: true, timeout: 8000 }); await page.click(s.click); await settle(); }
+        else if (s.clickText) {
+            const ok = await page.evaluate((text, sel) => {
+                const el = [...document.querySelectorAll(sel)].find((e) => e.offsetParent !== null && e.textContent.replace(/\s+/g, ' ').includes(text));
+                if (el) { el.scrollIntoView({ block: 'center' }); el.click(); }
+                return !!el;
+            }, s.clickText, s.in || 'button, a, [role=button], summary');
+            if (!ok) throw new Error('못 찾음: ' + s.clickText);
+            await settle();
+        }
+        else if (s.type) { await page.waitForSelector(s.type, { visible: true, timeout: 8000 }); await page.click(s.type, { clickCount: 3 }); await page.type(s.type, String(s.text)); await settle(); }
+        else if (s.waitFor) { await page.waitForSelector(s.waitFor, { visible: true, timeout: 15000 }); }
+        else if (s.wait) { await sleep(s.wait); }
+        else if (s.shot) {
+            const file = path.join(outDir, s.shot + '.png');
+            if (s.of) { const el = await page.waitForSelector(s.of, { visible: true, timeout: 8000 }); await el.screenshot({ path: file }); }
+            else { await page.screenshot({ path: file, fullPage: !!s.full }); }
+            console.log('  shot ' + file);
+        }
+    }
+} catch (e) {
+    await page.screenshot({ path: path.join(outDir, '_error.png') });
+    console.error('실패: ' + e.message + ' (화면 = out/' + plan.slug + '/_error.png)');
+    process.exitCode = 1;
+} finally {
+    await browser.close();
+}

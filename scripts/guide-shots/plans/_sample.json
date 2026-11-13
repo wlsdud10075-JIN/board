@@ -1,0 +1,15 @@
+{
+  "slug": "_sample",
+  "base": "http://localhost:8003",
+  "login": { "email": "guide-demo@local.test", "password": "password" },
+  "viewport": "pc",
+  "steps": [
+    { "goto": "/listings" },
+    { "shot": "01-listings-pc" },
+    { "goto": "/guides" },
+    { "shot": "02-guides-pc" },
+    { "viewport": "phone" },
+    { "goto": "/guides" },
+    { "shot": "03-guides-phone" }
+  ]
+}
