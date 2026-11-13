@@ -1,0 +1,9 @@
+{"slug":"listing-delete","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"tall",
+ "steps":[
+  {"goto":"/listings?edit=125"},{"wait":1500},{"clickText":"기본","in":"button[role=tab]"},{"wait":800},
+  {"shot":"_01-drawer","clip":{"x":840,"y":0,"width":440,"height":1500}},
+  {"clickText":"이 건 삭제","in":"button"},{"wait":2500},
+  {"shot":"_02-deleted","full":true},
+  {"goto":"/listings?edit=123"},{"wait":1500},{"clickText":"기본","in":"button[role=tab]"},{"wait":800},
+  {"shot":"_03-synced-drawer","clip":{"x":840,"y":0,"width":440,"height":1500}}
+ ]}
