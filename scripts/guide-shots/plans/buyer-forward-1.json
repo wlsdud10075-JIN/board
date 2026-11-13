@@ -1,0 +1,91 @@
+{
+ "slug": "buyer-forward",
+ "base": "http://localhost:8003",
+ "login": {
+  "email": "guide-demo@local.test"
+ },
+ "viewport": "tall",
+ "steps": [
+  {
+   "viewport": "pc"
+  },
+  {
+   "goto": "/forwarding"
+  },
+  {
+   "shot": "01-list",
+   "clip": {
+    "x": 276,
+    "y": 162,
+    "width": 948,
+    "height": 188
+   }
+  },
+  {
+   "viewport": "tall"
+  },
+  {
+   "clickText": "상세",
+   "in": "a, button, td"
+  },
+  {
+   "wait": 1500
+  },
+  {
+   "clickText": "USD",
+   "in": "button"
+  },
+  {
+   "wait": 1200
+  },
+  {
+   "shot": "02-quote",
+   "clip": {
+    "x": 840,
+    "y": 56,
+    "width": 440,
+    "height": 1000
+   }
+  },
+  {
+   "clickText": "적용",
+   "in": "button"
+  },
+  {
+   "wait": 1500
+  },
+  {
+   "shot": "02b-applied",
+   "clip": {
+    "x": 840,
+    "y": 56,
+    "width": 440,
+    "height": 1000
+   }
+  },
+  {
+   "type": "input[placeholder^='바이어명']",
+   "text": "AUTO TRADING (예시)"
+  },
+  {
+   "shot": "03-before-send",
+   "clip": {
+    "x": 840,
+    "y": 740,
+    "width": 440,
+    "height": 300
+   }
+  },
+  {
+   "clickText": "전달 완료",
+   "in": "button"
+  },
+  {
+   "wait": 2500
+  },
+  {
+   "shot": "_04-after",
+   "full": true
+  }
+ ]
+}

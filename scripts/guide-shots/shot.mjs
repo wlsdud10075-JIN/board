@@ -26,7 +26,7 @@ import puppeteer from 'puppeteer-core';
 
 const CHROME = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
     'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find((p) => fs.existsSync(p));
-const VIEW = { pc: { width: 1280, height: 900, deviceScaleFactor: 1 }, phone: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true } };
+const VIEW = { pc: { width: 1280, height: 900, deviceScaleFactor: 1 }, tall: { width: 1280, height: 1500, deviceScaleFactor: 1 }, phone: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true } };
 
 const planPath = process.argv[2];
 if (!planPath) { console.error('사용: node shot.mjs plans/<씬>.json'); process.exit(1); }

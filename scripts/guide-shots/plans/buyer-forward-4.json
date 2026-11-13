@@ -1,0 +1,6 @@
+{"slug":"buyer-forward","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/verdicts"},{"clickText":"상세","in":"a, button, td"},{"wait":1500},
+  {"clickText":"수락","in":"button"},{"wait":2500},
+  {"shot":"_08-after","full":true}
+ ]}

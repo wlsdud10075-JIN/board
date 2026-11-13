@@ -1,0 +1,7 @@
+{"slug":"buyer-forward","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"tall",
+ "steps":[
+  {"goto":"/verdicts"},
+  {"shot":"06-verdicts","clip":{"x":276,"y":162,"width":948,"height":172}},
+  {"clickText":"상세","in":"a, button, td"},{"wait":1500},
+  {"shot":"07-verdict-drawer","clip":{"x":840,"y":0,"width":440,"height":1500}}
+ ]}

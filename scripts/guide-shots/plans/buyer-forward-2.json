@@ -1,0 +1,8 @@
+{"slug":"buyer-forward","base":"http://localhost:8003","viewport":"phone",
+ "steps":[
+  {"goto":"http://localhost:8003/v/123?expires=1797147203&signature=e5ce008ba7606bec5aeb000f64bf1feb1070d5ecc9b7bad00e28db5555cfcb61"},
+  {"wait":1500},{"shot":"05-buyer-page","full":true},
+  {"viewport":"pc"},
+  {"login":{"email":"guide-demo@local.test"}},
+  {"goto":"/verdicts"},{"shot":"_06-verdicts","full":true}
+ ]}
