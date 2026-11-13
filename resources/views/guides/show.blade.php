@@ -8,6 +8,7 @@
         .gd-lane > .gd-who2 { font-size: 12px; font-weight: 700; color: #fff; border-radius: 8px; padding: 8px 6px; text-align: center; align-self: start; }
         .gd-l-erp { background: #7c6fcd; } .gd-l-talk { background: #b45309; } .gd-l-out { background: #0f766e; } .gd-l-board { background: #1d4ed8; }
         .gd-step { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; }
+        .gd-scene > .gd-step { margin-bottom: 14px; }   /* 라벨(레인) 없이 카드만 쌓는 본문 — Jin 2026-11-13 「앞 라벨 없애줘」 */
         .gd-step .gd-n { font-size: 11.5px; color: #6b7280; font-weight: 700; }
         .gd-step p { margin: 6px 0 0; line-height: 1.65; }
         .gd-step img { margin-top: 10px; max-width: 100%; border: 1px solid #e5e7eb; border-radius: 8px; }
