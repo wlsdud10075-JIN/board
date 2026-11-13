@@ -46,6 +46,18 @@
 - 작업량(착수 시) = board 반나절(컨트롤러·목록·사이드바·테스트 4개) + 흐름도 재작성 1~2시간. 11-12 에 코드를 잠깐 만들었다가 Jin 「기획만」 지시로 **전부 되돌림**(커밋 없음).
 - Jin 결정 남은 것: ① 탭 이름 「업무 가이드」 유지 여부 ② 목록 맨 위 Notion 링크 유지 여부 ③ ERP 도 같은 시점에 할지 ④ 착수 시점(탁송 배포와 같이? 따로?).
 
+### 3-2. ERP `/guides` 확정안 — board 가 맞출 값 (2026-11-13 car-erp 세션 전달 · **board 반영은 Jin 확인 대기, 코드 0**)
+> ERP 세션 통보: Jin 이 11-13 ERP 목업으로 화면을 확정, 「board 도 같은 구성 + 서로 링크」 지시. 아래는 ERP 워킹트리 기준 그쪽이 「확인한 것」(dev 구현·미배포). 목업 = car-erp `docs/design/mock/2026-11-13/guides-page.html`, 기획 = car-erp `docs/design/scene-walkthrough.md §4-B·§6`.
+- **화면**: 검색칸 1개(제목·요약·누가 + **씬 본문 전부**, 걸린 문장 한 줄 표시, 띄어쓰기 무시, 화면에서 거름, `<details>` 제외) · 칩 2줄(업무 묶음 / 내 역할) · 「처음이라면 — 한 바퀴 N장」(검색·칩 중엔 숨김) · 표(# · 기능 · 누가 쓰나 · 상태 · 갱신일 · [보기], 모바일 카드) · [보기] 전체 화면 + 하단 「← 이전 / 다음 →」.
+- **상태는 파일이 정한다**(config 에 안 적음): `resources/guides/{slug}/index.html` 없음 = 「준비 중」(흐리게 맨 아래·안 열림) / 있음 = 「사용 중」 / 수정 뒤 14일 = 「새로 올라옴」. §3-1 의 「사용 중/배포 전」은 이걸로 대체.
+- **slug** = 영문 소문자 kebab 「대상-동작」(`[a-z0-9-]+`). board 와 짝인 ERP 씬: `board-payment-request`(입금요청) · `board-sale-payment-check`(판매대금확인) · `inventory-location`(탁송·보관위치) · `shipping-requests`(선적) · `buyer-claim`(클레임) · `board-purchase-sync`(매입 확정).
+- **목록 단일 출처** = `config/guides.php`: `scenes[slug] = [묶음키, 제목, 한 줄 요약, 누가[], 찾는 말]` · `groups` · `lap`(한 바퀴 순서) · `new_days` 14.
+- **본문 = 조각 HTML**(레이아웃 없음). 클래스 4종 `.gd-lane`(+`.gd-who2`, `.gd-l-erp/.gd-l-talk/.gd-l-out/.gd-l-board`) · `.gd-step`(`.gd-n`) · `.gd-bubble` · `details`, 끝에 `.gd-check`. 그림은 `src="01.png"` 파일명만(컨트롤러가 `/guides/{slug}/01.png` 로 서빙, png·jpg·webp, noindex). 라우트 3개 `/guides`·`/guides/{slug}`·`/guides/{slug}/{file}`.
+- **상호 링크**: 같은 회사 짝끼리만(heymanerp↔heymanboard, ssancarerp↔ssancarboard, karabaerp 는 없음). board 주소 = `https://board.heysellcar.com/guides`(heymanboard) · `https://board.heymancar.com/guides`(ssancarboard) — ERP 가 설정에 넣고 꺼 둠, **board 운영 배포 뒤 ERP 세션에 알리면 켠다**. ERP 주소 = `https://heysellcar.com/guides`(heymanerp) · `https://heymancar.com/guides`(ssancarerp).
+- 사이드바: 볼 수 있는 씬이 1장 생기기 전엔 종전 Notion 링크 유지(빈 목록으로 안 보냄).
+- 🚫 시스템관리자 일은 목록에도 본문 단계에도 넣지 않는다(알림톡 로그·기능설정 화면을 거치는 단계 금지).
+- 미확정(ERP 추정): 서로의 씬을 본문에서 가리킬 땐 전체 URL.
+
 ## 4. 대상 씬 (루프 테스트가 가능한 것부터 — board 몫)
 | 우선 | 씬 | 레인 | 비고 |
 |---|---|---|---|
