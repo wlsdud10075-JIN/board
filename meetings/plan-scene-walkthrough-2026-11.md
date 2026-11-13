@@ -183,3 +183,9 @@
 - **처음 쓰기** = Jin 이 폰 캡처 제공 — `mockups/first-steps/P1~P3`(안드로이드 크롬: 로그인 화면 → 메뉴 「설치 및 바로가기 만들기」 → 설치 시트. ssancarboard 실화면, 개인정보 없음. 폰 상단 상태줄·주소줄은 잘라 쓴다). 아이폰 캡처는 없음.
 - **여권 씬** = `Desktop\스크린샷\passport` 폴더의 샘플 여권을 쓴다(Jin 「우리 passport 있잖아, 샘플로 썼던 거」). ⚠️ 그 파일은 **실제 바이어의 여권**(이름·여권번호·사진·생년월일)이다 → 읽히는 데는 그대로 쓰되, **가이드에 싣는 그림에서는 사진·번호·이름을 가린다**(기획 §2 「실명 금지」와 같은 기준 — board 판단, Jin 이 그대로 보이라고 하면 바꾼다). 여권 원본은 레포에 넣지 않는다.
 - 영어판 = 미정 그대로(한국어판 먼저).
+
+### 7-7. 진행 (2026-11-13)
+- **「매입」 묶음 10장 완료**(dev, 미배포): listing-register · inspection-wait · inspection-visit · buyer-forward · purchase-confirm · self-inspection · stock-purchase · erp-resend · remitter-invoice · listing-delete (+ 첫 씬 transport-dispatch). Jin 로컬 확인 대기 → 다음 묶음 「입금·탁송」.
+- 로컬 가이드 데이터(김영업): **11가1001** = 등록→검차→전달→수락→구매확정 → 로컬 ERP 차량 300(바이어 GUIDE SAMPLE TRADING, 다음 묶음 입금요청·선적에 이어 쓴다) · **11가1002** = 셀프검차매입 → 재고매입 → 로컬 ERP 301 · **11가1003** = 삭제 장면용(지움) · 11가1001 에 「예시 사진」 그림 3장(검차)·4장(첨부).
+- 가짜 서류 그림 = `scripts/guide-shots/fixtures/`(통장·사업자등록증·명함 — 「업무 가이드 예시」 표기). 여권 씬은 샘플 여권을 레포 밖(`fixtures-private`, git 제외 — 사용 뒤 삭제)에서 쓰고 화면 글자를 「가림」으로 바꿔 찍었다(`maskPassport`). 🚫 실제 이름·번호를 계획 파일에 적지 않는다(권한 검사가 막는다 — 맞는 판단).
+- 검차 상태(검차중·보류·사진만)는 ssancar.com 이 보내는 값을 로컬에서 넣어 찍었다(실제 웹훅 아님).
