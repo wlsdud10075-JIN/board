@@ -1,0 +1,4 @@
+{"slug":"inspection-wait","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"pc",
+ "steps":[{"goto":"/listings?edit=123"},{"wait":1200},{"clickText":"검차","in":"button[role=tab]"},{"wait":800},
+  {"shot":"_card","clip":{"x":860,"y":194,"width":400,"height":150}},
+  {"shot":"_row","clip":{"x":0,"y":0,"width":1280,"height":900}}]}

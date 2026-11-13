@@ -1,0 +1,9 @@
+{"slug":"inspection-wait","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/listings?edit=123"},{"wait":1200},{"clickText":"검차","in":"button[role=tab]"},{"wait":800},
+  {"clickText":"긴급 검차 요청","in":"button"},{"wait":800},
+  {"type":"input@model(e_urgent_note)","text":"바이어가 오늘 결정해야 함"},
+  {"shot":"02-urgent-form","clip":{"x":860,"y":194,"width":400,"height":204}},
+  {"clickText":"요청 보내기","in":"button"},{"wait":2500},
+  {"shot":"_03-urgent-sent","full":true}
+ ]}
