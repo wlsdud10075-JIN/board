@@ -1,0 +1,18 @@
+{
+  "slug": "transport-dispatch",
+  "base": "http://localhost:8003",
+  "login": { "email": "guide-demo@local.test" },
+  "viewport": "pc",
+  "steps": [
+    { "goto": "/listings?edit=113" },
+    { "wait": 1200 },
+    { "select": "select@model(company_id)", "text": "위카" },
+    { "type": "input@model(address)", "text": "경기 안산시 단원구 OO매매단지 B-12" },
+    { "clickText": "홈플", "in": "button" },
+    { "wait": 600 },
+    { "shot": "02-request-form", "clip": { "x": 840, "y": 0, "width": 440, "height": 720 } },
+    { "clickText": "배차 요청 보내기", "in": "button" },
+    { "wait": 2500 },
+    { "shot": "03-request-sent", "clip": { "x": 840, "y": 0, "width": 440, "height": 900 } }
+  ]
+}

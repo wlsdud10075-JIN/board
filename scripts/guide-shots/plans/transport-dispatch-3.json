@@ -1,0 +1,24 @@
+{
+  "slug": "transport-dispatch",
+  "base": "http://localhost:8003",
+  "viewport": "phone",
+  "steps": [
+    { "goto": "http://localhost:8003/a/transport/4?expires=1794983679&r=10&signature=effd8e76d363e2c9bc0f6c4a4125ca0510c5644152be0b1262521781e0b5813b" },
+    { "shot": "04-company-page", "full": true },
+    { "type": "#name", "text": "김기사" },
+    { "click": "button[value=accept]" },
+    { "wait": 1500 },
+    { "shot": "05-company-done", "full": true },
+    { "goto": "http://localhost:8003/a/transport/4?expires=1794983679&r=11&signature=7170b23abb44d611c8f218a2febc0c66bd244bf9fa50904f002d7de919522394" },
+    { "shot": "06-company-already", "full": true },
+    { "viewport": "pc" },
+    { "login": { "email": "guide-demo@local.test" } },
+    { "goto": "/listings" },
+    { "click": "button[wire\\:click=openPanel]" },
+    { "wait": 1200 },
+    { "shot": "07-bell" },
+    { "goto": "/listings?edit=113" },
+    { "wait": 1500 },
+    { "shot": "08-after-accept", "clip": { "x": 840, "y": 0, "width": 440, "height": 900 } }
+  ]
+}
