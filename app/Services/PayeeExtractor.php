@@ -65,6 +65,52 @@ TXT;
     /** 등록증 2차 질의에서 자를 위쪽 비율 — 0.40 은 「상품용」 같은 꼬리를 잘랐다(실측). */
     public const OWNER_CROP_RATIO = 0.45;
 
+    /**
+     * 사업자등록증 확인 질의 2종(2026-11-13) — **서로 다른 말로 두 번 묻고 상호가 같을 때만** 매입처 후보로 쓴다.
+     *
+     * 계기 = ssancarboard 11노3152: 90도 누운 사업자등록증(카카오톡이 EXIF 를 지워 보정 불가)에서 1차 질의가 옆 장의
+     * 발급기관 「인천광역시 서구청」을 상호로, 대표자 「김홍범」을 「김종범」으로 냈고 그대로 ERP 로 갔다.
+     * 실측(그 사진 4방향): 바로 세운 방향만 A·B 가 「범스카」로 일치. 누운 방향은 A·B 가 서로 다른 말을 지어냈다
+     * (「BMW SERVICE REPAIR」↔「BMW SERVICE CENTER OF KOREA」). 운영 표본 바로 찍힌 23장은 23장 모두 일치.
+     * 🚫 모델에게 방향을 묻지 말 것 — 4방향 중 3방향에 같은 답을 냈다. 🚫 등록번호 검증숫자로 방향을 고르지 말 것 —
+     *    숫자는 누운 채로도 정확히 읽혀 3방향이 통과했다(틀리는 건 한글뿐).
+     * ⚠️ 완전하지 않다: 거꾸로 선 사진에서 A·B 가 같은 오독(「오트럼파니」)·같은 주소를 낸 실측이 있다. 주소 꼴은
+     *    cleanCompany 가 버리고, 나머지는 사람이 사진을 보고 고른다(후보일 뿐 — 자동 기입 없음).
+     * ⚠️ 이 상수를 고치면 표본으로 재검증할 것(A·B 일치율이 곧 매입처 후보가 뜨는 비율이다).
+     */
+    public const BIZ_PROMPT_A = <<<'TXT'
+이 이미지는 사업자등록증이다. 「등록번호」, 「상호(법인명)」, 「대표자」(또는 「성명」) 칸에 적힌 값을 글자 그대로 옮겨 JSON만 출력하라. 설명 금지.
+등록번호는 000-00-00000 꼴의 숫자 10자리다. 발급기관(○○세무서장·○○구청장)은 상호가 아니다. 안 보이는 칸은 "".
+형식: {"business_number":"","business_name":"","ceo_name":""}
+TXT;
+
+    public const BIZ_PROMPT_B = <<<'TXT'
+사업자등록증 사진이다. 이 사업체의 이름(상호)과 대표자 이름, 개업연월일을 문서에 적힌 그대로 읽어 JSON만 출력하라. 다른 말 금지.
+읽을 수 없으면 "" 로 둔다.
+형식: {"owner":"","company":"","opened":""}
+TXT;
+
+    /** 확인 질의를 돌려 볼 방향(시계 방향 각도) — 바로 선 사진이 대부분이라 0 먼저, 처음 일치한 방향에서 멈춘다. */
+    public const BIZ_ROTATIONS = [0, 90, 270, 180];
+
+    /**
+     * 확인 질의 A·B 응답 → 상호가 일치하면 매입처(법인명·대표자), 아니면 null(= 후보를 내지 않는다, 사람이 직접 적는다).
+     * 대표자는 A 값 — B 는 「(각자대표)」를 떼거나 상호를 되풀이하는 일이 잦아(표본 23장 중 3장) 일치 조건에 넣지 않는다.
+     *
+     * @return ?array{company: string, ceo: string}
+     */
+    public function parseBusiness(string $rawA, string $rawB): ?array
+    {
+        $a = $this->decode($rawA) ?? [];
+        $b = $this->decode($rawB) ?? [];
+        $company = $this->cleanCompany((string) ($a['business_name'] ?? ''));
+        if ($company === '' || $this->companyKey($company) !== $this->companyKey($this->cleanCompany((string) ($b['company'] ?? '')))) {
+            return null;
+        }
+
+        return ['company' => $company, 'ceo' => $this->cleanOwner((string) ($a['ceo_name'] ?? ''))];
+    }
+
     /** 모델이 낸 doc_type 이 자동차등록증인가. */
     public function isRegistration(string $docType): bool
     {
@@ -139,8 +185,8 @@ TXT;
         $out['registration_owner'] = $this->cleanOwner((string) ($data['registration_owner'] ?? ''));
         $out['doc_type'] = trim((string) ($data['doc_type'] ?? ''));
         // 매입처(법인명·대표자) = **사업자등록증으로 판정된 사진만**(doc_type 비면 분류 실패로 보고 허용). 명함·등록증·통장에서 나온
-        //    상호는 버린다 — 2026-10-22 소유자 칸에 딜러 상호가 섞인 사고의 반대 방향. 휴대폰 = 자동차등록증·통장 **밖**에서만
-        //    (통장 사진의 번호는 평생계좌일 수 있어 accounts 쪽이 맡는다). 판정은 코드가(프롬프트 아님).
+        //    상호는 버린다 — 2026-10-22 소유자 칸에 딜러 상호가 섞인 사고의 반대 방향. 판정은 코드가(프롬프트 아님).
+        //    ⚠️ 여기 값은 1차일 뿐 — Job 이 확인 질의(parseBusiness)로 갈아 끼우거나 버린다.
         if ($this->isBusinessRegistration($out['doc_type'])) {
             $company = $this->cleanCompany((string) ($data['business_name'] ?? ''));
             $ceo = $this->cleanOwner((string) ($data['ceo_name'] ?? ''));
@@ -148,7 +194,10 @@ TXT;
                 $out['seller'] = ['company' => $company, 'ceo' => $ceo, 'source_photo_ids' => [$photoId]];
             }
         }
-        if (! $this->isRegistration($out['doc_type']) && ! str_contains($out['doc_type'], '통장')) {
+        // 🚨 휴대폰 = **명함·기타(안내문)로 판정된 사진만**(2026-11-13, 11노3152). 사업자등록증 사진엔 전화번호가 없는데
+        //    모델이 「010-2348-9777」을 지어냈고(바로 세워도 「010-2345-6789」), 그 번호가 ERP 국내딜러 알림톡 번호로 갔다.
+        //    doc_type 이 빈 사진(분류 실패)도 받지 않는다 — 없는 번호보다 빈 칸이 낫다.
+        if ($this->isPhoneSource($out['doc_type'])) {
             foreach ((array) ($data['mobile_phones'] ?? []) as $p) {
                 $m = $this->mobileDigits((string) $p);
                 if ($m !== null && ! in_array($m, $out['phones'], true)) {
@@ -309,11 +358,30 @@ TXT;
         return $t === '' || str_contains($t, '사업자등록증');
     }
 
-    /** 법인명(상호) 정리 — 따옴표·공백만 걷고, 2자 미만·관청/칸 이름은 버린다. 숫자는 허용(상호에 들어간다). */
+    /** 휴대폰 후보를 받아도 되는 사진인가 — 명함·기타(안내문)만. 등록증·통장·사업자등록증·차량사진·분류 실패는 아니다. */
+    public function isPhoneSource(string $docType): bool
+    {
+        return (bool) preg_match('/명함|기타|안내/u', $docType);
+    }
+
+    /** 확인 질의를 돌릴 사진인가 — 사업자등록증이라고 **명시된** 사진(빈 doc_type 은 isBusinessRegistration 과 달리 아니다). */
+    public function isExplicitBusinessRegistration(string $docType): bool
+    {
+        return str_contains(str_replace(' ', '', $docType), '사업자등록증');
+    }
+
+    /**
+     * 법인명(상호) 정리 — 따옴표·공백만 걷고, 2자 미만·관청/칸 이름·주소 꼴은 버린다. 숫자는 허용(상호에 들어간다).
+     * 관청은 **끝맺음**으로만 본다(「서구청」「○○세무서장」) — 부분 일치로 걸면 「시청앞모터스」 같은 진짜 상호가 죽는다.
+     * 시·도 이름으로 시작하거나 「○○로 158」 꼴이면 발급기관·사업장 소재지를 상호로 낸 것이다(11노3152 실측 둘 다).
+     */
     private function cleanCompany(string $s): string
     {
         $s = trim((string) preg_replace('/^[\s"\x27`“”‘’]+|[\s"\x27`“”‘’]+$/u', '', $s));
-        if (mb_strlen($s) < 2 || preg_match('/(등록사업소|세무서|상호\(법인명\)|^상호$|^법인명$|^성명$|^대표자$)/u', $s)) {
+        if (mb_strlen($s) < 2 || preg_match('/(등록사업소|세무서|상호\(법인명\)|^상호$|^법인명$|^성명$|^대표자$)/u', $s)
+            || preg_match('/(구청|시청|군청|도청)장?$/u', $s)
+            || preg_match('/^\S+(특별시|광역시|특별자치시|특별자치도)(\s|$)/u', $s)
+            || preg_match('/(로|길)\s*\d+/u', $s)) {
             return '';
         }
 

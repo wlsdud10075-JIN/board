@@ -633,4 +633,83 @@ class PayeeExtractionTest extends TestCase
         $this->assertStringNotContainsString(__('audit.ev.sum.payee_phones', ['n' => 0]), $sum);
         $this->assertSame([__('audit.ev.payee_status.done'), true], IntegrationEventView::response($ev));
     }
+
+    // ───────────────────────── 2026-11-13 — 11노3152: 누운 사업자등록증의 틀린 매입처·지어낸 휴대폰이 ERP 로 갔다 ─────────────────────────
+
+    /** 실제 응답(누운 사진 그대로) — 발급기관은 상호가 아니고, 사업자등록증에서 나온 휴대폰은 받지 않는다. */
+    public function test_issuing_office_and_phone_from_business_registration_are_dropped(): void
+    {
+        $e = new PayeeExtractor;
+        $r = $e->parseOne('```json
+{"doc_type": "사업자등록증", "accounts": [], "registration_owner": "", "business_name": "인천광역시 서구청", "ceo_name": "김종범", "mobile_phones": ["010-2348-9777"]}
+```', 410);
+
+        $this->assertSame('', $r['seller']['company'] ?? '');
+        $this->assertSame([], $r['phones']);
+        // 분류 실패(doc_type 빈 값)·차량사진의 번호도 받지 않는다. 명함·기타(안내문)만.
+        $this->assertSame([], $e->parseOne('{"doc_type":"","mobile_phones":["010-2345-6789"]}', 1)['phones']);
+        $this->assertSame([], $e->parseOne('{"doc_type":"차량사진","mobile_phones":["010-2345-6789"]}', 1)['phones']);
+        $this->assertSame(['01077628572'], $e->parseOne('{"doc_type":"기타","mobile_phones":["010-7762-8572"]}', 1)['phones']);
+    }
+
+    /** 확인 질의 — 두 답의 상호가 같을 때만. 관청은 끝맺음으로만 버린다(진짜 상호를 죽이지 않는다). 주소 꼴은 같아도 버린다. */
+    public function test_business_check_requires_two_matching_answers(): void
+    {
+        $e = new PayeeExtractor;
+        $ask = fn (string $a, string $b, string $ceo = '김홍범') => $e->parseBusiness(
+            json_encode(['business_number' => '348-30-00777', 'business_name' => $a, 'ceo_name' => $ceo], JSON_UNESCAPED_UNICODE),
+            json_encode(['owner' => $ceo, 'company' => $b, 'opened' => ''], JSON_UNESCAPED_UNICODE),
+        );
+
+        $this->assertSame(['company' => '범스카', 'ceo' => '김홍범'], $ask('범스카', '범스카'));
+        $this->assertSame('(주)카베미', $ask('(주)카베미', '주식회사 카베미')['company']);   // 표기 흔들림은 같은 상호
+        $this->assertSame('시청앞모터스', $ask('시청앞모터스', '시청앞모터스')['company']);
+        $this->assertNull($ask('BMW SERVICE REPAIR', 'BMW SERVICE CENTER OF KOREA'));        // 실측 — 누운 방향
+        $this->assertNull($ask('', ''));
+        foreach (['인천광역시 서구청', '서인천세무서장', '부평구청장',
+            '인천광역시 서구 불수대로 159, SGS5호(가정동, 동일리단지)', '서구 봉수대로 158'] as $bad) {
+            $this->assertNull($ask($bad, $bad), $bad);
+        }
+    }
+
+    /** Job — 그대로(0도)는 두 답이 어긋나고 270도에서 일치 → 그 값만 매입처. 1차의 틀린 상호·지어낸 휴대폰·회전 중 지어낸 계좌는 안 남는다. */
+    public function test_job_takes_seller_only_from_the_rotation_where_both_answers_agree(): void
+    {
+        Storage::fake('public');
+        Storage::disk('public')->put('sales/photos/biz.jpg', $this->jpeg());
+        $l = $this->mkListing();
+        $l->salesAttachments()->update(['s3_path' => 'sales/photos/biz.jpg']);
+        $this->fakeOllama([
+            '{"doc_type":"사업자등록증","accounts":[],"registration_owner":"","business_name":"인천광역시 서구청","ceo_name":"김종범","mobile_phones":["010-2348-9777"]}',
+            '{"business_number":"348-30-00777","business_name":"BMW SERVICE REPAIR","ceo_name":"김홍범"}',          // 0도 A
+            '{"owner":"김종범","company":"BMW SERVICE CENTER OF KOREA","opened":"1987년 10월 20일"}',                // 0도 B
+            '{"business_number":"","business_name":"","ceo_name":"","accounts":[{"number":"02-7856-000218"}]}',     // 90도 A
+            '{"owner":"박성민","company":"서울시외버스운수사업소","opened":"2019년 10월 20일"}',                      // 90도 B
+            '{"business_number":"348-30-00777","business_name":"범스카","ceo_name":"김홍범"}',                       // 270도 A
+            '{"owner":"김홍범","company":"범스카","opened":"2019년 12월 12일"}',                                     // 270도 B
+        ]);
+
+        (new ExtractPayeeFromPhotos($l->id))->handle(new PayeeExtractor, app(OllamaClient::class));
+
+        $s = $l->fresh()->payee_suggestions;
+        $this->assertSame([['company' => '범스카', 'ceo' => '김홍범', 'source_photo_ids' => [$l->salesAttachments()->first()->id]]], $s['seller_companies']);
+        $this->assertSame([], $s['seller_phones']);
+        $this->assertSame([], $s['candidates']);
+    }
+
+    /** Job — 어느 방향에서도 두 답이 안 맞으면 매입처 후보를 내지 않는다(1차 값으로 되돌아가지 않는다). */
+    public function test_job_drops_seller_when_no_rotation_agrees(): void
+    {
+        Storage::fake('public');
+        Storage::disk('public')->put('sales/photos/biz.jpg', $this->jpeg());
+        $l = $this->mkListing();
+        $l->salesAttachments()->update(['s3_path' => 'sales/photos/biz.jpg']);
+        $this->fakeOllama(['{"doc_type":"사업자등록증","accounts":[],"business_name":"아무상사","ceo_name":"김종범","mobile_phones":[]}']);   // 이후 응답은 전부 빈 값
+
+        (new ExtractPayeeFromPhotos($l->id))->handle(new PayeeExtractor, app(OllamaClient::class));
+
+        $l->refresh();
+        $this->assertNull($l->payee_suggestions);
+        $this->assertSame('none', $l->payee_extraction_status);
+    }
 }
