@@ -101,6 +101,27 @@ try {
             await el.uploadFile(...s.files.map((f) => path.resolve(path.dirname(outDir), '..', f)));
             await settle(); await sleep(s.after ?? 1500);
         }
+        else if (s.mask) {   // {"mask": {"실제 글자": "가림 글자"}} — 캡처 직전 화면의 글자·입력값을 바꾼다(개인정보 가리기, 저장값은 그대로)
+            await page.evaluate((m) => {
+                const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+                for (let n = w.nextNode(); n; n = w.nextNode()) { for (const [a, b] of Object.entries(m)) { if (n.nodeValue.includes(a)) n.nodeValue = n.nodeValue.split(a).join(b); } }
+                document.querySelectorAll('input, textarea').forEach((el) => { for (const [a, b] of Object.entries(m)) { if (el.value.includes(a)) el.value = el.value.split(a).join(b); } });
+            }, s.mask);
+        }
+        else if (s.maskPassport) {   // {"maskPassport": true} — 여권 읽기 결과·송금인 칸을 화면에서 가린다(실제 값을 계획 파일에 적지 않으려고 구조로 찾는다)
+            await page.evaluate(() => {
+                const NAME = 'SAMPLE NAME (가림)', ID = 'XX0000000 (가림)';
+                document.querySelectorAll('[wire\\:model="e_remitter_name"], [wire\\:model\\.blur="e_remitter_name"]').forEach((el) => { if (el.value) el.value = NAME; });
+                document.querySelectorAll('[wire\\:model="e_remitter_id"], [wire\\:model\\.blur="e_remitter_id"]').forEach((el) => { if (el.value) el.value = ID; });
+                const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+                for (let n = w.nextNode(); n; n = w.nextNode()) {
+                    if (/\b[A-Z]{1,2}\d{6,8}\b/.test(n.nodeValue)) n.nodeValue = n.nodeValue.replace(/\b[A-Z]{1,2}\d{6,8}\b/g, ID);
+                    // 「MRZ·인쇄 일치」 표 옆의 이름 = 같은 줄의 첫 글자 칸
+                    const row = n.parentElement?.closest('div'); if (!row) continue;
+                    if (row.textContent.includes('MRZ') && /^[A-Z][A-Z' -]{3,}$/.test(n.nodeValue.trim())) n.nodeValue = NAME;
+                }
+            });
+        }
         else if (s.waitFor) { await page.waitForSelector(sel(s.waitFor), { visible: true, timeout: 15000 }); }
         else if (s.wait) { await sleep(s.wait); }
         else if (s.shot) {
