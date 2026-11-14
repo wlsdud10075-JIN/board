@@ -6,7 +6,7 @@ use Illuminate\Support\Carbon;
 
 /**
  * 업무 가이드 목록 — config/guides.php(무엇이 있나) + resources/guides/{slug}/index.html(본문) 을 합쳐 읽는다.
- * car-erp `App\Services\Guides\GuideCatalog` 와 같은 구조(Jin 2026-11-13 「board 도 같은 구성」) — 다른 곳은 erpUrl() 뿐.
+ * car-erp `App\Services\Guides\GuideCatalog` 와 같은 구조(Jin 2026-11-13 「board 도 같은 구성」) — ERP 가이드 링크는 없다(2026-11-14 Jin, 각자 가이드).
  *
  * 🔑 상태는 파일이 정한다: 본문 없음 = 「준비 중」(열리지 않음) / 있음 = 「사용 중」, 갱신 뒤 며칠은 「새로 올라옴」.
  * 🔎 검색용 글자(body)는 본문에서 태그를 걷어낸 것 — 접힌 개발 블록(<details>)은 뺀다(Jin 11-13 「사용자용 본문만」).
@@ -100,16 +100,6 @@ class GuideCatalog
         $path = config('guides.path').DIRECTORY_SEPARATOR.$slug.DIRECTORY_SEPARATOR.$name;
 
         return is_file($path) ? $path : null;
-    }
-
-    /** 같은 회사의 ERP 업무 가이드 주소 — 짝이 없는 인스턴스(로컬 등)·ERP 가 아직 안 열린 동안은 null. 인스턴스 = APP_NAME(config board.instances 와 같은 키). */
-    public static function erpUrl(): ?string
-    {
-        if (! config('guides.erp_link_live')) {
-            return null;
-        }
-
-        return config('guides.erp_urls')[(string) config('app.name')] ?? null;
     }
 
     /** 본문 파일 — 영어 화면이면 index.en.html 을 먼저, 없으면 한국어 본문으로(빈 화면보다 낫다). */

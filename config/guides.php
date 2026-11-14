@@ -22,13 +22,8 @@ return [
     // 「처음이라면 — 한 바퀴」 순서(같은 차 한 대로 등록부터 선적까지).
     'lap' => ['listing-register', 'inspection-wait', 'inspection-visit', 'buyer-forward', 'purchase-confirm', 'payment-request', 'transport-dispatch', 'shipping-plan'],
 
-    // ERP 업무 가이드 주소(같은 회사 짝끼리만). 키 = APP_NAME(config board.instances 와 같은 키). 목록에 없는 이름(로컬 `board`)은 링크 없음.
-    // ⚠️ ERP 쪽 /guides 가 운영에 올라가기 전엔 404 다 — car-erp 세션의 배포 통보를 받은 뒤 erp_link_live 를 true 로.
-    'erp_link_live' => true,   // 2026-11-14 켬 — ERP 첫 묶음 6장 3사 운영 배포(car-erp master bf596389) 통보 받음
-    'erp_urls' => [
-        'board-heyman' => 'https://heysellcar.com/guides',
-        'board-ssancar' => 'https://heymancar.com/guides',
-    ],
+    // ERP 업무 가이드로 가는 링크는 두지 않는다(2026-11-14 Jin — ERP 계정만 있고 board 계정이 없는 사람이 있어 링크가 로그인에서 막힌다.
+    // ERP 와 board 는 각자 업무 가이드를 본다. ERP 쪽 board 링크도 같은 날 제거).
 
     // 🇬🇧 영어 화면(언어 = en)에서 쓰는 제목·요약 [slug => [제목, 한 줄 요약]].
     //    본문 영어판은 `resources/guides/{slug}/index.en.html` — 없으면 한국어 본문을 「Korean only」 표시와 함께 보여준다.

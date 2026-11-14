@@ -1067,6 +1067,6 @@ car-erp 의 `/guides` 와 **같은 구조**로 만든 직원용 씬 워크스루
 - 🚫 **시스템관리자 일은 목록에도 본문 단계에도 넣지 않는다**(기능설정·알림톡 로그 화면을 거치는 단계 금지 — Jin). 본문은 사용자 말로(변수명·엔드포인트 금지, 기획 §2).
 - 접근 = 로그인한 **활성** 계정 전부(역할 미들웨어 없음 → 컨트롤러 세 메서드가 `is_active` 를 본다. 🚫 생성자에서 `auth()->user()` 를 보지 말 것 — 미들웨어 전에 돌아 전원 403).
 - 사이드바 = `GuideCatalog::hasAny()`(파일 존재만 봄) 이면 앱 안 `/guides`, 아니면 종전 Notion 링크(빈 목록으로 안 보낸다).
-- **ERP 링크** = `guides.erp_urls[APP_NAME]`(board-heyman → heysellcar.com, board-ssancar → heymancar.com) + `erp_link_live`(ERP 운영 배포 통보 전엔 false — 404 로 안 보낸다). 로컬(`board`)은 링크 없음.
+- **ERP 링크 없음**(2026-11-14 Jin) — ERP 계정만 있고 board 계정이 없는 사람이 있어 링크가 로그인에서 막힌다. board·ERP 는 각자 업무 가이드를 본다(ERP 쪽 board 링크도 같은 날 제거, car-erp dev `8030b8a3`). 가드 = `GuidesPageTest::test_guides_page_has_no_link_to_the_erp_guide`.
 - 한 바퀴 순번 「i / n」은 **볼 수 있는 씬끼리** 센다(`neighbours()['lapPos']`). config 순번을 쓰면 앞 씬이 준비 중일 때 「6 / 3」이 된다(로컬 캡처 실측 → board 수정, ERP 에도 같은 식이 있어 알림).
 - 색·모양은 뷰 안 `<style>` 에만(새 Tailwind 유틸을 쓰면 빌드 CSS 에 없어 조용히 안 먹는다).
