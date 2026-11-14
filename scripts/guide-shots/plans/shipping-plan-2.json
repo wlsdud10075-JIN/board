@@ -1,0 +1,18 @@
+{"slug":"shipping-plan","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"wide",
+ "steps":[
+  {"goto":"/portal"},{"wait":2500},
+  {"clickText":"선적요청","in":"button.rounded-md"},{"wait":4000},
+  {"clickText":"선적 계획","in":"button"},{"wait":4000},
+  {"clickText":"GUIDE SAMPLE TRADING","in":"button"},{"wait":1000},
+  {"scrollText":"GUIDE SAMPLE TRADING"},{"wait":500},
+  {"shot":"_c-group-open","full":false},
+  {"click":"[wire\\:click=\"assignVehicle('n:36', 300)\"]"},{"wait":2000},
+  {"select":"select[wire\\:change^=\"setBundleField('n:36','consignee_id'\"]","text":"GUIDE SAMPLE CONSIGNEE"},{"wait":1500},
+  {"select":"select[wire\\:change^=\"setBundleField('n:36','forwarding_company_id'\"]","index":1},{"wait":1500},
+  {"scrollText":"GUIDE SAMPLE TRADING"},{"wait":500},
+  {"shot":"_d-group-filled","full":false},
+  {"click":"button[wire\\:click=\"syncBundles\"]"},{"wait":6000},
+  {"shot":"_e-synced","full":false},
+  {"clickText":"내 선적묶음","in":"button"},{"wait":4000},
+  {"shot":"_f-bundles","full":true}
+ ]}

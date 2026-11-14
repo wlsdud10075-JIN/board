@@ -1,0 +1,8 @@
+{"slug":"shipping-plan","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"wide",
+ "steps":[
+  {"goto":"/portal"},{"wait":2500},
+  {"clickText":"선적요청","in":"button.rounded-md"},{"wait":4000},
+  {"dialog":"accept"},
+  {"clickText":"전자서명 요청","in":"button"},{"wait":5000},
+  {"shot":"_h-sign","full":false}
+ ]}
