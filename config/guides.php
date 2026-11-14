@@ -24,7 +24,7 @@ return [
 
     // ERP 업무 가이드 주소(같은 회사 짝끼리만). 키 = APP_NAME(config board.instances 와 같은 키). 목록에 없는 이름(로컬 `board`)은 링크 없음.
     // ⚠️ ERP 쪽 /guides 가 운영에 올라가기 전엔 404 다 — car-erp 세션의 배포 통보를 받은 뒤 erp_link_live 를 true 로.
-    'erp_link_live' => false,
+    'erp_link_live' => true,   // 2026-11-14 켬 — ERP 첫 묶음 6장 3사 운영 배포(car-erp master bf596389) 통보 받음
     'erp_urls' => [
         'board-heyman' => 'https://heysellcar.com/guides',
         'board-ssancar' => 'https://heymancar.com/guides',
