@@ -190,5 +190,6 @@
 - 가짜 서류 그림 = `scripts/guide-shots/fixtures/`(통장·사업자등록증·명함 — 「업무 가이드 예시」 표기). 여권 씬은 샘플 여권을 레포 밖(`fixtures-private`, git 제외 — 사용 뒤 삭제)에서 쓰고 화면 글자를 「가림」으로 바꿔 찍었다(`maskPassport`). 🚫 실제 이름·번호를 계획 파일에 적지 않는다(권한 검사가 막는다 — 맞는 판단).
 - 검차 상태(검차중·보류·사진만)는 ssancar.com 이 보내는 값을 로컬에서 넣어 찍었다(실제 웹훅 아님).
 - **11-14 Jin 리뷰** — 매입 묶음은 2번(inspection-wait)만 고침: 「매입예정 목록 → 차 줄 → 드로어 [기본] → [검차] 탭 → 긴급 요청」 순서로 다시 찍음(가짜 차 **11가1004** draft, 긴급 요청 보낸 상태). 나머지 9장은 그대로 OK.
+- **「입금·탁송」 묶음 완료**(11-14, dev `0d62fe1`): payment-request · sale-payment-check (+ transport-dispatch 기존). 11가1001 = ERP 300 에 board 요청 이력이 쌓여 있다 — 계약금 3,000,000 확인됨 · 매입잔금 13,500,000 거절(사유 예시) · 판매대금확인 확인됨(3회). ERP 쪽은 로컬 ERP `finance@car-erp.test` 로 [입금 확인]·[거절] — 화면 위치 = ERP 「차량 관리」 편집 패널 머리(car-erp-c2 회신). 패널 아래에 송금인 칸이 있어 그림은 요청 줄만 자른다. ERP 가이드 예시 차 00가1113 은 건드리지 않음.
 - **「패스」 명칭** — 외국인 검차원에게 pass = 통과로 읽혀 바꿔야 한다(Jin 11-14). 대체어·시점 미정(「일단 냅두고」) — ssancar.com 세션(htdocs-20)에 알림만 보냄. 기존 「보류」(오늘 다시 가기) 버튼과 겹치지 않는 말이어야 하고, 정해지면 board 표시(「검차 보류」)·inspection-visit·inspection-wait 가이드 문구도 같이 맞춘다.
 - **ERP 쪽 가이드 등장인물**(car-erp 세션 11-13 통보, 로컬 ERP 에만): 예시 차 00가1113(ERP 직접 등록 — board 연동 씬엔 안 씀) · 바이어 **GUIDE SAMPLE TRADING (요르단)**(board 구매확정 씬도 이 바이어 — 이미 일치) · 컨사이니 GUIDE SAMPLE CONSIGNEE · 선박 GUIDE SAMPLE VESSEL · 매입처 계좌 국민은행/홍길동(지어낸 값). board 씬에서 ERP 화면을 언급할 땐 이 이름을 쓴다.
