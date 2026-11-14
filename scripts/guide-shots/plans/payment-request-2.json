@@ -1,0 +1,8 @@
+{"slug":"payment-request","base":"http://localhost:8003","viewport":"wide",
+ "steps":[
+  {"login":{"email":"finance@car-erp.test","at":"http://127.0.0.1:8001"}},
+  {"goto":"http://127.0.0.1:8001/erp/vehicles?search=11가1001"},{"wait":2000},
+  {"shot":"_4-erp-list","full":false},
+  {"clickText":"11가1001","in":"td, tr"},{"wait":2500},
+  {"shot":"_5-erp-panel","full":false}
+ ]}

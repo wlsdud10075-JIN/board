@@ -1,0 +1,11 @@
+{
+  "slug": "transport-dispatch",
+  "base": "http://localhost:8003",
+  "login": { "email": "guide-demo@local.test" },
+  "viewport": "pc",
+  "steps": [
+    { "goto": "/listings?edit=113" },
+    { "wait": 1500 },
+    { "shot": "_card", "of": "div@key(tr-4)" }
+  ]
+}

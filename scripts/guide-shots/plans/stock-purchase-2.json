@@ -1,0 +1,4 @@
+{"slug":"stock-purchase","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"xtall",
+ "steps":[{"goto":"/auction"},{"clickText":"11가1002","in":"td, tr, a, button"},{"wait":2000},
+  {"shot":"_01b","clip":{"x":840,"y":0,"width":440,"height":3400}},
+  {"clickText":"구매확정","in":"button.btn-green"},{"wait":6000},{"shot":"_02-done","full":true}]}

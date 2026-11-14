@@ -142,7 +142,7 @@ class GuidesPageTest extends TestCase
     /** ERP 링크 — 같은 회사 짝이 있고 ERP 쪽이 열렸을 때만. 목록에 없는 인스턴스(로컬)는 링크 없음. */
     public function test_erp_link_is_drawn_only_for_a_paired_instance_once_it_is_live(): void
     {
-        config(['app.name' => 'board-ssancar']);
+        config(['app.name' => 'board-ssancar', 'guides.erp_link_live' => false]);
         $this->assertNull(GuideCatalog::erpUrl(), 'ERP 배포 전엔 링크를 그리지 않는다(404 로 보내지 않는다)');
 
         config(['guides.erp_link_live' => true]);

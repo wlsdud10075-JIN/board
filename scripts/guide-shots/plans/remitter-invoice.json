@@ -1,0 +1,9 @@
+{"slug":"remitter-invoice","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"tall",
+ "steps":[
+  {"goto":"/listings?edit=123"},{"wait":1500},{"clickText":"Invoice","in":"button[role=tab]"},{"wait":800},
+  {"shot":"_01-tab","clip":{"x":840,"y":0,"width":440,"height":900}},
+  {"upload":"input@model(passportFile)","files":["fixtures-private/passport.png"],"after":2000},
+  {"shot":"_02-staged","clip":{"x":840,"y":0,"width":440,"height":900}},
+  {"clickText":"읽기","in":"button.btn-primary"},{"wait":45000},
+  {"shot":"_03-found","clip":{"x":840,"y":0,"width":440,"height":1200}}
+ ]}

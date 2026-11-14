@@ -7636,6 +7636,8 @@ class BoardTest extends TestCase
 
     public function test_sidebar_work_guide_uses_public_notion_url(): void
     {
+        // 앱 안 가이드 씬이 하나도 없을 때의 동작(씬이 생기면 사이드바가 /guides 로 바뀐다 — GuidesPageTest 가 지킨다).
+        config(['guides.path' => storage_path('framework/testing/no-guides')]);
         $this->actingAs($this->mkUser('manager', null, 'super'))
             ->get('/manage')
             ->assertOk()

@@ -1,0 +1,21 @@
+{
+  "slug": "transport-dispatch",
+  "base": "http://localhost:8003",
+  "login": { "email": "guide-demo@local.test" },
+  "viewport": "pc",
+  "steps": [
+    { "goto": "/listings" },
+    { "click": "button@click(openPanel)" },
+    { "wait": 1200 },
+    { "shot": "07-bell", "clip": { "x": 888, "y": 44, "width": 382, "height": 150 } },
+    { "goto": "/listings?edit=113" },
+    { "wait": 1500 },
+    { "scrollText": "요청 이력" },
+    { "shot": "08-after-accept", "clip": { "x": 840, "y": 0, "width": 440, "height": 420 } },
+    { "clickText": "매입잔금 요청", "in": "button" },
+    { "wait": 3000 },
+    { "scrollText": "요청 이력" },
+    { "shot": "09-balance-sent", "clip": { "x": 840, "y": 0, "width": 440, "height": 420 } },
+    { "shot": "_09-full" }
+  ]
+}

@@ -1,0 +1,14 @@
+{"slug":"inspection-wait","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/listings"},{"wait":1200},
+  {"shot":"_a-list","full":false},
+  {"clickText":"11가1004","in":"td, tr"},{"wait":1500},
+  {"shot":"_b-drawer","full":false},
+  {"clickText":"검차","in":"button[role=tab]"},{"wait":800},
+  {"shot":"_c-tab","full":false},
+  {"clickText":"긴급 검차 요청","in":"button"},{"wait":800},
+  {"type":"input@model(e_urgent_note)","text":"바이어가 오늘 결정해야 함"},
+  {"shot":"_d-form","full":false},
+  {"clickText":"요청 보내기","in":"button"},{"wait":2500},
+  {"shot":"_e-sent","full":false}
+ ]}

@@ -24,7 +24,7 @@ return [
 
     // ERP 업무 가이드 주소(같은 회사 짝끼리만). 키 = APP_NAME(config board.instances 와 같은 키). 목록에 없는 이름(로컬 `board`)은 링크 없음.
     // ⚠️ ERP 쪽 /guides 가 운영에 올라가기 전엔 404 다 — car-erp 세션의 배포 통보를 받은 뒤 erp_link_live 를 true 로.
-    'erp_link_live' => false,
+    'erp_link_live' => true,   // 2026-11-14 켬 — ERP 첫 묶음 6장 3사 운영 배포(car-erp master bf596389) 통보 받음
     'erp_urls' => [
         'board-heyman' => 'https://heysellcar.com/guides',
         'board-ssancar' => 'https://heymancar.com/guides',
@@ -64,7 +64,7 @@ return [
     'scenes' => [
         'listing-register' => ['purchase', '매입예정 등록', '링크를 붙여넣어 자동으로 채우고 차 위치·검차 요청사항을 적어 저장합니다', ['영업'], '엔카 링크 추출 출처 차 위치 매매단지 검차 요청사항'],
         'inspection-wait' => ['purchase', '검차 기다리기', '검차상태를 읽고 긴급 검차·재검차를 요청하거나 사진만으로 전달 대기로 넘깁니다', ['영업'], '검차상태 긴급 검차 요청 보류 재검차 전달대기'],
-        'inspection-visit' => ['purchase', '현지확인 검차 (ssancar.com)', '검차원과 팀장이 검차앱에서 배정·방문·사진 영상 올리기·완료까지 하는 순서입니다', ['검차원', '검차 팀장'], '오늘 내 할 차 검차 시작 등록하기 패스 보류 경로 확정 배정'],
+        'inspection-visit' => ['purchase', '현지확인 검차 (ssancar.com)', '검차원과 팀장이 검차앱에서 배정·방문·사진 영상 올리기·완료까지 하는 순서입니다', ['영업', '관리', '검차원', '검차 팀장'], '오늘 내 할 차 검차 시작 등록하기 패스 보류 경로 확정 배정'],   // 독자 = 모두(신규 검차원·신규 영업 — Jin 11-13)
         'buyer-forward' => ['purchase', '바이어 전달과 회신', '전달 대기에서 견적을 넣어 바이어에게 보내고 수락·거절을 처리합니다', ['영업'], '전달 대기 바이어 회신 견적 통화 수락 거절'],
         'purchase-confirm' => ['purchase', '구매확정', '금액과 사진·서류를 넣고 바이어를 골라 확정하면 ERP 재고로 넘어갑니다', ['영업'], '경매 구매 차값 매도비 총판매가 운임비 이미지에서 정보 찾기 계좌 매입처'],
         'self-inspection' => ['purchase', '셀프검차매입', '직접 검차한 차는 등록하자마자 구매 단계로 갑니다', ['영업'], '셀프검차 직접 검차'],

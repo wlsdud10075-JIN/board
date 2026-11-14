@@ -1,0 +1,15 @@
+{"slug":"remitter-invoice","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"tall",
+ "steps":[
+  {"goto":"/listings?edit=123"},{"wait":1500},{"clickText":"Invoice","in":"button[role=tab]"},{"wait":800},
+  {"maskPassport":true},
+  {"shot":"03-found","clip":{"x":840,"y":180,"width":440,"height":480}},
+  {"clickText":"Name 에 적용","in":"button"},{"wait":1000},
+  {"clickText":"ID 에 적용","in":"button"},{"wait":1000},
+  {"clickText":"송금인 저장","in":"button"},{"wait":2000},
+  {"clickText":"ERP 로 전송","in":"button"},{"wait":5000},
+  {"maskPassport":true},
+  {"shot":"04-sent","clip":{"x":840,"y":180,"width":440,"height":600}},
+  {"clickText":"인보이스 다운로드","in":"button"},{"wait":5000},
+  {"maskPassport":true},
+  {"shot":"05-invoice","clip":{"x":840,"y":180,"width":440,"height":600}}
+ ]}

@@ -1,0 +1,21 @@
+{
+  "slug": "_guide-check",
+  "base": "http://localhost:8003",
+  "login": { "email": "guide-demo@local.test" },
+  "viewport": "pc",
+  "steps": [
+    { "goto": "/listings" },
+    { "clickText": "업무 가이드", "in": "a.sidebar-item" },
+    { "wait": 1500 },
+    { "shot": "01-list-via-sidebar" },
+    { "type": "input[type=search]", "text": "먼저 누른" },
+    { "wait": 600 },
+    { "shot": "02-search-body" },
+    { "clickText": "보기", "in": "a.btn-primary" },
+    { "wait": 1500 },
+    { "shot": "03-scene-pc", "full": true },
+    { "viewport": "phone" },
+    { "goto": "/guides/transport-dispatch" },
+    { "shot": "04-scene-phone", "full": true }
+  ]
+}

@@ -1,0 +1,7 @@
+{"slug":"inspection-wait","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/listings?edit=123"},{"wait":1200},{"clickText":"검차","in":"button[role=tab]"},{"wait":800},
+  {"shot":"01-insp-tab","clip":{"x":860,"y":194,"width":400,"height":126}},
+  {"clickText":"긴급 검차 요청","in":"button"},{"wait":800},
+  {"shot":"_02-urgent-open","full":true}
+ ]}

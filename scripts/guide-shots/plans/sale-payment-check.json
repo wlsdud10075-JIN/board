@@ -1,0 +1,25 @@
+{"slug":"sale-payment-check","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"wide",
+ "steps":[
+  {"goto":"/portal"},{"wait":1500},
+  {"clickText":"판매내역","in":"button.rounded-md"},{"wait":3000},
+  {"type":"input@model(vehicleSearch)","text":"11가1001"},{"wait":3000},{"clickText":"GUIDE SAMPLE TRADING","in":"button"},{"wait":800},
+  {"shot":"_1-sales","full":false},
+  {"click":"input[wire\\:click='toggleReqVehicle(36, 300)']"},{"wait":1500},
+  {"type":"input[wire\\:model^='reqNote.']","text":" 바이어가 11-14 에 USD 9,300 송금했다고 연락 옴"},
+  {"hideText":"확인됨"},
+  {"shot":"_2-picked","full":false},
+  {"clickText":"판매대금확인","in":"button.btn-outline"},{"wait":3000},
+  {"shot":"_3-sent","full":false},
+
+  {"login":{"email":"finance@car-erp.test","at":"http://127.0.0.1:8001"}},
+  {"goto":"http://127.0.0.1:8001/erp/vehicles?search=11가1001"},{"wait":2000},
+  {"clickText":"11가1001","in":"td, tr"},{"wait":2500},
+  {"shot":"_4-erp","clip":{"x":860,"y":0,"width":440,"height":112}},
+  {"clickText":"입금 확인","in":"button"},{"wait":2500},
+
+  {"login":{"email":"guide-demo@local.test"}},
+  {"goto":"/portal"},{"wait":1500},
+  {"clickText":"판매내역","in":"button.rounded-md"},{"wait":3000},
+  {"type":"input@model(vehicleSearch)","text":"11가1001"},{"wait":3000},{"clickText":"GUIDE SAMPLE TRADING","in":"button"},{"wait":800},
+  {"shot":"_5-confirmed","full":false}
+ ]}

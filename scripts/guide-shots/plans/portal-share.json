@@ -1,0 +1,15 @@
+{"slug":"portal-share","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"wide",
+ "steps":[
+  {"goto":"/portal"},{"wait":2500},
+  {"shot":"_a-card","full":false},
+  {"clickText":"공유 설정","in":"button"},{"wait":1200},
+  {"shot":"_b-open","full":false},
+
+  {"login":{"email":"manager@board.test"}},
+  {"goto":"/portal"},{"wait":2500},
+  {"shot":"_c-manager","full":false},
+  {"clickText":"김영업","in":"button.rounded-md"},{"wait":4000},
+  {"shot":"_d-viewing","full":false},
+  {"clickText":"재고","in":"button.rounded-md"},{"wait":3000},
+  {"shot":"_e-viewing-stock","full":false}
+ ]}

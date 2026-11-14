@@ -1,0 +1,6 @@
+{"slug":"payment-request","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"tall",
+ "steps":[
+  {"goto":"/portal"},{"wait":1500},
+  {"clickText":"재고","in":"button.rounded-md"},{"wait":3000},
+  {"shot":"_1-stock","full":true}
+ ]}

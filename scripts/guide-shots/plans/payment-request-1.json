@@ -1,0 +1,11 @@
+{"slug":"payment-request","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"wide",
+ "steps":[
+  {"goto":"/portal"},{"wait":1500},
+  {"clickText":"재고","in":"button.rounded-md"},{"wait":3000},
+  {"type":"input@model(invSearch)","text":"11가1001"},{"wait":3000},
+  {"shot":"_1-row","full":false},
+  {"type":"input[wire\\:model='reqAmount.300']","text":"3000000"},
+  {"shot":"_2-amount","full":false},
+  {"clickText":"계약금","in":"button.btn-outline"},{"wait":3000},
+  {"shot":"_3-sent","full":false}
+ ]}

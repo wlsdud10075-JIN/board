@@ -1,0 +1,15 @@
+{"slug":"settlement-read","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"tall",
+ "steps":[
+  {"viewport":"wide"},
+  {"goto":"/portal"},{"wait":2500},
+  {"viewport":"tall"},{"wait":800},
+  {"shot":"_a-summary","full":false},
+  {"clickText":"2026-11","in":"button, tr, td"},{"wait":2500},
+  {"shot":"_b-month-open","full":true},
+  {"clickText":"+3,000,000","in":"button, span"},{"wait":1200},
+  {"shot":"_c-extra","full":true},
+  {"clickText":"+500,000","in":"button, span"},{"wait":1200},
+  {"shot":"_d-hold","full":true},
+  {"clickText":"정산내역","in":"button.rounded-md"},{"wait":3500},
+  {"shot":"_e-settle-tab","full":true}
+ ]}

@@ -1,0 +1,9 @@
+{
+  "name": "board-guide-shots",
+  "private": true,
+  "type": "module",
+  "description": "업무 가이드(씬 워크스루) 화면 캡처 도구 — 로컬 전용, 배포 산출물 아님",
+  "dependencies": {
+    "puppeteer-core": "^23.0.0"
+  }
+}
