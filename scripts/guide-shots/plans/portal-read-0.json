@@ -1,0 +1,14 @@
+{"slug":"portal-read","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"wide",
+ "steps":[
+  {"goto":"/portal"},{"wait":2500},
+  {"shot":"_a-summary","full":true},
+  {"clickText":"미수금","in":"button.rounded-md"},{"wait":3000},
+  {"shot":"_b-recv","full":true},
+  {"clickText":"재고","in":"button.rounded-md"},{"wait":3000},
+  {"clickText":"선적전 재고","in":"button.rounded-md"},{"wait":3000},
+  {"shot":"_c-stock-pre","full":true},
+  {"clickText":"출고완료","in":"button.rounded-md"},{"wait":3000},
+  {"shot":"_d-stock-out","full":true},
+  {"clickText":"판매내역","in":"button.rounded-md"},{"wait":3000},
+  {"shot":"_e-sales","full":true}
+ ]}

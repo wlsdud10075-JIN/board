@@ -1,0 +1,8 @@
+{"slug":"portal-read","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"wide",
+ "steps":[
+  {"goto":"/portal"},{"wait":1500},
+  {"clickText":"판매내역","in":"button.rounded-md"},{"wait":3000},
+  {"type":"input@model(vehicleSearch)","text":"99임000"},{"wait":3000},
+  {"clickText":"TOKYO AUTO TRADING","in":"button"},{"wait":1000},
+  {"shot":"_h-sales-sailing","full":false}
+ ]}

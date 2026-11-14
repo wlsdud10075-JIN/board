@@ -1,0 +1,10 @@
+{"slug":"settlement-read","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"wide",
+ "steps":[
+  {"goto":"/portal"},{"wait":2500},
+  {"viewport":"tall"},{"wait":800},
+  {"click":"[data-settle-extra-badge]"},{"wait":1000},
+  {"shot":"_f-extra","full":true},
+  {"click":"[data-settle-extra-badge]"},{"wait":600},
+  {"click":"[data-settle-hold-badge]"},{"wait":1000},
+  {"shot":"_g-hold","full":true}
+ ]}

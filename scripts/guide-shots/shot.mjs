@@ -40,6 +40,7 @@ fs.mkdirSync(outDir, { recursive: true });
 
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--hide-scrollbars'] });
 const page = await browser.newPage();
+page.setDefaultNavigationTimeout(90000);   // 포털 요약 = ERP 호출 5개 — 로컬 serve 가 느리면 30초를 넘는다
 await page.setViewport(VIEW[plan.viewport || 'pc']);
 let dialogMode = 'accept';
 page.on('dialog', async (d) => { console.log('  dialog: ' + d.message().slice(0, 80)); dialogMode === 'dismiss' ? await d.dismiss() : await d.accept(); });
