@@ -139,19 +139,15 @@ class GuidesPageTest extends TestCase
             ->assertSee('href="'.route('guides.index').'"', false)->assertDontSee('notion.site', false);
     }
 
-    /** ERP 링크 — 같은 회사 짝이 있고 ERP 쪽이 열렸을 때만. 목록에 없는 인스턴스(로컬)는 링크 없음. */
-    public function test_erp_link_is_drawn_only_for_a_paired_instance_once_it_is_live(): void
+    /** ERP 가이드로 가는 링크는 없다(2026-11-14 Jin — ERP 계정만 있는 사람은 board 로그인에서 막힌다, 각자 가이드를 본다). */
+    public function test_guides_page_has_no_link_to_the_erp_guide(): void
     {
-        config(['app.name' => 'board-ssancar', 'guides.erp_link_live' => false]);
-        $this->assertNull(GuideCatalog::erpUrl(), 'ERP 배포 전엔 링크를 그리지 않는다(404 로 보내지 않는다)');
-
-        config(['guides.erp_link_live' => true]);
-        $this->assertSame('https://heymancar.com/guides', GuideCatalog::erpUrl());
-        config(['app.name' => 'board-heyman']);
-        $this->assertSame('https://heysellcar.com/guides', GuideCatalog::erpUrl());
-        $this->actingAs($this->staff())->get('/guides')->assertSee('https://heysellcar.com/guides', false);
-        config(['app.name' => 'board']);
-        $this->assertNull(GuideCatalog::erpUrl());
+        foreach (['board-heyman', 'board-ssancar'] as $name) {
+            config(['app.name' => $name]);
+            $this->actingAs($this->staff())->get('/guides')->assertOk()
+                ->assertDontSee('heysellcar.com/guides', false)
+                ->assertDontSee('heymancar.com/guides', false);
+        }
     }
 
     /**

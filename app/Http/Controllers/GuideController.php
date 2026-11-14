@@ -25,7 +25,6 @@ class GuideController extends Controller
                 'base' => url('guides'),
                 't' => __('guides'),
             ],
-            'erpUrl' => GuideCatalog::erpUrl(),
         ]);
     }
 
