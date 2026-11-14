@@ -1,0 +1,7 @@
+{"slug":"when-blocked","base":"http://localhost:8003","login":{"email":"leader@board.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/portal"},{"wait":2500},
+  {"clickText":"김영업","in":"button.rounded-md"},{"wait":4000},
+  {"mask":{"황진영":"영업A","무사백":"영업B"}},
+  {"shot":"_h-readonly","full":false}
+ ]}

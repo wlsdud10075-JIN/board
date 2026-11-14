@@ -1,0 +1,21 @@
+{"slug":"claim-handle","base":"http://localhost:8003","login":{"email":"manager@board.test"},"viewport":"tall",
+ "steps":[
+  {"goto":"/claims"},{"wait":2500},
+  {"shot":"_d-list","full":false},
+  {"clickText":"11가1001","in":"div.cursor-pointer"},{"wait":4000},
+  {"set":"textarea@model(form.inspection_result)","value":"검차 영상에서는 앞 범퍼 긁힘이 보이지 않음. 운송 중 생긴 것으로 보임."},
+  {"set":"input@model(form.claim_amount)","value":"350"},
+  {"set":"input@model(form.refundable_amount)","value":"200"},
+  {"set":"input@model(form.cs_proposed_amount)","value":"250"},
+  {"set":"textarea@model(form.result)","value":"수리비 일부 환불"},
+  {"set":"textarea@model(form.result_reason)","value":"운송 중 손상 — 수리비의 일부를 회사가 부담"},
+  {"wait":800},
+  {"click":"input[type=radio][value=refund]"},{"wait":1200},
+  {"shot":"_f-filled","full":true},
+  {"click":"button[wire\\:click=\"save\"]"},{"wait":3000},
+  {"shot":"_f2-saved","full":true},
+  {"clickText":"결재 요청","in":"button.btn-primary"},{"wait":2000},
+  {"shot":"_g-line","full":false},
+  {"clickText":"요청 보내기","in":"button"},{"wait":4000},
+  {"shot":"_h-requested","full":false}
+ ]}

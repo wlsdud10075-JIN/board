@@ -1,0 +1,11 @@
+{"slug":"claim-handle","base":"http://localhost:8003","login":{"email":"manager@board.test"},"viewport":"tall",
+ "steps":[
+  {"goto":"/claims"},{"wait":2500},
+  {"clickText":"결재 완료","in":"button"},{"wait":2000},
+  {"clickText":"11가1001","in":"div.cursor-pointer"},{"wait":4000},
+  {"shot":"_l-approved","full":false},
+  {"click":"button[wire\\:click=\"openErpModal\"]"},{"wait":2000},
+  {"shot":"_m-erp-modal","full":false},
+  {"click":"button[wire\\:click=\"sendToErp\"]"},{"wait":5000},
+  {"shot":"_n-erp-sent","full":false}
+ ]}

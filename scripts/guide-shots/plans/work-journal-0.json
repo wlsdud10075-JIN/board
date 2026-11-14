@@ -1,0 +1,5 @@
+{"slug":"work-journal","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"tall",
+ "steps":[
+  {"goto":"/work-journal"},{"wait":2500},
+  {"shot":"_g-author-done","full":false}
+ ]}

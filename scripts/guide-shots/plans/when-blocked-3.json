@@ -1,0 +1,12 @@
+{"slug":"when-blocked","base":"http://localhost:8003","login":{"email":"manager@board.test"},"viewport":"tall",
+ "steps":[
+  {"goto":"/claims"},{"wait":2500},
+  {"clickText":"13라2053","in":"div.cursor-pointer"},{"wait":4000},
+  {"mask":{"황진영":"영업A","무사백":"영업B"}},
+  {"scrollText":"기한 초과 처리 사유"},{"wait":500},
+  {"shot":"_i-overdue-field","full":false},
+  {"clickText":"결재 요청","in":"button.btn-primary"},{"wait":2000},
+  {"clickText":"요청 보내기","in":"button"},{"wait":3000},
+  {"mask":{"황진영":"영업A","무사백":"영업B"}},
+  {"shot":"_j-overdue-error","full":false}
+ ]}

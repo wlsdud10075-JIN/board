@@ -70,6 +70,7 @@ try {
         else if (s.login) { await login(s.login); }
         else if (s.viewport) { await page.setViewport(VIEW[s.viewport]); await settle(); }
         else if (s.dialog) { dialogMode = s.dialog; }
+        else if (s.autoConfirm) { await page.evaluate(() => { window.confirm = () => true; }); }   // {"autoConfirm": true} — wire:confirm 창을 띄우지 않고 「확인」으로(clickText 안에서 창이 뜨면 evaluate 가 엉킨다)
         else if (s.click) { await page.waitForSelector(sel(s.click), { visible: true, timeout: 8000 }); await page.click(sel(s.click)); await settle(); }
         else if (s.clickText) {
             const ok = await page.evaluate((text, sel) => {
@@ -106,9 +107,16 @@ try {
         else if (s.mask) {   // {"mask": {"실제 글자": "가림 글자"}} — 캡처 직전 화면의 글자·입력값을 바꾼다(개인정보 가리기, 저장값은 그대로)
             await page.evaluate((m) => {
                 const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-                for (let n = w.nextNode(); n; n = w.nextNode()) { for (const [a, b] of Object.entries(m)) { if (n.nodeValue.includes(a)) n.nodeValue = n.nodeValue.split(a).join(b); } }
-                document.querySelectorAll('input, textarea').forEach((el) => { for (const [a, b] of Object.entries(m)) { if (el.value.includes(a)) el.value = el.value.split(a).join(b); } });
+                // 키가 "re:" 로 시작하면 정규식 — 실제 개인 이메일을 계획 파일에 적지 않으려고("re:[\\w.]+@naver\\.com")
+                const rep = (s) => { for (const [a, b] of Object.entries(m)) { s = a.startsWith('re:') ? s.replace(new RegExp(a.slice(3), 'g'), b) : s.split(a).join(b); } return s; };
+                for (let n = w.nextNode(); n; n = w.nextNode()) { const v = rep(n.nodeValue); if (v !== n.nodeValue) n.nodeValue = v; }
+                document.querySelectorAll('input, textarea').forEach((el) => { const v = rep(el.value); if (v !== el.value) el.value = v; });
             }, s.mask);
+        }
+        else if (s.set) {   // {"set": "input@model(arrived_at)", "value": "2026-11-12"} — 날짜 칸처럼 키보드 입력이 까다로운 칸에 값을 바로 넣는다
+            await page.waitForSelector(sel(s.set), { timeout: 8000 });
+            await page.evaluate((q, v) => { const el = document.querySelector(q); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }, sel(s.set), String(s.value));
+            await settle();
         }
         else if (s.hideText) {   // {"hideText": "확인됨"} — 그 글자만 든 가장 안쪽 요소를 그림에서만 숨긴다(지난 시도의 칩 같은 잔여물 — 저장값은 그대로)
             await page.evaluate((t) => {

@@ -1,0 +1,12 @@
+{"slug":"first-steps","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"phone",
+ "steps":[
+  {"goto":"/listings"},{"wait":2500},
+  {"shot":"_a-home","full":false},
+  {"click":"button[wire\\:click=\"openPanel\"]"},{"wait":2500},
+  {"shot":"_b-bell","full":false},
+  {"click":"button[wire\\:click=\"closePanel\"]"},{"wait":800},
+  {"clickText":"English","in":"button"},{"wait":2500},
+  {"shot":"_c-english","full":false},
+  {"clickText":"한국어","in":"button"},{"wait":2500},
+  {"shot":"_d-back","full":false}
+ ]}

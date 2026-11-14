@@ -1,0 +1,17 @@
+{"slug":"work-journal","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"tall",
+ "steps":[
+  {"goto":"/work-journal"},{"wait":2500},
+  {"click":"button[wire\\:click=\"addRow\"]"},{"wait":1500},
+  {"set":"input@model(rows.0.time)","value":"09:00"},
+  {"set":"textarea@model(rows.0.task)","value":"엔카 매물 3대 확인 · 11가1004 매입예정 등록"},
+  {"set":"textarea@model(rows.0.note)","value":"검차 예정일 11-16"},
+  {"click":"button[wire\\:click=\"addRow\"]"},{"wait":1500},
+  {"set":"input@model(rows.1.time)","value":"14:00"},
+  {"set":"textarea@model(rows.1.task)","value":"GUIDE SAMPLE TRADING 바이어 통화 — 선적 일정·클레임 안내"},
+  {"set":"textarea@model(rows.1.note)","value":""},
+  {"wait":2000},
+  {"shot":"_b-written","full":false},
+  {"dialog":"accept"},
+  {"click":"button[wire\\:click=\"submit\"]"},{"wait":3000},
+  {"shot":"_c-submitted","full":false}
+ ]}

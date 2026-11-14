@@ -1,0 +1,9 @@
+{"slug":"users-manage","base":"http://localhost:8003","login":{"email":"leader@board.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/users"},{"wait":1500},
+  {"set":"input@model(search)","value":"가이드"},
+  {"clickText":"검색","in":"button"},{"wait":1500},
+  {"clickText":"수정","in":"button.btn-outline"},{"wait":1200},
+  {"select":"select@model(role)","text":"현지확인"},{"wait":1200},
+  {"shot":"_e-inspection","clip":{"x":860,"y":0,"width":420,"height":900}}
+ ]}

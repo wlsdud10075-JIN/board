@@ -1,0 +1,18 @@
+{"slug":"when-blocked","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/auction"},{"wait":2000},
+  {"clickText":"11가1006","in":"td, tr"},{"wait":2500},
+  {"scrollText":"견적 통화"},{"wait":500},
+  {"shot":"_d-currency","clip":{"x":840,"y":0,"width":440,"height":900}},
+  {"select":"select@model(buyerId)","text":"🔒"},{"wait":2500},
+  {"scrollText":"재고매입 (바이어 미정)"},{"wait":500},
+  {"shot":"_e-lock","clip":{"x":840,"y":0,"width":440,"height":900}},
+  {"select":"select@model(buyerId)","text":"GUIDE SAMPLE TRADING"},{"wait":2500},
+  {"set":"input@model(car_cost)","value":""},{"wait":1200},
+  {"clickText":"구매확정","in":"button.btn-green"},{"wait":2500},
+  {"shot":"_f-amount","clip":{"x":840,"y":0,"width":440,"height":900}},
+  {"set":"input@model(car_cost)","value":"9500000"},{"wait":1200},
+  {"clickText":"구매확정","in":"button.btn-green"},{"wait":2500},
+  {"scrollText":"이미지에서 정보 찾기"},{"wait":500},
+  {"shot":"_g-attach","clip":{"x":840,"y":0,"width":440,"height":900}}
+ ]}
