@@ -1,0 +1,10 @@
+{"slug":"portal-share","base":"http://localhost:8003","login":{"email":"manager@board.test"},"viewport":"wide",
+ "steps":[
+  {"goto":"/portal"},{"wait":2500},
+  {"clickText":"김영업","in":"button.rounded-md"},{"wait":4000},
+  {"mask":{"무사백":"영업A","황진영":"영업B"}},
+  {"shot":"_d-viewing","full":false},
+  {"clickText":"재고","in":"button.rounded-md"},{"wait":3000},
+  {"mask":{"무사백":"영업A","황진영":"영업B"}},
+  {"shot":"_e-viewing-stock","full":false}
+ ]}
