@@ -1,0 +1,11 @@
+{"slug":"when-blocked","base":"http://localhost:8003","login":{"email":"lee@board.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/work-journal"},{"wait":2500},
+  {"clickText":"+ 줄 추가","in":"button"},{"wait":2500},
+  {"set":"input@model(rows.0.time)","value":"09:00"},
+  {"set":"textarea@model(rows.0.task)","value":"엔카 매물 확인"},
+  {"wait":2000},
+  {"autoConfirm":true},
+  {"clickText":"상신","in":"button.btn-primary"},{"wait":3000},
+  {"shot":"_k-no-ceo","full":false}
+ ]}
