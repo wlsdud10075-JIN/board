@@ -28,7 +28,7 @@ import puppeteer from 'puppeteer-core';
 
 const CHROME = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
     'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find((p) => fs.existsSync(p));
-const VIEW = { pc: { width: 1280, height: 900, deviceScaleFactor: 1 }, tall: { width: 1280, height: 1500, deviceScaleFactor: 1 }, xtall: { width: 1280, height: 3400, deviceScaleFactor: 1 }, phone: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true } };
+const VIEW = { pc: { width: 1280, height: 900, deviceScaleFactor: 1 }, tall: { width: 1280, height: 1500, deviceScaleFactor: 1 }, xtall: { width: 1280, height: 3400, deviceScaleFactor: 1 }, wide: { width: 1680, height: 1000, deviceScaleFactor: 1 }, phone: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true } };
 
 const planPath = process.argv[2];
 if (!planPath) { console.error('사용: node shot.mjs plans/<씬>.json'); process.exit(1); }
@@ -45,14 +45,15 @@ let dialogMode = 'accept';
 page.on('dialog', async (d) => { console.log('  dialog: ' + d.message().slice(0, 80)); dialogMode === 'dismiss' ? await d.dismiss() : await d.accept(); });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 선택자 줄임말 — "select@model(company_id)" → wire:model(.live) 가 company_id 인 select. JSON 에 역슬래시를 안 쓰려고 둔다.
-const sel = (q) => q.replace(/@model\(([^)]+)\)/g, (_, m) => `:is([wire\\:model="${m}"],[wire\\:model\\.live="${m}"],[wire\\:model\\.blur="${m}"],[wire\\:model\\.live\\.debounce\\.400ms="${m}"],[wire\\:model\\.live\\.debounce\\.300ms="${m}"])`).replace(/@click\(([^)]+)\)/g, (_, m) => `[wire\\:click="${m}"]`)   // "button@click(openPanel)" → wire:click 이 openPanel 인 버튼
+const sel = (q) => q.replace(/@model\(([^)]+)\)/g, (_, m) => `:is([wire\\:model="${m}"],[wire\\:model\\.live="${m}"],[wire\\:model\\.blur="${m}"],[wire\\:model\\.live\\.debounce\\.400ms="${m}"],[wire\\:model\\.live\\.debounce\\.300ms="${m}"],[wire\\:model\\.live\\.debounce\\.600ms="${m}"])`).replace(/@click\(([^)]+)\)/g, (_, m) => `[wire\\:click="${m}"]`)   // "button@click(openPanel)" → wire:click 이 openPanel 인 버튼
     .replace(/@key\(([^)]+)\)/g, (_, m) => `[wire\\:key="${m}"]`);   // "div@key(tr-4)" → wire:key 가 tr-4 인 요소
 const settle = async () => { try { await page.waitForNetworkIdle({ idleTime: 400, timeout: 8000 }); } catch {} await sleep(250); };
 
-async function login({ email, password = 'password' }) {
+async function login({ email, password = 'password', at = base }) {   // "at": "http://127.0.0.1:8001" = 로컬 ERP 로그인(로컬만)
+    if (!/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(at)) throw new Error('로컬 주소만 허용합니다: ' + at);
     const client = await page.createCDPSession();
     await client.send('Network.clearBrowserCookies');
-    await page.goto(base + '/login', { waitUntil: 'networkidle2' });
+    await page.goto(at + '/login', { waitUntil: 'networkidle2' });
     await page.type('input[type=email], input[name=email]', email);
     await page.type('input[type=password]', password);
     await Promise.all([page.waitForNavigation({ waitUntil: 'networkidle2' }).catch(() => {}), page.keyboard.press('Enter')]);
@@ -107,6 +108,11 @@ try {
                 for (let n = w.nextNode(); n; n = w.nextNode()) { for (const [a, b] of Object.entries(m)) { if (n.nodeValue.includes(a)) n.nodeValue = n.nodeValue.split(a).join(b); } }
                 document.querySelectorAll('input, textarea').forEach((el) => { for (const [a, b] of Object.entries(m)) { if (el.value.includes(a)) el.value = el.value.split(a).join(b); } });
             }, s.mask);
+        }
+        else if (s.hideText) {   // {"hideText": "확인됨"} — 그 글자만 든 가장 안쪽 요소를 그림에서만 숨긴다(지난 시도의 칩 같은 잔여물 — 저장값은 그대로)
+            await page.evaluate((t) => {
+                document.querySelectorAll('body *').forEach((e) => { if (e.children.length === 0 && e.textContent.trim().startsWith(t)) e.style.visibility = 'hidden'; });
+            }, s.hideText);
         }
         else if (s.maskPassport) {   // {"maskPassport": true} — 여권 읽기 결과·송금인 칸을 화면에서 가린다(실제 값을 계획 파일에 적지 않으려고 구조로 찾는다)
             await page.evaluate(() => {
