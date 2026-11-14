@@ -1,0 +1,8 @@
+{"slug":"claim-handle","base":"http://localhost:8003","login":{"email":"manager@board.test"},"viewport":"tall",
+ "steps":[
+  {"goto":"/claims"},{"wait":2500},
+  {"shot":"_d-list","full":false},
+  {"clickText":"11가1001","in":"div.cursor-pointer"},{"wait":4000},
+  {"mask":{"무사백":"영업A","황진영":"영업B"}},
+  {"shot":"_e-drawer","full":true}
+ ]}

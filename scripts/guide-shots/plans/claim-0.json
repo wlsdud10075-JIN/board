@@ -1,0 +1,10 @@
+{"slug":"claim-handle","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"wide",
+ "steps":[
+  {"goto":"/portal"},{"wait":2500},
+  {"clickText":"판매내역","in":"button.rounded-md"},{"wait":3000},
+  {"type":"input@model(vehicleSearch)","text":"11가1001"},{"wait":5000},
+  {"clickText":"GUIDE SAMPLE TRADING","in":"button"},{"wait":2000},
+  {"shot":"_a-sales","full":false},
+  {"clickText":"클레임 접수","in":"button, a"},{"wait":2000},
+  {"shot":"_b-intake","full":false}
+ ]}

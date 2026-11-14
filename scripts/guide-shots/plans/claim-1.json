@@ -1,0 +1,19 @@
+{"slug":"claim-handle","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"wide",
+ "steps":[
+  {"goto":"/portal"},{"wait":2500},
+  {"clickText":"판매내역","in":"button.rounded-md"},{"wait":3000},
+  {"type":"input@model(vehicleSearch)","text":"11가1001"},{"wait":5000},
+  {"clickText":"GUIDE SAMPLE TRADING","in":"button"},{"wait":2000},
+  {"shot":"_a-sales","full":false},
+  {"clickText":"클레임 접수","in":"button, a"},{"wait":2000},
+  {"set":"input@model(arrived_at)","value":"2026-11-12"},
+  {"type":"input@model(received_km)","text":"85420"},
+  {"type":"input@model(buyer_contact_name)","text":" Mr. SAMPLE"},
+  {"type":"textarea@model(content)","text":" 앞 범퍼에 긁힘이 있다고 합니다. 수리비 USD 350 을 요구합니다."},
+  {"upload":"input@model(odometer)","files":["fixtures/claim-odometer-sample.jpg"],"after":2500},
+  {"upload":"input@model(damage)","files":["fixtures/claim-damage-sample.jpg"],"after":2500},
+  {"upload":"input@model(invoice)","files":["fixtures/claim-invoice-sample.jpg"],"after":2500},
+  {"shot":"_b-intake-filled","full":false},
+  {"clickText":"접수","in":"button[type=submit], button.btn-primary"},{"wait":4000},
+  {"shot":"_c-intake-done","full":false}
+ ]}

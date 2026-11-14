@@ -110,6 +110,11 @@ try {
                 document.querySelectorAll('input, textarea').forEach((el) => { for (const [a, b] of Object.entries(m)) { if (el.value.includes(a)) el.value = el.value.split(a).join(b); } });
             }, s.mask);
         }
+        else if (s.set) {   // {"set": "input@model(arrived_at)", "value": "2026-11-12"} — 날짜 칸처럼 키보드 입력이 까다로운 칸에 값을 바로 넣는다
+            await page.waitForSelector(sel(s.set), { timeout: 8000 });
+            await page.evaluate((q, v) => { const el = document.querySelector(q); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }, sel(s.set), String(s.value));
+            await settle();
+        }
         else if (s.hideText) {   // {"hideText": "확인됨"} — 그 글자만 든 가장 안쪽 요소를 그림에서만 숨긴다(지난 시도의 칩 같은 잔여물 — 저장값은 그대로)
             await page.evaluate((t) => {
                 document.querySelectorAll('body *').forEach((e) => { if (e.children.length === 0 && e.textContent.trim().startsWith(t)) e.style.visibility = 'hidden'; });
