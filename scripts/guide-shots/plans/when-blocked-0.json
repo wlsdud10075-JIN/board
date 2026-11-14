@@ -1,0 +1,19 @@
+{"slug":"when-blocked","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/auction"},{"wait":2000},
+  {"clickText":"11가1006","in":"td, tr"},{"wait":2500},
+  {"scrollText":"🔒"},{"wait":600},
+  {"shot":"_a-confirm-blocked","full":false},
+
+  {"goto":"/listings"},{"wait":2000},
+  {"clickText":"매입예정 추가","in":"button"},{"wait":1000},
+  {"clickText":"엔카","in":"button"},{"wait":600},
+  {"set":"input@model(vehicle_number)","value":"11가1004"},
+  {"set":"input@model(expected_price)","value":"12000000"},
+  {"wait":500},
+  {"click":"button.btn-primary.btn-sm[wire\\:click=\"save\"]"},{"wait":2000},
+  {"shot":"_b-dup","full":false},
+
+  {"goto":"/manage"},{"wait":1500},
+  {"shot":"_c-403","full":false}
+ ]}
