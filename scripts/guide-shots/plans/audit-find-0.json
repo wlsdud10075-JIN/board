@@ -1,0 +1,9 @@
+{"slug":"audit-find","base":"http://localhost:8003","login":{"email":"leader@board.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/audit?q=11%EA%B0%801005"},{"wait":1500},
+  {"shot":"_a-logs","full":false},
+  {"goto":"/audit?q=11%EA%B0%801005&eq=11%EA%B0%801001&et=purchase_sync"},{"wait":1500},
+  {"maskPassport":true},
+  {"scrollText":"car-erp 전송"},{"wait":500},
+  {"shot":"_b-events","of":"div.card.mt-4"}
+ ]}

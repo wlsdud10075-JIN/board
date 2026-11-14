@@ -1,0 +1,21 @@
+{"slug":"users-manage","base":"http://localhost:8003","login":{"email":"leader@board.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/users"},{"wait":1500},
+  {"mask":{"hwang@car-erp.com":"sales-a@example.test","moo@car-erp.test":"sales-b@example.test","re:[\\w.]+@naver\\.com":"admin2@example.test","황진영":"영업A","무사백":"영업B"}},
+  {"shot":"_a-list","full":false},
+  {"clickText":"사용자 추가","in":"button"},{"wait":1200},
+  {"set":"input@model(name)","value":"가이드 신입"},
+  {"set":"input@model(email)","value":"guide-new@local.test"},
+  {"set":"input@model(phone)","value":"010-0000-0000"},
+  {"select":"select@model(role)","text":"영업"},{"wait":800},
+  {"set":"input@model(car_erp_salesman_email)","value":"guide-new.erp@local.test"},
+  {"set":"input@model(password)","value":"password"},
+  {"wait":500},
+  {"shot":"_b-form","clip":{"x":860,"y":0,"width":420,"height":900}},
+  {"clickText":"저장","in":"div.fixed button.btn-primary"},{"wait":2000},
+  {"set":"input@model(search)","value":"가이드"},
+  {"clickText":"검색","in":"button"},{"wait":1500},
+  {"shot":"_c-saved","full":false},
+  {"clickText":"비활성","in":"button.btn-ghost"},{"wait":1500},
+  {"shot":"_d-inactive","full":false}
+ ]}

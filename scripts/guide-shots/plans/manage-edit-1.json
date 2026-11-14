@@ -1,0 +1,15 @@
+{"slug":"manage-edit","base":"http://localhost:8003","login":{"email":"leader@board.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/manage"},{"wait":1500},
+  {"set":"input@model(search)","value":"11가1002"},{"wait":2000},
+  {"clickText":"수정","in":"button.btn-outline"},{"wait":1500},
+  {"shot":"_f-synced-top","clip":{"x":840,"y":0,"width":440,"height":900}},
+  {"scrollText":"이 건 삭제"},{"wait":500},
+  {"shot":"_g-synced-bottom","clip":{"x":840,"y":0,"width":440,"height":900}},
+  {"clickText":"취소","in":"button"},{"wait":1000},
+  {"set":"input@model(search)","value":"11가1005"},{"wait":2000},
+  {"clickText":"수정","in":"button.btn-outline"},{"wait":1500},
+  {"autoConfirm":true},
+  {"clickText":"이 건 삭제","in":"button"},{"wait":2000},
+  {"shot":"_h-deleted","full":false}
+ ]}
