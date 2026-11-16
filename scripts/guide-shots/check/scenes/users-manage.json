@@ -1,0 +1,22 @@
+{"slug":"users-manage","title":"사용자 관리","login":{"email":"leader@board.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/users"},
+  {"check":"위 등급 계정은 못 고침","text":"상위 등급 전용"},
+  {"clickText":"사용자 추가","in":"button"},{"wait":800},
+  {"check":"업무관리자에겐 결재 직급 칸 없음","noText":"결재 직급 (업무일지)"},
+  {"set":"input@model(name)","value":"가이드 신입"},
+  {"set":"input@model(email)","value":"guide-new@local.test"},
+  {"set":"input@model(phone)","value":"010-0000-0000"},
+  {"select":"select@model(role)","text":"영업"},{"wait":600},
+  {"check":"영업은 ERP 영업 이메일 칸","text":"car-erp 영업 이메일"},
+  {"set":"input@model(car_erp_salesman_email)","value":"guide-new.erp@local.test"},
+  {"set":"input@model(password)","value":"password"},
+  {"clickText":"저장","in":"div.fixed button.btn-primary"},
+  {"check":"계정이 만들어짐","db":"select role, permission, is_active, car_erp_salesman_email from users where email = ?","args":["guide-new@local.test"],"expect":{"role":"sales","permission":"user","is_active":1,"car_erp_salesman_email":"guide-new.erp@local.test"}},
+  {"set":"input@model(search)","value":"가이드 신입"},
+  {"clickText":"검색","in":"button"},
+  {"check":"목록에 보임","text":"guide-new.erp@local.test"},
+  {"clickText":"비활성화","in":"button.btn-ghost"},
+  {"check":"비활성으로 바뀜","db":"select is_active from users where email = ?","args":["guide-new@local.test"],"expect":{"is_active":0}},
+  {"check":"다시 켜는 버튼","text":"활성화"}
+ ]}

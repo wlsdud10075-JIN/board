@@ -1,0 +1,28 @@
+{"slug":"when-blocked","title":"막혔을 때 — 구매확정·중복 등록·403","login":{"email":"guide-demo@local.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/auction"},
+  {"clickText":"11가1006","in":"td, tr"},{"wait":1500},
+  {"check":"바이어 없으면 구매확정 막힘","text":"바이어를 선택해야 구매확정할 수 있습니다"},
+  {"select":"select@model(buyerId)","text":"🔒"},{"wait":1500},
+  {"check":"잠긴 바이어 빨간 상자","text":"이 바이어는 매입 등록이 막혀 있습니다"},
+  {"select":"select@model(buyerId)","text":"GUIDE SAMPLE TRADING"},{"wait":1500},
+  {"set":"input@model(car_cost)","value":""},{"wait":800},
+  {"clickText":"구매확정","in":"button.btn-green"},
+  {"check":"차값 비우면 막힘","text":"차값을 넣어야 구매확정할 수 있습니다"},
+  {"set":"input@model(car_cost)","value":"9500000"},{"wait":800},
+  {"clickText":"구매확정","in":"button.btn-green"},
+  {"check":"첨부 없으면 막힘","text":"차량 사진·서류를 최소 1건 첨부해야 구매확정할 수 있습니다"},
+  {"check":"막힌 차는 그대로 구매대기","db":"select status, car_erp_vehicle_id from purchase_listings where vehicle_number = ? and deleted_at is null","args":["11가1006"],"expect":{"status":"accepted","car_erp_vehicle_id":null}},
+
+  {"goto":"/listings"},
+  {"clickText":"매입예정 추가","in":"button"},{"wait":800},
+  {"clickText":"엔카","in":"button"},
+  {"set":"input@model(vehicle_number)","value":"11가1004"},
+  {"set":"input@model(expected_price)","value":"12000000"},
+  {"click":"button.btn-primary.btn-sm[wire\\:click=\"save\"]"},
+  {"check":"같은 차량번호 다시 등록 막힘","text":"이미 등록된 차량번호입니다"},
+  {"check":"중복 행이 안 생김","db":"select count(*) as n from purchase_listings where vehicle_number = ? and deleted_at is null","args":["11가1004"],"expect":{"n":1}},
+
+  {"goto":"/manage"},
+  {"check":"영업은 관리자 화면 403","text":"403"}
+ ]}

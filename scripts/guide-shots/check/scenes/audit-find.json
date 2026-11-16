@@ -1,0 +1,11 @@
+{"slug":"audit-find","title":"감사 로그에서 「누가 넣었나」 찾기","login":{"email":"leader@board.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/audit?q=11%EA%B0%801005"},
+  {"check":"변경 이력 — 등록 때 지역","text":"∅ → 경기 수원시"},
+  {"check":"변경 이력 — 고친 지역","text":"경기 수원시 → 경기 화성시"},
+  {"check":"변경 이력 — 상태 되돌림","text":"회신대기 → 검차완료 (전달대기)"},
+  {"check":"지운 차도 찾아짐","text":"검차완료 (전달대기) → ∅"},
+  {"goto":"/audit?eq=11%EA%B0%801001&et=purchase_sync"},
+  {"check":"전송 표 — 이벤트 이름","text":"매입 차량 ERP 등록"},
+  {"check":"전송 표 — 응답","text":"ERP 에 이미 있음 — 보강만"}
+ ]}
