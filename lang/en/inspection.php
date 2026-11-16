@@ -122,7 +122,7 @@ return [
     'hold_aged_out' => 'Not found on ssancar.com — automatic checks stopped after :days days. Inspect and upload manually.',
     'hold_pending' => 'Waiting for the ssancar.com check (every 2 minutes)',
     'hold_advancing' => 'ssancar.com media found — moves to awaiting forward on the next check (checked :at)',
-    'hold_skipped' => 'Inspection on hold · :reason:memo',
+    'hold_skipped' => 'Inspection skipped · :reason:memo',
     'hold_inspected' => 'Inspected on ssancar.com (:name) — moves to ready once the video is found',
     'hold_no_region' => 'No region — no inspector assigned. Enter the region in the drawer',
     'hold_started' => 'Inspecting · :name (started :at)',
