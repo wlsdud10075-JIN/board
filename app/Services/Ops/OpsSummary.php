@@ -7,6 +7,7 @@ use App\Models\Claim;
 use App\Models\ExchangeRate;
 use App\Models\IntegrationEvent;
 use App\Models\PurchaseListing;
+use App\Models\ScheduledTaskRun;
 use App\Models\Scopes\SalesmanScope;
 use App\Models\Setting;
 use App\Support\Instance;
@@ -54,11 +55,38 @@ class OpsSummary
             'generated_at' => now()->toIso8601String(),
             'company' => Instance::assets()['tenant'] ?? (string) config('app.name'),
             'server' => self::server(),
-            'routines' => [],
+            'routines' => self::routines(),
             'health' => self::health(),
             'links' => self::links(),
             'anomalies' => self::anomalies(),
         ];
+    }
+
+    /**
+     * 예약 작업별 마지막 실행 1줄 + 마지막 성공 시각 — car-erp `OpsSummary::routines()` 와 같은 형태(ops-control-center.md §4).
+     * 표가 아직 없으면(배포 순간) 빈 배열 — ERP 는 「—」 로 그린다.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function routines(): array
+    {
+        if (! Schema::hasTable('scheduled_task_runs')) {
+            return [];
+        }
+        $rows = [];
+        foreach (ScheduledTaskRun::latestByCommand() as $cmd => $x) {
+            $rows[] = [
+                'command' => $cmd,
+                'expression' => $x['last']->expression,
+                'status' => $x['last']->status,
+                'started_at' => $x['last']->started_at?->toIso8601String(),
+                'duration_ms' => $x['last']->duration_ms,
+                'error' => $x['last']->error ? mb_substr($x['last']->error, 0, 200) : null,
+                'last_ok_at' => $x['last_ok_at']?->toIso8601String(),
+            ];
+        }
+
+        return $rows;
     }
 
     // ─────────── 스케줄러가 부르는 것 ───────────

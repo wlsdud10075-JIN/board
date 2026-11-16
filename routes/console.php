@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\ScheduledTaskRun;
 use App\Models\Setting;
 use App\Services\ExchangeRateService;
 use App\Services\Ops\OpsSummary;
@@ -66,3 +67,6 @@ Schedule::call(fn () => OpsSummary::pingGpu())->everyFiveMinutes()->name('ops-gp
 
 // 탁송 배차 예약 발송(매분) + 5일 무응답 만료(2026-11-12). 알림톡 skipped 여도 요청은 sent 로 간다(승인 전·로컬).
 Schedule::command('board:transport-send')->everyMinute()->withoutOverlapping();
+
+// 예약 작업 실행 기록 정리 — 90일 넘은 줄(ScheduledTaskRun::KEEP_DAYS). 관제센터 「루틴」 칸(2026-11-16, car-erp 와 같은 04:50).
+Schedule::command('model:prune', ['--model' => [ScheduledTaskRun::class]])->dailyAt('04:50')->withoutOverlapping();
