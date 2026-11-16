@@ -4,13 +4,10 @@ use App\Models\ScheduledTaskRun;
 use App\Models\Setting;
 use App\Services\ExchangeRateService;
 use App\Services\Ops\OpsSummary;
-use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 
-Artisan::command('inspire', function () {
-    $this->comment(Inspiring::quote());
-})->purpose('Display an inspiring quote')->hourly();
+// (2026-11-16) Laravel 기본 예시 `inspire`(매시)를 지웠다 — 업무와 무관한데 관제센터 루틴 표에 한 줄로 잡혔다(Jin).
 
 // 환율 갱신 (§6a) — 네이버/다음 조회 → exchange_rates 캐시
 Artisan::command('board:refresh-rates', function (ExchangeRateService $rates) {
