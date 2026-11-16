@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Support\Region;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -37,10 +38,18 @@ class ListingEnrichment
      */
     public ?string $lastFailure = null;
 
+    /**
+     * 마지막 실패의 종류 — 'blocked'(엔카가 우리 조회를 막음) | 'error'(그 밖). 2026-11-16 Jin.
+     * ⚠️ 엔카는 막을 때도 **404** 를 준다(본문 = `has_been_cr_blocked_AWS.html` 로 보내는 HTML — ssancarboard 265거8869, 사무실 KT 회선에서도 같은 응답).
+     *    상태코드만 보면 「없는 차」와 구분이 안 된다 → 본문으로 가른다. 차단이면 [추출]을 다시 눌러도 소용없다.
+     */
+    public ?string $lastFailureKind = null;
+
     /** ListingLink::parse 결과(+ 원본 URL)로 enrich. encar_id=API / ssancar=페이지 파싱. */
     public function enrich(array $parsed, string $url = ''): array
     {
         $this->lastFailure = null;
+        $this->lastFailureKind = null;
         if (! empty($parsed['encar_id'])) {
             return $this->byEncarId((string) $parsed['encar_id']);
         }
@@ -131,13 +140,22 @@ class ListingEnrichment
         return $out;
     }
 
+    /** 엔카 차단 응답인가 — 차단 페이지로 보내는 HTML(상태코드는 404 등). 정상 「없는 차」 응답은 JSON 이다. */
+    private static function looksBlocked(Response $res): bool
+    {
+        $body = mb_substr((string) $res->body(), 0, 2000);
+
+        return str_contains($body, 'has_been_cr_blocked') || ($res->status() !== 200 && stripos($body, '<html') !== false);
+    }
+
     /** encar 공개 API → {vehicle_number, region(시), vin, prices:{KRW}}. 실패=[]. */
     public function byEncarId(string $id): array
     {
         $base = rtrim((string) config('services.encar.base_url', 'https://api.encar.com'), '/');
         // 404 이 아닌 실패는 최대 3번(0.5초 간격) — 2026-11-06 운영 실측: 박스(AWS IP)에서 api.encar.com 이 **「407 Error from cloudfront」를
         //   간헐적으로**(연속 5번 중 4번) 즉시 돌려준다(타임아웃도 섞임). 로컬 PC 는 매번 200. 종전엔 한 번 실패하면 빈 칸만 남아
-        //   영업이 [추출]을 두세 번 눌러야 했다(Jin 「7~8초, 심하면 15초 뒤 두 번」). 404 = 없는 차라 재시도 무의미.
+        //   영업이 [추출]을 두세 번 눌러야 했다(Jin 「7~8초, 심하면 15초 뒤 두 번」). 404 는 재시도 안 함 — 없는 차거나 차단(아래)이라 다시 불러도 같다.
+        //   ⚠️ 2026-11-16 실측: 사무실 PC(KT 회선)도 차단 페이지를 받았다 — 「로컬 PC 는 매번 200」은 더는 사실이 아니다.
         $res = null;
         $why = null;
         for ($try = 1; $try <= 3; $try++) {
@@ -157,7 +175,9 @@ class ListingEnrichment
         }
         if ($why !== null) {
             $this->lastFailure = $why;
-            Log::warning('encar enrich failed', ['encar_id' => $id, 'reason' => $why]);
+            $this->lastFailureKind = $res !== null && self::looksBlocked($res) ? 'blocked' : 'error';
+            // 운영 LOG_LEVEL=error 라 warning 은 한 줄도 안 남았다(11-06~11-16) — 화면(listings)이 감사 행도 남긴다.
+            Log::error('encar enrich failed', ['encar_id' => $id, 'reason' => $why, 'kind' => $this->lastFailureKind]);
 
             return [];
         }

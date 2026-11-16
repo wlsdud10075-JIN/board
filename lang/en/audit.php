@@ -150,6 +150,7 @@ return [
         'work_journal_reject' => 'Work journal returned',
         'alimtalk_ack' => 'Alimtalk failure acknowledged',
         'payee_extract_request' => 'Find info from images',
+        'encar_enrich_failed' => 'Encar auto-fill failed',
         'payee_suggestion_apply' => 'Found info applied (candidate picked)',
         'deleted' => 'Deleted',
     ],

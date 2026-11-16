@@ -151,6 +151,7 @@ return [
         'work_journal_reject' => '업무일지 반려',
         'alimtalk_ack' => '알림톡 실패 확인',
         'payee_extract_request' => '이미지에서 정보 찾기',
+        'encar_enrich_failed' => '엔카 자동 채움 실패',
         'payee_suggestion_apply' => '찾은 정보 적용(후보 선택)',
         'deleted' => '삭제',
     ],
