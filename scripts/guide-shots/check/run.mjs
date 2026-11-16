@@ -73,8 +73,11 @@ if (process.env.EXTRA_RESET) {
 const since = JSON.parse(php('db.php', ['select now() as t'])).t;   // DB 시계(KST) — 「이번 실행에서 생긴 기록」 기준
 const erpUp = await fetch('http://127.0.0.1:8001/login').then((r) => r.status === 200).catch(() => false);
 
-const mark = process.argv.includes('--mark');   // 끝나면 관제 「우리 루틴」에 기록(ERP 토요일 실행기가 이어서 부를 때)
-const wanted = process.argv.slice(2).filter((a) => a !== '--mark');
+const mark = process.argv.includes('--mark');
+// --after-erp = 바로 앞에서 ERP 시더(GuideSceneFixtureSeeder — 30가30xx·board-check 행 되돌리기)가 돌았다(ERP 토요일 실행기가 붙인다).
+//   ERP 에 쓰는 2b 씬("needs": ["erp-reset"])은 이 표시가 있을 때만 돈다 — 없으면 지난 실행이 남긴 ERP 행 때문에 결과가 달라진다.
+const afterErp = process.argv.includes('--after-erp');   // 끝나면 관제 「우리 루틴」에 기록(ERP 토요일 실행기가 이어서 부를 때)
+const wanted = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const list = SCENES.filter((s) => wanted.length === 0 || wanted.includes(s));
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--hide-scrollbars'] });
 const results = [];
@@ -84,6 +87,10 @@ for (const slug of list) {
     const started = Date.now();
     if ((scene.needs || []).includes('erp') && !erpUp) {
         results.push({ slug, title: scene.title, ok: true, skipped: '로컬 ERP(8001) 꺼짐', checks: 0, failed: [], seconds: 0 });
+        continue;
+    }
+    if ((scene.needs || []).includes('erp-reset') && !afterErp) {
+        results.push({ slug, title: scene.title, ok: true, skipped: 'ERP 되돌리기 안 됨(--after-erp 없음)', checks: 0, failed: [], seconds: 0 });
         continue;
     }
     const allow = new Set(scene.allowClicks || []);
