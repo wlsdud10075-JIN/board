@@ -39,6 +39,14 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public string $rejectReason = '';
 
+    /** 결재선 모달(2026-11-16 Jin — 클레임 [결재 요청] 과 같은 창). 팀장 승인 때 부장·상무·대표 중 누구에게 올릴지 고른다. */
+    public bool $lineModal = false;
+
+    /** 직급 => user id(빈 값 = 건너뜀). */
+    public array $line = [];
+
+    public ?string $lineError = null;
+
     public function mount(): void
     {
         $u = Auth::user();
@@ -132,19 +140,42 @@ new #[Layout('components.layouts.app')] class extends Component {
         return $this->svc()->writers()->reject(fn ($u) => in_array($u->id, $done, true));
     }
 
+    /** 팀장 [결재선 지정 · 승인] — 모달 열기(기본값 = 이 기안에 깔린 결재선). */
+    public function openLineModal(): void
+    {
+        $b = $this->batch;
+        abort_unless($b, 404);
+        $this->line = array_map(fn ($id) => $id ? (string) $id : '', $this->svc()->defaultLine($b));
+        $this->lineError = null;
+        $this->lineModal = true;
+    }
+
+    public function closeLineModal(): void
+    {
+        $this->lineModal = false;
+        $this->lineError = null;
+    }
+
     public function approve(): void
     {
         $b = $this->batch;
         abort_unless($b, 404);
-        $final = $b->steps->filter(fn ($s) => $s->status === 'pending')->count() <= 1;
+        $atLeader = $b->currentStep()?->title === \App\Models\User::TEAM_LEADER;
+        $final = ! $atLeader && $b->steps->filter(fn ($s) => $s->status === 'pending')->count() <= 1;
         try {
-            $this->svc()->approve($b, Auth::user(), $this->opinions, $this->overall);
+            $this->svc()->approve($b, Auth::user(), $this->opinions, $this->overall, $atLeader ? $this->line : null);
         } catch (\DomainException $e) {
+            if ($this->lineModal) {
+                $this->lineError = __('journal.err.'.$e->getMessage());
+
+                return;
+            }
             $this->addError('approve', __('journal.err.'.$e->getMessage()));
 
             return;
         }
-        $this->reset('opinions', 'overall');
+        $this->lineModal = false;
+        $this->reset('opinions', 'overall', 'line');
         unset($this->batch, $this->batches, $this->counts);
         $this->sel = $this->batches->first()?->id;   // 처리한 기안은 「결재할 것」에서 빠진다 → 다음 것
         session()->flash('ap_ok', $final ? __('journal.ap_final_flash') : __('journal.ap_approved_flash'));
@@ -248,6 +279,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                             </div>
                         @endforeach
                     </div>
+                    @if ($cur && $cur->title === \App\Models\User::TEAM_LEADER)
+                        <p class="-mt-1 mb-3 text-xs text-gray-500">{{ __('journal.ap_line_note') }}</p>
+                    @endif
 
                     <div class="mb-3 flex flex-wrap gap-2 text-sm">
                         <span class="rounded-md bg-gray-50 px-3 py-1">{{ __('journal.ap_stat_submitted', ['n' => $journals->count()]) }}</span>
@@ -319,13 +353,66 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <textarea class="input-base mt-2" rows="2" placeholder="{{ __('journal.ap_overall_ph') }}" wire:model="overall"></textarea>
                         <div class="mt-3 flex flex-wrap items-center gap-2">
                             <span class="text-xs text-gray-500">{{ $canReject ? __('journal.ap_reject_hint') : __('journal.ap_no_reject') }}</span>
-                            <button type="button" class="btn-green ml-auto" wire:click="approve">{{ __('journal.ap_approve', ['next' => $next ? __('journal.ap_next_to', ['title' => $next->title]) : __('journal.ap_final')]) }}</button>
+                            @if ($cur->title === \App\Models\User::TEAM_LEADER)
+                                <button type="button" class="btn-green ml-auto" wire:click="openLineModal">{{ __('journal.ap_line_open') }}</button>
+                            @else
+                                <button type="button" class="btn-green ml-auto" wire:click="approve">{{ __('journal.ap_approve', ['next' => $next ? __('journal.ap_next_to', ['title' => $next->title]) : __('journal.ap_final')]) }}</button>
+                            @endif
                         </div>
                     @endif
                 </div>
             @endif
         </div>
     </div>
+
+    {{-- 결재선 모달(클레임 [결재 요청] 과 같은 창 — 모바일 = 하단 시트 · PC = 가운데 창) --}}
+    @if ($lineModal && ($b = $this->batch))
+        @php $cand = \App\Models\Claim::lineCandidates(); $picked = collect($cand)->filter(fn ($u, $t) => $u && (string) ($line[$t] ?? '') === (string) $u->id); @endphp
+        <div class="fixed inset-0 z-[60] bg-black/40" wire:click="closeLineModal"></div>
+        <div class="fixed inset-x-0 bottom-0 z-[70] max-h-[85vh] overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl
+                    sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-[420px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl"
+             x-data @keydown.escape.window="$wire.closeLineModal()">
+            <div class="mb-1 flex items-center justify-between">
+                <h4 class="font-bold text-gray-800">{{ __('journal.ap_line_title', ['date' => $b->date->toDateString()]) }}</h4>
+                <button type="button" class="text-gray-400 hover:text-gray-600" wire:click="closeLineModal">✕</button>
+            </div>
+            <p class="mb-3 text-xs text-gray-500">{{ __('journal.ap_line_hint') }}</p>
+
+            @if (collect($cand)->filter()->isEmpty())
+                <p class="mb-3 text-sm text-red-600">{{ __('journal.err.no_ceo') }}</p>
+            @endif
+            <div class="space-y-2">
+                @foreach ($cand as $title => $u)
+                    <label class="flex items-center gap-3 rounded-lg border px-3 py-2.5 {{ $u ? 'border-gray-200' : 'border-dashed border-gray-200 opacity-50' }}">
+                        <span class="w-10 shrink-0 text-sm font-semibold text-gray-700">{{ $title }}</span>
+                        <select class="input-base flex-1 py-2 text-sm" wire:model.live="line.{{ $title }}" @disabled(! $u)>
+                            <option value="">{{ __('journal.ap_line_skip') }}</option>
+                            @if ($u)<option value="{{ $u->id }}">{{ $u->name }}</option>@endif
+                        </select>
+                    </label>
+                @endforeach
+            </div>
+
+            <div class="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm">
+                @if ($picked->isEmpty())
+                    <span class="text-gray-400">{{ __('journal.err.no_line') }}</span>
+                @else
+                    {{ __('journal.ap_line_leader') }} → {{ $picked->map(fn ($u, $t) => $t.' '.$u->name)->implode(' → ') }}
+                    <div class="mt-0.5 text-xs text-gray-500">{{ __('journal.ap_line_final', ['title' => $picked->keys()->last(), 'name' => $picked->last()->name]) }}</div>
+                @endif
+            </div>
+            @if ($lineError)
+                <p class="mt-2 text-sm text-red-600">⚠️ {{ $lineError }}</p>
+            @endif
+
+            <div class="mt-4 flex gap-2">
+                <button type="button" class="btn-outline flex-1 justify-center py-2.5" wire:click="closeLineModal">{{ __('common.cancel') }}</button>
+                <button type="button" class="btn-green flex-1 justify-center py-2.5" wire:click="approve" wire:loading.attr="disabled" wire:target="approve" @disabled($picked->isEmpty())>
+                    {{ __('journal.ap_line_send', ['title' => $picked->keys()->first() ?? '—']) }}
+                </button>
+            </div>
+        </div>
+    @endif
 
     {{-- 반려 사유 모달 --}}
     @if ($rejectingId && ($rj = \App\Models\WorkJournal::with('user')->find($rejectingId)))

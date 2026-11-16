@@ -64,7 +64,40 @@ class WorkJournalTest extends TestCase
         foreach ($opinions as $jid => $t) {
             $c->set('opinions.'.$jid, $t);
         }
-        $c->set('overall', $overall)->call('approve')->assertHasNoErrors();
+        $c->call('openLineModal');   // 팀장 단계면 결재선 기본값(직급 보유자 전원)이 채워진다
+        $c->set('overall', $overall)->call('approve')->assertHasNoErrors()->assertSet('lineError', null);
+    }
+
+    /** 팀장이 승인할 때 결재선을 고른다 — 클레임과 같은 규칙(부장·상무·대표 중 지정, 마지막 = 최종, 한 명 이상). */
+    public function test_team_leader_picks_the_approval_line_like_claims(): void
+    {
+        $line = $this->line();
+        $j = $this->writeAndSubmit($this->mk('김영업'));
+        $batch = $j->fresh()->batch;
+
+        $this->actingAs($line['lead']);
+        $c = Volt::test('work-journal.approvals')->call('pick', $batch->id)->assertSee(__('journal.ap_line_open'))
+            ->call('openLineModal')->assertSet('lineModal', true)
+            ->assertSet('line', ['부장' => (string) $line['bujang']->id, '상무' => (string) $line['sangmu']->id, '대표' => (string) $line['ceo']->id]);
+
+        // 아무도 안 고르면 막힘(팀장 혼자 최종 ❌) — 모달에 사유, 결재선 그대로
+        $c->set('line', ['부장' => '', '상무' => '', '대표' => ''])->call('approve')->assertSet('lineError', __('journal.err.no_line'));
+        $this->assertSame(1, $batch->fresh()->current_step);
+        // 다른 직급 사람 id 를 끼워 넣으면 거절
+        $c->set('line', ['부장' => (string) $line['ceo']->id, '상무' => '', '대표' => ''])->call('approve')->assertSet('lineError', __('journal.err.bad_line'));
+
+        // 상무 한 명만 → 팀장 → 상무(최종)
+        $c->set('line', ['부장' => '', '상무' => (string) $line['sangmu']->id, '대표' => ''])->call('approve')->assertSet('lineModal', false);
+        $batch->refresh()->load('steps');
+        $this->assertSame([['팀장', 'approved'], ['상무', 'pending']], $batch->steps->map(fn ($s) => [$s->title, $s->status])->all());
+        $this->assertSame(2, $batch->current_step);
+        $this->assertSame(1, BoardAuditLog::where('action', 'work_journal_line')->count());
+
+        // 부장은 결재선에 없으니 차례가 오지 않는다 · 상무 승인 = 최종
+        $this->assertFalse(app(WorkJournalService::class)->canApprove($batch, $line['bujang']));
+        $this->approveAs($line['sangmu'], $batch);
+        $this->assertSame('approved', $batch->fresh()->status);
+        $this->assertSame('approved', $j->fresh()->status);
     }
 
     public function test_only_plain_users_write_and_approvers_or_managers_see_approvals(): void
@@ -144,7 +177,7 @@ class WorkJournalTest extends TestCase
 
         foreach ([$lead, $bujang] as $u) {
             $this->actingAs($u);
-            Volt::test('work-journal.approvals')->call('pick', $b->id)->call('approve');
+            Volt::test('work-journal.approvals')->call('pick', $b->id)->call('openLineModal')->call('approve');
         }
         $this->assertNotSame('approved', $b->fresh()->status);
         $this->actingAs($sangmu);
@@ -309,7 +342,7 @@ class WorkJournalTest extends TestCase
         $c = Volt::test('work-journal.approvals')->assertSet('tab', 'mine')->assertSet('sel', $today->batch_id)
             ->assertSee('오늘 일')->assertDontSee('2026-11-03');
         $this->assertSame(['mine' => 1, 'open' => 0], $c->get('counts'));
-        $c->set('opinions.'.$today->id, '확인')->call('approve')->assertSet('sel', null)->assertSee(__('journal.ap_empty.mine'));
+        $c->set('opinions.'.$today->id, '확인')->call('openLineModal')->call('approve')->assertSet('sel', null)->assertSee(__('journal.ap_empty.mine'));
         $c->call('setTab', 'open')->assertSee('2026-11-04')->assertDontSee('2026-11-03');   // 이제 부장 차례 = 진행 중
         $c->call('setTab', 'done')->assertSet('month', '2026-11')->assertSee('2026-11-03');
 

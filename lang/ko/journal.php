@@ -66,6 +66,8 @@ return [
         'cannot_reject' => '반려는 팀장이, 팀장 승인 전에만 할 수 있습니다.',
         'reason_required' => '반려 사유를 적어 주세요.',
         'not_your_turn' => '지금 결재 차례가 아닙니다.',
+        'no_line' => '결재선을 한 명 이상 지정하세요.',
+        'bad_line' => '결재선이 바뀌었습니다(직급 변경) — 창을 닫았다 다시 열고 지정하세요.',
         'future' => '앞으로의 날짜에는 쓸 수 없습니다.',
     ],
     'activity_title' => 'board 활동 (자동)',
@@ -134,6 +136,14 @@ return [
     'ap_now_turn' => '지금은 :title :name 차례입니다.',
     'ap_approved_flash' => '승인했습니다.',
     'ap_final_flash' => '최종 승인했습니다 — 기안자들에게 결과 알림이 갑니다.',
+    'ap_line_open' => '결재선 지정 · 승인',
+    'ap_line_title' => ':date 업무일지 결재선',
+    'ap_line_hint' => '부장 → 상무 → 대표 순. 비운 직급은 건너뛰고, 지정한 마지막 칸이 최종 결재권자입니다.',
+    'ap_line_skip' => '— 건너뜀',
+    'ap_line_leader' => '팀장(나)',
+    'ap_line_final' => '최종 결재권자 = :title :name',
+    'ap_line_send' => '승인 → :title에게',
+    'ap_line_note' => '부장·상무·대표 중 누구에게 올릴지는 팀장이 승인할 때 정합니다(위는 기본값).',
 
     'push' => [
         'turn_title' => '업무일지 결재 차례',
