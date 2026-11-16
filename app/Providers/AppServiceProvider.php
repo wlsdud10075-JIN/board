@@ -2,10 +2,15 @@
 
 namespace App\Providers;
 
+use App\Listeners\RecordScheduledTaskRun;
 use App\Services\Assistant\OllamaClient;
 use App\Services\BizmAlimtalkService;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Console\Events\ScheduledTaskFailed;
+use Illuminate\Console\Events\ScheduledTaskFinished;
+use Illuminate\Console\Events\ScheduledTaskStarting;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
@@ -45,5 +50,10 @@ class AppServiceProvider extends ServiceProvider
 
         // 연동 A — /api/* (respond.io webhook) 의 기본 api 미들웨어 그룹이 쓰는 'api' 리미터.
         RateLimiter::for('api', fn (Request $request) => Limit::perMinute(120)->by($request->ip()));
+
+        // 예약 작업 실행 기록 — 관제센터 「루틴」 칸(ops summary routines[], 2026-11-16 Jin). 기록 실패는 스케줄러를 깨지 않는다.
+        Event::listen(ScheduledTaskStarting::class, [RecordScheduledTaskRun::class, 'onStarting']);
+        Event::listen(ScheduledTaskFinished::class, [RecordScheduledTaskRun::class, 'onFinished']);
+        Event::listen(ScheduledTaskFailed::class, [RecordScheduledTaskRun::class, 'onFailed']);
     }
 }
