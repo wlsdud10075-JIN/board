@@ -155,6 +155,38 @@ class PurchaseSyncAuditTest extends TestCase
         $this->assertSame([['listing_id' => $erased->id, 'vehicle_number' => '22나0007', 'car_erp_vehicle_id' => 7]], $r['deleted_in_erp']);
     }
 
+    /**
+     * erp id 있는데 synced 아님 — ERP 로 넘겼다가 되돌린 정정이면 ERP 쪽 차는 이미 지워져 있다(ssancarboard #72, 11-06).
+     * 그건 오류가 아니라 참고 → erp_id_without_synced 에서 빼고 erp_id_deleted_in_erp 로 따로(2026-11-16 Jin).
+     */
+    public function test_erp_id_without_synced_splits_out_cars_erp_deleted(): void
+    {
+        Http::fake(['*/vehicles/exists*' => Http::response(['exists' => [8], 'missing' => [], 'deleted' => [7612]], 200)]);
+        $undone = $this->mkListing(['status' => 'accepted', 'buyer_verdict' => 'accepted', 'car_erp_vehicle_id' => 7612, 'vehicle_number' => '351러7638']);
+        $this->mkListing(['status' => 'won', 'car_erp_vehicle_id' => 8]);   // ERP 에 살아 있는데 synced 아님 = 진짜 정합성 오류
+
+        $r = $this->audit();
+
+        $this->assertSame(1, $r['counts']['erp_id_without_synced']);
+        $this->assertSame(1, $r['counts']['erp_id_deleted_in_erp']);
+        $this->assertSame([['listing_id' => $undone->id, 'vehicle_number' => '351러7638', 'car_erp_vehicle_id' => 7612]], $r['erp_id_deleted_in_erp']);
+        $this->assertSame(0, $r['counts']['deleted_in_erp']);   // synced 쪽 deleted 와 섞지 않는다
+    }
+
+    /** ERP 를 못 보면 새 항목은 null, erp_id_without_synced 는 빼지 않은 종전 값(못 본 것을 「참고」로 넘기지 않는다). */
+    public function test_erp_failure_keeps_erp_id_without_synced_whole(): void
+    {
+        Http::fake(['*' => Http::response('boom', 500)]);
+        $this->mkListing(['status' => 'accepted', 'buyer_verdict' => 'accepted', 'car_erp_vehicle_id' => 7612]);
+
+        $r = $this->audit();
+
+        $this->assertSame(1, $r['counts']['erp_id_without_synced']);
+        $this->assertNull($r['counts']['erp_id_deleted_in_erp']);
+        $this->assertNull($r['erp_id_deleted_in_erp']);
+        $this->assertNotEmpty($r['errors']);
+    }
+
     /** ERP 가 죽어도 명령은 성공(exit 0)하고 그 항목만 null + errors — 침묵은 "이상 없음" 으로 읽히기 때문. */
     public function test_erp_failure_nulls_missing_but_keeps_the_rest(): void
     {
@@ -196,8 +228,9 @@ class PurchaseSyncAuditTest extends TestCase
             ->assertExitCode(0);
         $r = json_decode(file_get_contents($this->out), true);
 
-        $this->assertSame(['generated_at', 'counts', 'stalled', 'missing_in_erp', 'deleted_in_erp', 'errors'], array_keys($r));
-        $this->assertSame(['stalled', 'synced_without_erp_id', 'erp_id_without_synced', 'missing_in_erp', 'deleted_in_erp'], array_keys($r['counts']));
+        $this->assertSame(['generated_at', 'counts', 'stalled', 'missing_in_erp', 'deleted_in_erp', 'erp_id_deleted_in_erp', 'errors'], array_keys($r));
+        $this->assertSame(['stalled', 'synced_without_erp_id', 'erp_id_without_synced', 'missing_in_erp', 'deleted_in_erp', 'erp_id_deleted_in_erp'], array_keys($r['counts']));
+        $this->assertSame([], $r['erp_id_deleted_in_erp']);
         $this->assertSame([], $r['stalled']);
         $this->assertSame([], $r['missing_in_erp']);   // synced 매물 0 → ERP 호출 없이 빈 배열
         $this->assertSame([], $r['deleted_in_erp']);

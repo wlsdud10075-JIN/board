@@ -7,6 +7,7 @@ use App\Models\PurchaseListing;
 use App\Models\Scopes\SalesmanScope;
 use App\Services\CarErpReadService;
 use Illuminate\Console\Command;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\File;
 
 /**
@@ -23,6 +24,9 @@ use Illuminate\Support\Facades\File;
  *                    실패가 아니라 참고(2026-10-06 Jin, ERP §4-3). 09-28 엔 missing 으로 쳐서 영원히 빨간 줄로 남았다.
  *                    ERP 호출이 실패하면 이 두 항목만 null + errors[] — **명령 전체를 실패시키지 않는다**
  *                    (보고 도구가 죽으면 침묵이 되고, 침묵은 "이상 없음" 으로 읽힌다). null 은 "없음" 이 아니라 "못 봤다".
+ *   erp_id_deleted_in_erp = 「erp id 있는데 synced 아님」 중 ERP 가 `deleted` 로 돌려준 것 — ERP 로 넘겼다가 되돌린 정정
+ *                    (ssancarboard #72 351러7638, 11-06). 그만큼 erp_id_without_synced 에서 빼고 참고로 따로 센다(2026-11-16 Jin,
+ *                    car-erp 아침 점검이 매일 ❌ 로 찍던 것). ERP 를 못 보면 null 이고 erp_id_without_synced 는 빼지 않은 종전 값.
  *
  * exit code 는 항상 0(보고 전용, cron 이 계속 돌아야 한다).
  * ⚠️ stalled 의 시계는 `updated_at` 이다 — won 행을 다른 이유로 저장하면(드로어 편집 등) 60분이 다시 시작된다.
@@ -68,9 +72,17 @@ class PurchaseSyncAudit extends Command
             })->values()->all();
 
         $syncedWithoutErpId = $this->listings()->where('status', 'synced')->whereNull('car_erp_vehicle_id')->count();
-        $erpIdWithoutSynced = $this->listings()->where('status', '<>', 'synced')->whereNotNull('car_erp_vehicle_id')->count();
+        $notSynced = $this->listings()->where('status', '<>', 'synced')->whereNotNull('car_erp_vehicle_id')
+            ->get(['id', 'vehicle_number', 'car_erp_vehicle_id']);
 
-        [$missing, $deleted] = $this->compareWithErp($erp, $errors);
+        $synced = $this->listings()->where('status', 'synced')->whereNotNull('car_erp_vehicle_id')
+            ->get(['id', 'vehicle_number', 'car_erp_vehicle_id']);
+        [$missing, $deleted] = $this->compareWithErp($erp, $synced, $errors);
+
+        // erp id 있는데 synced 아님 — 그중 ERP 가 이미 지운 차(잘못 넘겼다 되돌린 정정)는 오류가 아니라 참고로 뺀다(2026-11-16 Jin).
+        // ERP 를 못 봤으면 종전대로 전부 오류 쪽에 남기고 새 항목은 null.
+        [, $erpIdDeleted] = $this->compareWithErp($erp, $notSynced, $errors);
+        $erpIdWithoutSynced = $notSynced->count() - ($erpIdDeleted === null ? 0 : count($erpIdDeleted));
 
         $report = [
             'generated_at' => now()->toIso8601String(),
@@ -80,10 +92,12 @@ class PurchaseSyncAudit extends Command
                 'erp_id_without_synced' => $erpIdWithoutSynced,
                 'missing_in_erp' => $missing === null ? null : count($missing),
                 'deleted_in_erp' => $deleted === null ? null : count($deleted),
+                'erp_id_deleted_in_erp' => $erpIdDeleted === null ? null : count($erpIdDeleted),
             ],
             'stalled' => $stalled,
             'missing_in_erp' => $missing,
             'deleted_in_erp' => $deleted,
+            'erp_id_deleted_in_erp' => $erpIdDeleted,
             'errors' => $errors,
         ];
 
@@ -104,18 +118,14 @@ class PurchaseSyncAudit extends Command
     }
 
     /**
-     * synced 매물의 erp id 를 ERP 와 대조해 [missing, deleted] 를 돌려준다. ERP 호출 실패 = [null, null].
+     * 매물들의 erp id 를 ERP 와 대조해 [missing, deleted] 를 돌려준다. ERP 호출 실패 = [null, null].
      *
+     * @param  Collection<int, PurchaseListing>  $synced
      * @param  list<string>  $errors
      * @return array{0: ?list<array{listing_id:int,vehicle_number:?string,car_erp_vehicle_id:int}>, 1: ?list<array{listing_id:int,vehicle_number:?string,car_erp_vehicle_id:int}>}
      */
-    private function compareWithErp(CarErpReadService $erp, array &$errors): array
+    private function compareWithErp(CarErpReadService $erp, $synced, array &$errors): array
     {
-        $synced = $this->listings()
-            ->where('status', 'synced')
-            ->whereNotNull('car_erp_vehicle_id')
-            ->get(['id', 'vehicle_number', 'car_erp_vehicle_id']);
-
         if ($synced->isEmpty()) {
             return [[], []];
         }
