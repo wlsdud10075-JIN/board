@@ -3,6 +3,7 @@
 //
 //   cd scripts/guide-shots && node check/run.mjs            전 씬
 //   node check/run.mjs manage-edit audit-find               골라서(순서는 SCENES 순)
+//   node check/run.mjs --mark                               끝나면 관제 「우리 루틴」(키 board-scene-check)에 기록 — ERP 토요일 실행기가 이어서 부를 때
 //
 // 순서: 8003 응답 → preflight.php(로컬·board DB·알림톡 꺼짐) → reset.php(가짜 데이터 되돌리기) → 씬마다 새 브라우저 창
 //       → 결과 표 + out/check/result.json + 마지막 줄 `SUMMARY 통과 N / 실패 M`. 실패해도 다음 씬은 계속.
@@ -58,7 +59,8 @@ if (process.env.EXTRA_RESET) {
 const since = JSON.parse(php('db.php', ['select now() as t'])).t;   // DB 시계(KST) — 「이번 실행에서 생긴 기록」 기준
 const erpUp = await fetch('http://127.0.0.1:8001/login').then((r) => r.status === 200).catch(() => false);
 
-const wanted = process.argv.slice(2);
+const mark = process.argv.includes('--mark');   // 끝나면 관제 「우리 루틴」에 기록(ERP 토요일 실행기가 이어서 부를 때)
+const wanted = process.argv.slice(2).filter((a) => a !== '--mark');
 const list = SCENES.filter((s) => wanted.length === 0 || wanted.includes(s));
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--hide-scrollbars'] });
 const results = [];
@@ -189,3 +191,8 @@ const pass = results.filter((r) => r.ok && !r.skipped).length;
 const fail = results.length - pass - skip;
 console.log(`SUMMARY 통과 ${pass} / 실패 ${fail}` + (skip ? ` / 건너뜀 ${skip}` : ''));
 process.exitCode = fail === 0 ? 0 : 1;
+if (mark) {
+    const note = `통과 ${pass} / 실패 ${fail}` + (skip ? ` / 건너뜀 ${skip}` : '') + (fail ? ' — ' + results.filter((r) => !r.ok).map((r) => r.slug).join(', ') : '');
+    try { console.log('관제 기록: ' + php('ops-mark.php', [fail === 0 ? 'ok' : 'failed', note])); }
+    catch (e) { console.log('관제 기록 실패: ' + (e.stdout || e.message).toString().trim()); }
+}
