@@ -17,6 +17,10 @@
 //              args 의 "{since}" = 이번 실행 시작 시각(DB 시계) — 「이번에 새로 생긴 기록」만 보려면 created_at >= ? 와 함께.
 //   "needs": ["erp"] = 로컬 ERP(127.0.0.1:8001)가 있어야 하는 씬 — 꺼져 있으면 실패가 아니라 「건너뜀」.
 //   "allowClicks": ["conclude"] = 아래 DENY 버튼 중 이 씬이 일부러 누르는 것(막히는 걸 확인하려고 등). 그 밖의 DENY 버튼은 누르려는 순간 실패로 멈춘다.
+//   {"upload": "input@model(salesFiles)", "files": ["board-check-doc.pdf"]} = 파일 올리기(숨은 입력도) — 경로 = 씬 폴더 → guide-shots/fixtures → guide-shots 순으로 찾는다.
+//      ⚠️ /auction 에는 PDF(서류)만 — 사진(jpg)은 로컬에서 회사 GPU PC 계좌 읽기를 부른다(board.payee_extract.enabled, 큐 sync).
+//   {"gotoPhp": "claim-link.php", "args": ["부장"]} = 씬 폴더 php 가 찍은 로컬 주소로 이동(서명 링크 — 주소는 결과에 안 남긴다).
+//   set 값의 "{today}" = 오늘 날짜(YYYY-MM-DD, DB 시계).
 //   "before"/"after" = 씬 폴더 기준 php 파일(씬 동안만 설정을 바꿨다 되돌림, after 는 실패해도 돈다).
 // 환경변수(백그라운드 에이전트가 레포를 안 건드리고 시험할 때): SCENES_DIR=다른 씬 폴더 · SCENES=쉼표 목록(순서) · EXTRA_RESET=추가 되돌리기 php 파일
 import fs from 'node:fs';
@@ -70,7 +74,8 @@ if (process.env.EXTRA_RESET) {
     try { console.log('추가 되돌리기: ' + execFileSync('php', [process.env.EXTRA_RESET], { cwd: root, encoding: 'utf8' }).trim()); }
     catch (e) { die('추가 되돌리기 실패 — ' + (e.stdout || e.message).toString().trim()); }
 }
-const since = JSON.parse(php('db.php', ['select now() as t'])).t;   // DB 시계(KST) — 「이번 실행에서 생긴 기록」 기준
+const since = JSON.parse(php('db.php', ['select now() as t'])).t;
+const todayStr = String(since).slice(0, 10);   // DB 시계(KST) — 「이번 실행에서 생긴 기록」 기준
 const erpUp = await fetch('http://127.0.0.1:8001/login').then((r) => r.status === 200).catch(() => false);
 
 const mark = process.argv.includes('--mark');
@@ -118,8 +123,22 @@ for (const slug of list) {
     };
     // 누르려는 요소(또는 조상)의 wire:click 메서드가 DENY 인데 씬이 허용 안 했으면 멈춘다
     const guard = async (handle) => {
-        const m = await handle.evaluate((el) => { const w = el.closest('[wire\\:click]'); return w ? w.getAttribute('wire:click').split('(')[0].trim() : null; });
-        if (m && DENY.includes(m) && !allow.has(m)) throw new Error(`막은 버튼을 누르려 함: ${m} (씬 allowClicks 에 없음)`);
+        // 요소와 조상들의 wire:click · @click · x-on:click 에서 부르는 메서드 이름을 전부 모은다(「$set(…); $wire.conclude(…)」·「$wire.sendPurchaseRequest(…)」도 잡게)
+        const names = await handle.evaluate((el) => {
+            const out = [];
+            for (let e = el; e && e.getAttribute; e = e.parentElement) {
+                for (const a of ['wire:click', '@click', 'x-on:click']) {
+                    const v = e.getAttribute(a);
+                    if (!v) continue;
+                    if (a === 'wire:click') out.push(v.split('(')[0].trim());
+                    for (const m of v.matchAll(/\$wire\.([A-Za-z_]+)\s*\(/g)) out.push(m[1]);
+                    for (const m of v.matchAll(/(?:^|[;\s])([A-Za-z_]+)\s*\(/g)) out.push(m[1]);
+                }
+            }
+            return out;
+        });
+        const bad = names.find((m) => DENY.includes(m) && !allow.has(m));
+        if (bad) throw new Error(`막은 버튼을 누르려 함: ${bad} (씬 allowClicks 에 없음)`);
     };
     let n = 0;
     // "before"/"after" = 씬 폴더 기준 php 파일 — 씬 동안만 설정을 바꿨다 되돌릴 때(예: 결재 직급 비우기). after 는 실패해도 반드시 돈다.
@@ -170,7 +189,7 @@ for (const slug of list) {
             }
             else if (s.set) {
                 await page.waitForSelector(sel(s.set), { timeout: 8000 });
-                await page.evaluate((q, v) => { const el = document.querySelector(q); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }, sel(s.set), String(s.value));
+                await page.evaluate((q, v) => { const el = document.querySelector(q); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }, sel(s.set), String(s.value).replaceAll('{today}', todayStr));
                 await settle();
             }
             else if (s.select) {
@@ -184,6 +203,18 @@ for (const slug of list) {
                 }, sel(s.select), s.text, s.without);
                 if (!ok) throw new Error(`고를 항목 못 찾음: 「${s.text ?? '(' + s.without + ' 없는 항목)'}」`);
                 await settle();
+            }
+            else if (s.upload) {
+                const el = await page.waitForSelector(sel(s.upload), { timeout: 8000 });
+                const files = s.files.map((f) => [path.resolve(scenesDir, f), path.resolve(here, '..', 'fixtures', f), path.resolve(here, '..', f)].find((x) => fs.existsSync(x)));
+                if (files.some((f) => !f)) throw new Error('올릴 파일 없음: ' + s.files.join(', '));
+                await el.uploadFile(...files);
+                await settle(); await sleep(s.after ?? 1500);
+            }
+            else if (s.gotoPhp) {
+                const url = execFileSync('php', [path.resolve(scenesDir, s.gotoPhp), ...(s.args || [])], { cwd: root, encoding: 'utf8' }).trim().split('\n').pop();
+                if (!/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(url)) throw new Error('gotoPhp 가 로컬 주소를 안 줬다');
+                await page.goto(url, { waitUntil: 'networkidle2' }); await settle();
             }
             else if (s.wait) { await sleep(s.wait); }
             else throw new Error('모르는 단계: ' + JSON.stringify(s));
