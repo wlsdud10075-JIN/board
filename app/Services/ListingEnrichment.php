@@ -3,9 +3,12 @@
 namespace App\Services;
 
 use App\Support\Region;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 
 /**
  * 매물 자동채움(enrichment) — encar JSON API + ssancar 페이지 파싱 → 차량번호·차값·지역·VIN.
@@ -39,7 +42,7 @@ class ListingEnrichment
     public ?string $lastFailure = null;
 
     /**
-     * 마지막 실패의 종류 — 'blocked'(엔카가 우리 조회를 막음) | 'error'(그 밖). 2026-11-16 Jin.
+     * 마지막 실패의 종류 — 'blocked'(엔카가 우리 조회를 막음) | 'limited'(우리 한도 초과 — 엔카는 안 불렀다) | 'error'(그 밖). 2026-11-16 Jin.
      * ⚠️ 엔카는 막을 때도 **404** 를 준다(본문 = `has_been_cr_blocked_AWS.html` 로 보내는 HTML — ssancarboard 265거8869, 사무실 KT 회선에서도 같은 응답).
      *    상태코드만 보면 「없는 차」와 구분이 안 된다 → 본문으로 가른다. 차단이면 [추출]을 다시 눌러도 소용없다.
      */
@@ -140,6 +143,46 @@ class ListingEnrichment
         return $out;
     }
 
+    /**
+     * 엔카 조회 요청 — 브라우저 표시 4줄(2026-11-16 Jin 결정). 11-12~13 부터 엔카가 기본 표시(GuzzleHttp)·봇 UA 를 차단 페이지(404)로 돌려준다.
+     * ssancarboard 박스에서 같은 차를 이 4줄로 부르면 200 — IP 가 아니라 표시 때문이었다(ssancar.com 서울 서버가 쓰는 값과 같다,
+     * ssancar `lib/ssc_encar_collect.lib.php:39-46`). 대신 **우리 한도**(takeSlot)·캐시로 조회 수를 낮게 유지한다.
+     */
+    private static function encarRequest(int $timeout): PendingRequest
+    {
+        return Http::timeout($timeout)->withHeaders([
+            'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+            'Referer' => 'http://www.encar.com/',
+            'Accept' => 'application/json',
+            'Accept-Language' => 'ko-KR,ko;q=0.9',
+        ]);
+    }
+
+    /** 성공한 응답은 몇 시간 그대로 쓴다 — 같은 차 [추출]·이력 조회를 반복해도 엔카는 한 번. */
+    private const CACHE_HOURS = 6;
+
+    private static function cacheKey(string $path): string
+    {
+        return 'encar:'.md5($path);
+    }
+
+    /**
+     * 엔카 호출 한 번 쓸 자리가 있나 — 박스 전체 공유 한도: 10분 N회 + 하루 M회(config services.encar.limit_10m / limit_day).
+     * 넘으면 false(호출 안 함). 재시도도 한 번씩 센다. 「안정권에서만」(Jin) — 평소 사용량(하루 수십 회)보다 넉넉하되 폭주는 막는다.
+     */
+    private static function takeSlot(): bool
+    {
+        $per10 = (int) config('services.encar.limit_10m', 20);
+        $perDay = (int) config('services.encar.limit_day', 200);
+        if (RateLimiter::tooManyAttempts('encar:10m', $per10) || RateLimiter::tooManyAttempts('encar:day', $perDay)) {
+            return false;
+        }
+        RateLimiter::hit('encar:10m', 600);
+        RateLimiter::hit('encar:day', 86400);
+
+        return true;
+    }
+
     /** 엔카 차단 응답인가 — 차단 페이지로 보내는 HTML(상태코드는 404 등). 정상 「없는 차」 응답은 JSON 이다. */
     private static function looksBlocked(Response $res): bool
     {
@@ -156,11 +199,21 @@ class ListingEnrichment
         //   간헐적으로**(연속 5번 중 4번) 즉시 돌려준다(타임아웃도 섞임). 로컬 PC 는 매번 200. 종전엔 한 번 실패하면 빈 칸만 남아
         //   영업이 [추출]을 두세 번 눌러야 했다(Jin 「7~8초, 심하면 15초 뒤 두 번」). 404 는 재시도 안 함 — 없는 차거나 차단(아래)이라 다시 불러도 같다.
         //   ⚠️ 2026-11-16 실측: 사무실 PC(KT 회선)도 차단 페이지를 받았다 — 「로컬 PC 는 매번 200」은 더는 사실이 아니다.
+        $path = '/v1/readside/vehicle/'.$id;
+        if (is_array($cached = Cache::get(self::cacheKey($path)))) {   // 같은 차 다시 [추출] = 엔카를 다시 부르지 않는다
+            return $this->mapVehicle($cached);
+        }
         $res = null;
         $why = null;
         for ($try = 1; $try <= 3; $try++) {
+            if (! self::takeSlot()) {   // 우리 한도(10분·하루) — 넘으면 엔카를 부르지 않고 「한도 초과」
+                $res = null;
+                $why = 'limit';
+                $this->lastFailureKind = 'limited';
+                break;
+            }
             try {
-                $res = Http::timeout(6)->get($base.'/v1/readside/vehicle/'.$id);
+                $res = self::encarRequest(6)->get($base.$path);
                 $why = $res->failed() ? 'HTTP '.$res->status() : null;
             } catch (\Throwable $e) {
                 $res = null;
@@ -174,8 +227,8 @@ class ListingEnrichment
             }
         }
         if ($why !== null) {
-            $this->lastFailure = $why;
-            $this->lastFailureKind = $res !== null && self::looksBlocked($res) ? 'blocked' : 'error';
+            $this->lastFailure = $why === 'limit' ? __('listings.links.enrich_limit_reason') : $why;
+            $this->lastFailureKind ??= $res !== null && self::looksBlocked($res) ? 'blocked' : 'error';
             // 운영 LOG_LEVEL=error 라 warning 은 한 줄도 안 남았다(11-06~11-16) — 화면(listings)이 감사 행도 남긴다.
             Log::error('encar enrich failed', ['encar_id' => $id, 'reason' => $why, 'kind' => $this->lastFailureKind]);
 
@@ -183,6 +236,14 @@ class ListingEnrichment
         }
 
         $j = (array) $res->json();
+        Cache::put(self::cacheKey($path), $j, now()->addHours(self::CACHE_HOURS));
+
+        return $this->mapVehicle($j);
+    }
+
+    /** 엔카 vehicle JSON → {vehicle_number, region, vin, prices}. */
+    private function mapVehicle(array $j): array
+    {
         $price = data_get($j, 'advertisement.price');   // 만원 단위 → ×10000
 
         $out = array_filter([
@@ -395,8 +456,14 @@ class ListingEnrichment
     private function fetchJson(string $path): ?array
     {
         $base = rtrim((string) config('services.encar.base_url', 'https://api.encar.com'), '/');
+        if (is_array($cached = Cache::get(self::cacheKey($path)))) {
+            return $cached;
+        }
+        if (! self::takeSlot()) {
+            return null;   // 한도 초과 — 이력 칸은 「조회 실패」로 보인다
+        }
         try {
-            $res = Http::timeout(8)->get($base.$path);
+            $res = self::encarRequest(8)->get($base.$path);
         } catch (\Throwable) {
             return null;
         }
@@ -404,6 +471,9 @@ class ListingEnrichment
             return null;
         }
         $j = $res->json();
+        if (is_array($j)) {
+            Cache::put(self::cacheKey($path), $j, now()->addHours(self::CACHE_HOURS));
+        }
 
         return is_array($j) ? $j : null;
     }
