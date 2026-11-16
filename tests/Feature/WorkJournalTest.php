@@ -376,4 +376,65 @@ class WorkJournalTest extends TestCase
         $this->assertSame(0, app(WorkJournalService::class)->myTurnCount($line['ceo']));
         $this->actingAs($line['lead'])->get('/work-journal/approvals')->assertOk()->assertSee(__('nav.menu.work_journal_approvals'));
     }
+
+    // ───── 해외영업부 엑셀 양식 반영(2026-11-16 Jin) ─────
+
+    /** [하루 틀 만들기] = 09~18시 10줄 + 그 요일 고정 업무(같은 시간 줄·특이사항). 이미 줄이 있으면 안 만든다. */
+    public function test_day_template_makes_hourly_rows_and_prefills_routines(): void
+    {
+        Carbon::setTestNow('2026-11-18 08:30:00');   // 수요일
+        $w = $this->mk('김영업');
+        $this->actingAs($w);
+        Volt::test('work-journal.index')->set('rtWeekday', 3)->set('rtTime', '09:00')->set('rtLocation', '경매장')->set('rtTask', 'AJ 경매장 검수')->call('addRoutine')->assertHasNoErrors();
+        $this->assertSame(1, BoardAuditLog::where('action', 'work_journal_routine')->count());
+
+        $c = Volt::test('work-journal.index')->call('fillTemplate');
+        $j = WorkJournal::where('user_id', $w->id)->firstOrFail();
+        $this->assertSame(10, $j->entries()->count());
+        $first = $j->entries()->first();
+        $this->assertSame(['09:00', '경매장', 'AJ 경매장 검수'], [$first->time, $first->location, $first->task]);
+        $this->assertStringContainsString('AJ 경매장 검수', (string) $j->fresh()->remarks);
+
+        $c->call('fillTemplate');
+        $this->assertSame(10, $j->entries()->count());   // 덮어쓰지 않는다
+    }
+
+    /** 위치·내일 예정업무·특이사항·금일 계약 차량이 상신 snapshot 에 고정되고, 빈 틀 줄은 빠진다. 결재 카드에도 보인다. */
+    public function test_location_plan_remarks_and_contracts_are_frozen_in_the_snapshot(): void
+    {
+        $line = $this->line();
+        $w = $this->mk('김영업');
+        $car = PurchaseListing::withoutEvents(fn () => PurchaseListing::create([
+            'created_by_user_id' => $w->id, 'source' => 'encar', 'vehicle_number' => '11가1001', 'status' => 'won', 'buyer_verdict' => 'accepted',
+            'buyer_name' => 'GUIDE SAMPLE TRADING', 'sale_price' => 2000, 'offer_currency' => 'EUR',
+        ]));
+        BoardAuditLog::create(['user_id' => $w->id, 'purchase_listing_id' => $car->id, 'action' => 'status_change', 'field' => 'status', 'old_value' => 'accepted', 'new_value' => 'won']);
+
+        $this->actingAs($w);
+        Volt::test('work-journal.index')->call('fillTemplate')
+            ->set('rows.0.location', '화물단지')->set('rows.0.task', '바이어 요청 차량 사진 촬영')
+            ->set('plan', '바이어 요청 차량 가격 확인')->set('remarks', '목요일 K카 검수')
+            ->assertSee('GUIDE SAMPLE TRADING')->assertSee('총계약 1대')
+            ->call('submit')->assertHasNoErrors();
+
+        $snap = WorkJournal::where('user_id', $w->id)->firstOrFail()->snapshot;
+        $this->assertCount(1, $snap['entries']);   // 빈 틀 줄 9개는 빠진다
+        $this->assertSame('화물단지', $snap['entries'][0]['location']);
+        $this->assertSame('바이어 요청 차량 가격 확인', $snap['plan_tomorrow']);
+        $this->assertSame('목요일 K카 검수', $snap['remarks']);
+        $this->assertSame(1, $snap['contracts']['count']);
+        $this->assertEquals(['EUR' => 2000], $snap['contracts']['by_currency']);
+
+        $this->actingAs($line['lead']);
+        Volt::test('work-journal.approvals')->assertSee('GUIDE SAMPLE TRADING')->assertSee('바이어 요청 차량 가격 확인')->assertSee('화물단지');
+    }
+
+    /** 다음 날 화면 위에 어제 적은 「내일 예정업무」. */
+    public function test_yesterdays_plan_is_shown_on_today(): void
+    {
+        $w = $this->mk('김영업');
+        WorkJournal::create(['user_id' => $w->id, 'date' => today()->subDay()->toDateString(), 'status' => 'draft', 'plan_tomorrow' => '검수 리포트 발송']);
+        $this->actingAs($w);
+        Volt::test('work-journal.index')->assertSee(__('journal.prev_plan_title'))->assertSee('검수 리포트 발송');
+    }
 }
