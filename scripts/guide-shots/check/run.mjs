@@ -28,10 +28,11 @@ const BASE = 'http://localhost:8003';
 const SCENES = process.env.SCENES ? process.env.SCENES.split(',')
     : ['when-blocked', 'manage-edit', 'users-manage', 'audit-find', 'first-steps',          // 1단계 — board 안에서 끝남
         'portal-read', 'settlement-read', 'portal-share',                                      // 2a — 포털(ERP 읽기만)
+        'listing-register', 'listing-delete',                                                  // 2a — 매입예정 등록·삭제(검차 대상 차 — 로컬 ssancar.com 큐에 upsert·withdraw, Jin 「로컬이니 괜찮다」 11-16)
         'self-inspection', 'listing-delete-rejected',                                          // 2a — 매입예정(검차 큐에 안 들어가는 차)
         'work-journal', 'work-journal-no-ceo'];                                                // 2a — 업무일지(5계정 결재·직급 비우기)
 // 순서 의미 있음: audit-find 는 manage-edit 이 남긴 기록을 본다. work-journal-no-ceo 는 오늘 결재 중 기안이 없어야 한다(work-journal 이 최종 승인까지 간 뒤).
-// 보류(check/scenes-pending/) = listing-register·listing-delete — 검차 대상 차라 로컬 ssancar.com(8002) 검차 큐에 실제로 쓴다(Jin 결정 전).
+// listing-register → listing-delete 는 같은 차(11가1101) — 등록이 큐에 upsert, 삭제가 withdraw 로 정리한다(로컬 8002).
 // ERP·바깥 서비스로 쓰거나 바깥을 부르는 버튼(wire:click 메서드 이름) — 씬이 allowClicks 로 열지 않으면 누르지 않는다.
 //   로컬 ERP 데이터는 board 가 되돌릴 수 없고(ERP 가 알림톡도 보낼 수 있다), 엔카·ssancar·GPU PC 는 바깥 서비스다.
 const DENY = ['conclude', 'sendPurchaseRequest', 'sendSaleConfirm', 'syncBundles', 'cancelBundle', 'requestBl', 'cancelBl', 'requestChange', 'requestSignature',
