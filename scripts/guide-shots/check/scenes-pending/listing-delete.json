@@ -1,0 +1,17 @@
+{"slug":"listing-delete","title":"매입예정 삭제와 재등록","login":{"email":"guide-demo@local.test"},"viewport":"tall",
+ "steps":[
+  {"goto":"/listings"},
+  {"clickText":"11가1101","in":"tr"},{"wait":1500},
+  {"clickText":"기본","in":"button[role=tab]"},{"wait":600},
+  {"check":"본인 현지확인 대기 차는 삭제 버튼","text":"이 건 삭제"},
+  {"autoConfirm":true},
+  {"clickText":"이 건 삭제","in":"button"},{"wait":1500},
+  {"check":"삭제 안내","text":"11가1101 삭제했습니다. 같은 차량번호로 다시 등록할 수 있습니다."},
+  {"check":"board 에서 지워짐(soft delete)","db":"select deleted_at from purchase_listings where vehicle_number = ? and created_at >= ? order by id desc limit 1","args":["11가1101","{since}"],"expect":{"deleted_at":"*"}},
+  {"check":"차량번호가 비었다(살아 있는 행 0)","db":"select count(*) as n from purchase_listings where vehicle_number = ? and deleted_at is null","args":["11가1101"],"expect":{"n":0}},
+  {"check":"삭제 감사 행","db":"select id from board_audit_logs where action = 'delete' and purchase_listing_id = (select max(id) from purchase_listings where vehicle_number = ?) and created_at >= ? limit 1","args":["11가1101","{since}"],"expect":{"id":"*"}},
+
+  {"clickText":"11가1001","in":"tr"},{"wait":1500},
+  {"check":"ERP 전환완료 차 창이 열림","text":"11가1001 · 매입예정 수정"},
+  {"check":"ERP 로 넘어간 차는 삭제 버튼 없음","noText":"이 건 삭제"}
+ ]}

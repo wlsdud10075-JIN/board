@@ -26,7 +26,12 @@ import puppeteer from 'puppeteer-core';
 
 const BASE = 'http://localhost:8003';
 const SCENES = process.env.SCENES ? process.env.SCENES.split(',')
-    : ['when-blocked', 'manage-edit', 'users-manage', 'audit-find', 'first-steps'];   // 순서 의미 있음: audit-find 는 manage-edit 이 남긴 기록을 본다
+    : ['when-blocked', 'manage-edit', 'users-manage', 'audit-find', 'first-steps',          // 1단계 — board 안에서 끝남
+        'portal-read', 'settlement-read', 'portal-share',                                      // 2a — 포털(ERP 읽기만)
+        'self-inspection', 'listing-delete-rejected',                                          // 2a — 매입예정(검차 큐에 안 들어가는 차)
+        'work-journal', 'work-journal-no-ceo'];                                                // 2a — 업무일지(5계정 결재·직급 비우기)
+// 순서 의미 있음: audit-find 는 manage-edit 이 남긴 기록을 본다. work-journal-no-ceo 는 오늘 결재 중 기안이 없어야 한다(work-journal 이 최종 승인까지 간 뒤).
+// 보류(check/scenes-pending/) = listing-register·listing-delete — 검차 대상 차라 로컬 ssancar.com(8002) 검차 큐에 실제로 쓴다(Jin 결정 전).
 // ERP·바깥 서비스로 쓰거나 바깥을 부르는 버튼(wire:click 메서드 이름) — 씬이 allowClicks 로 열지 않으면 누르지 않는다.
 //   로컬 ERP 데이터는 board 가 되돌릴 수 없고(ERP 가 알림톡도 보낼 수 있다), 엔카·ssancar·GPU PC 는 바깥 서비스다.
 const DENY = ['conclude', 'sendPurchaseRequest', 'sendSaleConfirm', 'syncBundles', 'cancelBundle', 'requestBl', 'cancelBl', 'requestChange', 'requestSignature',
@@ -52,6 +57,14 @@ try { const r = await fetch(BASE + '/login'); if (r.status !== 200) die(`8003 �
 catch { die('8003 응답 없음 — 로컬 서버(php artisan serve --port=8003)를 Jin 이 띄워야 합니다'); }
 try { php('preflight.php'); } catch (e) { die('사전 확인 실패 — ' + (e.stdout || e.message).toString().trim()); }
 try { console.log('되돌리기: ' + JSON.parse(php('reset.php')).done.join(' · ')); } catch (e) { die('되돌리기 실패 — ' + (e.stdout || e.message).toString().trim()); }
+// 씬 묶음별 되돌리기 — check/resets/*.php(이름순). 예시가 없으면 {ok:false} 로 멈춘다.
+for (const f of fs.readdirSync(path.join(here, 'resets')).filter((x) => x.endsWith('.php')).sort()) {
+    try {
+        const r = JSON.parse(php(path.join('resets', f)));
+        if (r.ok === false) die(`되돌리기(${f}) 멈춤 — ${r.problem}`);
+        console.log(`되돌리기(${f}): ` + (r.done || []).join(' · '));
+    } catch (e) { die(`되돌리기(${f}) 실패 — ` + (e.stdout || e.message).toString().trim()); }
+}
 if (process.env.EXTRA_RESET) {
     try { console.log('추가 되돌리기: ' + execFileSync('php', [process.env.EXTRA_RESET], { cwd: root, encoding: 'utf8' }).trim()); }
     catch (e) { die('추가 되돌리기 실패 — ' + (e.stdout || e.message).toString().trim()); }
@@ -154,12 +167,14 @@ for (const slug of list) {
             }
             else if (s.select) {
                 await page.waitForSelector(sel(s.select), { visible: true, timeout: 8000 });
-                const ok = await page.evaluate((q, text) => {
-                    const el = document.querySelector(q); const o = [...el.options].find((x) => x.textContent.includes(text));
+                const ok = await page.evaluate((q, text, without) => {
+                    // "without": "🔒" = 그 글자가 없는 첫 실제 항목(이름을 박지 않고 「잠기지 않은 바이어」처럼 고를 때 — 예시 바이어 상태는 ERP 데이터라 바뀐다)
+                    const el = document.querySelector(q);
+                    const o = [...el.options].find((x) => (without !== undefined ? x.value !== '' && !x.textContent.includes(without) : x.textContent.includes(text)));
                     if (o) { el.value = o.value; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }
                     return !!o;
-                }, sel(s.select), s.text);
-                if (!ok) throw new Error(`고를 항목 못 찾음: 「${s.text}」`);
+                }, sel(s.select), s.text, s.without);
+                if (!ok) throw new Error(`고를 항목 못 찾음: 「${s.text ?? '(' + s.without + ' 없는 항목)'}」`);
                 await settle();
             }
             else if (s.wait) { await sleep(s.wait); }

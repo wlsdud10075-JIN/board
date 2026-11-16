@@ -1,0 +1,30 @@
+{"slug":"settlement-read","title":"내 정산 읽는 법 — 진행 중 정산·월별 실적·보류/추가·정산내역","login":{"email":"guide-demo@local.test"},"viewport":"tall","needs":["erp"],
+ "steps":[
+  {"goto":"/portal"},{"wait":1500},
+  {"check":"진행 중 정산 제목","text":"진행 중 정산 (예상)"},
+  {"check":"상태 — 확정·지급 대기","text":"확정 · 지급 대기"},
+  {"check":"상태 — 확정 대기","text":"확정 대기"},
+  {"check":"차량별 표 — 마진율","text":"마진율"},
+  {"check":"차량별 표 — 건당금액","text":"건당금액"},
+  {"check":"월별 실적 — 정산 수령액","text":"정산 수령액"},
+
+  {"check":"월을 누르기 전엔 접혀 있음","noText":"이 달 수령액"},
+  {"check":"조정 사유도 접혀 있음","noText":"지급보류분"},
+  {"clickText":"2026-11","in":"tbody tr td"},{"wait":1200},
+  {"check":"월 펼침 — 지급 묶음","text":"월분 배치"},
+  {"check":"월 펼침 — 조정 줄(지급보류분)","text":"지급보류분"},
+  {"check":"월 펼침 — 배치 수령액","text":"배치 수령액"},
+  {"check":"월 펼침 — 이 달 수령액","text":"이 달 수령액"},
+
+  {"check":"뱃지를 누르기 전엔 줄 목록 접힘","noText":"다음 월정산에 추가 대기"},
+  {"click":"[data-settle-extra-badge]"},{"wait":800},
+  {"check":"➕ 지급추가 펼침 — 상태","text":"다음 월정산에 추가 대기"},
+  {"click":"[data-settle-extra-badge]"},{"wait":500},
+  {"check":"다시 누르면 접힘","noText":"보류 중"},
+  {"click":"[data-settle-hold-badge]"},{"wait":800},
+  {"check":"⏸ 지급보류 펼침 — 상태","text":"보류 중"},
+
+  {"clickText":"정산내역","in":"button.rounded-md"},{"wait":2000},
+  {"check":"정산내역 — 정산 실지급","text":"정산 실지급"},
+  {"check":"정산내역 — 지급 완료","text":"지급 완료"}
+ ]}

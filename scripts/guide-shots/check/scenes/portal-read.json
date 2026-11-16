@@ -1,0 +1,36 @@
+{"slug":"portal-read","title":"포털 읽는 법 — 요약·미수금·재고·판매내역","login":{"email":"guide-demo@local.test"},"viewport":"pc","needs":["erp"],
+ "steps":[
+  {"goto":"/portal"},{"wait":1500},
+  {"check":"메뉴·제목 「내 정산·미수」","text":"내 정산·미수"},
+  {"check":"갱신 버튼","text":"↻ 갱신"},
+  {"check":"요약 — 미수금 합계","text":"미수금 합계"},
+  {"check":"요약 — 매입 미지급 합계","text":"매입 미지급 합계"},
+  {"check":"요약 — 정산 대기","text":"정산 대기"},
+  {"check":"요약 — 환율 미입력","text":"환율 미입력"},
+
+  {"clickText":"미수금","in":"button.rounded-md"},{"wait":2000},
+  {"check":"미수금 — 완납 숨기기","text":"완납(0원) 숨기기"},
+  {"check":"바이어 줄을 누르기 전엔 차 목록 접힘","noText":"미납 "},
+  {"clickText":"GUIDE SAMPLE TRADING","in":"button"},{"wait":1000},
+  {"check":"미수금 펼침 — 미납 N% 막대","text":"미납 "},
+
+  {"clickText":"재고","in":"button.rounded-md"},{"wait":2000},
+  {"check":"재고 — 지급대기","text":"지급대기"},
+  {"check":"재고 — 일반재고","text":"일반재고"},
+  {"check":"재고 — 선적전 재고","text":"선적전 재고"},
+  {"check":"재고 — 출고완료","text":"출고완료"},
+  {"check":"재고 — 거래완료","text":"거래완료"},
+  {"clickText":"선적전 재고","in":"button.rounded-md"},{"wait":2000},
+  {"check":"선적전 재고 — 칸 뜻(회색 글씨)","text":"판매된 차 — 출고 전"},
+  {"clickText":"출고완료","in":"button.rounded-md"},{"wait":2000},
+  {"check":"출고완료 — 운항중 칩","text":"🚢 운항중"},
+  {"check":"출고완료 — 도착예정 칩","text":"⚓ 도착예정"},
+
+  {"clickText":"판매내역","in":"button.rounded-md"},{"wait":2000},
+  {"check":"판매내역 — 「운항」 필터 줄","text":"운항 전체 🚢 운항중 ⚓ 도착예정"},
+  {"check":"바이어 줄을 누르기 전엔 차 목록 접힘","noText":"판매일"},
+  {"clickText":"GUIDE SAMPLE TRADING","in":"button"},{"wait":1000},
+  {"check":"판매내역 펼침 — 진행상태","text":"진행상태"},
+  {"check":"판매내역 펼침 — 판매가","text":"판매가"},
+  {"check":"판매내역 펼침 — 판매일","text":"판매일"}
+ ]}

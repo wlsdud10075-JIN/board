@@ -1,0 +1,15 @@
+{"slug": "work-journal-no-ceo", "title": "막혔을 때 — 업무일지 결재선 없음(부장·상무·대표 모두 비면 상신 막힘)", "login": {"email": "lee@board.test"}, "viewport": "pc", "before": "no-ceo-before.php", "after": "no-ceo-after.php",
+ "steps":[
+  {"goto": "/work-journal"},
+  {"clickText": "+ 줄 추가", "in": "button"},
+  {"wait": 800},
+  {"set": "textarea@model(rows.0.task)", "value": "씬 점검 막힘 확인"},
+  {"wait": 1200},
+  {"check": "칸을 적으면 자동 저장", "text": "자동 저장됨"},
+  {"autoConfirm": true},
+  {"clickText": "상신", "in": "button.btn-primary"},
+  {"check": "결재선 없음 빨간 줄", "text": "결재선에 부장·상무·대표가 한 명도 지정되지 않아 상신할 수 없습니다"},
+  {"check": "상태는 작성 중 그대로", "text": "작성 중"},
+  {"check": "일지는 작성 중·기안 없음·적은 줄 그대로", "db": "select j.status, j.batch_id, (select count(*) from work_journal_entries e where e.work_journal_id = j.id) as n from work_journals j join users u on u.id = j.user_id where u.email = ? and j.date = curdate()", "args": ["lee@board.test"], "expect": {"status": "draft", "batch_id": null, "n": 1}},
+  {"check": "오늘 결재 중 기안이 안 생김", "db": "select count(*) as n from work_journal_batches where date = curdate() and status = 'pending'", "expect": {"n": 0}}
+ ]}
