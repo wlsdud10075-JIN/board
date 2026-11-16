@@ -1,4 +1,4 @@
-{"slug":"when-blocked","title":"막혔을 때 — 구매확정·중복 등록·403","login":{"email":"guide-demo@local.test"},"viewport":"pc",
+{"slug":"when-blocked","title":"막혔을 때 — 구매확정·중복 등록·403","login":{"email":"guide-demo@local.test"},"viewport":"pc","needs":["erp"],"allowClicks":["conclude"],
  "steps":[
   {"goto":"/auction"},
   {"clickText":"11가1006","in":"td, tr"},{"wait":1500},

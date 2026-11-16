@@ -4,24 +4,37 @@
 //   cd scripts/guide-shots && node check/run.mjs            전 씬
 //   node check/run.mjs manage-edit audit-find               골라서(순서는 SCENES 순)
 //
-// 순서: 8003 응답 → preflight.php(로컬·board DB·알림톡 꺼짐) → reset.php(가짜 데이터 되돌리기) → 씬마다 새 브라우저 창(로그인 1번)
+// 순서: 8003 응답 → preflight.php(로컬·board DB·알림톡 꺼짐) → reset.php(가짜 데이터 되돌리기) → 씬마다 새 브라우저 창
 //       → 결과 표 + out/check/result.json + 마지막 줄 `SUMMARY 통과 N / 실패 M`. 실패해도 다음 씬은 계속.
 // 🚫 배포 게이트 아님 · 서버를 띄우지 않는다(Jin 이 띄운다) · 운영 주소 금지 · 결과에 화면 내용을 통째로 찍지 않는다(로컬 DB 에 실명 행이 섞여 있다).
 //
-// 씬 파일 check/scenes/<slug>.json = {"slug","title","login":{"email"},"viewport","steps":[...]}
-//   조작 단계 = 캡처 도구(shot.mjs)와 같은 이름: goto · click · clickText · set · select · autoConfirm · wait · scrollText
+// 씬 파일 check/scenes/<slug>.json = {"slug","title","login":{"email"},"viewport","needs","allowClicks","steps":[...]}
+//   조작 단계 = 캡처 도구(shot.mjs)와 같은 이름: goto · click · clickText · set · select · autoConfirm · wait
+//              + {"login":{"email"}} = 씬 중간에 다른 계정으로(새 창)
 //   확인 단계 = {"check": "이름", "text": "화면 문구"} / {"check": "이름", "noText": "..."} /
 //              {"check": "이름", "db": "select … where x = ?", "args": ["…"], "expect": {"칸": 값}}  (값 null = 비어 있어야 함, "*" = 비어 있지 않아야 함)
+//              args 의 "{since}" = 이번 실행 시작 시각(DB 시계) — 「이번에 새로 생긴 기록」만 보려면 created_at >= ? 와 함께.
+//   "needs": ["erp"] = 로컬 ERP(127.0.0.1:8001)가 있어야 하는 씬 — 꺼져 있으면 실패가 아니라 「건너뜀」.
+//   "allowClicks": ["conclude"] = 아래 DENY 버튼 중 이 씬이 일부러 누르는 것(막히는 걸 확인하려고 등). 그 밖의 DENY 버튼은 누르려는 순간 실패로 멈춘다.
+//   "before"/"after" = 씬 폴더 기준 php 파일(씬 동안만 설정을 바꿨다 되돌림, after 는 실패해도 돈다).
+// 환경변수(백그라운드 에이전트가 레포를 안 건드리고 시험할 때): SCENES_DIR=다른 씬 폴더 · SCENES=쉼표 목록(순서) · EXTRA_RESET=추가 되돌리기 php 파일
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import puppeteer from 'puppeteer-core';
 
 const BASE = 'http://localhost:8003';
-const SCENES = ['when-blocked', 'manage-edit', 'users-manage', 'audit-find', 'first-steps'];   // 순서 의미 있음: audit-find 는 manage-edit 이 남긴 기록을 본다
+const SCENES = process.env.SCENES ? process.env.SCENES.split(',')
+    : ['when-blocked', 'manage-edit', 'users-manage', 'audit-find', 'first-steps'];   // 순서 의미 있음: audit-find 는 manage-edit 이 남긴 기록을 본다
+// ERP·바깥 서비스로 쓰거나 바깥을 부르는 버튼(wire:click 메서드 이름) — 씬이 allowClicks 로 열지 않으면 누르지 않는다.
+//   로컬 ERP 데이터는 board 가 되돌릴 수 없고(ERP 가 알림톡도 보낼 수 있다), 엔카·ssancar·GPU PC 는 바깥 서비스다.
+const DENY = ['conclude', 'sendPurchaseRequest', 'sendSaleConfirm', 'syncBundles', 'cancelBundle', 'requestBl', 'cancelBl', 'requestChange', 'requestSignature',
+    'sendToErp', 'resyncToCarErp', 'resendToErp', 'resendSplit', 'sendRemitter', 'addAttachments', 'extractPassport', 'extractFromImages', 'parseLink',
+    'requestReinspection', 'requestUrgent', 'requestBalance', 'resend'];
 
 const here = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
 const root = path.resolve(here, '../../..');
+const scenesDir = process.env.SCENES_DIR || path.join(here, 'scenes');
 const outDir = path.join(here, '..', 'out', 'check');
 fs.mkdirSync(outDir, { recursive: true });
 const CHROME = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
@@ -38,6 +51,12 @@ try { const r = await fetch(BASE + '/login'); if (r.status !== 200) die(`8003 �
 catch { die('8003 응답 없음 — 로컬 서버(php artisan serve --port=8003)를 Jin 이 띄워야 합니다'); }
 try { php('preflight.php'); } catch (e) { die('사전 확인 실패 — ' + (e.stdout || e.message).toString().trim()); }
 try { console.log('되돌리기: ' + JSON.parse(php('reset.php')).done.join(' · ')); } catch (e) { die('되돌리기 실패 — ' + (e.stdout || e.message).toString().trim()); }
+if (process.env.EXTRA_RESET) {
+    try { console.log('추가 되돌리기: ' + execFileSync('php', [process.env.EXTRA_RESET], { cwd: root, encoding: 'utf8' }).trim()); }
+    catch (e) { die('추가 되돌리기 실패 — ' + (e.stdout || e.message).toString().trim()); }
+}
+const since = JSON.parse(php('db.php', ['select now() as t'])).t;   // DB 시계(KST) — 「이번 실행에서 생긴 기록」 기준
+const erpUp = await fetch('http://127.0.0.1:8001/login').then((r) => r.status === 200).catch(() => false);
 
 const wanted = process.argv.slice(2);
 const list = SCENES.filter((s) => wanted.length === 0 || wanted.includes(s));
@@ -45,26 +64,46 @@ const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new'
 const results = [];
 
 for (const slug of list) {
-    const scene = JSON.parse(fs.readFileSync(path.join(here, 'scenes', slug + '.json'), 'utf8'));
+    const scene = JSON.parse(fs.readFileSync(path.join(scenesDir, slug + '.json'), 'utf8'));
     const started = Date.now();
+    if ((scene.needs || []).includes('erp') && !erpUp) {
+        results.push({ slug, title: scene.title, ok: true, skipped: '로컬 ERP(8001) 꺼짐', checks: 0, failed: [], seconds: 0 });
+        continue;
+    }
+    const allow = new Set(scene.allowClicks || []);
     const steps = [];
-    const ctx = await browser.createBrowserContext();   // 씬마다 새 창 — 한 창에서 로그인을 바꾸면 두 번째부터 실패할 때가 있었다
-    const page = await ctx.newPage();
-    page.setDefaultNavigationTimeout(90000);
-    await page.setViewport(VIEW[scene.viewport || 'pc']);
-    page.on('dialog', async (d) => { await d.accept(); });
+    let ctx = null;
+    let page = null;
     const settle = async () => { try { await page.waitForNetworkIdle({ idleTime: 400, timeout: 8000 }); } catch {} await sleep(250); };
     const bodyHas = (t) => page.evaluate((t) => document.body.innerText.replace(/\s+/g, ' ').includes(t.replace(/\s+/g, ' ')), t);
-    let n = 0;
-    try {
+    // 씬마다(그리고 씬 중간 계정마다) 새 창 — 한 창에서 로그인을 바꾸면 두 번째부터 실패할 때가 있었다
+    const loginAs = async (who) => {
+        if (ctx) await ctx.close();
+        ctx = await browser.createBrowserContext();
+        page = await ctx.newPage();
+        page.setDefaultNavigationTimeout(90000);
+        await page.setViewport(VIEW[scene.viewport || 'pc']);
+        page.on('dialog', async (d) => { await d.accept(); });
         await page.goto(BASE + '/login', { waitUntil: 'networkidle2' });
-        await page.type('input[type=email]', scene.login.email);
-        await page.type('input[type=password]', scene.login.password || 'password');
+        await page.type('input[type=email]', who.email);
+        await page.type('input[type=password]', who.password || 'password');
         await page.keyboard.press('Enter');
         // 로그인 폼은 Livewire 라 주소가 늦게 바뀐다 — 주소가 /login 을 벗어날 때까지 기다린다
         try { await page.waitForFunction(() => !location.pathname.startsWith('/login'), { timeout: 15000 }); }
-        catch { throw new Error('로그인 실패: ' + scene.login.email); }
+        catch { throw new Error('로그인 실패: ' + who.email); }
         await settle();
+    };
+    // 누르려는 요소(또는 조상)의 wire:click 메서드가 DENY 인데 씬이 허용 안 했으면 멈춘다
+    const guard = async (handle) => {
+        const m = await handle.evaluate((el) => { const w = el.closest('[wire\\:click]'); return w ? w.getAttribute('wire:click').split('(')[0].trim() : null; });
+        if (m && DENY.includes(m) && !allow.has(m)) throw new Error(`막은 버튼을 누르려 함: ${m} (씬 allowClicks 에 없음)`);
+    };
+    let n = 0;
+    // "before"/"after" = 씬 폴더 기준 php 파일 — 씬 동안만 설정을 바꿨다 되돌릴 때(예: 결재 직급 비우기). after 는 실패해도 반드시 돈다.
+    const hook = (f) => execFileSync('php', [path.resolve(scenesDir, f)], { cwd: root, encoding: 'utf8' }).trim();
+    try {
+        if (scene.before) hook(scene.before);
+        await loginAs(scene.login);
         for (const s of scene.steps) {
             n++;
             if (s.check) {
@@ -75,7 +114,7 @@ for (const slug of list) {
                 } else if (s.noText !== undefined) {
                     await sleep(500); ok = !(await bodyHas(s.noText)); detail = ok ? '' : `화면에 「${s.noText}」가 있으면 안 됨`;
                 } else if (s.db) {
-                    const row = JSON.parse(php('db.php', [s.db, ...(s.args || [])]));
+                    const row = JSON.parse(php('db.php', [s.db, ...(s.args || []).map((a) => (a === '{since}' ? since : a))]));
                     const bad = Object.entries(s.expect).filter(([k, v]) => {
                         const got = row ? row[k] : undefined;
                         if (v === null) return got !== null && got !== undefined;
@@ -88,17 +127,22 @@ for (const slug of list) {
                 steps.push({ step: n, name: s.check, ok, detail });
                 continue;
             }
-            if (s.goto) { await page.goto(BASE + s.goto, { waitUntil: 'networkidle2' }); await settle(); }
+            if (s.login) { await loginAs(s.login); }
+            else if (s.goto) { await page.goto(BASE + s.goto, { waitUntil: 'networkidle2' }); await settle(); }
             else if (s.viewport) { await page.setViewport(VIEW[s.viewport]); await settle(); }
             else if (s.autoConfirm) { await page.evaluate(() => { window.confirm = () => true; }); }
-            else if (s.click) { await page.waitForSelector(sel(s.click), { visible: true, timeout: 8000 }); await page.click(sel(s.click)); await settle(); }
+            else if (s.click) {
+                const h = await page.waitForSelector(sel(s.click), { visible: true, timeout: 8000 });
+                await guard(h);
+                await h.click();
+                await settle();
+            }
             else if (s.clickText) {
-                const ok = await page.evaluate((text, q) => {
-                    const el = [...document.querySelectorAll(q)].find((e) => e.offsetParent !== null && e.textContent.replace(/\s+/g, ' ').includes(text));
-                    if (el) { el.scrollIntoView({ block: 'center' }); el.click(); }
-                    return !!el;
-                }, s.clickText, s.in || 'button, a, [role=button], summary');
-                if (!ok) throw new Error(`누를 것 못 찾음: 「${s.clickText}」`);
+                const h = await page.evaluateHandle((text, q) => [...document.querySelectorAll(q)].find((e) => e.offsetParent !== null && e.textContent.replace(/\s+/g, ' ').includes(text)) || null,
+                    s.clickText, s.in || 'button, a, [role=button], summary');
+                if (!(await h.evaluate((el) => !!el))) throw new Error(`누를 것 못 찾음: 「${s.clickText}」`);
+                await guard(h);
+                await h.evaluate((el) => { el.scrollIntoView({ block: 'center' }); el.click(); });
                 await settle();
             }
             else if (s.set) {
@@ -122,8 +166,12 @@ for (const slug of list) {
     } catch (e) {
         steps.push({ step: n, name: '진행', ok: false, detail: e.message.split('\n')[0] });
         try { await page.screenshot({ path: path.join(outDir, slug + '-error.png') }); } catch {}
+    } finally {
+        if (scene.after) {
+            try { hook(scene.after); } catch (e) { steps.push({ step: n, name: '뒷정리(after)', ok: false, detail: (e.stdout || e.message).toString().split('\n')[0] }); }
+        }
     }
-    await ctx.close();
+    if (ctx) await ctx.close();
     const failed = steps.filter((x) => !x.ok);
     results.push({ slug, title: scene.title, ok: failed.length === 0, checks: steps.length, failed, seconds: Math.round((Date.now() - started) / 1000) });
 }
@@ -131,10 +179,13 @@ await browser.close();
 
 console.log('');
 for (const r of results) {
+    if (r.skipped) { console.log(`– ${r.title} (${r.slug}) — 건너뜀: ${r.skipped}`); continue; }
     console.log(`${r.ok ? '✓' : '✗'} ${r.title} (${r.slug}) — 확인 ${r.checks}개 · ${r.seconds}초`);
     for (const f of r.failed) console.log(`FAIL ${r.slug} · ${f.step}단계 「${f.name}」 — ${f.detail}`);
 }
 fs.writeFileSync(path.join(outDir, 'result.json'), JSON.stringify({ at: new Date().toISOString(), results }, null, 2));
-const pass = results.filter((r) => r.ok).length;
-console.log(`SUMMARY 통과 ${pass} / 실패 ${results.length - pass}`);
-process.exitCode = pass === results.length ? 0 : 1;
+const skip = results.filter((r) => r.skipped).length;
+const pass = results.filter((r) => r.ok && !r.skipped).length;
+const fail = results.length - pass - skip;
+console.log(`SUMMARY 통과 ${pass} / 실패 ${fail}` + (skip ? ` / 건너뜀 ${skip}` : ''));
+process.exitCode = fail === 0 ? 0 : 1;
