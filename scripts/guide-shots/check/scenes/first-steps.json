@@ -1,0 +1,16 @@
+{"slug":"first-steps","title":"처음 쓰기","login":{"email":"guide-demo@local.test"},"viewport":"phone",
+ "steps":[
+  {"goto":"/listings"},
+  {"click":"button[wire\\:click=\"openPanel\"]"},{"wait":1500},
+  {"check":"종 패널","text":"요청 알림"},
+  {"check":"휴대폰 알림 켜기 버튼","text":"휴대폰 알림 켜기"},
+  {"goto":"/listings"},
+  {"clickText":"English","in":"button"},
+  {"check":"영어 화면","text":"Purchases"},
+  {"check":"영어 화면 차량번호 로마자","text":"11GA1004"},
+  {"clickText":"한국어","in":"button"},
+  {"check":"한국어로 돌아옴","text":"매입예정"},
+  {"check":"언어가 계정에 저장됨","db":"select locale from users where email = ?","args":["guide-demo@local.test"],"expect":{"locale":"ko"}},
+  {"goto":"/settings/password"},
+  {"check":"내 설정 — 비밀번호 변경","text":"비밀번호 변경"}
+ ]}

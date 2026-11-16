@@ -1,0 +1,26 @@
+{"slug":"manage-edit","title":"관리자 화면에서 고치기","login":{"email":"leader@board.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/manage"},
+  {"set":"input@model(search)","value":"11가1002"},{"wait":1200},
+  {"clickText":"수정","in":"button.btn-outline"},{"wait":1000},
+  {"check":"ERP 로 넘어간 차는 식별값 잠김","text":"이미 car-erp 연동된 차량 — 식별값 수정 불가"},
+  {"check":"재전송 버튼","text":"car-erp 재전송"},
+  {"check":"삭제 버튼","text":"이 건 삭제"},
+  {"clickText":"취소","in":"button"},
+
+  {"set":"input@model(search)","value":"11가1005"},{"wait":1200},
+  {"clickText":"수정","in":"button.btn-outline"},{"wait":1000},
+  {"check":"미연동 차는 차량번호 정정 가능","text":"오타 정정 가능"},
+  {"set":"input[placeholder=\"검사지역\"]","value":"경기 화성시"},
+  {"select":"select@model(status)","text":"검차완료"},
+  {"select":"select@model(buyer_verdict)","text":"없음"},
+  {"clickText":"저장 (감사로그","in":"button"},
+  {"check":"저장 안내","text":"수정 완료 — 변경 내역이 감사로그에 기록됐습니다"},
+  {"check":"지역·상태가 저장됨","db":"select region, status, buyer_verdict from purchase_listings where vehicle_number = ? and deleted_at is null","args":["11가1005"],"expect":{"region":"경기 화성시","status":"inspected","buyer_verdict":"none"}},
+
+  {"clickText":"수정","in":"button.btn-outline"},{"wait":1000},
+  {"autoConfirm":true},
+  {"clickText":"이 건 삭제","in":"button"},
+  {"check":"삭제 안내","text":"삭제 완료 — 감사로그에 기록됐습니다"},
+  {"check":"board 에서 지워짐(soft delete)","db":"select deleted_at from purchase_listings where vehicle_number = ? order by id desc limit 1","args":["11가1005"],"expect":{"deleted_at":"*"}}
+ ]}

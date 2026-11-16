@@ -4107,6 +4107,39 @@ class BoardTest extends TestCase
     }
 
     /**
+     * 엔카는 막을 때도 404 를 준다(본문 = 차단 페이지로 보내는 HTML — ssancarboard 265거8869, 2026-11-16).
+     * 「다시 눌러 보세요」 대신 「막았습니다 — 직접 입력」 + 감사 행(운영 로그 수준이 error 라 warning 은 안 남았다).
+     */
+    public function test_encar_block_page_is_told_apart_and_audited(): void
+    {
+        $n = 0;
+        Http::fake(['*api.encar.com*' => function () use (&$n) {
+            $n++;
+
+            return Http::response('<html><head><meta http-equiv="refresh" content="0; url=https://api.encar.com/has_been_cr_blocked_AWS.html"></head></html>', 404, ['Content-Type' => 'text/html']);
+        }]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')->set('showAdd', true)->set('link', 'https://fem.encar.com/cars/detail/42973053')->call('parseLink')
+            ->assertHasErrors('link')->assertSee(__('listings.links.enrich_blocked'))->assertDontSee('[추출]을 다시 눌러 보세요');
+        $this->assertSame(1, $n);   // 404 는 다시 부르지 않는다
+
+        $log = BoardAuditLog::where('action', 'encar_enrich_failed')->sole();
+        $this->assertSame(['encar_id' => '42973053', 'reason' => 'HTTP 404', 'kind' => 'blocked'], json_decode($log->new_value, true));
+    }
+
+    /** 정상 「없는 차」(JSON 404)는 차단이 아니다 — 종전 안내 그대로, 감사 행은 kind=error. */
+    public function test_encar_plain_404_is_not_called_a_block(): void
+    {
+        Http::fake(['*api.encar.com*' => Http::response(['message' => 'not found'], 404)]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')->set('showAdd', true)->set('link', 'https://fem.encar.com/cars/detail/42973053')->call('parseLink')
+            ->assertHasErrors('link')->assertSee('HTTP 404')->assertDontSee(__('listings.links.enrich_blocked'));
+        $this->assertSame('error', json_decode(BoardAuditLog::where('action', 'encar_enrich_failed')->sole()->new_value, true)['kind']);
+    }
+
+    /**
      * 모바일에서 공유한 엔카 링크(추적 파라미터 354자)로 매입예정 추가 — 2026-08-04 운영 실패 재현.
      * encar_url 은 varchar(255)+max:255 라 원본을 그대로 넣으면 저장이 조용히 죽었다.
      */
