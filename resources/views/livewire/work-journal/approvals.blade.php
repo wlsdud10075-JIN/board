@@ -272,6 +272,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <b class="text-gray-800">{{ $jr->user?->name }}</b>
                                 <span class="badge badge-gray">{{ $jr->user?->roleLabel() }}</span>
                                 <span class="text-xs text-gray-500">{{ __('journal.ap_rows', ['n' => count($snapRows)]) }} · {{ __('journal.submitted_at', ['time' => $jr->submitted_at?->format('H:i')]) }}</span>
+                                <a class="text-xs text-blue-700 underline" href="{{ route('work-journal.excel', $jr) }}" x-data x-on:click.stop>{{ __('journal.excel_download') }}</a>
                                 @if ($prev->isNotEmpty())<span class="badge badge-purple">💬 {{ $prev->count() }}</span>@endif
                                 {{-- 반려 — 팀장만, 팀장 승인 전에만. 빨간 버튼 → 사유 모달(2026-11-04 Jin) --}}
                                 @if ($canReject)

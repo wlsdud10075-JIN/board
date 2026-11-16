@@ -126,6 +126,43 @@ class WorkJournalService
         return WorkJournalRoutine::where('user_id', $u->id)->where('weekday', $wd)->orderByRaw('time is null')->orderBy('time')->orderBy('id')->get();
     }
 
+    /**
+     * 엑셀 내려받기 데이터(WorkJournalExcel) — 상신한 일지만(snapshot = 결재 내용 그대로). 서명 칸 = 마지막 승인 단계(최종 승인일 때).
+     *
+     * @return array<string, mixed>
+     */
+    public function excelData(WorkJournal $j): array
+    {
+        $snap = (array) $j->snapshot;
+        $c = (array) ($snap['contracts'] ?? []);
+        $sign = null;
+        if ($j->status === 'approved' && $j->batch) {
+            $last = $j->batch->steps()->where('status', 'approved')->orderByDesc('seq')->with('approver')->first();
+            if ($last) {
+                $sign = __('journal.excel_signature', ['title' => $last->title, 'name' => $last->approver?->name, 'at' => $last->acted_at?->format('m-d H:i')]);
+            }
+        }
+
+        return [
+            'date' => $j->date->toDateString(), 'writer' => (string) $j->user?->name, 'status_label' => __('journal.status.'.$j->status), 'signature' => $sign,
+            'entries' => array_map(fn ($e) => ['time' => $e['time'] ?? '', 'location' => $e['location'] ?? '', 'task' => $e['task'] ?? '', 'note' => $e['note'] ?? ''], (array) ($snap['entries'] ?? [])),
+            'contracts' => (array) ($c['rows'] ?? []),
+            'contract_totals' => ['count' => (int) ($c['count'] ?? 0), 'by_currency' => (array) ($c['by_currency'] ?? [])],
+            'plan_tomorrow' => (string) ($snap['plan_tomorrow'] ?? ''), 'remarks' => (string) ($snap['remarks'] ?? ''),
+        ];
+    }
+
+    /** 엑셀을 내려받을 수 있나 — 본인 일지, 또는 결재자·전체 접근 등급(결재 화면을 볼 수 있는 사람). 상신 전(작성 중)은 없다. */
+    public function canExport(User $u, WorkJournal $j): bool
+    {
+        return ! $j->isDraft() && ($j->user_id === $u->id || $u->isJournalApprover() || $u->hasFullAccess());
+    }
+
+    public function logExport(User $u, WorkJournal $j): void
+    {
+        $this->audit($u->id, 'work_journal_excel', null, json_encode(['journal' => $j->id, 'writer' => $j->user?->name, 'date' => $j->date->toDateString()], JSON_UNESCAPED_UNICODE));
+    }
+
     /** 고정 업무 추가 — 평일만, 내용 필수. 감사 행(Jin 「board 모든 행위는 기록」). */
     public function addRoutine(User $u, int $weekday, ?string $time, ?string $location, string $task): WorkJournalRoutine
     {

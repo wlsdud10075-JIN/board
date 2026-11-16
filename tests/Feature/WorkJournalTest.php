@@ -429,6 +429,26 @@ class WorkJournalTest extends TestCase
         Volt::test('work-journal.approvals')->assertSee('GUIDE SAMPLE TRADING')->assertSee('바이어 요청 차량 가격 확인')->assertSee('화물단지');
     }
 
+    /** 엑셀 내려받기 — 상신한 일지만, 본인·결재자만(다른 영업 403), 내려받을 때마다 감사 행. */
+    public function test_excel_download_is_for_submitted_journals_and_allowed_people(): void
+    {
+        $line = $this->line();
+        $w = $this->mk('김영업');
+        $other = $this->mk('이영업');
+        $this->actingAs($w);
+        Volt::test('work-journal.index')->call('addRow')->set('rows.0.task', '딜러 통화');
+        $j = WorkJournal::where('user_id', $w->id)->firstOrFail();
+        $this->get(route('work-journal.excel', $j))->assertForbidden();   // 작성 중 = 없음
+
+        Volt::test('work-journal.index')->call('submit')->assertHasNoErrors();
+        $res = $this->get(route('work-journal.excel', $j->fresh()));
+        $res->assertOk();
+        $this->assertStringContainsString('spreadsheetml', (string) $res->headers->get('Content-Type'));
+        $this->actingAs($line['lead'])->get(route('work-journal.excel', $j))->assertOk();
+        $this->actingAs($other)->get(route('work-journal.excel', $j))->assertForbidden();
+        $this->assertSame(2, BoardAuditLog::where('action', 'work_journal_excel')->count());
+    }
+
     /** 다음 날 화면 위에 어제 적은 「내일 예정업무」. */
     public function test_yesterdays_plan_is_shown_on_today(): void
     {

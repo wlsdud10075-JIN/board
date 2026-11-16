@@ -16,6 +16,8 @@ return [
     'col_time' => '시간',
     'col_task' => '한 일',
     'col_note' => '비고',
+    'excel_download' => '📄 엑셀로 내려받기',
+    'excel_signature' => '최종 승인 · :title :name · :at',
     'col_location' => '위치',
     'ph_location' => '사무실',
     'fill_template' => '하루 틀 만들기 (09~18시)',

@@ -425,7 +425,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <button type="button" class="btn-primary ml-auto" wire:click="submit" wire:confirm="{{ __('journal.submit_confirm') }}">{{ __('journal.submit') }}</button>
             </div>
         @else
-            <div class="mt-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[13px] text-blue-700">{{ $status === 'approved' ? __('journal.status.approved') : ($this->canRecall() ? __('journal.locked_note') : __('journal.locked_note_progress')) }}</div>
+            <div class="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[13px] text-blue-700">
+                <span>{{ $status === 'approved' ? __('journal.status.approved') : ($this->canRecall() ? __('journal.locked_note') : __('journal.locked_note_progress')) }}</span>
+                <a class="btn-outline btn-sm ml-auto" href="{{ route('work-journal.excel', $j) }}">{{ __('journal.excel_download') }}</a>
+            </div>
         @endunless
 
         {{-- 금일 계약 차량(자동) · 내일 예정업무 · 특이사항 — 해외영업부 엑셀 양식(2026-11-16 Jin) --}}

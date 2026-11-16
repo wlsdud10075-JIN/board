@@ -14,6 +14,8 @@ return [
     'col_time' => 'Time',
     'col_task' => 'Done',
     'col_note' => 'Note',
+    'excel_download' => '📄 Download Excel',
+    'excel_signature' => 'Final approval · :title :name · :at',
     'col_location' => 'Location',
     'ph_location' => 'Office',
     'fill_template' => 'Make day template (09–18)',
