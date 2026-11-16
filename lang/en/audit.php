@@ -145,6 +145,7 @@ return [
         'work_journal_submit' => 'Work journal submitted',
         'work_journal_recall' => 'Work journal recalled',
         'work_journal_approve' => 'Work journal approved',
+        'work_journal_line' => 'Work journal approval line set',
         'work_journal_step_skipped' => 'Work journal step skipped (vacant)',
         'dev_user_switch' => 'User switch (local test)',
         'work_journal_reject' => 'Work journal returned',

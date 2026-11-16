@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\BoardAuditLog;
+use App\Models\Claim;
 use App\Models\PurchaseListing;
 use App\Models\Setting;
 use App\Models\User;
@@ -440,19 +441,45 @@ class WorkJournalService
     /**
      * 승인 — 의견(인원별 + 전체)을 남기고 다음 단계로. 마지막이면 묶음·일지 전부 approved.
      *
+     * 팀장 단계에서는 결재선(`$line` 직급 => user id, 빈 값 = 건너뜀)을 받아 팀장 뒤 단계를 그 지정으로 갈아 끼운다 —
+     * 클레임 [결재 요청] 모달과 같은 규칙(부장 → 상무 → 대표 중 지정, 마지막 지정 = 최종, 한 명 이상, 2026-11-16 Jin).
+     * `$line` null = 기존 결재선 그대로(팀장 아닌 단계·팀장 공석으로 시작한 묶음).
+     *
      * @param  array<int,string>  $perJournal  work_journal_id => 의견
+     * @param  array<string,mixed>|null  $line  직급 => user id
      */
-    public function approve(WorkJournalBatch $b, User $actor, array $perJournal, ?string $overall): void
+    public function approve(WorkJournalBatch $b, User $actor, array $perJournal, ?string $overall, ?array $line = null): void
     {
         $b->load('steps');
         if (! $this->canApprove($b, $actor)) {
             throw new \DomainException('not_your_turn');
         }
+        $picked = null;
+        if ($b->currentStep()?->title === User::TEAM_LEADER) {
+            if ($line === null) {
+                throw new \DomainException('no_line');
+            }
+            $picked = $this->pickLine($line);
+        }
         $memberIds = $b->journals()->pluck('id')->all();
         $next = null;
 
-        DB::transaction(function () use ($b, $actor, $perJournal, $overall, $memberIds, &$next) {
+        DB::transaction(function () use ($b, $actor, $perJournal, $overall, $memberIds, $picked, &$next) {
             $step = $b->currentStep();
+            if ($picked !== null) {
+                // 팀장 뒤 단계(상신 때 깔린 기본 결재선)를 지우고 지정한 사람으로 다시 깐다
+                $b->steps()->where('seq', '>', $step->seq)->delete();
+                $seq = $step->seq;
+                foreach ($picked as $title => $u) {
+                    $b->steps()->create(['seq' => ++$seq, 'title' => $title, 'approver_user_id' => $u->id, 'status' => 'pending']);
+                }
+                $b->load('steps');
+                $step = $b->steps->firstWhere('id', $step->id);
+                $this->audit($actor->id, 'work_journal_line', null, json_encode([
+                    'date' => $b->date->toDateString(), 'batch' => $b->seq,
+                    'line' => collect($picked)->map(fn ($u, $t) => $t.' '.$u->name)->implode(' → '),
+                ], JSON_UNESCAPED_UNICODE));
+            }
             $saved = [];
             foreach ($perJournal as $jid => $body) {
                 $body = trim((string) $body);
@@ -487,6 +514,49 @@ class WorkJournalService
                 $this->push($w, __('journal.push.done_title'), __('journal.push.done_body', ['date' => $label]), 'wj-done-'.$b->id, route('work-journal'));
             }
         }
+    }
+
+    /**
+     * 팀장이 고른 결재선 검증 — 클레임 `ClaimService::requestApproval` 과 같은 규칙(후보 = `Claim::lineCandidates`).
+     *
+     * @return array<string, User>
+     */
+    private function pickLine(array $line): array
+    {
+        $cand = Claim::lineCandidates();
+        $picked = [];
+        foreach (User::TOP_TITLES as $title) {
+            $id = (int) ($line[$title] ?? 0);
+            if ($id === 0) {
+                continue;
+            }
+            if (! $cand[$title] || $cand[$title]->id !== $id) {
+                throw new \DomainException('bad_line');
+            }
+            $picked[$title] = $cand[$title];
+        }
+        if ($picked === []) {
+            throw new \DomainException('no_line');
+        }
+
+        return $picked;
+    }
+
+    /**
+     * 결재선 모달 기본값 — 이 묶음에 깔린 팀장 뒤 단계(그 사람이 아직 그 직급이면), 없으면 직급 보유자 전원.
+     *
+     * @return array<string, ?int>
+     */
+    public function defaultLine(WorkJournalBatch $b): array
+    {
+        $cand = Claim::lineCandidates();
+        $leader = $b->steps->firstWhere('title', User::TEAM_LEADER);
+        $planned = $b->steps->filter(fn ($s) => $leader && $s->seq > $leader->seq && $s->status === 'pending')->pluck('approver_user_id', 'title')->all();
+        if ($planned === []) {
+            return collect($cand)->map(fn ($u) => $u?->id)->all();
+        }
+
+        return collect($cand)->map(fn ($u, $t) => ($u && (int) ($planned[$t] ?? 0) === $u->id) ? $u->id : null)->all();
     }
 
     /** 지금 내 차례인 묶음 수 — 사이드바 배지. */

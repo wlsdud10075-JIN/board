@@ -64,6 +64,8 @@ return [
         'cannot_reject' => 'Only the team leader can return, before approving.',
         'reason_required' => 'Please write a reason.',
         'not_your_turn' => 'It is not your turn to approve.',
+        'no_line' => 'Choose at least one approver.',
+        'bad_line' => 'The approval line changed (title change) — close and reopen, then choose again.',
         'future' => 'You cannot write for a future date.',
     ],
     'activity_title' => 'board activity (automatic)',
@@ -131,6 +133,14 @@ return [
     'ap_now_turn' => 'Waiting for :title :name.',
     'ap_approved_flash' => 'Approved.',
     'ap_final_flash' => 'Final approval done — submitters will be notified.',
+    'ap_line_open' => 'Set approval line · approve',
+    'ap_line_title' => ':date work journal approval line',
+    'ap_line_hint' => 'Manager → director → CEO. Empty titles are skipped; the last one chosen is the final approver.',
+    'ap_line_skip' => '— skip',
+    'ap_line_leader' => 'Team leader (me)',
+    'ap_line_final' => 'Final approver = :title :name',
+    'ap_line_send' => 'Approve → :title',
+    'ap_line_note' => 'The team leader chooses who it goes to (manager/director/CEO) when approving — the line above is the default.',
 
     'push' => [
         'turn_title' => 'Work journal approval',
