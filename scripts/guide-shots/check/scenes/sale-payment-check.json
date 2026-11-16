@@ -1,0 +1,279 @@
+{
+ "slug": "sale-payment-check",
+ "title": "판매대금확인 요청",
+ "login": {
+  "email": "board-check@local.test"
+ },
+ "viewport": "pc",
+ "needs": [
+  "erp",
+  "erp-reset"
+ ],
+ "allowClicks": [
+  "conclude",
+  "sendSaleConfirm"
+ ],
+ "steps": [
+  {
+   "goto": "/listings"
+  },
+  {
+   "clickText": "매입예정 추가",
+   "in": "button"
+  },
+  {
+   "wait": 1000
+  },
+  {
+   "clickText": "셀프검차매입",
+   "in": "button"
+  },
+  {
+   "wait": 600
+  },
+  {
+   "set": "input@model(expected_price)",
+   "value": "9800000"
+  },
+  {
+   "set": "input@model(vehicle_number)",
+   "value": "30가3008"
+  },
+  {
+   "set": "input@model(owner_name)",
+   "value": "점검차주"
+  },
+  {
+   "set": "input[placeholder^='수원']",
+   "value": "경기 수원시"
+  },
+  {
+   "wait": 800
+  },
+  {
+   "clickText": "저장",
+   "in": "button[wire\\:click=\"save\"]"
+  },
+  {
+   "wait": 2500
+  },
+  {
+   "check": "준비 — 셀프검차매입 등록(구매대기)",
+   "db": "select status, origin from purchase_listings where vehicle_number = ? and deleted_at is null and created_at >= ?",
+   "args": [
+    "30가3008",
+    "{since}"
+   ],
+   "expect": {
+    "status": "accepted",
+    "origin": "self_inspection"
+   }
+  },
+  {
+   "goto": "/auction"
+  },
+  {
+   "clickText": "30가3008",
+   "in": "td, tr"
+  },
+  {
+   "wait": 1500
+  },
+  {
+   "set": "input@model(car_cost)",
+   "value": "9800000"
+  },
+  {
+   "set": "input@model(sale_total)",
+   "value": "9300"
+  },
+  {
+   "click": "input[type=radio][value=USD]"
+  },
+  {
+   "set": "input@model(rate_usd)",
+   "value": "1400"
+  },
+  {
+   "select": "select@model(buyerId)",
+   "text": "BOARD CHECK TRADING 2"
+  },
+  {
+   "wait": 1500
+  },
+  {
+   "upload": "input@model(salesFiles)",
+   "files": [
+    "board-check-doc.pdf"
+   ],
+   "after": 2000
+  },
+  {
+   "clickText": "구매확정",
+   "in": "button.btn-green"
+  },
+  {
+   "wait": 2000
+  },
+  {
+   "check": "준비 — 첫 클릭 = 첨부 저장·정보 찾기 대기",
+   "text": "첨부사진에서 정보를 찾는 중입니다"
+  },
+  {
+   "check": "준비 — 첨부는 서류·추출은 사진 없음(GPU 안 부름)",
+   "db": "select i.kind, l.payee_extraction_status from inspection_photos i join purchase_listings l on l.id = i.purchase_listing_id where l.vehicle_number = ? and l.deleted_at is null",
+   "args": [
+    "30가3008"
+   ],
+   "expect": {
+    "kind": "sales_document",
+    "payee_extraction_status": "none"
+   }
+  },
+  {
+   "clickText": "구매확정",
+   "in": "button.btn-green"
+  },
+  {
+   "wait": 4000
+  },
+  {
+   "check": "준비 — 구매확정 처리 안내",
+   "text": "처리되었습니다"
+  },
+  {
+   "check": "준비 — ERP 로 넘어감(synced)",
+   "db": "select status, car_erp_vehicle_id, offer_currency from purchase_listings where vehicle_number = ? and deleted_at is null",
+   "args": [
+    "30가3008"
+   ],
+   "expect": {
+    "status": "synced",
+    "car_erp_vehicle_id": "*",
+    "offer_currency": "USD"
+   }
+  },
+  {
+   "goto": "/portal"
+  },
+  {
+   "wait": 1500
+  },
+  {
+   "check": "「내 정산·미수·선적」 화면",
+   "text": "내 정산·미수·선적"
+  },
+  {
+   "clickText": "판매내역",
+   "in": "button.rounded-md"
+  },
+  {
+   "wait": 2500
+  },
+  {
+   "set": "input@model(vehicleSearch)",
+   "value": "30가3008"
+  },
+  {
+   "wait": 2500
+  },
+  {
+   "clickText": "BOARD CHECK TRADING 2",
+   "in": "button"
+  },
+  {
+   "wait": 1000
+  },
+  {
+   "check": "[판매내역] 바이어 펼침 — 내 차",
+   "text": "30가3008"
+  },
+  {
+   "check": "고르기 전 버튼 [판매대금확인]",
+   "text": "판매대금확인"
+  },
+  {
+   "check": "보내기 전엔 칩 없음",
+   "noText": "요청중"
+  },
+  {
+   "click": "input[type=checkbox][wire\\:click^='toggleReqVehicle(']"
+  },
+  {
+   "wait": 1200
+  },
+  {
+   "check": "버튼에 고른 차 수",
+   "text": "판매대금확인 (1대)"
+  },
+  {
+   "set": "input[wire\\:model^='reqNote.']",
+   "value": "[board점검] 바이어 송금 연락"
+  },
+  {
+   "clickText": "판매대금확인 (1대)",
+   "in": "button"
+  },
+  {
+   "wait": 2500
+  },
+  {
+   "check": "위에 「전송됨」",
+   "text": "전송됨 · 30가3008"
+  },
+  {
+   "check": "노란 「요청중」 칩",
+   "text": "요청중"
+  },
+  {
+   "check": "판매대금확인 기록(감사 행·메모)",
+   "db": "select count(*) as n from board_audit_logs where action = 'erp_board_request' and created_at >= ? and new_value like ? and new_value like '%\"type\":\"sale_payment_confirm\"%' and new_value like '%[board점검]%' and new_value like '%\"result\":\"ok\"%'",
+   "args": [
+    "{since}",
+    "%30가3008%"
+   ],
+   "expect": {
+    "n": 1
+   }
+  },
+  {
+   "check": "전송 표 2xx",
+   "db": "select count(*) as n from integration_events where event_type = 'board_request' and created_at >= ? and response_status between 200 and 299 and request_payload like '%board-check@local.test%' and request_payload like ?",
+   "args": [
+    "{since}",
+    "%\"type\":\"sale_payment_confirm\"%"
+   ],
+   "expect": {
+    "n": 1
+   }
+  },
+  {
+   "click": "input[type=checkbox][wire\\:click^='toggleReqVehicle(']"
+  },
+  {
+   "wait": 1200
+  },
+  {
+   "clickText": "판매대금확인 (1대)",
+   "in": "button"
+  },
+  {
+   "wait": 2500
+  },
+  {
+   "check": "열린 요청에 다시 보내면 건너뜀",
+   "text": "건너뜀 · 30가3008 (이미 요청됨)"
+  },
+  {
+   "check": "다시 보낸 것도 2xx(새로 안 생김은 화면 「건너뜀」)",
+   "db": "select count(*) as n from integration_events where event_type = 'board_request' and created_at >= ? and response_status between 200 and 299 and request_payload like '%board-check@local.test%' and request_payload like ?",
+   "args": [
+    "{since}",
+    "%\"type\":\"sale_payment_confirm\"%"
+   ],
+   "expect": {
+    "n": 2
+   }
+  }
+ ]
+}

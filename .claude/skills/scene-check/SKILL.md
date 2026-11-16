@@ -15,12 +15,16 @@ car-erp 씬 점검과 같은 생각(화면 문구·DB 값 확인, 주 1회, 배�
 - 로컬 DB 만 바꾼다. 되돌리기 = `check/reset.php`(차량번호·이메일로 찾아 되돌리기만, 예시가 없으면 만들지 않고 멈춤). 🚫 `migrate:fresh`·`db:wipe`.
   `boot.php` 가 로컬·board DB 가 아니면 멈춘다(이 폴더는 master 로도 간다).
 - 운영 서버 접속 없음. 결과에 화면 텍스트를 통째로 붙이지 않는다(로컬 DB 에 실명·개인 이메일 행이 섞여 있다).
-- 1단계 범위 = board 안에서 끝나는 씬만. **ERP 로 보내는 버튼(입금요청·구매확정 성공·선적요청·서명·클레임 ERP 로 보내기·탁송 매입잔금)·엔카 추출·여권 읽기·이미지 정보 찾기는 누르지 않는다**(로컬 ERP 데이터를 되돌릴 수 없고, ERP 가 알림톡을 보낼 수 있다).
+- 씬 묶음(2026-11-16): 1단계 5개(board 안) · 2a 9개(포털 읽기·매입예정·업무일지 — 매입예정 등록·삭제는 로컬 ssancar.com(8002) 검차 큐에 씀, Jin 「로컬이니 괜찮다」) · **2b 8개 = 로컬 ERP 에 쓰는 씬**(구매확정·재고매입·금액 다시 보내기·입금요청·판매대금확인·선적요청·클레임 ERP 보내기·탁송 매입잔금).
+- **2b 는 `--after-erp` 일 때만 돈다** — 바로 앞에서 car-erp `GuideSceneFixtureSeeder` 가 점검 전용 행(영업 board-check@local.test · 차 30가30xx · 바이어 BOARD CHECK TRADING 1·2·3 매입 락 0 · 표식 「[board점검]」)을 되돌렸다는 뜻. 토요일엔 ERP 실행기(weekend.ps1)가 ERP 점검 뒤 `node check/run.mjs --mark --after-erp` 로 부른다. 🚫 ERP 점검이 도는 동안(car-erp `storage/logs/scene-check/running.lock`) 시더·2b 를 돌리지 않는다 — 11-16 겹쳐서 ERP 점검을 깨뜨렸다. 손으로 2b 를 돌릴 땐 잠금이 없는지 보고 시더 → `--after-erp` 를 **한 번에 한 실행만**.
+- 막은 버튼(DENY — ERP·바깥 쓰기)은 씬 `allowClicks` 에 적은 것만 누른다. 엔카 추출·여권 읽기·이미지 정보 찾기는 어떤 씬도 안 누른다. `/auction` 첨부는 **PDF 만**(사진이면 로컬에서 회사 GPU PC 계좌 읽기가 돈다).
 
 ## 1. 돌리기
 ```bash
 cd /c/xampp/htdocs/board/scripts/guide-shots && node check/run.mjs              # 전부(약 2분 — 사전 확인 → 되돌리기 → 씬 순서대로)
 node check/run.mjs manage-edit audit-find                                       # 골라서(순서는 SCENES 순 — audit-find 는 manage-edit 기록을 본다)
+# 2b 까지(ERP 점검 잠금이 없을 때만): cd /c/xampp/htdocs/car-erp && php artisan db:seed --class='Database\Seeders\GuideSceneFixtureSeeder' --no-interaction
+#                                     cd /c/xampp/htdocs/board/scripts/guide-shots && node check/run.mjs --after-erp
 ```
 결과 = 화면 표 + `out/check/result.json` + 마지막 줄 `SUMMARY 통과 N / 실패 M`. 멈춘 씬은 `out/check/<slug>-error.png`.
 

@@ -34,7 +34,10 @@ const SCENES = process.env.SCENES ? process.env.SCENES.split(',')
         'portal-read', 'settlement-read', 'portal-share',                                      // 2a — 포털(ERP 읽기만)
         'listing-register', 'listing-delete',                                                  // 2a — 매입예정 등록·삭제(검차 대상 차 — 로컬 ssancar.com 큐에 upsert·withdraw, Jin 「로컬이니 괜찮다」 11-16)
         'self-inspection', 'listing-delete-rejected',                                          // 2a — 매입예정(검차 큐에 안 들어가는 차)
-        'work-journal', 'work-journal-no-ceo'];                                                // 2a — 업무일지(5계정 결재·직급 비우기)
+        'work-journal', 'work-journal-no-ceo',                                                 // 2a — 업무일지(5계정 결재·직급 비우기)
+        // 2b — 로컬 ERP 에 쓰는 씬(needs erp-reset → ERP 시더가 막 돈 --after-erp 실행에서만). 전용 영업 board-check · 30가30xx · 점검 바이어 1·2·3(매입 락 0)
+        'purchase-confirm', 'stock-purchase', 'erp-resend', 'payment-request', 'sale-payment-check', 'shipping-plan',
+        'claim-erp-send', 'transport-balance'];
 // 순서 의미 있음: audit-find 는 manage-edit 이 남긴 기록을 본다. work-journal-no-ceo 는 오늘 결재 중 기안이 없어야 한다(work-journal 이 최종 승인까지 간 뒤).
 // listing-register → listing-delete 는 같은 차(11가1101) — 등록이 큐에 upsert, 삭제가 withdraw 로 정리한다(로컬 8002).
 // ERP·바깥 서비스로 쓰거나 바깥을 부르는 버튼(wire:click 메서드 이름) — 씬이 allowClicks 로 열지 않으면 누르지 않는다.
@@ -193,10 +196,11 @@ for (const slug of list) {
                 await settle();
             }
             else if (s.select) {
-                await page.waitForSelector(sel(s.select), { visible: true, timeout: 8000 });
+                // 같은 칸이 접힌 묶음 안에도 있으면(선적 계획의 바이어별 포워딩사 등) querySelector 첫 번째가 숨은 칸이다 → 보이는 첫 칸을 쓴다
+                await page.waitForFunction((q) => [...document.querySelectorAll(q)].some((e) => e.offsetParent !== null), { timeout: 8000 }, sel(s.select));
                 const ok = await page.evaluate((q, text, without, exact) => {
                     // "without": "🔒" = 그 글자가 없는 첫 실제 항목(이름을 박지 않고 「잠기지 않은 바이어」처럼 고를 때 — 예시 바이어 상태는 ERP 데이터라 바뀐다)
-                    const el = document.querySelector(q);
+                    const el = [...document.querySelectorAll(q)].find((e) => e.offsetParent !== null);
                     // "exact": true = 항목 이름(「 (」·「 · 」 앞)이 text 와 똑같은 것 — 「BOARD CHECK TRADING」 이 「… 2」·「… 3」 까지 잡지 않게
                     const name = (x) => x.textContent.trim().replace(/^🔒\s*/, '').split(/ \(| · /)[0].trim();
                     const o = [...el.options].find((x) => (without !== undefined ? x.value !== '' && !x.textContent.includes(without)

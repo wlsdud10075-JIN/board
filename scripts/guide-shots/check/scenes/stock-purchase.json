@@ -1,0 +1,37 @@
+{"slug":"stock-purchase","title":"재고매입(바이어 미정) 구매확정","login":{"email":"board-check@local.test"},"viewport":"tall","needs":["erp","erp-reset"],"allowClicks":["conclude"],
+ "steps":[
+  {"goto":"/listings"},
+  {"clickText":"매입예정 추가","in":"button"},{"wait":1000},
+  {"clickText":"셀프검차매입","in":"button"},{"wait":600},
+  {"set":"input@model(expected_price)","value":"9500000"},
+  {"set":"input@model(vehicle_number)","value":"30가3002"},
+  {"clickText":"저장","in":"button[wire\\:click=\"save\"]"},{"wait":2500},
+  {"check":"셀프검차매입으로 등록돼 경매/구매로 넘어옴","text":"셀프검차매입 30가3002 등록"},
+
+  {"clickText":"30가3002","in":"td, tr"},{"wait":2000},
+  {"check":"재고매입 체크칸","text":"재고매입 (바이어 미정)"},
+  {"check":"체크 전엔 판매 칸이 있음","text":"견적 통화"},
+  {"click":"input@model(buyerUndecided)"},{"wait":1200},
+  {"check":"바이어 칸은 남고","text":"바이어 / 컨사이니"},
+  {"check":"바이어를 안 고른다는 안내","text":"재고매입이라 바이어를 지정하지 않습니다"},
+  {"check":"판매 쪽 금액 칸이 사라짐","noText":"견적 통화"},
+  {"check":"매입가만 남음","text":"판매 금액은 아직 없습니다"},
+  {"set":"input@model(selling_fee)","value":"300000"},{"wait":800},
+
+  {"upload":"input@model(salesFiles)","files":["fixtures/board-check-doc.pdf"],"after":2000},
+  {"check":"고른 서류가 미리보기에","text":"board-check-doc.pdf"},
+  {"clickText":"구매확정","in":"button.btn-green"},{"wait":1500},
+  {"check":"올리자마자 정보 찾기가 돌아 잠시 막힘","text":"첨부사진에서 정보를 찾는 중입니다"},
+  {"check":"(안전) 사진 0장 — GPU PC 를 안 부름, 찾기 결과 none","db":"select sum(kind = 'sales_photo') as photos, sum(kind = 'sales_document') as docs, (select payee_extraction_status from purchase_listings where vehicle_number = ? and deleted_at is null) as ext from inspection_photos where purchase_listing_id = (select id from purchase_listings where vehicle_number = ? and deleted_at is null)","args":["30가3002","30가3002"],"expect":{"photos":"0","docs":"1","ext":"none"}},
+
+  {"clickText":"구매확정","in":"button.btn-green"},{"wait":2500},
+  {"check":"다시 누르면 확정","text":"30가3002 — 구매확정 처리되었습니다."},
+  {"check":"바이어·판매 금액 없이 ERP 전환완료","db":"select status, car_erp_vehicle_id, buyer_undecided, car_erp_buyer_id, sale_price, offer_currency, selling_fee, owner_name from purchase_listings where vehicle_number = ? and deleted_at is null","args":["30가3002"],"expect":{"status":"synced","car_erp_vehicle_id":"*","buyer_undecided":"1","car_erp_buyer_id":null,"sale_price":null,"offer_currency":null,"selling_fee":"300000","owner_name":null}},
+  {"check":"ERP 전송 1건 성공(2xx) · 재고매입 표시로 감","db":"select count(*) as n, max(json_extract(request_payload, '$.buyer_undecided')) as bu from integration_events where target = 'car_erp' and event_type = 'purchase_sync' and response_status between 200 and 299 and purchase_listing_id = (select id from purchase_listings where vehicle_number = ? and deleted_at is null) and created_at >= ?","args":["30가3002","{since}"],"expect":{"n":1,"bu":"true"}},
+
+  {"goto":"/listings"},
+  {"clickText":"30가3002","in":"tr"},{"wait":1500},
+  {"clickText":"기본","in":"button[role=tab]"},{"wait":600},
+  {"check":"금액 다시 보내기는 재고매입 차에 안 됨","text":"재고매입(바이어 미정) 차량입니다"},
+  {"check":"금액 보내기 버튼 없음","noText":"금액만 ERP 로 보내기"}
+ ]}

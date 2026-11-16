@@ -50,6 +50,10 @@ DB::table('purchase_listings')->where('id', $l->id)->update([
     'status' => 'awaiting_buyer', 'buyer_verdict' => 'pending', 'region' => '경기 수원시', 'deleted_at' => null,
 ]);
 $out[] = '11가1005 → 회신대기·경기 수원시(삭제 해제)';
+// 감사 로그 찾기(audit-find)가 이 차의 「등록 때 값」 줄을 첫 페이지(25줄)에서 본다 — 실행마다 고치기·삭제 줄이 쌓이면 밀려난다.
+// 지난 실행의 수정 줄만 지우고 등록 줄(action=create)은 남긴다(로컬 감사 로그, 2026-11-16).
+$n = DB::table('board_audit_logs')->where('purchase_listing_id', $l->id)->where('action', '!=', 'create')->delete();
+$out[] = "11가1005 지난 수정 기록 {$n}줄 정리";
 
 // 사용자 관리 — 점검이 만드는 계정을 지운다(다시 만들 때 이메일 중복으로 막힘).
 $n = DB::table('users')->where('email', 'guide-new@local.test')->delete();

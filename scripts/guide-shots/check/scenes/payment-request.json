@@ -1,0 +1,353 @@
+{
+ "slug": "payment-request",
+ "title": "입금요청 — 계약금·매입잔금·대표계약금·재전송",
+ "login": {
+  "email": "board-check@local.test"
+ },
+ "viewport": "pc",
+ "needs": [
+  "erp",
+  "erp-reset"
+ ],
+ "allowClicks": [
+  "conclude",
+  "sendPurchaseRequest"
+ ],
+ "steps": [
+  {
+   "goto": "/listings"
+  },
+  {
+   "clickText": "매입예정 추가",
+   "in": "button"
+  },
+  {
+   "wait": 1000
+  },
+  {
+   "clickText": "셀프검차매입",
+   "in": "button"
+  },
+  {
+   "wait": 600
+  },
+  {
+   "set": "input@model(expected_price)",
+   "value": "9800000"
+  },
+  {
+   "set": "input@model(vehicle_number)",
+   "value": "30가3007"
+  },
+  {
+   "set": "input@model(owner_name)",
+   "value": "점검차주"
+  },
+  {
+   "set": "input[placeholder^='수원']",
+   "value": "경기 수원시"
+  },
+  {
+   "wait": 800
+  },
+  {
+   "clickText": "저장",
+   "in": "button[wire\\:click=\"save\"]"
+  },
+  {
+   "wait": 2500
+  },
+  {
+   "check": "준비 — 셀프검차매입 등록(구매대기)",
+   "db": "select status, origin from purchase_listings where vehicle_number = ? and deleted_at is null and created_at >= ?",
+   "args": [
+    "30가3007",
+    "{since}"
+   ],
+   "expect": {
+    "status": "accepted",
+    "origin": "self_inspection"
+   }
+  },
+  {
+   "goto": "/auction"
+  },
+  {
+   "clickText": "30가3007",
+   "in": "td, tr"
+  },
+  {
+   "wait": 1500
+  },
+  {
+   "set": "input@model(car_cost)",
+   "value": "9800000"
+  },
+  {
+   "set": "input@model(sale_total)",
+   "value": "9300"
+  },
+  {
+   "click": "input[type=radio][value=USD]"
+  },
+  {
+   "set": "input@model(rate_usd)",
+   "value": "1400"
+  },
+  {
+   "select": "select@model(buyerId)",
+   "text": "BOARD CHECK TRADING 2"
+  },
+  {
+   "wait": 1500
+  },
+  {
+   "upload": "input@model(salesFiles)",
+   "files": [
+    "board-check-doc.pdf"
+   ],
+   "after": 2000
+  },
+  {
+   "clickText": "구매확정",
+   "in": "button.btn-green"
+  },
+  {
+   "wait": 2000
+  },
+  {
+   "check": "준비 — 첫 클릭 = 첨부 저장·정보 찾기 대기",
+   "text": "첨부사진에서 정보를 찾는 중입니다"
+  },
+  {
+   "check": "준비 — 첨부는 서류·추출은 사진 없음(GPU 안 부름)",
+   "db": "select i.kind, l.payee_extraction_status from inspection_photos i join purchase_listings l on l.id = i.purchase_listing_id where l.vehicle_number = ? and l.deleted_at is null",
+   "args": [
+    "30가3007"
+   ],
+   "expect": {
+    "kind": "sales_document",
+    "payee_extraction_status": "none"
+   }
+  },
+  {
+   "clickText": "구매확정",
+   "in": "button.btn-green"
+  },
+  {
+   "wait": 4000
+  },
+  {
+   "check": "준비 — 구매확정 처리 안내",
+   "text": "처리되었습니다"
+  },
+  {
+   "check": "준비 — ERP 로 넘어감(synced)",
+   "db": "select status, car_erp_vehicle_id, offer_currency from purchase_listings where vehicle_number = ? and deleted_at is null",
+   "args": [
+    "30가3007"
+   ],
+   "expect": {
+    "status": "synced",
+    "car_erp_vehicle_id": "*",
+    "offer_currency": "USD"
+   }
+  },
+  {
+   "goto": "/portal"
+  },
+  {
+   "wait": 1500
+  },
+  {
+   "check": "「내 정산·미수·선적」 화면",
+   "text": "내 정산·미수·선적"
+  },
+  {
+   "clickText": "재고",
+   "in": "button.rounded-md"
+  },
+  {
+   "wait": 2500
+  },
+  {
+   "check": "[재고] → [지급대기]",
+   "text": "지급대기"
+  },
+  {
+   "set": "input@model(invSearch)",
+   "value": "30가3007"
+  },
+  {
+   "wait": 3000
+  },
+  {
+   "check": "지급대기에 내 차",
+   "text": "30가3007"
+  },
+  {
+   "check": "줄마다 [대표계약금] 버튼",
+   "text": "대표계약금"
+  },
+  {
+   "check": "보내기 전엔 칩 없음",
+   "noText": "요청중"
+  },
+  {
+   "set": "input[wire\\:model^='reqAmount.']",
+   "value": "3000000"
+  },
+  {
+   "clickText": "계약금",
+   "in": "button.btn-outline"
+  },
+  {
+   "wait": 2500
+  },
+  {
+   "check": "[계약금] 전송됨",
+   "text": "전송됨 · 30가3007"
+  },
+  {
+   "check": "「계약금 요청중」 칩(종류·금액)",
+   "text": "계약금 요청중 · 3,000,000"
+  },
+  {
+   "check": "버튼이 [계약금 재전송]으로",
+   "text": "계약금 재전송"
+  },
+  {
+   "check": "계약금 요청 기록(감사 행)",
+   "db": "select count(*) as n from board_audit_logs where action = 'erp_board_request' and created_at >= ? and new_value like ? and new_value like ? and new_value like '%\"result\":\"ok\"%'",
+   "args": [
+    "{since}",
+    "%30가3007%",
+    "%\"type\":\"purchase_deposit\"%"
+   ],
+   "expect": {
+    "n": 1
+   }
+  },
+  {
+   "check": "계약금 전송 표 2xx",
+   "db": "select count(*) as n from integration_events where event_type = 'board_request' and created_at >= ? and response_status between 200 and 299 and request_payload like '%board-check@local.test%' and request_payload like ?",
+   "args": [
+    "{since}",
+    "%\"type\":\"purchase_deposit\"%"
+   ],
+   "expect": {
+    "n": 1
+   }
+  },
+  {
+   "set": "input[wire\\:model^='reqAmount.']",
+   "value": ""
+  },
+  {
+   "clickText": "매입잔금",
+   "in": "button.btn-outline"
+  },
+  {
+   "wait": 2500
+  },
+  {
+   "check": "금액칸 비우고 [매입잔금] = ERP 미지급 전액",
+   "text": "매입잔금 요청중 · 9,800,000"
+  },
+  {
+   "check": "매입잔금 요청 기록(전액)",
+   "db": "select count(*) as n from board_audit_logs where action = 'erp_board_request' and created_at >= ? and new_value like ? and new_value like ? and new_value like '%\"result\":\"ok\"%' and new_value like '%\"amount_krw\":9800000%'",
+   "args": [
+    "{since}",
+    "%30가3007%",
+    "%\"type\":\"purchase_balance\"%"
+   ],
+   "expect": {
+    "n": 1
+   }
+  },
+  {
+   "set": "input[wire\\:model^='reqAmount.']",
+   "value": "1000000"
+  },
+  {
+   "clickText": "대표계약금",
+   "in": "button.btn-outline"
+  },
+  {
+   "wait": 2500
+  },
+  {
+   "check": "「대표계약금 요청중」 칩 — 계약금과 따로 열림",
+   "text": "대표계약금 요청중 · 1,000,000"
+  },
+  {
+   "check": "계약금 칩도 그대로",
+   "text": "계약금 요청중 · 3,000,000"
+  },
+  {
+   "check": "대표계약금 요청 기록",
+   "db": "select count(*) as n from board_audit_logs where action = 'erp_board_request' and created_at >= ? and new_value like ? and new_value like ? and new_value like '%\"result\":\"ok\"%'",
+   "args": [
+    "{since}",
+    "%30가3007%",
+    "%\"type\":\"purchase_deposit_ceo\"%"
+   ],
+   "expect": {
+    "n": 1
+   }
+  },
+  {
+   "set": "input[wire\\:model^='reqAmount.']",
+   "value": ""
+  },
+  {
+   "clickText": "계약금 재전송",
+   "in": "button.btn-outline"
+  },
+  {
+   "wait": 2500
+  },
+  {
+   "check": "재전송 결과 줄",
+   "text": "전송됨 · 30가3007 (재전송)"
+  },
+  {
+   "check": "칩에 「재전송 1/5」",
+   "text": "계약금 요청중 · 3,000,000 · 재전송 1/5"
+  },
+  {
+   "check": "재전송 기록(resend)",
+   "db": "select count(*) as n from board_audit_logs where action = 'erp_board_request' and created_at >= ? and new_value like ? and new_value like ? and new_value like '%\"result\":\"ok\"%' and new_value like '%\"resend\":true%'",
+   "args": [
+    "{since}",
+    "%30가3007%",
+    "%\"type\":\"purchase_deposit\"%"
+   ],
+   "expect": {
+    "n": 1
+   }
+  },
+  {
+   "check": "계약금 전송 표 2건(처음+재전송) 2xx",
+   "db": "select count(*) as n from integration_events where event_type = 'board_request' and created_at >= ? and response_status between 200 and 299 and request_payload like '%board-check@local.test%' and request_payload like ?",
+   "args": [
+    "{since}",
+    "%\"type\":\"purchase_deposit\"%"
+   ],
+   "expect": {
+    "n": 2
+   }
+  },
+  {
+   "check": "요청 4번 전부 ERP 2xx",
+   "db": "select count(*) as n from integration_events where event_type = 'board_request' and created_at >= ? and response_status between 200 and 299 and request_payload like '%board-check@local.test%' and request_payload like '%\"type\":\"purchase_%'",
+   "args": [
+    "{since}"
+   ],
+   "expect": {
+    "n": 4
+   }
+  }
+ ]
+}
