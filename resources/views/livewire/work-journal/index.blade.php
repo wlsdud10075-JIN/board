@@ -19,10 +19,24 @@ new #[Layout('components.layouts.app')] class extends Component {
     #[Url]
     public string $date = '';
 
-    /** 화면 칸 — [{id,time,task,note}]. 저장은 칸 단위(updatedRows). */
+    /** 화면 칸 — [{id,time,location,task,note}]. 저장은 칸 단위(updatedRows). */
     public array $rows = [];
 
     public ?string $savedAt = null;
+
+    /** 내일 예정업무 · 특이사항(일지마다 글 칸, 자동 저장) — 해외영업부 엑셀 양식(2026-11-16 Jin). */
+    public string $plan = '';
+
+    public string $remarks = '';
+
+    /** 고정 업무 추가 칸. */
+    public int $rtWeekday = 1;
+
+    public string $rtTime = '';
+
+    public string $rtLocation = '';
+
+    public string $rtTask = '';
 
     public function mount(): void
     {
@@ -56,7 +70,9 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         unset($this->journal);
         $j = $this->journal;
-        $this->rows = $j ? $j->entries()->get()->map(fn ($e) => ['id' => $e->id, 'time' => (string) $e->time, 'task' => (string) $e->task, 'note' => (string) $e->note])->all() : [];
+        $this->rows = $j ? $j->entries()->get()->map(fn ($e) => ['id' => $e->id, 'time' => (string) $e->time, 'location' => (string) $e->location, 'task' => (string) $e->task, 'note' => (string) $e->note])->all() : [];
+        $this->plan = (string) $j?->plan_tomorrow;
+        $this->remarks = (string) $j?->remarks;
         $this->savedAt = null;
     }
 
@@ -87,8 +103,10 @@ new #[Layout('components.layouts.app')] class extends Component {
         if (! $j) {
             return;
         }
-        $e = $j->entries()->create(['time' => now()->format('H:i'), 'sort' => (int) $j->entries()->max('sort') + 1]);
-        $this->rows[] = ['id' => $e->id, 'time' => $e->time, 'task' => '', 'note' => ''];
+        // 위치는 바로 위 줄 값을 이어 쓴다(같은 곳에서 연달아 일하는 게 보통).
+        $loc = $this->rows ? (string) end($this->rows)['location'] : '';
+        $e = $j->entries()->create(['time' => now()->format('H:i'), 'location' => $loc ?: null, 'sort' => (int) $j->entries()->max('sort') + 1]);
+        $this->rows[] = ['id' => $e->id, 'time' => $e->time, 'location' => $loc, 'task' => '', 'note' => ''];
         $this->touchSaved();
         $this->dispatch('wj-row-added');
     }
@@ -97,7 +115,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function updatedRows($value, $key): void
     {
         [$i, $field] = array_pad(explode('.', (string) $key, 2), 2, null);
-        if (! in_array($field, ['time', 'task', 'note'], true) || ! isset($this->rows[$i]['id'])) {
+        if (! in_array($field, ['time', 'location', 'task', 'note'], true) || ! isset($this->rows[$i]['id'])) {
             return;
         }
         $j = $this->writable();
@@ -106,10 +124,93 @@ new #[Layout('components.layouts.app')] class extends Component {
 
             return;
         }
-        $max = ['time' => 5, 'task' => 2000, 'note' => 500][$field];
+        $max = ['time' => 5, 'location' => 40, 'task' => 2000, 'note' => 500][$field];
         $v = mb_substr(trim((string) $value), 0, $max);
         WorkJournalEntry::where('work_journal_id', $j->id)->whereKey($this->rows[$i]['id'])->update([$field => $v === '' ? null : $v]);
         $this->touchSaved();
+    }
+
+    /** 내일 예정업무·특이사항 자동 저장. */
+    public function updatedPlan(): void
+    {
+        $this->saveText('plan_tomorrow', $this->plan);
+    }
+
+    public function updatedRemarks(): void
+    {
+        $this->saveText('remarks', $this->remarks);
+    }
+
+    private function saveText(string $col, string $v): void
+    {
+        $j = $this->writable();
+        if (! $j) {
+            $this->loadRows();
+
+            return;
+        }
+        $v = mb_substr(trim($v), 0, 2000);
+        $j->update([$col => $v === '' ? null : $v]);
+        $this->touchSaved();
+    }
+
+    /** [하루 틀 만들기] — 빈 일지에 09~18시 10줄(+ 그 요일 고정 업무). */
+    public function fillTemplate(): void
+    {
+        $j = $this->writable();
+        if (! $j) {
+            return;
+        }
+        $this->svc()->fillDayTemplate($j);
+        $this->loadRows();
+        $this->touchSaved();
+    }
+
+    public function addRoutine(): void
+    {
+        try {
+            $this->svc()->addRoutine(Auth::user(), $this->rtWeekday, $this->rtTime, $this->rtLocation, $this->rtTask);
+        } catch (\DomainException $e) {
+            $this->addError('routine', __('journal.err.'.$e->getMessage()));
+
+            return;
+        }
+        $this->reset(['rtTime', 'rtLocation', 'rtTask']);
+        unset($this->routines);
+    }
+
+    public function deleteRoutine(int $id): void
+    {
+        $this->svc()->deleteRoutine(Auth::user(), $id);
+        unset($this->routines);
+    }
+
+    /** 내 고정 업무 전부(요일·시간순). */
+    #[Computed]
+    public function routines()
+    {
+        return \App\Models\WorkJournalRoutine::where('user_id', Auth::id())->orderBy('weekday')->orderByRaw('time is null')->orderBy('time')->orderBy('id')->get();
+    }
+
+    /** 어제(이 날짜 전 마지막 일지)에 적은 「내일 예정업무」 — 오늘 화면 위에 보여 준다. */
+    #[Computed]
+    public function prevPlan(): ?string
+    {
+        $p = WorkJournal::where('user_id', Auth::id())->whereDate('date', '<', $this->date)->whereNotNull('plan_tomorrow')->orderByDesc('date')->first();
+
+        return $p ? trim((string) $p->plan_tomorrow) ?: null : null;
+    }
+
+    /** 금일 계약 차량 — 상신 전 = 지금 감사 로그, 상신 뒤 = snapshot(고정). */
+    #[Computed]
+    public function contracts(): array
+    {
+        $j = $this->journal;
+        if ($j && ! $j->isDraft()) {
+            return (array) data_get($j->snapshot, 'contracts', ['rows' => [], 'count' => 0, 'by_currency' => []]);
+        }
+
+        return $this->svc()->contractsFor(Auth::user(), $this->date);
     }
 
     public function deleteRow(int $id): void
@@ -138,7 +239,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
         $sort = (int) $j->entries()->max('sort');
         foreach ($prev->entries()->get() as $e) {
-            $j->entries()->create(['time' => $e->time, 'task' => $e->task, 'note' => $e->note, 'sort' => ++$sort]);
+            $j->entries()->create(['time' => $e->time, 'location' => $e->location, 'task' => $e->task, 'note' => $e->note, 'sort' => ++$sort]);
         }
         $this->loadRows();
         $this->touchSaved();
@@ -267,6 +368,13 @@ new #[Layout('components.layouts.app')] class extends Component {
             </div>
         @endif
         @error('rows') <div class="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">⚠ {{ $message }}</div> @enderror
+        {{-- 어제 적은 「내일 예정업무」 = 오늘 할 일(2026-11-16 Jin, 엑셀 양식) --}}
+        @if (! $locked && $this->prevPlan)
+            <div class="mb-3 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-[13px] text-sky-800">
+                <b>{{ __('journal.prev_plan_title') }}</b>
+                <div class="mt-0.5 whitespace-pre-line">{{ $this->prevPlan }}</div>
+            </div>
+        @endif
 
         {{-- 모바일 = 줄마다 카드(시간·✕ → 한 일 → 비고, 이름표), PC = 한 줄 4칸. 표(table)로 두면 폰에서 입력칸이 쪼그라든다(2026-11-04 Jin). --}}
         @if ($locked)
@@ -276,7 +384,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                  PC = 머리글 + 한 줄 4칸 / 폰 = 줄마다 카드, 칸마다 작은 이름표(무슨 칸인지 보이게). --}}
             @php $grow = "\$el.style.height = 'auto'; \$el.style.height = \$el.scrollHeight + 'px'"; @endphp
             <div class="hidden gap-2 border-b border-gray-200 pb-1.5 text-[12px] font-semibold text-gray-500 sm:flex">
-                <div class="w-20 shrink-0">{{ __('journal.col_time') }}</div><div class="flex-1">{{ __('journal.col_task') }}</div><div class="w-64 shrink-0">{{ __('journal.col_note') }}</div><div class="w-8 shrink-0"></div>
+                <div class="w-20 shrink-0">{{ __('journal.col_time') }}</div><div class="w-28 shrink-0">{{ __('journal.col_location') }}</div><div class="flex-1">{{ __('journal.col_task') }}</div><div class="w-64 shrink-0">{{ __('journal.col_note') }}</div><div class="w-8 shrink-0"></div>
             </div>
             @forelse ($rows as $i => $r)
                 <div class="mb-2 rounded-lg border border-gray-200 p-2.5 sm:mb-0 sm:flex sm:items-start sm:gap-2 sm:rounded-none sm:border-0 sm:border-b sm:border-gray-100 sm:px-0 sm:py-2" wire:key="wj-row-{{ $r['id'] }}">
@@ -284,6 +392,10 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <span class="text-[11px] font-semibold text-gray-500 sm:hidden">{{ __('journal.col_time') }}</span>
                         <input type="text" class="input-base text-center" style="width:5rem" maxlength="5" inputmode="numeric" placeholder="09:00" wire:model.live.debounce.600ms="rows.{{ $i }}.time">
                         <button type="button" class="btn-ghost btn-sm ml-auto sm:hidden" title="{{ __('journal.delete_row') }}" wire:click="deleteRow({{ $r['id'] }})">✕</button>
+                    </div>
+                    <div class="mt-2 sm:mt-0 sm:w-28 sm:shrink-0">
+                        <span class="mb-0.5 block text-[11px] font-semibold text-gray-500 sm:hidden">{{ __('journal.col_location') }}</span>
+                        <input type="text" class="input-base" maxlength="40" list="wj-locations" placeholder="{{ __('journal.ph_location') }}" wire:model.live.debounce.600ms="rows.{{ $i }}.location">
                     </div>
                     <div class="mt-2 min-w-0 sm:mt-0 sm:flex-1">
                         <span class="mb-0.5 block text-[11px] font-semibold text-gray-500 sm:hidden">{{ __('journal.col_task') }}</span>
@@ -298,8 +410,13 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <button type="button" class="btn-ghost btn-sm hidden w-8 shrink-0 sm:block" title="{{ __('journal.delete_row') }}" wire:click="deleteRow({{ $r['id'] }})">✕</button>
                 </div>
             @empty
-                <p class="py-6 text-center text-sm text-gray-400">{{ __('journal.empty_rows') }}</p>
+                <div class="py-6 text-center">
+                    <p class="text-sm text-gray-400">{{ __('journal.empty_rows') }}</p>
+                    <button type="button" class="btn-outline btn-sm mt-2" wire:click="fillTemplate">{{ __('journal.fill_template') }}</button>
+                    <p class="mt-1 text-[11px] text-gray-400">{{ __('journal.fill_template_hint') }}</p>
+                </div>
             @endforelse
+            <datalist id="wj-locations">@foreach (\App\Services\WorkJournalService::LOCATIONS as $loc)<option value="{{ $loc }}"></option>@endforeach</datalist>
         @endif
 
         @unless ($locked)
@@ -308,8 +425,37 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <button type="button" class="btn-primary ml-auto" wire:click="submit" wire:confirm="{{ __('journal.submit_confirm') }}">{{ __('journal.submit') }}</button>
             </div>
         @else
-            <div class="mt-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[13px] text-blue-700">{{ $status === 'approved' ? __('journal.status.approved') : ($this->canRecall() ? __('journal.locked_note') : __('journal.locked_note_progress')) }}</div>
+            <div class="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[13px] text-blue-700">
+                <span>{{ $status === 'approved' ? __('journal.status.approved') : ($this->canRecall() ? __('journal.locked_note') : __('journal.locked_note_progress')) }}</span>
+                <a class="btn-outline btn-sm ml-auto" href="{{ route('work-journal.excel', $j) }}">{{ __('journal.excel_download') }}</a>
+            </div>
         @endunless
+
+        {{-- 금일 계약 차량(자동) · 내일 예정업무 · 특이사항 — 해외영업부 엑셀 양식(2026-11-16 Jin) --}}
+        <div class="mt-5 border-t-2 border-dashed border-gray-200 pt-4">
+            <h3 class="text-sm font-bold text-gray-800">{{ __('journal.contracts_title') }}</h3>
+            <p class="mb-2 mt-0.5 text-xs text-gray-500">{{ __('journal.contracts_hint') }}</p>
+            @include('livewire.work-journal._contracts', ['c' => $this->contracts])
+        </div>
+        @php $snap = $locked ? (array) $j->snapshot : []; @endphp
+        <div class="mt-4 grid gap-3 sm:grid-cols-2">
+            <div>
+                <h3 class="mb-1 text-sm font-bold text-gray-800">{{ __('journal.plan_title') }}</h3>
+                @if ($locked)
+                    <div class="min-h-[3rem] whitespace-pre-line rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-[13px] text-gray-800">{{ data_get($snap, 'plan_tomorrow') ?: '—' }}</div>
+                @else
+                    <textarea class="input-base" rows="3" maxlength="2000" placeholder="{{ __('journal.ph_plan') }}" wire:model.live.debounce.800ms="plan"></textarea>
+                @endif
+            </div>
+            <div>
+                <h3 class="mb-1 text-sm font-bold text-gray-800">{{ __('journal.remarks_title') }}</h3>
+                @if ($locked)
+                    <div class="min-h-[3rem] whitespace-pre-line rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-[13px] text-gray-800">{{ data_get($snap, 'remarks') ?: '—' }}</div>
+                @else
+                    <textarea class="input-base" rows="3" maxlength="2000" placeholder="{{ __('journal.ph_remarks') }}" wire:model.live.debounce.800ms="remarks"></textarea>
+                @endif
+            </div>
+        </div>
 
         {{-- board 활동(자동) — 옮겨 적지 않아도 상신 때 그대로 같이 올라간다(Jin 2026-11-04) --}}
         <div class="mt-5 border-t-2 border-dashed border-gray-200 pt-4">
@@ -330,6 +476,32 @@ new #[Layout('components.layouts.app')] class extends Component {
             @endforeach
         </div>
     @endif
+
+    {{-- 고정 업무 — 요일마다 반복하는 일(예: 수 09:00 경매장 AJ 검수). 그 요일 [하루 틀 만들기] 때 줄·특이사항에 미리 채운다(2026-11-16 Jin). --}}
+    <details class="card mt-4" @if ($errors->has('routine')) open @endif>
+        <summary class="cursor-pointer text-sm font-bold text-gray-800">{{ __('journal.routine_title') }} <span class="text-xs font-normal text-gray-500">· {{ __('journal.routine_hint') }}</span></summary>
+        <div class="mt-3">
+            @forelse ($this->routines as $rt)
+                <div class="flex items-center gap-2 border-b border-gray-100 py-1.5 text-[13px]" wire:key="rt-{{ $rt->id }}">
+                    <span class="badge badge-gray">{{ __('journal.weekday.'.$rt->weekday) }}</span>
+                    <span class="w-12 text-gray-500">{{ $rt->time ?: '—' }}</span>
+                    @if ($rt->location)<span class="badge badge-blue">{{ $rt->location }}</span>@endif
+                    <span class="flex-1 text-gray-800">{{ $rt->task }}</span>
+                    <button type="button" class="btn-ghost btn-sm" wire:click="deleteRoutine({{ $rt->id }})" title="{{ __('journal.delete_row') }}">✕</button>
+                </div>
+            @empty
+                <p class="py-2 text-[13px] text-gray-400">{{ __('journal.routine_empty') }}</p>
+            @endforelse
+            <div class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-[6rem_6rem_8rem_1fr_auto]">
+                <select class="input-base" wire:model="rtWeekday">@foreach (\App\Models\WorkJournalRoutine::WEEKDAYS as $w)<option value="{{ $w }}">{{ __('journal.weekday.'.$w) }}</option>@endforeach</select>
+                <input type="text" class="input-base" maxlength="5" placeholder="09:00" wire:model="rtTime">
+                <input type="text" class="input-base" maxlength="40" list="wj-locations" placeholder="{{ __('journal.ph_location') }}" wire:model="rtLocation">
+                <input type="text" class="input-base col-span-2 sm:col-span-1" maxlength="500" placeholder="{{ __('journal.ph_routine_task') }}" wire:model="rtTask">
+                <button type="button" class="btn-primary btn-sm col-span-2 justify-center sm:col-span-1" wire:click="addRoutine">{{ __('journal.routine_add') }}</button>
+            </div>
+            @error('routine') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+        </div>
+    </details>
 
     <script>
         document.addEventListener('wj-row-added', () => setTimeout(() => { const t = document.querySelectorAll('textarea.wj-task'); t[t.length - 1]?.focus(); }, 50));

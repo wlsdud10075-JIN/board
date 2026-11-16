@@ -39,6 +39,9 @@ return [
     // 매물 자동채움 — encar 공개 JSON API (헤더 불필요). 막히면 base_url/UA 조정.
     'encar' => [
         'base_url' => env('ENCAR_BASE_URL', 'https://api.encar.com'),
+        // 박스 전체 엔카 조회 한도(2026-11-16 Jin 「안정권에서만」) — 넘으면 「한도 초과」 안내, 엔카는 안 부른다. 성공 응답은 6시간 캐시.
+        'limit_10m' => (int) env('ENCAR_LIMIT_10M', 20),
+        'limit_day' => (int) env('ENCAR_LIMIT_DAY', 200),
     ],
 
     // ssancar.com 차량 미디어 API (api_car_media.php) — 검차 영상(Bunny embed/hls)·사진을

@@ -272,6 +272,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <b class="text-gray-800">{{ $jr->user?->name }}</b>
                                 <span class="badge badge-gray">{{ $jr->user?->roleLabel() }}</span>
                                 <span class="text-xs text-gray-500">{{ __('journal.ap_rows', ['n' => count($snapRows)]) }} · {{ __('journal.submitted_at', ['time' => $jr->submitted_at?->format('H:i')]) }}</span>
+                                <a class="text-xs text-blue-700 underline" href="{{ route('work-journal.excel', $jr) }}" x-data x-on:click.stop>{{ __('journal.excel_download') }}</a>
                                 @if ($prev->isNotEmpty())<span class="badge badge-purple">💬 {{ $prev->count() }}</span>@endif
                                 {{-- 반려 — 팀장만, 팀장 승인 전에만. 빨간 버튼 → 사유 모달(2026-11-04 Jin) --}}
                                 @if ($canReject)
@@ -280,6 +281,17 @@ new #[Layout('components.layouts.app')] class extends Component {
                             </summary>
                             <div class="px-3 pb-4 sm:px-4">
                                 @include('livewire.work-journal._entries', ['rows' => $snapRows])
+                                {{-- 금일 계약 차량 · 내일 예정업무 · 특이사항(2026-11-16 엑셀 양식 — 그 전 snapshot 엔 없어 안 그린다) --}}
+                                @if (array_key_exists('contracts', (array) $jr->snapshot))
+                                    <div class="mt-3 border-t border-dashed border-gray-200 pt-2">
+                                        <div class="mb-1 text-xs font-bold text-gray-700">{{ __('journal.contracts_title') }}</div>
+                                        @include('livewire.work-journal._contracts', ['c' => (array) data_get($jr->snapshot, 'contracts')])
+                                    </div>
+                                    <div class="mt-2 grid gap-2 sm:grid-cols-2">
+                                        <div><div class="text-xs font-bold text-gray-700">{{ __('journal.plan_title') }}</div><div class="whitespace-pre-line text-[13px] text-gray-800">{{ data_get($jr->snapshot, 'plan_tomorrow') ?: '—' }}</div></div>
+                                        <div><div class="text-xs font-bold text-gray-700">{{ __('journal.remarks_title') }}</div><div class="whitespace-pre-line text-[13px] text-gray-800">{{ data_get($jr->snapshot, 'remarks') ?: '—' }}</div></div>
+                                    </div>
+                                @endif
                                 <div class="mt-3 border-t border-dashed border-gray-200 pt-2">
                                     <div class="mb-1 text-xs font-bold text-gray-700">{{ __('journal.activity_snapshot') }}</div>
                                     @include('livewire.work-journal._activities', ['acts' => (array) data_get($jr->snapshot, 'activities', [])])

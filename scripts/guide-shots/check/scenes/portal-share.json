@@ -1,0 +1,35 @@
+{"slug":"portal-share","title":"내 포털 공유 — 영업이 관리를 체크·관리가 대신 보기","login":{"email":"guide-demo@local.test"},"viewport":"pc","needs":["erp"],
+ "steps":[
+  {"goto":"/portal"},{"wait":1500},
+  {"check":"공유 카드","text":"내 포털 공유"},
+  {"check":"시작 = 관리자에게 공유 중","text":"공유 중: 관리자"},
+
+  {"clickText":"공유 설정","in":"button"},{"wait":600},
+  {"check":"공유 저장 버튼","text":"공유 저장"},
+  {"clickText":"manager@board.test","in":"label"},
+  {"clickText":"공유 저장","in":"button"},{"wait":800},
+  {"check":"체크 풀고 저장 → 공유 해제","db":"select count(*) as n from manager_salesman ms join users s on s.id = ms.salesman_user_id join users m on m.id = ms.manager_user_id where s.email = ? and m.email = ?","args":["guide-demo@local.test","manager@board.test"],"expect":{"n":0}},
+  {"check":"아무도 없으면 안내","text":"공유한 관리 없음"},
+
+  {"clickText":"공유 설정","in":"button"},{"wait":600},
+  {"clickText":"manager@board.test","in":"label"},
+  {"clickText":"공유 저장","in":"button"},{"wait":800},
+  {"check":"다시 체크하고 저장 → 공유","db":"select count(*) as n from manager_salesman ms join users s on s.id = ms.salesman_user_id join users m on m.id = ms.manager_user_id where s.email = ? and m.email = ?","args":["guide-demo@local.test","manager@board.test"],"expect":{"n":1}},
+  {"check":"공유 중 표시로 돌아옴","text":"공유 중: 관리자"},
+  {"check":"공유 변경이 감사 행으로 남음","db":"select count(*) as n from board_audit_logs where action = 'user_shared_managers' and created_at >= ? and user_id = (select id from users where email = ?)","args":["{since}","guide-demo@local.test"],"expect":{"n":2}},
+
+  {"login":{"email":"manager@board.test"}},
+  {"goto":"/portal"},{"wait":1500},
+  {"check":"관리 — 사용자별 조회","text":"사용자별 조회"},
+  {"check":"관리 — 내 화면 버튼","text":"나(본인)"},
+  {"clickText":"김영업","in":"button.rounded-md"},{"wait":2500},
+  {"check":"영업 명의 안내","text":"요청은 김영업 님 명의로 car-erp에 전달됩니다"},
+  {"check":"정산내역 탭 숨김","noText":"정산내역"},
+  {"check":"정산 대기 숨김","noText":"정산 대기"},
+  {"check":"진행 중 정산 숨김","noText":"진행 중 정산 (예상)"},
+  {"check":"월별 정산액 숨김","noText":"정산 수령액"},
+  {"clickText":"재고","in":"button.rounded-md"},{"wait":2000},
+  {"check":"대신 요청 — 매입잔금","text":"매입잔금"},
+  {"check":"대신 요청 — 대표계약금","text":"대표계약금"},
+  {"check":"끝 = 공유 그대로","db":"select count(*) as n from manager_salesman ms join users s on s.id = ms.salesman_user_id join users m on m.id = ms.manager_user_id where s.email = ? and m.email = ?","args":["guide-demo@local.test","manager@board.test"],"expect":{"n":1}}
+ ]}

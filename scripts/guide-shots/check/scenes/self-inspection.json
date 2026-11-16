@@ -1,0 +1,18 @@
+{"slug":"self-inspection","title":"셀프검차매입","login":{"email":"guide-demo@local.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/listings"},
+  {"clickText":"매입예정 추가","in":"button"},{"wait":1000},
+  {"clickText":"셀프검차매입","in":"button"},{"wait":600},
+  {"check":"건너뛴다는 안내","text":"현지확인·전달·회신을 건너뛰고 저장 즉시 경매/구매 탭으로 넘어갑니다"},
+  {"check":"검차 요청사항 칸 숨김","noText":"검차 요청사항"},
+  {"check":"차 위치 칸 숨김","noText":"차 위치"},
+  {"set":"input@model(expected_price)","value":"9800000"},
+  {"set":"input@model(vehicle_number)","value":"11가1102"},
+  {"set":"input@model(owner_name)","value":"김차주"},
+  {"set":"input[placeholder^='수원']","value":"경기 수원시"},{"wait":800},
+  {"clickText":"저장","in":"button[wire\\:click=\"save\"]"},{"wait":2500},
+  {"check":"경매/구매 화면으로 넘어감","text":"셀프검차매입 11가1102 등록 — 현지확인·회신을 건너뛰고 경매/구매로 넘어왔습니다."},
+  {"check":"경매/구매 목록에 차","text":"11가1102"},
+  {"check":"곧바로 구매대기(회신 수락·수동)","db":"select status, buyer_verdict, verdict_channel, origin, source, inspection_request from purchase_listings where vehicle_number = ? and deleted_at is null and created_at >= ?","args":["11가1102","{since}"],"expect":{"status":"accepted","buyer_verdict":"accepted","verdict_channel":"manual","origin":"self_inspection","source":"encar","inspection_request":null}},
+  {"check":"검차원 목록(ssancar)에 안 올라감","db":"select count(*) as n from integration_events where target = 'ssancar_inspection' and purchase_listing_id = (select max(id) from purchase_listings where vehicle_number = ?) and created_at >= ?","args":["11가1102","{since}"],"expect":{"n":0}}
+ ]}

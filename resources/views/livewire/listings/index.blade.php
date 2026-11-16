@@ -1322,8 +1322,12 @@ new #[Layout('components.layouts.app')] class extends Component {
         //   종전엔 성공 문구에 자동 채움만 빠진 채 칸이 비어 있어 「추출이 안 되는 링크 형식」으로 보였다(링크는 정상이었다).
         if ($e === [] && $enricher->lastFailure !== null) {
             // 엔카가 막았으면 「다시 눌러 보세요」가 소용없다 → 직접 입력 안내(2026-11-16 Jin). 실패는 감사 행으로도 남긴다(운영 로그엔 안 남았다).
-            $blocked = $enricher->lastFailureKind === 'blocked';
-            $this->addError('link', $blocked ? __('listings.links.enrich_blocked') : __('listings.links.enrich_failed', ['reason' => $enricher->lastFailure]));
+            $msg = match ($enricher->lastFailureKind) {
+                'blocked' => __('listings.links.enrich_blocked'),
+                'limited' => __('listings.links.enrich_limited', ['per10' => config('services.encar.limit_10m'), 'day' => config('services.encar.limit_day')]),
+                default => __('listings.links.enrich_failed', ['reason' => $enricher->lastFailure]),
+            };
+            $this->addError('link', $msg);
             \App\Models\BoardAuditLog::create([
                 'user_id' => Auth::id(), 'purchase_listing_id' => null, 'action' => 'encar_enrich_failed', 'field' => 'encar_enrich_failed',
                 'old_value' => null,

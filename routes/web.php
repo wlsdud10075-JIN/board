@@ -9,6 +9,9 @@ use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\TransportDecisionController;
 use App\Models\Setting;
 use App\Models\User;
+use App\Models\WorkJournal;
+use App\Services\WorkJournalExcel;
+use App\Services\WorkJournalService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
@@ -80,6 +83,14 @@ Route::middleware(['auth'])->group(function () {
     // 업무일지 + 업무일지결재(2026-11-04 Jin) — 권한 판정은 화면 mount 에서(작성 = 등급 일반, 결재 = 결재 직급 또는 전체 접근 등급 조회).
     Volt::route('work-journal', 'work-journal.index')->name('work-journal');
     Volt::route('work-journal/approvals', 'work-journal.approvals')->name('work-journal.approvals');
+    // 업무일지 엑셀(해외영업부 양식, 2026-11-16 Jin) — 상신한 일지만, 본인·결재자·전체 접근 등급. 내려받을 때마다 감사 행.
+    Route::get('work-journal/{journal}/excel', function (WorkJournal $journal) {
+        $svc = app(WorkJournalService::class);
+        abort_unless($svc->canExport(auth()->user(), $journal), 403);
+        $svc->logExport(auth()->user(), $journal);
+
+        return WorkJournalExcel::download($svc->excelData($journal), '업무일지_'.$journal->user?->name.'_'.$journal->date->toDateString().'.xlsx');
+    })->name('work-journal.excel');
 
     // 클레임(2026-11-10 Jin) — 기능설정에서 지정한 담당자만(화면 mount 가드, super 도 지정 필요). 접수는 /portal 판매내역 행에서.
     Volt::route('claims', 'claims.index')->name('claims');

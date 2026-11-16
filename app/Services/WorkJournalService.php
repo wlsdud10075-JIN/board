@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Models\WorkJournal;
 use App\Models\WorkJournalBatch;
 use App\Models\WorkJournalComment;
+use App\Models\WorkJournalRoutine;
 use App\Support\Plate;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
@@ -79,6 +80,135 @@ class WorkJournalService
         if (! $exists) {
             $this->audit($j->user_id, 'work_journal_write', null, $j->date->toDateString());
         }
+    }
+
+    /** 위치 고르기 목록(직접 입력도 된다) — 해외영업부 엑셀 양식(2026-11-16 Jin). */
+    public const LOCATIONS = ['사무실', '화물단지', '경매장', '외근'];
+
+    /** 하루 틀 = 09:00~18:00 한 시간 칸(엑셀 양식 10줄). */
+    public const DAY_SLOTS = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00'];
+
+    /**
+     * 금일 계약 차량 — 그날 **본인이 구매확정(→ won)을 누른 차**(감사 로그 status_change, 2026-11-16 Jin 추천안).
+     * 바이어·차량번호·판매가·통화 + 통화별 합계. 상신 때 snapshot 으로 고정(그 뒤 매물이 바뀌어도 결재 내용은 그대로).
+     *
+     * @return array{rows: list<array{buyer:?string, plate:string, sale_price:?float, currency:?string}>, count:int, by_currency: array<string,float>}
+     */
+    public function contractsFor(User $u, string $date): array
+    {
+        $ids = BoardAuditLog::where('user_id', $u->id)->where('action', 'status_change')->where('field', 'status')->where('new_value', 'won')
+            ->where('created_at', '>=', $date.' 00:00:00')->where('created_at', '<=', $date.' 23:59:59')
+            ->orderBy('created_at')->pluck('purchase_listing_id')->filter()->unique()->values();
+        $listings = PurchaseListing::withoutGlobalScopes()->withTrashed()->whereIn('id', $ids)->get()->keyBy('id');
+        $rows = [];
+        $sum = [];
+        foreach ($ids as $id) {
+            $l = $listings[$id] ?? null;
+            if (! $l) {
+                continue;
+            }
+            $price = $l->sale_price !== null ? (float) $l->sale_price : null;
+            $cur = $l->offer_currency ?: null;
+            $rows[] = ['buyer' => $l->buyer_name, 'plate' => (string) Plate::show($l->vehicle_number), 'sale_price' => $price, 'currency' => $cur];
+            if ($price !== null && $cur !== null) {
+                $sum[$cur] = ($sum[$cur] ?? 0) + $price;
+            }
+        }
+
+        return ['rows' => $rows, 'count' => count($rows), 'by_currency' => $sum];
+    }
+
+    /** 그 요일의 고정 업무(시간순). 주말 = 없음. */
+    public function routinesFor(User $u, Carbon|string $date): Collection
+    {
+        $wd = Carbon::parse($date)->dayOfWeekIso;
+
+        return WorkJournalRoutine::where('user_id', $u->id)->where('weekday', $wd)->orderByRaw('time is null')->orderBy('time')->orderBy('id')->get();
+    }
+
+    /**
+     * 엑셀 내려받기 데이터(WorkJournalExcel) — 상신한 일지만(snapshot = 결재 내용 그대로). 서명 칸 = 마지막 승인 단계(최종 승인일 때).
+     *
+     * @return array<string, mixed>
+     */
+    public function excelData(WorkJournal $j): array
+    {
+        $snap = (array) $j->snapshot;
+        $c = (array) ($snap['contracts'] ?? []);
+        $sign = null;
+        if ($j->status === 'approved' && $j->batch) {
+            $last = $j->batch->steps()->where('status', 'approved')->orderByDesc('seq')->with('approver')->first();
+            if ($last) {
+                $sign = __('journal.excel_signature', ['title' => $last->title, 'name' => $last->approver?->name, 'at' => $last->acted_at?->format('m-d H:i')]);
+            }
+        }
+
+        return [
+            'date' => $j->date->toDateString(), 'writer' => (string) $j->user?->name, 'status_label' => __('journal.status.'.$j->status), 'signature' => $sign,
+            'entries' => array_map(fn ($e) => ['time' => $e['time'] ?? '', 'location' => $e['location'] ?? '', 'task' => $e['task'] ?? '', 'note' => $e['note'] ?? ''], (array) ($snap['entries'] ?? [])),
+            'contracts' => (array) ($c['rows'] ?? []),
+            'contract_totals' => ['count' => (int) ($c['count'] ?? 0), 'by_currency' => (array) ($c['by_currency'] ?? [])],
+            'plan_tomorrow' => (string) ($snap['plan_tomorrow'] ?? ''), 'remarks' => (string) ($snap['remarks'] ?? ''),
+        ];
+    }
+
+    /** 엑셀을 내려받을 수 있나 — 본인 일지, 또는 결재자·전체 접근 등급(결재 화면을 볼 수 있는 사람). 상신 전(작성 중)은 없다. */
+    public function canExport(User $u, WorkJournal $j): bool
+    {
+        return ! $j->isDraft() && ($j->user_id === $u->id || $u->isJournalApprover() || $u->hasFullAccess());
+    }
+
+    public function logExport(User $u, WorkJournal $j): void
+    {
+        $this->audit($u->id, 'work_journal_excel', null, json_encode(['journal' => $j->id, 'writer' => $j->user?->name, 'date' => $j->date->toDateString()], JSON_UNESCAPED_UNICODE));
+    }
+
+    /** 고정 업무 추가 — 평일만, 내용 필수. 감사 행(Jin 「board 모든 행위는 기록」). */
+    public function addRoutine(User $u, int $weekday, ?string $time, ?string $location, string $task): WorkJournalRoutine
+    {
+        if (! in_array($weekday, WorkJournalRoutine::WEEKDAYS, true) || trim($task) === '') {
+            throw new \DomainException('routine_invalid');
+        }
+        $time = $time !== null && preg_match('/^\d{2}:\d{2}$/', trim($time)) ? trim($time) : null;
+        $r = WorkJournalRoutine::create(['user_id' => $u->id, 'weekday' => $weekday, 'time' => $time,
+            'location' => mb_substr(trim((string) $location), 0, 40) ?: null, 'task' => mb_substr(trim($task), 0, 500)]);
+        $this->audit($u->id, 'work_journal_routine', null, json_encode(['weekday' => $weekday, 'time' => $r->time, 'location' => $r->location, 'task' => $r->task], JSON_UNESCAPED_UNICODE));
+
+        return $r;
+    }
+
+    public function deleteRoutine(User $u, int $id): void
+    {
+        $r = WorkJournalRoutine::where('user_id', $u->id)->whereKey($id)->first();
+        if ($r) {
+            $this->audit($u->id, 'work_journal_routine', json_encode(['weekday' => $r->weekday, 'time' => $r->time, 'location' => $r->location, 'task' => $r->task], JSON_UNESCAPED_UNICODE), null);
+            $r->delete();
+        }
+    }
+
+    /**
+     * 하루 틀 — 빈 일지에 09~18시 10줄. 그 요일 고정 업무는 같은 시간 줄에 채우고(시간이 틀에 없으면 줄 추가), 특이사항이 비어 있으면 「고정 업무」 목록을 적는다.
+     * 이미 줄이 있으면 아무것도 안 한다(덮어쓰기 없음). 반환 = 만든 줄 수.
+     */
+    public function fillDayTemplate(WorkJournal $j): int
+    {
+        if ($j->entries()->exists()) {
+            return 0;
+        }
+        $routines = $this->routinesFor($j->user, $j->date);
+        $byTime = $routines->whereNotNull('time')->groupBy('time');
+        $times = collect(self::DAY_SLOTS)->merge($byTime->keys())->unique()->sort()->values();
+        $sort = 0;
+        foreach ($times as $t) {
+            $r = $byTime->get($t)?->first();
+            $j->entries()->create(['time' => $t, 'location' => $r?->location, 'task' => $r?->task, 'sort' => ++$sort]);
+        }
+        if ($routines->isNotEmpty() && trim((string) $j->remarks) === '') {
+            $lines = $routines->map(fn ($r) => trim(($r->time ? $r->time.' ' : '').($r->location ? '['.$r->location.'] ' : '').$r->task))->all();
+            $j->update(['remarks' => __('journal.routine_remarks_head')."\n".implode("\n", $lines)]);
+        }
+
+        return $times->count();
     }
 
     /**
@@ -203,8 +333,11 @@ class WorkJournalService
                 'batch_id' => $batch->id,
                 'rejected_at' => null, 'rejected_by' => null, 'reject_reason' => null,   // 다시 상신 — 반려 이력은 감사 로그에
                 'snapshot' => [
-                    'entries' => $entries->map(fn ($e) => ['time' => $e->time, 'task' => $e->task, 'note' => $e->note])->values()->all(),
+                    'entries' => $entries->map(fn ($e) => ['time' => $e->time, 'location' => $e->location, 'task' => $e->task, 'note' => $e->note])->values()->all(),
                     'activities' => $this->activitiesFor($j->user, $date),
+                    'contracts' => $this->contractsFor($j->user, $date),   // 금일 계약 차량 — 상신 순간 고정(2026-11-16)
+                    'plan_tomorrow' => $j->plan_tomorrow,
+                    'remarks' => $j->remarks,
                 ],
             ]);
             $this->audit($j->user_id, 'work_journal_submit', null, json_encode(['date' => $date, 'batch' => $batch->seq, 'entries' => $entries->count()], JSON_UNESCAPED_UNICODE));

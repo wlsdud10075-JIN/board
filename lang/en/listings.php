@@ -127,6 +127,8 @@ return [
         'parse_error' => 'Could not find an identifier in the link. (Enter manually instead.)',
         'enrich_failed' => 'The link is fine but Encar did not return the vehicle (:reason) — press Extract again. If it keeps failing, enter the details manually.',
         'enrich_blocked' => 'Encar is blocking lookups from the board server — pressing Extract again will not help. Enter the plate, region and price manually.',
+        'enrich_limited' => 'Encar lookup limit reached (:per10 per 10 minutes · :day per day) — board paused so we do not hit Encar too often. Try again shortly or enter the details manually.',
+        'enrich_limit_reason' => 'lookup limit reached',
         'price_label' => 'Listing price (= car cost)',
         'price_hint' => '(auto on link extraction · select currency)',
         'price_ph' => 'Auto-filled from link · can enter manually',

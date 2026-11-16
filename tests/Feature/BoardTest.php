@@ -4128,6 +4128,39 @@ class BoardTest extends TestCase
         $this->assertSame(['encar_id' => '42973053', 'reason' => 'HTTP 404', 'kind' => 'blocked'], json_decode($log->new_value, true));
     }
 
+    /**
+     * 엔카 조회 = 브라우저 표시 4줄 + 6시간 캐시 + 박스 한도(2026-11-16 Jin — 기본 표시는 차단, 같은 박스에서 4줄이면 200 실측).
+     * 같은 차를 다시 [추출]하면 엔카를 다시 부르지 않고, 한도를 넘으면 엔카를 안 부르고 「한도 초과」.
+     */
+    public function test_encar_lookup_sends_browser_headers_caches_and_stops_at_limit(): void
+    {
+        config(['services.encar.limit_10m' => 2]);
+        $sent = [];
+        Http::fake(['*api.encar.com*' => function ($req) use (&$sent) {
+            $sent[] = $req;
+
+            return Http::response(['vehicleNo' => '03다9430', 'advertisement' => ['price' => 850]], 200);
+        }]);
+        $this->actingAs($this->mkUser('sales'));
+
+        Volt::test('listings.index')->set('showAdd', true)->set('link', 'https://fem.encar.com/cars/detail/40654399')->call('parseLink')
+            ->assertHasNoErrors()->assertSet('vehicle_number', '03다9430');
+        $this->assertCount(1, $sent);
+        $this->assertStringContainsString('Chrome/', $sent[0]->header('User-Agent')[0]);
+        $this->assertSame('http://www.encar.com/', $sent[0]->header('Referer')[0]);
+
+        Volt::test('listings.index')->set('showAdd', true)->set('link', 'https://fem.encar.com/cars/detail/40654399')->call('parseLink')
+            ->assertHasNoErrors()->assertSet('vehicle_number', '03다9430');
+        $this->assertCount(1, $sent);   // 캐시 — 같은 차는 다시 안 부른다
+
+        Volt::test('listings.index')->set('showAdd', true)->set('link', 'https://fem.encar.com/cars/detail/40000002')->call('parseLink')->assertHasNoErrors();
+        $this->assertCount(2, $sent);
+        Volt::test('listings.index')->set('showAdd', true)->set('link', 'https://fem.encar.com/cars/detail/40000003')->call('parseLink')
+            ->assertHasErrors('link')->assertSee('엔카 조회 한도');
+        $this->assertCount(2, $sent);   // 한도 초과 — 엔카를 안 불렀다
+        $this->assertSame('limited', json_decode(BoardAuditLog::where('action', 'encar_enrich_failed')->sole()->new_value, true)['kind']);
+    }
+
     /** 정상 「없는 차」(JSON 404)는 차단이 아니다 — 종전 안내 그대로, 감사 행은 kind=error. */
     public function test_encar_plain_404_is_not_called_a_block(): void
     {
