@@ -194,13 +194,16 @@ for (const slug of list) {
             }
             else if (s.select) {
                 await page.waitForSelector(sel(s.select), { visible: true, timeout: 8000 });
-                const ok = await page.evaluate((q, text, without) => {
+                const ok = await page.evaluate((q, text, without, exact) => {
                     // "without": "🔒" = 그 글자가 없는 첫 실제 항목(이름을 박지 않고 「잠기지 않은 바이어」처럼 고를 때 — 예시 바이어 상태는 ERP 데이터라 바뀐다)
                     const el = document.querySelector(q);
-                    const o = [...el.options].find((x) => (without !== undefined ? x.value !== '' && !x.textContent.includes(without) : x.textContent.includes(text)));
+                    // "exact": true = 항목 이름(「 (」·「 · 」 앞)이 text 와 똑같은 것 — 「BOARD CHECK TRADING」 이 「… 2」·「… 3」 까지 잡지 않게
+                    const name = (x) => x.textContent.trim().replace(/^🔒\s*/, '').split(/ \(| · /)[0].trim();
+                    const o = [...el.options].find((x) => (without !== undefined ? x.value !== '' && !x.textContent.includes(without)
+                        : exact ? name(x) === text : x.textContent.includes(text)));
                     if (o) { el.value = o.value; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }
                     return !!o;
-                }, sel(s.select), s.text, s.without);
+                }, sel(s.select), s.text, s.without, !!s.exact);
                 if (!ok) throw new Error(`고를 항목 못 찾음: 「${s.text ?? '(' + s.without + ' 없는 항목)'}」`);
                 await settle();
             }
