@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\BoardAuditLog;
+use App\Models\InspectionPhoto;
 use App\Models\PurchaseListing;
 use App\Models\Setting;
 use App\Models\TransportCompany;
@@ -17,6 +18,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * 탁송 배차 요청 — 생성·예약 발송·업체 결정·영업 알림·매입잔금·ERP 보관 위치(2026-11-12 Jin, 정본 meetings/plan-transport-2026-11.md).
@@ -55,7 +57,7 @@ class TransportService
     // ─────────── 생성·예약·취소 ───────────
 
     /**
-     * @param  array{company_id?: ?int, extra_phone?: ?string, address?: ?string, stock_location?: ?string, send_at?: ?Carbon, wanted_at?: ?Carbon, message?: ?string}  $data
+     * @param  array{company_id?: ?int, extra_phone?: ?string, address?: ?string, stock_location?: ?string, send_at?: ?Carbon, wanted_at?: ?Carbon, message?: ?string, attachment_ids?: list<int>}  $data
      * @param  list<UploadedFile>  $files
      *
      * @throws \DomainException open_exists | recipient_required | bad_location | too_many_files | executable_file
@@ -75,7 +77,11 @@ class TransportService
         if ($loc !== '' && ! in_array($loc, $allowed, true)) {
             throw new \DomainException('bad_location');
         }
-        if (count($files) > TransportRequest::MAX_FILES) {
+        // 첨부 탭 사진에서 고른 것(2026-11-17 Jin — 딜러 사진 5장 중 2장을 다시 올리지 않고 골라 보낸다). 이 매물의 사진(서류·영상 제외)만.
+        $picked = InspectionPhoto::where('purchase_listing_id', $l->id)->where('kind', InspectionPhoto::KIND_SALES_PHOTO)
+            ->whereIn('id', array_map('intval', (array) ($data['attachment_ids'] ?? [])))->orderBy('sort')->get()
+            ->reject(fn (InspectionPhoto $p) => $p->isVideo())->values();
+        if (count($files) + $picked->count() > TransportRequest::MAX_FILES) {
             throw new \DomainException('too_many_files');
         }
         foreach ($files as $f) {
@@ -85,7 +91,7 @@ class TransportService
         }
 
         $sendAt = $data['send_at'] ?? now();
-        $req = DB::transaction(function () use ($l, $by, $data, $company, $extra, $loc, $sendAt, $files) {
+        $req = DB::transaction(function () use ($l, $by, $data, $company, $extra, $loc, $sendAt, $files, $picked) {
             $req = TransportRequest::create([
                 'purchase_listing_id' => $l->id,
                 'revision' => TransportRequest::nextRevision($l->id),
@@ -101,6 +107,15 @@ class TransportService
                 'requested_by_user_id' => $by->id,
             ]);
             $disk = (string) config('board.photo_disk');
+            $store = Storage::disk($disk);
+            foreach ($picked as $p) {   // 원본을 복사한다 — 첨부를 나중에 지워도 업체 링크 사진은 남는다
+                $dst = 'transport/'.$l->id.'/'.$req->id.'/att-'.$p->id.'-'.basename($p->s3_path);
+                $store->copy($p->s3_path, $dst);
+                TransportRequestFile::create([
+                    'transport_request_id' => $req->id, 's3_path' => $dst, 'original_name' => $p->original_name,
+                    'mime' => $store->mimeType($dst) ?: 'image/jpeg', 'size' => $store->size($dst), 'uploaded_by_user_id' => $by->id,
+                ]);
+            }
             foreach ($files as $f) {
                 $path = $f->store('transport/'.$l->id.'/'.$req->id, $disk);
                 TransportRequestFile::create([
@@ -108,8 +123,9 @@ class TransportService
                     'mime' => $f->getMimeType(), 'size' => $f->getSize(), 'uploaded_by_user_id' => $by->id,
                 ]);
             }
-            $this->audit($req, $by->id, 'transport_request_create', null, sprintf('%d회차 · %s · 사진 %d · 발송 %s%s%s',
-                $req->revision, $company?->name ?: ('번호 '.TransportCompanyPhone::mask($extra)), count($files),
+            $this->audit($req, $by->id, 'transport_request_create', null, sprintf('%d회차 · %s · 사진 %d%s · 발송 %s%s%s',
+                $req->revision, $company?->name ?: ('번호 '.TransportCompanyPhone::mask($extra)), count($files) + $picked->count(),
+                $picked->isNotEmpty() ? ' (첨부에서 '.$picked->count().')' : '',
                 $sendAt->timezone(config('app.timezone'))->format('m-d H:i'), $loc ? ' · 도착 '.$loc : '',
                 $req->wantedLabel() ? ' · 희망 배차 '.$req->wantedLabel() : ''));
 

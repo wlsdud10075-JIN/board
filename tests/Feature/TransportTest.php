@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\AlimtalkLog;
 use App\Models\BoardAuditLog;
+use App\Models\InspectionPhoto;
 use App\Models\PurchaseListing;
 use App\Models\TransportCompany;
 use App\Models\TransportRequest;
@@ -12,9 +13,11 @@ use App\Models\User;
 use App\Services\TransportService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use Livewire\Volt\Volt;
 use Tests\TestCase;
@@ -289,6 +292,53 @@ class TransportTest extends TestCase
         $r2 = $this->svc()->create($l2, $sales, ['company_id' => $c->id]);
         $this->assertNull($r2->wantedLabel());
         $this->get($r2->linkFor($r2->recipients->firstWhere('kind', TransportRequestRecipient::KIND_COMPANY)))->assertOk()->assertDontSee(__('transport.page.wanted'));
+    }
+
+    /** 첨부 탭 사진에서 골라 보내기(2026-11-17) — 처음엔 전부 체크 · 뺀 것은 안 간다 · 서류·남의 매물 사진은 무시 · 새로 올린 것과 합쳐 5장 상한 · 원본 복사. */
+    public function test_attachment_photos_can_be_picked_for_the_company_page(): void
+    {
+        Storage::fake((string) config('board.photo_disk'));
+        $disk = Storage::disk((string) config('board.photo_disk'));
+        $sales = $this->user();
+        $c = $this->company(['01099990001' => '김기사']);
+        $l = $this->listing($sales);
+        $other = $this->listing($sales);
+        $mk = function (PurchaseListing $on, string $name, string $kind) use ($disk) {
+            $disk->put('sales/'.$on->id.'/'.$name, 'x');
+
+            return InspectionPhoto::create(['purchase_listing_id' => $on->id, 's3_path' => 'sales/'.$on->id.'/'.$name, 'original_name' => $name, 'sort' => 1, 'kind' => $kind, 'share_to_buyer' => false]);
+        };
+        $p = [];
+        foreach (['a.jpg', 'b.jpg', 'c.jpg'] as $n) {
+            $p[] = $mk($l, $n, InspectionPhoto::KIND_SALES_PHOTO);
+        }
+        $doc = $mk($l, 'contract.pdf', InspectionPhoto::KIND_SALES_DOCUMENT);
+        $foreign = $mk($other, 'z.jpg', InspectionPhoto::KIND_SALES_PHOTO);
+
+        $this->actingAs($sales);
+        $t = Volt::test('transport.tab', ['listingId' => $l->id])
+            ->assertSet('pick', [(string) $p[0]->id, (string) $p[1]->id, (string) $p[2]->id]);   // 사진만, 전부 체크
+        $t->set('pick', [(string) $p[0]->id, (string) $p[2]->id, (string) $doc->id, (string) $foreign->id])
+            ->set('company_id', $c->id)->call('submit')->assertHasNoErrors();
+
+        $req = TransportRequest::firstOrFail();
+        $this->assertSame(['a.jpg', 'c.jpg'], $req->files->pluck('original_name')->all());
+        foreach ($req->files as $f) {
+            $this->assertStringStartsWith('transport/'.$l->id.'/'.$req->id.'/', $f->s3_path);
+            $disk->assertExists($f->s3_path);
+        }
+        $disk->assertExists($p[1]->s3_path);   // 원본은 그대로
+        $this->assertStringContainsString('사진 2 (첨부에서 2)', BoardAuditLog::where('action', 'transport_request_create')->value('new_value'));
+        $this->get($req->linkFor($req->recipients->firstWhere('kind', TransportRequestRecipient::KIND_COMPANY)))->assertOk()->assertSee($req->files[0]->shareUrl(), false);
+
+        // 합쳐서 5장 넘으면 막힘
+        $l2 = $this->listing($sales);
+        $ids = [];
+        foreach (range(1, 4) as $i) {
+            $ids[] = $mk($l2, "p{$i}.jpg", InspectionPhoto::KIND_SALES_PHOTO)->id;
+        }
+        $this->expectException(\DomainException::class);
+        $this->svc()->create($l2, $sales, ['company_id' => $c->id, 'attachment_ids' => $ids], [UploadedFile::fake()->image('n1.jpg'), UploadedFile::fake()->image('n2.jpg')]);
     }
 
     /** 업체 관리 — 관리 role 은 추가·번호 등록 가능, 영업은 403. */
