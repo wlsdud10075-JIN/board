@@ -40,6 +40,9 @@ new class extends Component
     /** @var array<int, \Livewire\Features\SupportFileUploads\TemporaryUploadedFile> */
     public array $photos = [];
 
+    /** 첨부 탭 사진 중 같이 보낼 것(id 문자열) — 처음엔 앞에서 5장까지 전부 체크, 빼고 싶은 것만 끈다(2026-11-17 Jin). */
+    public array $pick = [];
+
     public string $balanceAmount = '';
 
     public ?string $notice = null;
@@ -52,6 +55,7 @@ new class extends Component
     public function mount(int $listingId): void
     {
         $this->listingId = $listingId;
+        $this->resetPick();
         $this->loadErpLocation();
     }
 
@@ -59,6 +63,18 @@ new class extends Component
     public function listing(): PurchaseListing
     {
         return PurchaseListing::findOrFail($this->listingId);   // SalesmanScope 가 열람 권한
+    }
+
+    /** 첨부 탭의 사진(서류·영상 제외) — 업체 링크 화면에 붙일 후보. */
+    #[Computed]
+    public function attachPhotos()
+    {
+        return $this->listing->salesAttachments->where('kind', \App\Models\InspectionPhoto::KIND_SALES_PHOTO)->reject(fn ($p) => $p->isVideo())->values();
+    }
+
+    private function resetPick(): void
+    {
+        $this->pick = $this->attachPhotos->take(TransportRequest::MAX_FILES)->map(fn ($p) => (string) $p->id)->all();
     }
 
     #[Computed]
@@ -141,6 +157,7 @@ new class extends Component
             'message' => 'required|string|max:255',
             'wanted_at' => 'nullable|date',
             'photos' => 'array|max:'.TransportRequest::MAX_FILES,
+            'pick' => 'array',
             'photos.*' => 'file|max:20480',
         ]);
         $sendAt = now();
@@ -154,6 +171,7 @@ new class extends Component
             $req = $svc->create($this->listing, Auth::user(), [
                 'company_id' => $this->company_id, 'extra_phone' => $this->extra_phone, 'address' => $this->address,
                 'stock_location' => $this->stock_location, 'message' => $this->message, 'send_at' => $sendAt, 'wanted_at' => $wanted,
+                'attachment_ids' => array_map('intval', $this->pick),
                 'allowed_locations' => $this->locations(),
             ], $this->photos);
         } catch (\DomainException $e) {
@@ -170,6 +188,7 @@ new class extends Component
             ? __('transport.created_now', ['count' => $req->recipients()->count()])
             : __('transport.created_later', ['at' => $sendAt->timezone(config('app.timezone'))->format('m-d H:i')]);
         $this->reset('company_id', 'extra_phone', 'address', 'photos', 'balanceAmount', 'wanted_at');
+        $this->resetPick();
         $this->message = TransportRequest::DEFAULT_MESSAGE;
         unset($this->requests, $this->open);
     }
@@ -298,6 +317,19 @@ new class extends Component
                     </p>
                 @endif
             </div>
+            @if ($this->attachPhotos->isNotEmpty())
+                <div>
+                    <label class="label-base">{{ __('transport.form.pick', ['n' => count($pick), 'max' => \App\Models\TransportRequest::MAX_FILES]) }} <span class="font-normal text-gray-400">— {{ __('transport.form.pick_hint') }}</span></label>
+                    <div class="grid grid-cols-5 gap-1">
+                        @foreach ($this->attachPhotos as $ap)
+                            <label wire:key="tp-{{ $ap->id }}" class="relative block cursor-pointer overflow-hidden rounded border-2 {{ in_array((string) $ap->id, $pick, true) ? 'border-[var(--color-primary)]' : 'border-transparent opacity-40' }}" title="{{ $ap->original_name }}">
+                                <img src="{{ $ap->url() }}" class="aspect-square w-full object-cover" loading="lazy" alt="">
+                                <input type="checkbox" wire:model.live="pick" value="{{ $ap->id }}" class="absolute left-1 top-1">
+                            </label>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
             <div>
                 <label class="label-base">{{ __('transport.form.photos', ['max' => \App\Models\TransportRequest::MAX_FILES]) }} <span class="font-normal text-gray-400">— {{ __('transport.form.photos_hint') }}</span></label>
                 <input type="file" wire:model="photos" multiple accept="image/*" class="input-base text-xs">
