@@ -30,8 +30,8 @@ return [
         'photos' => '사진 (명함·차량 외관, 최대 :max장)',
         'photos_hint' => '업체가 링크 페이지에서 봅니다.',
         'message' => '문구',
-        'send_now' => '지금 보내기',
-        'send_later' => '예약 보내기',
+        'wanted' => '희망 배차 시각',
+        'wanted_hint' => '선택 · 비우면 가능한 빨리. 요청은 누르는 즉시 나가고, 업체 링크 페이지 맨 위에 크게 보입니다',
         'send_at' => '보낼 시각',
         'cc' => '함께 받는 사람',
         'cc_none' => '전화번호 없음',
@@ -49,6 +49,8 @@ return [
     'cancel' => '취소',
     'cancel_confirm' => '이 예약 발송을 취소할까요?',
     'reschedule' => '시각 변경',
+    'wanted_short' => '희망 배차 :at',
+    'dow' => [1 => '월', 2 => '화', 3 => '수', 4 => '목', 5 => '금', 6 => '토', 7 => '일'],
     'reschedule_done' => '발송 시각을 바꿨습니다.',
     'cancelled_done' => '취소했습니다.',
     'created_now' => '배차 요청을 보냈습니다 (수신 :count명).',
@@ -65,6 +67,7 @@ return [
         'executable_file' => '실행 파일은 올릴 수 없습니다.',
         'not_scheduled' => '발송 전 요청만 바꿀 수 있습니다.',
         'send_at_past' => '예약 시각은 지금 이후여야 합니다.',
+        'wanted_past' => '희망 배차 시각이 이미 지났습니다 — 지금 이후로 고르거나 비우세요.',
         'forbidden' => '이 매물에 요청할 권한이 없습니다.',
     ],
 
@@ -94,6 +97,7 @@ return [
     // ── 공개 페이지(업체) ──
     'page' => [
         'title' => '탁송 배차 요청',
+        'wanted' => '희망 배차 시각',
         'requested_by' => '요청: :name · :at',
         'address' => '차량 위치',
         'address_none' => '주소 미기재 — 요청자에게 문의',

@@ -251,6 +251,46 @@ class TransportTest extends TestCase
         Volt::test('transport.tab', ['listingId' => $l->id]);
     }
 
+    /** 희망 배차 시각(2026-11-17) — 폼 → 즉시 발송 · 업체 페이지 맨 위 · 이력 · 감사 행 · 매입잔금 메모. 알림톡 변수는 그대로(BizM 승인본). 지난 시각은 막는다. */
+    public function test_wanted_dispatch_time_shows_on_page_history_and_balance_note(): void
+    {
+        Carbon::setTestNow('2026-11-17 11:00:00');
+        config(['services.car_erp.base_url' => 'https://erp.test', 'services.car_erp.read_hmac_secret' => 'sek']);
+        $sales = $this->user();
+        $sales->forceFill(['car_erp_salesman_email' => 'erp-sales@t.test'])->save();
+        $c = $this->company(['01099990001' => '김기사']);
+        $l = $this->listing($sales, ['status' => 'synced', 'buyer_verdict' => 'accepted', 'car_erp_vehicle_id' => 77]);
+
+        $this->actingAs($sales);
+        Volt::test('transport.tab', ['listingId' => $l->id])
+            ->assertDontSee('예약 보내기')
+            ->set('company_id', $c->id)->set('wanted_at', '2026-11-17T09:00')->call('submit')->assertHasErrors('wanted_at')
+            ->set('wanted_at', '2026-11-17T12:00')->call('submit')->assertHasNoErrors()
+            ->assertSee(__('transport.status.sent'))->assertSee('희망 배차 11-17(화) 12:00');
+
+        $req = TransportRequest::firstOrFail();
+        $this->assertTrue($req->isSent());   // 발송을 미루지 않는다
+        $this->assertSame('11-17(화) 12:00', $req->wantedLabel());
+        $this->assertStringContainsString('희망 배차 11-17(화) 12:00', BoardAuditLog::where('action', 'transport_request_create')->value('new_value'));
+
+        $company = $req->recipients->firstWhere('kind', TransportRequestRecipient::KIND_COMPANY);
+        $this->get($req->linkFor($company))->assertOk()->assertSeeInOrder([__('transport.page.wanted'), '11-17(화) 12:00', $req->message]);
+
+        $req = $this->svc()->decide($req, $company, 'accept', null, '김기사', null);
+        Http::fake([
+            'erp.test/*/inventory*' => Http::response(['data' => [['vehicle_id' => 77, 'vehicle_number' => $l->vehicle_number, 'purchase_unpaid' => 100]]], 200),
+            'erp.test/*/requests*' => Http::response(['created' => 1], 201),
+        ]);
+        $this->assertTrue($this->svc()->requestBalance($req, $sales, null)['ok']);
+        Http::assertSent(fn ($rq) => str_contains($rq->url(), '/requests') && str_contains(json_decode($rq->body(), true)['note'], '희망 배차 11-17(화) 12:00'));
+
+        // 비우면 줄 자체가 없다
+        $l2 = $this->listing($sales);
+        $r2 = $this->svc()->create($l2, $sales, ['company_id' => $c->id]);
+        $this->assertNull($r2->wantedLabel());
+        $this->get($r2->linkFor($r2->recipients->firstWhere('kind', TransportRequestRecipient::KIND_COMPANY)))->assertOk()->assertDontSee(__('transport.page.wanted'));
+    }
+
     /** 업체 관리 — 관리 role 은 추가·번호 등록 가능, 영업은 403. */
     public function test_companies_page_permissions_and_add(): void
     {

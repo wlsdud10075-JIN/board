@@ -55,7 +55,7 @@ class TransportService
     // ─────────── 생성·예약·취소 ───────────
 
     /**
-     * @param  array{company_id?: ?int, extra_phone?: ?string, address?: ?string, stock_location?: ?string, send_at?: ?Carbon, message?: ?string}  $data
+     * @param  array{company_id?: ?int, extra_phone?: ?string, address?: ?string, stock_location?: ?string, send_at?: ?Carbon, wanted_at?: ?Carbon, message?: ?string}  $data
      * @param  list<UploadedFile>  $files
      *
      * @throws \DomainException open_exists | recipient_required | bad_location | too_many_files | executable_file
@@ -96,6 +96,7 @@ class TransportService
                 'message' => trim((string) ($data['message'] ?? '')) ?: TransportRequest::DEFAULT_MESSAGE,
                 'stock_location' => $loc ?: null,
                 'send_at' => $sendAt,
+                'wanted_at' => $data['wanted_at'] ?? null,
                 'status' => TransportRequest::SCHEDULED,
                 'requested_by_user_id' => $by->id,
             ]);
@@ -107,9 +108,10 @@ class TransportService
                     'mime' => $f->getMimeType(), 'size' => $f->getSize(), 'uploaded_by_user_id' => $by->id,
                 ]);
             }
-            $this->audit($req, $by->id, 'transport_request_create', null, sprintf('%d회차 · %s · 사진 %d · 발송 %s%s',
+            $this->audit($req, $by->id, 'transport_request_create', null, sprintf('%d회차 · %s · 사진 %d · 발송 %s%s%s',
                 $req->revision, $company?->name ?: ('번호 '.TransportCompanyPhone::mask($extra)), count($files),
-                $sendAt->timezone(config('app.timezone'))->format('m-d H:i'), $loc ? ' · 도착 '.$loc : ''));
+                $sendAt->timezone(config('app.timezone'))->format('m-d H:i'), $loc ? ' · 도착 '.$loc : '',
+                $req->wantedLabel() ? ' · 희망 배차 '.$req->wantedLabel() : ''));
 
             return $req;
         });
@@ -277,7 +279,7 @@ class TransportService
         ];
         $payload = [
             'title' => ($accepted ? __('transport.push.title_accepted') : __('transport.push.title_rejected')).' — '.$plate,
-            'body' => $req->dispatchLine().($req->reject_reason ? ' · '.$req->reject_reason : ''),
+            'body' => $req->dispatchLine().($req->wantedLabel() ? ' · '.__('transport.wanted_short', ['at' => $req->wantedLabel()]) : '').($req->reject_reason ? ' · '.$req->reject_reason : ''),
             'url' => route('listings', ['edit' => $req->purchase_listing_id]),
             'tag' => 'transport-'.$req->id,
         ];
@@ -318,7 +320,7 @@ class TransportService
                 return ['ok' => false, 'message' => __('transport.balance.fill_unavailable')];
             }
         }
-        $note = mb_substr(__('transport.balance.note_prefix').$req->dispatchLine(), 0, 200);
+        $note = mb_substr(__('transport.balance.note_prefix').$req->dispatchLine().($req->wantedLabel() ? ' · '.__('transport.wanted_short', ['at' => $req->wantedLabel()]) : ''), 0, 200);
         $res = $this->erp->sendBoardRequest($email, CarErpReadService::REQ_PURCHASE_BALANCE, [(int) $l->car_erp_vehicle_id], null, $note, $amountKrw);
         $ok = (bool) ($res['ok'] ?? false);
         $msg = $ok ? __('transport.balance.sent', ['amount' => number_format($amountKrw)])

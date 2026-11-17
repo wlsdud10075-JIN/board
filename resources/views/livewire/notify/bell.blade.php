@@ -259,7 +259,7 @@ new class extends Component
         ])->all();
         $this->transports = $this->transportDecidedQuery()->with(['listing', 'decidedRecipient'])->limit(10)->get()->map(fn ($t) => [
             'id' => $t->id, 'kind' => $t->status, 'plate' => $t->listing?->vehicle_number ?? '—',
-            'text' => trim($t->dispatchLine().($t->reject_reason ? ' · '.$t->reject_reason : '')),
+            'text' => trim($t->dispatchLine().($t->wantedLabel() ? ' · '.__('transport.wanted_short', ['at' => $t->wantedLabel()]) : '').($t->reject_reason ? ' · '.$t->reject_reason : '')),
             'at' => $t->decided_at->timezone(config('app.timezone'))->format('m-d H:i'), 'new' => $t->decided_at->gt($seen),
             'href' => route('listings', ['edit' => $t->purchase_listing_id]),
         ])->all();

@@ -29,8 +29,8 @@ return [
         'photos' => 'Photos (business card, exterior — up to :max)',
         'photos_hint' => 'Shown to the company on the link page.',
         'message' => 'Message',
-        'send_now' => 'Send now',
-        'send_later' => 'Schedule',
+        'wanted' => 'Wanted dispatch time',
+        'wanted_hint' => 'optional · empty = as soon as possible. The request goes out immediately; the time is shown at the top of the company link page',
         'send_at' => 'Send at',
         'cc' => 'Also notified',
         'cc_none' => 'no phone',
@@ -48,6 +48,8 @@ return [
     'cancel' => 'Cancel',
     'cancel_confirm' => 'Cancel this scheduled request?',
     'reschedule' => 'Change time',
+    'wanted_short' => 'Wanted :at',
+    'dow' => [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat', 7 => 'Sun'],
     'reschedule_done' => 'Send time updated.',
     'cancelled_done' => 'Cancelled.',
     'created_now' => 'Dispatch request sent (:count recipients).',
@@ -64,6 +66,7 @@ return [
         'executable_file' => 'Executable files are not allowed.',
         'not_scheduled' => 'Only requests not yet sent can be changed.',
         'send_at_past' => 'Scheduled time must be in the future.',
+        'wanted_past' => 'The wanted dispatch time has already passed — pick a later time or leave it empty.',
         'forbidden' => 'You cannot request transport for this listing.',
     ],
 
@@ -91,6 +94,7 @@ return [
 
     'page' => [
         'title' => 'Transport dispatch request',
+        'wanted' => 'Wanted dispatch time',
         'requested_by' => 'Requested by :name · :at',
         'address' => 'Vehicle location',
         'address_none' => 'No address — ask the requester',
