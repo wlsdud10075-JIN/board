@@ -34,9 +34,8 @@ new class extends Component
 
     public string $message = TransportRequest::DEFAULT_MESSAGE;
 
-    public string $mode = 'now';   // now | later
-
-    public string $send_at = '';
+    /** 희망 배차 시각(선택, 2026-11-17 Jin) — 「예약 보내기」(발송 시각)를 대신한다. 요청은 누르는 즉시 나간다. 비우면 「가능한 빨리」. */
+    public string $wanted_at = '';
 
     /** @var array<int, \Livewire\Features\SupportFileUploads\TemporaryUploadedFile> */
     public array $photos = [];
@@ -53,7 +52,6 @@ new class extends Component
     public function mount(int $listingId): void
     {
         $this->listingId = $listingId;
-        $this->send_at = now()->addHour()->startOfHour()->format('Y-m-d\TH:i');
         $this->loadErpLocation();
     }
 
@@ -141,21 +139,21 @@ new class extends Component
             'address' => 'nullable|string|max:255',
             'stock_location' => 'nullable|string|max:20',
             'message' => 'required|string|max:255',
-            'mode' => 'in:now,later',
-            'send_at' => 'required_if:mode,later|nullable|date',
+            'wanted_at' => 'nullable|date',
             'photos' => 'array|max:'.TransportRequest::MAX_FILES,
             'photos.*' => 'file|max:20480',
         ]);
-        $sendAt = $this->mode === 'later' ? Carbon::parse($this->send_at, config('app.timezone')) : now();
-        if ($this->mode === 'later' && $sendAt->lte(now())) {
-            $this->addError('send_at', __('transport.errors.send_at_past'));
+        $sendAt = now();
+        $wanted = trim($this->wanted_at) !== '' ? Carbon::parse($this->wanted_at, config('app.timezone')) : null;
+        if ($wanted && $wanted->lt(now()->subMinutes(5))) {
+            $this->addError('wanted_at', __('transport.errors.wanted_past'));
 
             return;
         }
         try {
             $req = $svc->create($this->listing, Auth::user(), [
                 'company_id' => $this->company_id, 'extra_phone' => $this->extra_phone, 'address' => $this->address,
-                'stock_location' => $this->stock_location, 'message' => $this->message, 'send_at' => $sendAt,
+                'stock_location' => $this->stock_location, 'message' => $this->message, 'send_at' => $sendAt, 'wanted_at' => $wanted,
                 'allowed_locations' => $this->locations(),
             ], $this->photos);
         } catch (\DomainException $e) {
@@ -171,9 +169,8 @@ new class extends Component
         $this->notice = $req->isSent()
             ? __('transport.created_now', ['count' => $req->recipients()->count()])
             : __('transport.created_later', ['at' => $sendAt->timezone(config('app.timezone'))->format('m-d H:i')]);
-        $this->reset('company_id', 'extra_phone', 'address', 'photos', 'balanceAmount');
+        $this->reset('company_id', 'extra_phone', 'address', 'photos', 'balanceAmount', 'wanted_at');
         $this->message = TransportRequest::DEFAULT_MESSAGE;
-        $this->mode = 'now';
         unset($this->requests, $this->open);
     }
 
@@ -318,14 +315,11 @@ new class extends Component
                 <label class="label-base">{{ __('transport.form.message') }}</label>
                 <input wire:model="message" class="input-base" maxlength="255">
             </div>
-            <div class="flex flex-wrap items-center gap-2">
-                <label class="flex items-center gap-1 text-[12px]"><input type="radio" wire:model.live="mode" value="now"> {{ __('transport.form.send_now') }}</label>
-                <label class="flex items-center gap-1 text-[12px]"><input type="radio" wire:model.live="mode" value="later"> {{ __('transport.form.send_later') }}</label>
-                @if ($mode === 'later')
-                    <input type="datetime-local" wire:model="send_at" class="input-base w-auto text-xs">
-                @endif
+            <div>
+                <label class="label-base">{{ __('transport.form.wanted') }} <span class="font-normal text-gray-400">— {{ __('transport.form.wanted_hint') }}</span></label>
+                <input type="datetime-local" wire:model="wanted_at" class="input-base w-auto text-xs" step="600">
+                @error('wanted_at')<p class="text-xs text-red-600">{{ $message }}</p>@enderror
             </div>
-            @error('send_at')<p class="text-xs text-red-600">{{ $message }}</p>@enderror
             <p class="text-[11px] text-gray-500">{{ __('transport.form.cc') }}:
                 @forelse ($this->cc as $u)<span class="{{ $u['has_phone'] ? '' : 'line-through text-gray-400' }}" title="{{ $u['has_phone'] ? '' : __('transport.form.cc_none') }}">{{ $u['name'] }}</span>@if (! $loop->last) · @endif@empty —@endforelse
             </p>
@@ -347,6 +341,7 @@ new class extends Component
                 @if ($r->stock_location)<span class="badge bg-teal-100 text-teal-700">{{ $r->stock_location }}</span>@endif
                 <span class="ml-auto text-[11px] text-gray-400">{{ ($r->sent_at ?? $r->send_at)->timezone(config('app.timezone'))->format('m-d H:i') }}</span>
             </div>
+            @if ($r->wantedLabel())<div class="mt-0.5 text-[12px] font-semibold text-gray-700">🕑 {{ __('transport.wanted_short', ['at' => $r->wantedLabel()]) }}</div>@endif
             @if ($r->address)<div class="mt-0.5 text-[12px] text-gray-500">{{ $r->address }}</div>@endif
             @if ($r->files->isNotEmpty())
                 <div class="mt-1 grid grid-cols-5 gap-1">

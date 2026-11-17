@@ -42,13 +42,13 @@ class TransportRequest extends Model
 
     protected $fillable = [
         'purchase_listing_id', 'revision', 'transport_company_id', 'company_name', 'extra_phone', 'address', 'message',
-        'stock_location', 'send_at', 'status', 'sent_at', 'decided_at', 'decided_recipient_id', 'decided_name', 'reject_reason',
+        'stock_location', 'send_at', 'wanted_at', 'status', 'sent_at', 'decided_at', 'decided_recipient_id', 'decided_name', 'reject_reason',
         'requested_by_user_id', 'cancelled_at', 'balance_requested_at', 'balance_request_error', 'erp_location_synced_at', 'erp_location_error',
     ];
 
     protected $casts = [
         'extra_phone' => 'encrypted',
-        'send_at' => 'datetime', 'sent_at' => 'datetime', 'decided_at' => 'datetime', 'cancelled_at' => 'datetime',
+        'send_at' => 'datetime', 'wanted_at' => 'datetime', 'sent_at' => 'datetime', 'decided_at' => 'datetime', 'cancelled_at' => 'datetime',
         'balance_requested_at' => 'datetime', 'erp_location_synced_at' => 'datetime',
     ];
 
@@ -152,6 +152,17 @@ class TransportRequest extends Model
     }
 
     /** 배차 정보 한 줄 — §11 매입잔금 note·결과 알림톡·종에 같이 쓴다(전화는 가운데 마스킹). */
+    /** 희망 배차 시각 표시 — 「11-17(화) 12:00」. 없으면 null(줄을 안 그린다). */
+    public function wantedLabel(): ?string
+    {
+        if (! $this->wanted_at) {
+            return null;
+        }
+        $w = $this->wanted_at->timezone(config('app.timezone'));
+
+        return $w->format('m-d').'('.__('transport.dow.'.$w->dayOfWeekIso).') '.$w->format('H:i');
+    }
+
     public function dispatchLine(): string
     {
         $who = $this->decidedRecipient;

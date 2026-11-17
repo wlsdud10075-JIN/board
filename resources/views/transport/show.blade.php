@@ -33,6 +33,8 @@
         .banner.ok { background: #dcfce7; color: #166534; }
         .banner.bad { background: #fee2e2; color: #991b1b; }
         .banner.warn { background: #fef3c7; color: #92400e; }
+        .wanted { margin: 14px 14px 0; padding: 12px 16px; border-radius: 12px; background: #eff6ff; border: 2px solid #3b82f6; color: #1e3a8a; font-size: 16px; }
+        .wanted strong { font-size: 20px; font-weight: 800; margin-left: 4px; }
         .media { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .media a { display: block; }
         .media img { width: 100%; border-radius: 8px; background: #000; display: block; aspect-ratio: 4/3; object-fit: cover; }
@@ -53,6 +55,11 @@
         <div class="veh">{{ $plate }}</div>
         @if ($listing?->vin)<div class="sub">VIN {{ $listing->vin }}</div>@endif
     </header>
+
+    {{-- 희망 배차 시각(2026-11-17 Jin) — 알림톡 문구엔 없다(BizM 승인본 그대로). 이 페이지가 유일한 전달 경로라 맨 위에 크게. --}}
+    @if ($req->wantedLabel())
+        <div class="wanted">{{ __('transport.page.wanted') }} <strong>{{ $req->wantedLabel() }}</strong></div>
+    @endif
 
     @if ($req->isDecided())
         <div class="banner {{ $req->isAccepted() ? 'ok' : 'bad' }}">{{ __('transport.page.already', ['result' => $req->statusLabel(), 'who' => $req->decidedRecipient?->displayName() ?? '—', 'at' => $req->decided_at?->timezone(config('app.timezone'))->format('m-d H:i') ?? '—']) }}</div>
