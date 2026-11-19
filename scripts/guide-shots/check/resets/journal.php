@@ -22,6 +22,7 @@ $today = DB::selectOne('select curdate() as d')->d;
 $batchIds = DB::table('work_journal_batches')->whereDate('date', $today)->pluck('id');
 $journalIds = DB::table('work_journals')->whereDate('date', $today)->pluck('id');
 $c = DB::table('work_journal_comments')->whereIn('batch_id', $batchIds)->orWhereIn('work_journal_id', $journalIds)->delete();
+DB::table('work_journal_notes')->whereDate('date', $today)->delete();   // 결재 이력(상신 의견·결재의견·반려, 2026-11-19) — 오늘 것만
 $s = DB::table('work_journal_steps')->whereIn('batch_id', $batchIds)->delete();
 $e = DB::table('work_journal_entries')->whereIn('work_journal_id', $journalIds)->delete();
 $j = DB::table('work_journals')->whereIn('id', $journalIds)->delete();
