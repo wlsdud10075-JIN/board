@@ -37,6 +37,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
@@ -2427,7 +2428,7 @@ class BoardTest extends TestCase
      */
     public function test_accepted_drawer_saves_content_without_confirming(): void
     {
-        IlluminateSupportFacadesQueue::fake();
+        Queue::fake();
         $l = $this->mkListing($this->mkUser('sales'), [
             'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection', 'source' => 'encar',
         ]);
@@ -2443,7 +2444,7 @@ class BoardTest extends TestCase
         $this->assertSame(9000000, (int) $f->car_cost);
         $this->assertSame(300000, (int) $f->selling_fee);
         $this->assertSame('홍길동', $f->payee_name);
-        IlluminateSupportFacadesQueue::assertNothingPushed();
+        Queue::assertNothingPushed();
 
         // 다시 열면 적어 둔 값이 그대로 나온다.
         Volt::test('auction.index')->call('openDetail', $l->id)->assertSet('car_cost', '9000000')->assertSet('payee_name', '홍길동');
