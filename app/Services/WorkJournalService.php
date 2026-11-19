@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Models\BoardAuditLog;
 use App\Models\Claim;
 use App\Models\PurchaseListing;
-use App\Models\Setting;
 use App\Models\User;
 use App\Models\WorkJournal;
 use App\Models\WorkJournalBatch;
@@ -32,30 +31,20 @@ class WorkJournalService
     /** 감사 로그에서 「board 활동」에 넣지 않는 행위 — 매물과 무관한 내부 기록·업무일지 자신. */
     private const ACTIVITY_SKIP = ['assistant_query', 'user_shared_managers', 'user_permission'];
 
-    public function cutoff(): string
-    {
-        $v = (string) Setting::get('work_journal_cutoff', '19:00');
-
-        return preg_match('/^\d{2}:\d{2}$/', $v) ? $v : '19:00';
-    }
-
     public static function isWeekend(Carbon|string $date): bool
     {
         return Carbon::parse($date)->isWeekend();
     }
 
-    /** 미상신 표시를 할 때인가 — 주말 아님 + (지난 날짜 또는 오늘 마감 시각 지남). Jin: 주말엔 마감 알림·미상신 표시 없음. */
+    /**
+     * 미상신 표시를 할 때인가 — 주말 아닌 **지난 날짜**만. 상신 마감 시각(19:00)은 2026-11-19 Jin 이 없앴다
+     * (현장은 시간 되는 대로 올린다) — 오늘은 몇 시든 미상신으로 치지 않고, 마감 경고·마감 알림도 없다.
+     */
     public function showUnsubmitted(Carbon|string $date): bool
     {
         $d = Carbon::parse($date)->startOfDay();
-        if (self::isWeekend($d)) {
-            return false;
-        }
-        if ($d->lt(today())) {
-            return true;
-        }
 
-        return $d->isSameDay(today()) && now()->format('H:i') >= $this->cutoff();
+        return ! self::isWeekend($d) && $d->lt(today());
     }
 
     /** 작성 대상 전원(등급 일반 활성) — 미상신 집계 기준. */
@@ -645,34 +634,6 @@ class WorkJournalService
         return WorkJournalBatch::where('status', 'pending')
             ->whereHas('steps', fn ($q) => $q->whereColumn('work_journal_steps.seq', 'work_journal_batches.current_step')->where('approver_user_id', $u->id))
             ->count();
-    }
-
-    // ───────────── 마감 알림 ─────────────
-
-    /**
-     * 마감 알림(평일, 기능설정 시각 이후 하루 1번) — 그날 열린 묶음의 지금 차례 결재자에게 「상신 N · 미상신 M」.
-     * 반환 = 보냈으면 true. 하루 1번 = Setting `work_journal_cutoff_notified_on`.
-     */
-    public function notifyCutoff(?Carbon $now = null): bool
-    {
-        $now ??= now();
-        $today = $now->toDateString();
-        if ($now->isWeekend() || $now->format('H:i') < $this->cutoff() || Setting::get('work_journal_cutoff_notified_on') === $today) {
-            return false;
-        }
-        $submitted = WorkJournal::whereDate('date', $today)->whereIn('status', ['submitted', 'approved'])->count();
-        $missing = max(0, $this->writers()->count() - $submitted);
-        $leader = User::where('approval_title', User::TEAM_LEADER)->where('permission', 'manager')->where('is_active', true)->first();
-        $batch = WorkJournalBatch::whereDate('date', $today)->where('status', 'pending')->with('steps.approver')->orderBy('seq')->first();
-        $to = $batch?->currentStep()?->approver ?? $leader;
-        if (! $to) {
-            return false;   // 받을 사람(팀장)이 아직 없다 — 「보냄」으로 찍지 않아 그날 지정되면 다음 확인 때 보낸다
-        }
-        Setting::updateOrCreate(['key' => 'work_journal_cutoff_notified_on'], ['value' => $today, 'type' => 'string', 'description' => '업무일지 마감 알림 보낸 날(하루 1번)']);
-        $this->audit(null, 'work_journal_cutoff', null, json_encode(['date' => $today, 'submitted' => $submitted, 'missing' => $missing, 'to' => $to?->name], JSON_UNESCAPED_UNICODE));
-        $this->push($to, __('journal.push.cutoff_title'), __('journal.push.cutoff_body', ['submitted' => $submitted, 'missing' => $missing]), 'wj-cutoff-'.$today);
-
-        return true;
     }
 
     // ───────────── 공통 ─────────────

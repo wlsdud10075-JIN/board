@@ -325,6 +325,14 @@ new #[Layout('components.layouts.app')] class extends Component {
         return $j ? $this->svc()->notesFor($j->id) : collect();
     }
 
+    /** 내 반려 이력(최근 20건) — 날짜를 옮겨 다니지 않아도 언제·누가·왜 반려했는지 한곳에서 본다(2026-11-19 영업팀장 요청). */
+    #[Computed]
+    public function myRejections()
+    {
+        return \App\Models\WorkJournalNote::where('kind', 'reject')
+            ->whereIn('work_journal_id', WorkJournal::where('user_id', Auth::id())->select('id'))->orderByDesc('id')->limit(20)->get();
+    }
+
     public function canRecall(): bool
     {
         $j = $this->journal;
@@ -369,10 +377,6 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @endif
             </span>
         </div>
-
-        @if (! $locked && $d->isToday() && $svc->showUnsubmitted($d))
-            <div class="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">{{ __('journal.cutoff_warn', ['time' => $svc->cutoff()]) }}</div>
-        @endif
         {{-- 팀장 반려 — 내용은 그대로, 사유를 보고 고쳐서 다시 상신(2026-11-04 Jin) --}}
         @if ($status === 'rejected')
             <div class="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">
@@ -503,6 +507,21 @@ new #[Layout('components.layouts.app')] class extends Component {
                 </div>
             @endforeach
         </div>
+    @endif
+
+    @if ($this->myRejections->isNotEmpty())
+        <details class="card mt-4">
+            <summary class="cursor-pointer text-sm font-bold text-gray-800">{{ __('journal.my_rejections', ['n' => $this->myRejections->count()]) }}</summary>
+            @foreach ($this->myRejections as $rn)
+                <div class="mt-2 rounded-r-md border-l-4 border-red-400 bg-red-50 px-3 py-1.5 text-[13px]" wire:key="myrj-{{ $rn->id }}">
+                    <div class="text-[11px] text-gray-500">
+                        <button type="button" class="font-bold text-blue-700 underline" wire:click="goDate('{{ $rn->date->toDateString() }}')">{{ $rn->date->toDateString() }}</button>
+                        · {{ $rn->title }} {{ $rn->user_name }} · {{ $rn->created_at?->format('m-d H:i') }}
+                    </div>
+                    <div class="whitespace-pre-line text-gray-800">{{ $rn->body }}</div>
+                </div>
+            @endforeach
+        </details>
     @endif
 
     {{-- 고정 업무 — 요일마다 반복하는 일(예: 수 09:00 경매장 AJ 검수). 그 요일 [하루 틀 만들기] 때 줄·특이사항에 미리 채운다(2026-11-16 Jin). --}}

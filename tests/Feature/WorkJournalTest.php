@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Models\AlimtalkLog;
 use App\Models\BoardAuditLog;
 use App\Models\PurchaseListing;
-use App\Models\Setting;
 use App\Models\User;
 use App\Models\WorkJournal;
 use App\Models\WorkJournalBatch;
@@ -14,6 +13,7 @@ use App\Models\WorkJournalNote;
 use App\Services\WorkJournalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Schedule;
 use Livewire\Volt\Volt;
 use Tests\TestCase;
 
@@ -241,47 +241,53 @@ class WorkJournalTest extends TestCase
         Volt::test('work-journal.index')->assertSee('김영업 잘했음')->assertSee(__('journal.note_kind.submit'))->assertDontSee('이영업 확인')->assertDontSee('전체 양호');
     }
 
-    /** 결재 카드는 snapshot 을 그린다 — 상신 뒤 바뀐 매물 상태가 결재 내용에 섞이지 않는다. 미상신자 표시(마감 지남·평일). */
-    public function test_approval_screen_shows_snapshot_and_missing_after_cutoff(): void
+    /** 결재 카드는 snapshot 을 그린다. 상신 마감 시각은 없다(2026-11-19) — 오늘은 몇 시든 미상신 표시 없음, 지난 평일만 미상신 표시. */
+    public function test_approval_screen_shows_snapshot_and_missing_only_for_past_weekdays(): void
     {
-        Carbon::setTestNow('2026-11-05 19:30:00');   // 목요일, 마감 지남
+        Carbon::setTestNow('2026-11-05 21:30:00');   // 목요일 밤 — 예전 마감(19:00) 뒤여도 오늘은 미상신으로 안 친다
         $line = $this->line();
         $a = $this->mk('김영업');
         $this->mk('최영업');   // 미상신
-        $ja = $this->writeAndSubmit($a, '오전 상담');
+        $this->writeAndSubmit($a, '오전 상담');
         $this->actingAs($line['lead']);
         Volt::test('work-journal.approvals')->assertSee('김영업')->assertSee('오전 상담')
-            ->assertSee(__('journal.ap_missing', ['names' => '최영업']), false);
+            ->assertDontSee(__('journal.ap_missing', ['names' => '최영업']), false);
+        $this->actingAs($a);
+        Volt::test('work-journal.index')->assertDontSee('마감');
 
-        // 주말은 미상신 표시 없음
-        Carbon::setTestNow('2026-11-07 20:00:00');   // 토요일
-        $this->assertFalse(app(WorkJournalService::class)->showUnsubmitted('2026-11-07'));
+        Carbon::setTestNow('2026-11-06 09:00:00');   // 다음 날 — 어제 기안에 미상신자가 보인다
+        $this->actingAs($line['lead']);
+        Volt::test('work-journal.approvals')->assertSee(__('journal.ap_missing', ['names' => '최영업']), false);
+
+        $this->assertFalse(app(WorkJournalService::class)->showUnsubmitted('2026-11-06'));   // 오늘
+        $this->assertFalse(app(WorkJournalService::class)->showUnsubmitted('2026-11-01'));   // 지난 일요일
+        // 마감 알림 예약 작업도 없다
+        $this->assertFalse(collect(Schedule::events())->contains(fn ($e) => str_contains((string) $e->command, 'work-journal-cutoff')));
     }
 
-    /** 마감 알림 — 평일·마감 시각 이후·하루 1번, 주말·마감 전은 안 보냄. 시각은 기능설정. */
-    public function test_cutoff_notify_weekday_once(): void
+    /** 「반려」 탭 — 팀장 선에서 반려돼 위로 안 올라간 것도 상무가 본다. 작성자는 자기 화면 「내 반려 이력」으로. 탭 이름 = 결재대기·결재중·결재완료·반려. */
+    public function test_rejected_tab_lists_every_return_and_writer_sees_own_history(): void
     {
-        $svc = app(WorkJournalService::class);
-        $this->assertFalse($svc->notifyCutoff(Carbon::parse('2026-11-04 19:10')));   // 팀장 없음 — 안 보내고 「보냄」도 안 찍음
-        $this->line();
-        $this->assertTrue($svc->notifyCutoff(Carbon::parse('2026-11-04 19:15')));     // 지정된 뒤 같은 날 다음 확인에서 보낸다
-        $this->assertFalse($svc->notifyCutoff(Carbon::parse('2026-11-05 18:59')));
-        $this->assertTrue($svc->notifyCutoff(Carbon::parse('2026-11-05 19:00')));
-        $this->assertFalse($svc->notifyCutoff(Carbon::parse('2026-11-05 19:05')));   // 오늘 이미
-        $this->assertFalse($svc->notifyCutoff(Carbon::parse('2026-11-07 19:30')));   // 토요일
-        Setting::updateOrCreate(['key' => 'work_journal_cutoff'], ['value' => '18:00', 'type' => 'string']);
-        $this->assertTrue($svc->notifyCutoff(Carbon::parse('2026-11-06 18:01')));
-        $this->assertSame(3, BoardAuditLog::where('action', 'work_journal_cutoff')->count());
-    }
+        $line = $this->line();
+        $a = $this->mk('김영업');
+        $b = $this->mk('이영업');
+        $ja = $this->writeAndSubmit($a);
+        $this->writeAndSubmit($b);
 
-    /** 기능설정 마감 시각은 super 만(최고관리자도 못 연다). */
-    public function test_cutoff_setting_is_super_only(): void
-    {
-        $this->actingAs($this->mk('최고', 'admin', null, 'manager'))->get('/admin/settings')->assertForbidden();
-        $this->actingAs($this->mk('root', 'super', null, 'manager'));
-        Volt::test('admin.settings')->set('journalCutoff', '18:30')->call('saveJournalCutoff')->assertHasNoErrors();
-        $this->assertSame('18:30', app(WorkJournalService::class)->cutoff());
-        $this->assertTrue(BoardAuditLog::where('field', 'work_journal_cutoff')->exists());
+        $this->actingAs($line['lead']);
+        Volt::test('work-journal.approvals')->assertSee('결재대기')->assertSee('결재중')->assertSee('결재완료')
+            ->call('pick', $ja->batch_id)->call('openReject')->set('rejectReason', '오후 업무 누락')->set('rejectPick', [(string) $ja->id])->call('rejectBatch')->assertHasNoErrors();
+
+        // 상무 — 자기 차례가 온 적 없지만 「반려」 탭에서 본다
+        $this->actingAs($line['sangmu']);
+        Volt::test('work-journal.approvals')->call('setTab', 'rejected')->assertSet('tab', 'rejected')
+            ->assertSee('오후 업무 누락')->assertSee(__('journal.note_targets', ['names' => '김영업']))->assertSee('팀장 정팀장');
+
+        // 작성자 — 내 반려 이력. 다른 영업에게는 안 보인다
+        $this->actingAs($a);
+        Volt::test('work-journal.index')->assertSee(__('journal.my_rejections', ['n' => 1]))->assertSee('오후 업무 누락');
+        $this->actingAs($b);
+        Volt::test('work-journal.index')->assertDontSee('오후 업무 누락');
     }
 
     /** 첫 단계(팀장) 반려 — 사유·사람 한 명 이상 필수, 고른 사람만 돌아가고 나머지는 기안에 남는다. 재상신하면 같은 기안. 이력은 재상신 뒤에도 남는다. */

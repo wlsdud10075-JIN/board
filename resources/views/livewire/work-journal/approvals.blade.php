@@ -54,7 +54,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $u = Auth::user();
         abort_unless($u->isJournalApprover() || $u->hasFullAccess(), 403, __('journal.ap_forbidden'));
-        if (! in_array($this->tab, ['mine', 'open', 'done'], true)) {
+        if (! in_array($this->tab, ['mine', 'open', 'done', 'rejected'], true)) {
             $this->tab = $u->isJournalApprover() ? 'mine' : 'open';
         }
         if (! preg_match('/^\d{4}-\d{2}$/', $this->month)) {
@@ -67,7 +67,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function setTab(string $t): void
     {
-        if (! in_array($t, ['mine', 'open', 'done'], true)) {
+        if (! in_array($t, ['mine', 'open', 'done', 'rejected'], true)) {
             return;
         }
         $this->tab = $t;
@@ -81,8 +81,22 @@ new #[Layout('components.layouts.app')] class extends Component {
         if (! preg_match('/^\d{4}-\d{2}$/', $this->month)) {
             $this->month = today()->format('Y-m');
         }
-        unset($this->batches, $this->batch);
+        unset($this->batches, $this->batch, $this->rejections);
         $this->sel = $this->batches->first()?->id;
+    }
+
+    /**
+     * 「반려」 탭(2026-11-19 영업팀장 요청) — 그 달 반려 기록(기안 전체 줄). 팀장 선에서 반려돼 위 결재자에게 안 올라간 것도
+     * 결재 화면을 보는 사람(결재자·전체 접근 등급)은 전부 본다. 작성자는 자기 일지 화면의 「결재 이력」·「내 반려 이력」으로 본다.
+     */
+    #[Computed]
+    public function rejections()
+    {
+        $from = \Carbon\Carbon::parse($this->month.'-01');
+
+        return \App\Models\WorkJournalNote::where('kind', 'reject')->whereNull('work_journal_id')
+            ->whereDate('date', '>=', $from->toDateString())->whereDate('date', '<=', $from->copy()->endOfMonth()->toDateString())
+            ->orderByDesc('id')->get();
     }
 
     /** 탭 숫자 — 결재할 것 · 진행 중(완료는 개수 대신 월). */
@@ -104,6 +118,9 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function batches()
     {
         $me = Auth::user();
+        if ($this->tab === 'rejected') {
+            return collect();
+        }
         if ($this->tab === 'done') {
             $from = \Carbon\Carbon::parse($this->month.'-01');
 
@@ -237,17 +254,20 @@ new #[Layout('components.layouts.app')] class extends Component {
     <div class="grid gap-4 lg:grid-cols-[280px_1fr]">
         {{-- 기안 목록 — 탭(결재할 것 · 진행 중 · 완료) --}}
         <div>
-            <div class="mb-3 flex flex-wrap gap-1.5">
-                @foreach (['mine', 'open', 'done'] as $t)
+            <div class="mb-3 flex flex-wrap gap-1">
+                @foreach (['mine', 'open', 'done', 'rejected'] as $t)
                     <button type="button" wire:click="setTab('{{ $t }}')"
-                            class="rounded-md border px-3 py-1.5 text-[13px] font-semibold {{ $tab === $t ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">
-                        {{ __('journal.ap_tab.'.$t) }}@if ($t !== 'done') <span class="{{ $tab === $t ? 'text-white/80' : ($t === 'mine' && $this->counts['mine'] > 0 ? 'text-red-600' : 'text-gray-400') }}">{{ $this->counts[$t] }}</span>@endif
+                            class="whitespace-nowrap rounded-md border px-2 py-1.5 text-[13px] font-semibold {{ $tab === $t ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600' }}">
+                        {{ __('journal.ap_tab.'.$t) }}@if (in_array($t, ['mine', 'open'], true)) <span class="{{ $tab === $t ? 'text-white/80' : ($t === 'mine' && $this->counts['mine'] > 0 ? 'text-red-600' : 'text-gray-400') }}">{{ $this->counts[$t] }}</span>@endif
                     </button>
                 @endforeach
             </div>
-            @if ($tab === 'done')
+            @if (in_array($tab, ['done', 'rejected'], true))
                 <input type="month" class="input-filter mb-3 w-full" wire:model.live="month" max="{{ today()->format('Y-m') }}">
             @endif
+            @if ($tab === 'rejected')
+                <div class="card-sm text-center text-sm text-gray-500">{{ __('journal.ap_rejected_count', ['n' => $this->rejections->count()]) }}</div>
+            @else
             @forelse ($this->batches as $bt)
                 @php $cur = $bt->currentStep(); $mine = $svc->canApprove($bt, $me); @endphp
                 <button type="button" wire:click="pick({{ $bt->id }})" wire:key="bt-{{ $bt->id }}"
@@ -262,11 +282,33 @@ new #[Layout('components.layouts.app')] class extends Component {
             @empty
                 <div class="card-sm text-center text-sm text-gray-400">{{ __('journal.ap_empty.'.$tab) }}</div>
             @endforelse
+            @endif
         </div>
 
         {{-- 기안 상세 --}}
         <div>
-            @if ($b = $this->batch)
+            @if ($tab === 'rejected')
+                <div class="card">
+                    <h3 class="text-base font-bold text-gray-800">{{ __('journal.ap_rejected_title', ['month' => $month]) }}</h3>
+                    <p class="mt-0.5 text-xs text-gray-500">{{ __('journal.ap_rejected_hint') }}</p>
+                    @php $states = \App\Models\WorkJournalBatch::with('steps')->whereIn('date', $this->rejections->pluck('date')->map->toDateString()->unique()->all())->get()->keyBy(fn ($x) => $x->date->toDateString().'|'.$x->seq); @endphp
+                    @forelse ($this->rejections as $rn)
+                        @php $st = $states->get($rn->date->toDateString().'|'.$rn->batch_seq); $stCur = $st?->currentStep(); @endphp
+                        <div class="mt-3 rounded-r-md border-l-4 border-red-400 bg-red-50 px-3 py-2 text-[13px]" wire:key="rjn-{{ $rn->id }}">
+                            <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                <b class="text-gray-800">{{ __('journal.ap_batch', ['date' => $rn->date->toDateString(), 'dow' => $this->dow($rn->date)]) }}</b>
+                                @if (! $st)<span class="badge badge-gray">{{ __('journal.ap_rejected_state_none') }}</span>
+                                @elseif ($st->status === 'approved')<span class="badge badge-green">{{ __('journal.ap_done') }}</span>
+                                @elseif ($stCur)<span class="badge badge-amber">{{ __('journal.ap_turn', ['title' => $stCur->title]) }}</span>@endif
+                            </div>
+                            <div class="mt-0.5 text-[11px] text-gray-500">{{ $rn->title }} {{ $rn->user_name }} · {{ $rn->created_at?->format('m-d H:i') }} · {{ $rn->targets ? __('journal.note_targets', ['names' => $rn->targets]) : __('journal.note_targets_none') }}</div>
+                            <div class="mt-0.5 whitespace-pre-line text-gray-800">{{ $rn->body }}</div>
+                        </div>
+                    @empty
+                        <p class="mt-3 text-sm text-gray-400">{{ __('journal.ap_empty.rejected') }}</p>
+                    @endforelse
+                </div>
+            @elseif ($b = $this->batch)
                 @php $cur = $b->currentStep(); $canApprove = $svc->canApprove($b, $me); $canReject = $svc->canReject($b, $me); $journals = $b->journals->sortBy(fn ($j) => $j->submitted_at); @endphp
                 <div class="card">
                     <div class="flex flex-wrap items-center justify-between gap-2">
@@ -293,7 +335,6 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <div class="mb-3 flex flex-wrap gap-2 text-sm">
                         <span class="rounded-md bg-gray-50 px-3 py-1">{{ __('journal.ap_stat_submitted', ['n' => $journals->count()]) }}</span>
                         @if ($b->seq === 1 && $svc->showUnsubmitted($b->date))<span class="rounded-md bg-gray-50 px-3 py-1">{{ __('journal.ap_stat_missing', ['n' => $this->missing->count()]) }}</span>@endif
-                        <span class="rounded-md bg-gray-50 px-3 py-1">{{ __('journal.ap_stat_cutoff', ['time' => $svc->cutoff()]) }}</span>
                     </div>
                     @if ($this->missing->isNotEmpty() && $b->status === 'pending')
                         <div class="mb-3 rounded-md bg-red-50 px-3 py-2 text-[13px] text-red-700">{{ __('journal.ap_missing', ['names' => $this->missing->pluck('name')->implode(', ')]) }}</div>
