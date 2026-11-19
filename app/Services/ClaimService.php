@@ -81,7 +81,7 @@ class ClaimService
 
     public function storeFile(Claim $claim, string $kind, UploadedFile $f, ?int $userId): ClaimFile
     {
-        $kind = in_array($kind, ClaimFile::KINDS, true) ? $kind : ClaimFile::KIND_OTHER;
+        $kind = in_array($kind, [...ClaimFile::KINDS, ClaimFile::KIND_SELF_PROOF], true) ? $kind : ClaimFile::KIND_OTHER;
         $path = $f->store(config('board.claims_prefix').'/'.$claim->id.'/'.$kind, config('board.photo_disk'));
 
         return $claim->files()->create([
@@ -266,7 +266,7 @@ class ClaimService
                 'approver_user_id' => $first->id,
                 'requested_at' => now(),
                 'requested_by_user_id' => $handler->id,
-                'decided_at' => null, 'decision' => null, 'decision_reason' => null, 'decision_ip' => null,
+                'decided_at' => null, 'decision' => null, 'decision_reason' => null, 'decision_ip' => null, 'self_approved_at' => null,
                 'confirmed_amount' => null,   // 재요청·재승인 = 확정 금액도 새로(최종 결재자가 다시 정한다)
             ])->save();
         });
@@ -377,6 +377,61 @@ class ClaimService
             $this->notifyStep($fresh, $next->approver);
         } else {
             $this->notifyDecision($fresh);
+        }
+
+        return $fresh;
+    }
+
+    /**
+     * [자체승인] — 결재자가 승인 버튼 대신 답장(카톡 등)으로 승인한 건을 담당자가 그 **캡처 1장**을 붙여 승인 처리(2026-11-19 Jin).
+     * 결재 중(pending_ceo)에만. 남은 결재 칸과 무관하게 즉시 최종 승인(지금 칸 = 담당자 대행 표시) — 캡처·확정 금액은 필수(ERP 로 가는 금액).
+     * decide() 를 거치지 않는다(서명 링크 권한 canDecide 를 넓히지 않기 위해). 잠금 재조회로 결재자 동시 클릭과 겹치지 않게.
+     *
+     * @throws \DomainException not_pending · proof_required · confirmed_required
+     */
+    public function selfApprove(Claim $claim, User $handler, ?UploadedFile $proof, mixed $confirmed, ?string $memo = null): Claim
+    {
+        if ($proof === null) {
+            throw new \DomainException('proof_required');
+        }
+        $confirmed = is_string($confirmed) ? trim(str_replace(',', '', $confirmed)) : $confirmed;
+        if (! is_numeric($confirmed) || (float) $confirmed < 0) {
+            throw new \DomainException('confirmed_required');
+        }
+        $memo = trim((string) $memo);
+        $reason = __('claims.self_reason').($memo !== '' ? ' · '.$memo : '');
+        $ip = BoardAuditLog::currentIp();
+        $skipped = collect();
+
+        $fresh = DB::transaction(function () use ($claim, $handler, $proof, $confirmed, $reason, $ip, &$skipped) {
+            $fresh = Claim::query()->lockForUpdate()->findOrFail($claim->id);
+            $step = $fresh->isPendingCeo() ? $fresh->currentStep() : null;
+            if ($step === null) {
+                throw new \DomainException('not_pending');
+            }
+            $skipped = $fresh->lineSteps()->filter(fn ($s) => $s->status === 'pending')->map->approver->filter();
+            $file = $this->storeFile($fresh, ClaimFile::KIND_SELF_PROOF, $proof, $handler->id);
+            $step->update(['status' => 'approved', 'acted_at' => now(), 'acted_by_user_id' => $handler->id, 'note' => $reason]);
+            $fresh->forceFill([
+                'confirmed_amount' => round((float) $confirmed, 2),
+                'status' => Claim::APPROVED, 'current_step' => null, 'approver_user_id' => $handler->id,
+                'decided_at' => now(), 'decision' => Claim::APPROVED, 'decision_reason' => $reason, 'decision_ip' => $ip, 'self_approved_at' => now(),
+            ])->save();
+
+            $this->audit($fresh, $handler->id, 'claim_self_approve', null, __('claims.audit_self', [
+                'rev' => $fresh->revision, 'title' => $step->title, 'name' => $step->approver?->name ?? '—', 'file' => $file->original_name, 'reason' => $reason,
+            ]), $ip);
+            $this->audit($fresh, $handler->id, 'claim_status', Claim::PENDING_CEO, Claim::APPROVED, $ip);
+            $this->audit($fresh, $handler->id, 'claim_confirmed_amount', null, $fresh->amountDisplay('confirmed_amount'), $ip);
+
+            return $fresh;
+        });
+
+        $fresh->unsetRelation('steps')->unsetRelation('files');
+        $this->notifyDecision($fresh);
+        // 건너뛴 결재자에게도 알린다(내 차례 건이 자체승인으로 끝났다) — 웹푸시만.
+        foreach ($skipped->unique('id') as $u) {
+            $this->push($u, __('claims.push_self_title'), Plate::show($fresh->vehicle_number).' · '.($fresh->buyer_name ?: '—').' · '.$handler->name, route('dashboard'), 'claim-self-'.$fresh->id.'-'.$fresh->revision);
         }
 
         return $fresh;

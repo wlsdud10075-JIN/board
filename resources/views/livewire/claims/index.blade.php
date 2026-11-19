@@ -46,6 +46,17 @@ new #[Layout('components.layouts.app')] class extends Component
     /** [ERP 로 보내기] 확인 모달(2026-11-11 Jin — 받을 바이어가 맞는지 한 번 더 보고 보낸다). */
     public bool $erpModal = false;
 
+    /** [자체승인] 모달(2026-11-19 Jin) — 결재자가 버튼 대신 답장으로 승인한 건: 그 캡처 1장 + 확정 금액으로 승인 처리. */
+    public bool $selfModal = false;
+
+    public $selfProof = null;
+
+    public string $selfAmount = '';
+
+    public string $selfMemo = '';
+
+    public ?string $selfError = null;
+
     /** 모달 안에서만 보이는 오류(드로어 상단 오류와 분리 — 모달에 가려 안 보이므로). */
     public ?string $lineError = null;
 
@@ -238,6 +249,62 @@ new #[Layout('components.layouts.app')] class extends Component
         $this->refreshDetail();
     }
 
+    /** [자체승인] — 결재 중에만. 확정 금액 기본값 = CS 제시 → 영업 제시 → 바이어 청구 순(결재 화면과 같은 규칙). */
+    public function openSelfModal(): void
+    {
+        $c = $this->detail;
+        if (! $c || ! $c->isPendingCeo()) {
+            return;
+        }
+        $this->reset('selfProof', 'selfMemo', 'selfError');
+        $this->resetErrorBag('selfProof');
+        $this->selfAmount = (string) ($c->suggestedConfirmedAmount() ?? '');
+        $this->selfModal = true;
+    }
+
+    /** 목록 행의 [자체승인] — 그 건 드로어를 열고 곧바로 모달. */
+    public function openSelfFor(int $id): void
+    {
+        $this->openDetail($id);
+        $this->openSelfModal();
+    }
+
+    public function closeSelfModal(): void
+    {
+        $this->reset('selfModal', 'selfProof', 'selfAmount', 'selfMemo', 'selfError');
+    }
+
+    public function clearSelfProof(): void
+    {
+        $this->selfProof = null;
+    }
+
+    /** 모달 [자체승인 처리] — 캡처(이미지 1장)·확정 금액 필수. 실패하면 모달에 사유를 남기고 닫지 않는다. */
+    public function selfApprove(ClaimService $svc): void
+    {
+        $c = $this->detail;
+        if (! $c) {
+            return;
+        }
+        $this->selfError = null;
+        if (! $this->selfProof) {
+            $this->selfError = __('claims.self_err_proof');
+
+            return;
+        }
+        $this->validate(['selfProof' => 'file|mimes:jpg,jpeg,png,gif,webp,bmp,heic|max:10240'], [], ['selfProof' => __('claims.self_proof')]);
+        try {
+            $svc->selfApprove($c, Auth::user(), $this->selfProof, $this->selfAmount, $this->selfMemo);
+        } catch (\DomainException $e) {
+            $this->selfError = $this->domainMessage($e->getMessage());
+
+            return;
+        }
+        $this->closeSelfModal();
+        $this->notice = __('claims.self_done');
+        $this->refreshDetail();
+    }
+
     public function closeClaim(ClaimService $svc): void
     {
         $c = $this->detail;
@@ -296,6 +363,9 @@ new #[Layout('components.layouts.app')] class extends Component
             'bad_line' => __('claims.err_bad_line'),
             'overdue_reason_required' => __('claims.err_overdue_reason'),
             'not_requestable' => __('claims.err_not_requestable'),
+            'not_pending' => __('claims.self_err_not_pending'),
+            'proof_required' => __('claims.self_err_proof'),
+            'confirmed_required' => __('claims.self_err_amount'),
             'resend_cooldown' => __('claims.err_resend_cooldown', ['min' => Claim::RESEND_COOLDOWN_MINUTES]),
             default => $code,
         };
@@ -352,7 +422,12 @@ new #[Layout('components.layouts.app')] class extends Component
                     <span class="text-gray-700">🧑 {{ $c->buyer_name ?: '—' }}</span>
                     <span class="tabular-nums text-gray-700">{{ $c->salePriceDisplay() }}</span>
                     <span class="text-gray-500">{{ $c->total_purchase_count === null ? '—' : __('claims.total_cars', ['count' => $c->total_purchase_count]) }}</span>
-                    <span class="badge {{ $c->statusBadge() }} ml-auto whitespace-nowrap">{{ $c->statusLabel() }}@if ($c->revision > 1) ·{{ $c->revision }}@endif</span>
+                    {{-- 결재 중인 행 = 상태 칩 앞에 [자체승인](2026-11-19 Jin) — 드로어를 열고 곧바로 모달. --}}
+                    @if ($c->isPendingCeo())
+                        <button type="button" class="ml-auto whitespace-nowrap rounded-md bg-amber-500 px-2 py-0.5 text-[12px] font-bold text-white shadow-sm hover:bg-amber-600"
+                                wire:click.stop="openSelfFor({{ $c->id }})">🖼 {{ __('claims.self_btn') }}</button>
+                    @endif
+                    <span class="badge {{ $c->statusBadge() }} {{ $c->isPendingCeo() ? '' : 'ml-auto' }} whitespace-nowrap">{{ $c->statusLabel() }}@if ($c->revision > 1) ·{{ $c->revision }}@endif</span>
                 </div>
                 <div class="mt-0.5 flex items-center gap-2 text-[12px]">
                     <span class="min-w-0 flex-1 truncate text-gray-600" title="{{ $c->content }}">{{ $c->content }}</span>
@@ -415,11 +490,28 @@ new #[Layout('components.layouts.app')] class extends Component
                             </div>
                             <p class="mt-1 text-[11px] text-gray-400">{{ __('claims.link_hint') }}</p>
                         @endif
+                        {{-- 자체승인(2026-11-19 Jin) — 결재자가 버튼 대신 답장으로 승인했을 때: 그 캡처를 붙여 승인 처리. --}}
+                        <div class="mt-2 flex flex-wrap items-center gap-2 border-t border-black/5 pt-2">
+                            <button type="button" class="btn-sm rounded-md bg-amber-500 px-3 font-bold text-white shadow-sm hover:bg-amber-600" wire:click="openSelfModal">🖼 {{ __('claims.self_btn') }}</button>
+                            <span class="text-[11px] text-gray-400">{{ __('claims.self_btn_hint') }}</span>
+                        </div>
                     </div>
                 @elseif ($d->decided_at)
                     <div class="card-sm mb-3 {{ $d->decision === 'approved' ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50' }} text-xs text-gray-700">
                         {{ $d->decision === 'approved' ? '✅' : '⛔' }} {{ __('claims.decided_banner', ['result' => $d->statusLabel(), 'name' => $d->approver?->name ?? '—', 'at' => $d->decided_at->timezone(config('app.timezone'))->format('m-d H:i')]) }}
                         @include('livewire.claims._steps', ['steps' => $d->lineSteps(), 'current' => null])
+                        @if ($d->self_approved_at)
+                            <div class="mt-1 flex flex-wrap items-center gap-2">
+                                <span class="badge badge-amber">🖼 {{ __('claims.self_badge') }}</span>
+                                @if ($sp = $d->selfProof())<a href="{{ $sp->shareUrl() }}" target="_blank" class="text-[var(--color-primary-text)] hover:underline">{{ __('claims.self_proof_view') }}</a>@endif
+                            </div>
+                            {{-- 캡처를 드로어 안에서 바로 본다(2026-11-19 Jin) — 누르면 원본 크기. --}}
+                            @if ($sp)
+                                <a href="{{ $sp->shareUrl() }}" target="_blank" class="mt-1.5 block">
+                                    <img src="{{ $sp->shareUrl() }}" alt="{{ __('claims.self_proof') }}" loading="lazy" class="max-h-72 rounded-md border border-gray-200 bg-white object-contain">
+                                </a>
+                            @endif
+                        @endif
                         @if ($d->confirmed_amount !== null)<div class="mt-0.5 font-semibold text-gray-800">FINAL AMOUNT {{ $d->amountDisplay('confirmed_amount') }}</div>@endif
                         {{-- ERP 바이어 「클레임」 탭 미러(2026-11-11 Jin) — 담당자가 눌러야 간다. 반려도 보낸다(declined·0). --}}
                         <div class="mt-1.5 flex flex-wrap items-center gap-2 border-t border-black/5 pt-1.5">
@@ -605,6 +697,81 @@ new #[Layout('components.layouts.app')] class extends Component
                     <button type="button" class="btn-primary flex-1 justify-center py-2.5" wire:click="sendToErp" wire:loading.attr="disabled" wire:target="sendToErp">
                         <span wire:loading.remove wire:target="sendToErp">{{ __('claims.erp_modal_send') }}</span>
                         <span wire:loading wire:target="sendToErp">{{ __('claims.saving') }}</span>
+                    </button>
+                </div>
+            </div>
+        @endif
+
+        {{-- ─────────── 자체승인 모달 — 결재자 답장 캡처 1장(붙여넣기·파일) + 확정 금액(2026-11-19 Jin, ERP 딜러 입금완료 모달과 같은 방식) ─────────── --}}
+        @if ($selfModal)
+            @php
+                $selfStep = $d->currentStep();   // $cur 는 위 통화 foreach 가 덮어쓴다
+                $spPreview = null;
+                if ($selfProof) {
+                    try { $spPreview = $selfProof->isPreviewable() ? $selfProof->temporaryUrl() : null; } catch (\Throwable $e) { $spPreview = null; }
+                }
+            @endphp
+            <div class="fixed inset-0 z-[60] bg-black/40" wire:click="closeSelfModal"></div>
+            <div class="fixed inset-x-0 bottom-0 z-[70] max-h-[90vh] overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl
+                        sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-[460px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl"
+                 x-data="{ pasting: false,
+                    handle(e) {
+                        const it = [...(e.clipboardData?.items || [])].find(i => i.kind === 'file');
+                        const f = it ? it.getAsFile() : null;
+                        if (! f) return;
+                        e.preventDefault();
+                        this.pasting = true;
+                        $wire.upload('selfProof', f, () => { this.pasting = false }, () => { this.pasting = false });
+                    } }"
+                 @paste.window="handle($event)" @keydown.escape.window="$wire.closeSelfModal()">
+                <div class="mb-1 flex items-center justify-between">
+                    <h4 class="font-bold text-gray-800">{{ __('claims.self_title') }}</h4>
+                    <button type="button" class="text-gray-400 hover:text-gray-600" wire:click="closeSelfModal">✕</button>
+                </div>
+                <p class="mb-3 text-xs text-gray-500">{{ __('claims.self_hint', ['title' => $selfStep?->title ?? '—', 'name' => $selfStep?->approver?->name ?? '—']) }}</p>
+
+                <div class="rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 p-3 text-center">
+                    <div x-show="pasting" x-cloak class="text-xs text-gray-500">{{ __('claims.self_uploading') }}</div>
+                    @if ($spPreview)
+                        <img src="{{ $spPreview }}" alt="" class="mx-auto max-h-56 rounded border border-gray-200 object-contain">
+                        <p class="mt-1 text-[11px] text-gray-500">{{ $selfProof->getClientOriginalName() }}
+                            <button type="button" wire:click="clearSelfProof" class="ml-1 text-red-500 hover:underline">{{ __('common.cancel') }}</button></p>
+                    @elseif ($selfProof)
+                        <p class="text-xs text-emerald-700">📎 {{ $selfProof->getClientOriginalName() }}
+                            <button type="button" wire:click="clearSelfProof" class="ml-1 text-red-500 hover:underline">{{ __('common.cancel') }}</button></p>
+                    @else
+                        <p class="text-sm font-medium text-gray-700">{{ __('claims.self_paste_hint') }}</p>
+                        <p class="mt-0.5 text-[11px] text-gray-400">{{ __('claims.self_paste_sub') }}</p>
+                    @endif
+                    <label class="mt-2 inline-flex cursor-pointer items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-600"
+                           wire:loading.class="opacity-40" wire:target="selfProof">
+                        📎 {{ __('claims.self_pick_file') }}
+                        <input type="file" wire:model="selfProof" accept="image/*" class="hidden">
+                    </label>
+                    @error('selfProof')<p class="mt-1 text-xs text-red-500">{{ $message }}</p>@enderror
+                </div>
+
+                <div class="mt-3">
+                    <label class="label-base">FINAL AMOUNT <span class="font-normal text-gray-400">— {{ __('claims.self_amount_hint') }}</span></label>
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm font-semibold text-gray-600">{{ $d->claim_currency ?: $d->sale_currency ?: '' }}</span>
+                        <input type="number" step="0.01" min="0" class="input-base" wire:model="selfAmount">
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <label class="label-base">{{ __('claims.self_memo') }}</label>
+                    <input class="input-base" maxlength="200" wire:model="selfMemo" placeholder="{{ __('claims.self_memo_ph') }}">
+                </div>
+                <p class="mt-2 text-[11px] text-gray-400">{{ __('claims.self_note') }}</p>
+                @if ($selfError)
+                    <p class="mt-2 text-sm text-red-600">⚠️ {{ $selfError }}</p>
+                @endif
+
+                <div class="mt-4 flex gap-2">
+                    <button type="button" class="btn-outline flex-1 justify-center py-2.5" wire:click="closeSelfModal">{{ __('common.cancel') }}</button>
+                    <button type="button" class="btn-primary flex-1 justify-center py-2.5" wire:click="selfApprove" wire:loading.attr="disabled" wire:target="selfApprove,selfProof" @disabled(! $selfProof)>
+                        <span wire:loading.remove wire:target="selfApprove">{{ __('claims.self_submit') }}</span>
+                        <span wire:loading wire:target="selfApprove">{{ __('claims.saving') }}</span>
                     </button>
                 </div>
             </div>

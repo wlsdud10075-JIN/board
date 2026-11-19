@@ -71,7 +71,7 @@ class Claim extends Model
         'inspection_result', 'notes', 'review_notes',
         'claim_amount', 'claim_currency', 'refundable_amount', 'cs_proposed_amount', 'confirmed_amount', 'result', 'result_reason', 'compensation_type', 'overdue_reason',
         'bank_name', 'bank_iban', 'bank_swift', 'bank_phone', 'bank_address',
-        'requested_at', 'requested_by_user_id', 'request_notified_at', 'approver_user_id', 'decided_at', 'decision', 'decision_reason', 'decision_ip',
+        'requested_at', 'requested_by_user_id', 'request_notified_at', 'approver_user_id', 'decided_at', 'decision', 'decision_reason', 'decision_ip', 'self_approved_at',
         'closed_at', 'closed_by_user_id',
         'erp_claim_id', 'erp_sent_at', 'erp_sent_revision', 'erp_sent_by_user_id', 'erp_send_error',
     ];
@@ -82,7 +82,7 @@ class Claim extends Model
             'purchase_history' => 'array',
             'sale_date' => 'date', 'eta_date' => 'date', 'arrived_at' => 'date',
             'erp_snapshot_at' => 'datetime', 'requested_at' => 'datetime', 'request_notified_at' => 'datetime',
-            'decided_at' => 'datetime', 'closed_at' => 'datetime', 'erp_sent_at' => 'datetime',
+            'decided_at' => 'datetime', 'self_approved_at' => 'datetime', 'closed_at' => 'datetime', 'erp_sent_at' => 'datetime',
             // 2p 은행정보 = PII 범위한정 예외(payee 와 동일) — 화면엔 그대로, 감사·로그는 ***.
             'bank_name' => 'encrypted', 'bank_iban' => 'encrypted', 'bank_swift' => 'encrypted', 'bank_phone' => 'encrypted', 'bank_address' => 'encrypted',
         ];
@@ -240,6 +240,12 @@ class Claim extends Model
         }
 
         return (int) $this->currentStep()?->approver_user_id === (int) $u->id;
+    }
+
+    /** 자체승인 증빙(이번 자체승인 때 붙인 캡처) — 자체승인 건이 아니면 null. */
+    public function selfProof(): ?ClaimFile
+    {
+        return $this->self_approved_at ? $this->files->where('kind', ClaimFile::KIND_SELF_PROOF)->last() : null;
     }
 
     /** 재전송 연타 방지 — 마지막 알림 뒤 10분. */

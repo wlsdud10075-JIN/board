@@ -65,6 +65,7 @@ return [
         'recipient_required' => 'Pick a company or enter an extra number.',
         'bad_location' => 'Destination is not in the list.',
         'too_many_files' => 'Up to :max photos.',
+        'attach_copy_failed' => 'Could not fetch the attachment photos. Uncheck them and upload the photos directly, then request again.',
         'executable_file' => 'Executable files are not allowed.',
         'not_scheduled' => 'Only requests not yet sent can be changed.',
         'send_at_past' => 'Scheduled time must be in the future.',
