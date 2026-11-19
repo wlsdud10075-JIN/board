@@ -126,6 +126,8 @@ return [
 
     'execute' => '집행',
     'execute_hint' => '[내용만 저장]은 지금 적은 내용을 board 에만 저장합니다(ERP 로 보내지 않음). [구매확정 · ERP 전송]을 눌러야 ERP 로 넘어갑니다.',
+    'working' => '처리 중…',
+    'working_hint' => '처리 중입니다 — 사진을 올리고 내용을 확인하고 있습니다. 화면을 닫지 말고 잠시만 기다려 주세요.',
     'save_only' => '내용만 저장',
     'saved_mark' => '저장됨 ✓',
     'confirm_send_encar' => '구매확정 · ERP 전송',

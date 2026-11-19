@@ -1748,14 +1748,20 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <p class="mb-1.5 rounded-md border border-red-300 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700">🔒 {{ $blockWhy }}</p>
                     @endif
                     <div class="flex gap-2">
-                        <button class="btn-green flex-1 justify-center {{ $blockWhy ? 'cursor-not-allowed opacity-40' : '' }}" @disabled($blockWhy !== null) wire:click="conclude({{ $d->id }}, 'won')" @click="window.__auctionConclude = true">{{ $d->isAuction() ? __('auction.confirm_send_auction') : __('auction.confirm_send_encar') }}</button>
+                        <button class="btn-green flex-1 justify-center {{ $blockWhy ? 'cursor-not-allowed opacity-40' : '' }}" @disabled($blockWhy !== null) wire:click="conclude({{ $d->id }}, 'won')" @click="window.__auctionConclude = true" wire:loading.attr="disabled" wire:target="conclude, savePayee">
+                            {{-- 누른 뒤 응답까지(사진 올리기·ERP 조회) 멈춘 것처럼 보였다(2026-11-19 Jin) → 처리 중 표시. --}}
+                            <span wire:loading.remove wire:target="conclude">{{ $d->isAuction() ? __('auction.confirm_send_auction') : __('auction.confirm_send_encar') }}</span>
+                            <span wire:loading wire:target="conclude">⟳ {{ __('auction.working') }}</span>
+                        </button>
                         {{-- [매입취소] 자리 → [저장](2026-11-19 Jin): 구매확정이 한 칸에 걸리면 적어 둔 금액·바이어·계좌가 남지 않아 매번 처음부터 적었다.
                              확정 검사 없이 지금 적은 것만 저장한다(상태는 그대로). 취소는 매입예정 삭제·관리 화면에서. --}}
                         <button type="button" class="btn-primary flex-1 justify-center" wire:click="savePayee" wire:loading.attr="disabled" wire:target="savePayee"
                                 x-data="{ ok: false }" x-on:auction-saved.window="ok = true; setTimeout(() => ok = false, 2000)">
-                            <span x-show="!ok">{{ __('auction.save_only') }}</span><span x-show="ok" x-cloak>{{ __('auction.saved_mark') }}</span>
+                            <span wire:loading.remove wire:target="savePayee"><span x-show="!ok">{{ __('auction.save_only') }}</span><span x-show="ok" x-cloak>{{ __('auction.saved_mark') }}</span></span>
+                            <span wire:loading wire:target="savePayee">⟳ {{ __('auction.working') }}</span>
                         </button>
                     </div>
+                    <p class="mt-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700" wire:loading wire:target="conclude, savePayee">⟳ {{ __('auction.working_hint') }}</p>
                     @if ($d->isAuction())
                         <button type="button" class="btn-ghost mt-2 w-full justify-center" wire:click="conclude({{ $d->id }}, 'failed')">{{ __('auction.failed_auction') }}</button>
                     @endif

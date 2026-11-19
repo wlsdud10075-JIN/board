@@ -126,6 +126,8 @@ return [
 
     'execute' => 'Execute',
     'execute_hint' => '[Save only] keeps what you entered on board (nothing is sent to the ERP). Press [Confirm purchase · Send to ERP] to send it.',
+    'working' => 'Working…',
+    'working_hint' => 'Working — uploading files and checking what you entered. Please keep this panel open for a moment.',
     'save_only' => 'Save only',
     'saved_mark' => 'Saved ✓',
     'confirm_send_encar' => 'Confirm purchase · Send to ERP',
