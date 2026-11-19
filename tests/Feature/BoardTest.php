@@ -2383,11 +2383,68 @@ class BoardTest extends TestCase
             $d = $r->data();
 
             return $d['buyer_id'] === 7 && $d['requested_count'] === 3 && $d['reason'] === '다음 주 입금 예정'
-                && $d['purchase_listing_id'] === $l->id && $d['salesman_email'] === $sales->email && $d['requested_by_name'] === $mgr->name
+                && $d['purchase_listing_id'] === $l->id && $d['salesman_email'] === $sales->email && $d['requested_by_name'] === $mgr->name && $d['requested_by_email'] === $mgr->email
                 && ! array_key_exists('car_cost', $d) && ! array_key_exists('sale_price', $d);
         });
         $this->assertDatabaseHas('board_audit_logs', ['action' => 'erp_purchase_lock_request', 'purchase_listing_id' => $l->id, 'user_id' => $mgr->id]);
         $this->assertSame('accepted', $l->fresh()->status);   // 요청은 상태·금액을 건드리지 않는다
+    }
+
+    /** 대기 건이 있으면 요청 칸이 없다(ERP 409) · 대수가 남아 있으면 추가 요청 칸이 있다 · 409 already_pending 은 사람 말로. */
+    public function test_lock_request_form_hidden_while_pending_and_409_is_explained(): void
+    {
+        $this->carErpReadConfig();
+        $state = ['latest' => 'pending', 'remaining' => 0];
+        Http::fake([
+            '*/api/internal/board/buyers*' => Http::response(['count' => 1, 'data' => [$this->buyerRow(7, true)]], 200),
+            '*/api/internal/board/purchase-lock-requests*' => function ($request) use (&$state) {
+                if ($request->method() === 'POST') {
+                    return Http::response(['error' => 'already_pending', 'request' => ['status' => 'pending']], 409);
+                }
+
+                return Http::response(['buyer_id' => 7,
+                    'allowance' => $state['remaining'] > 0 ? ['remaining' => $state['remaining'], 'approved_count' => 3, 'expires_at' => now()->addDays(3)->toIso8601String()] : null,
+                    'latest' => ['status' => $state['latest'], 'requested_count' => 2, 'requested_at' => now()->toIso8601String()]], 200);
+            },
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000, 'car_erp_buyer_id' => 7]);
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->assertSee(__('auction.lock_req_pending_hint'))->assertDontSee(__('auction.lock_req_reason_ph'));
+
+        $state = ['latest' => 'approved', 'remaining' => 1];
+        $c = Volt::test('auction.index')->call('openDetail', $l->id)
+            ->assertSee(__('auction.lock_req_more'))->assertSee(__('auction.lock_req_reason_ph'));
+        $c->set('lockCount', '2')->set('lockReason', '추가로 두 대 더 필요')->call('requestLockApproval')
+            ->assertSet('lockError', __('auction.lock_req_err_pending'));
+    }
+
+    /** 종 — 최근에 요청을 보낸 사람에게만 ERP 를 묻고, 승인·거절 결과가 패널에 뜬다. 요청한 적 없으면 호출 0. */
+    public function test_bell_shows_lock_results_only_for_recent_requesters(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/purchase-lock-requests*' => Http::response(['data' => [
+                ['id' => 5, 'status' => 'approved', 'buyer_id' => 7, 'buyer_name' => 'BUYER7', 'requested_count' => 5, 'approved_count' => 3, 'decided_at' => now()->toIso8601String(), 'decided_by_name' => '홍부장'],
+                ['id' => 6, 'status' => 'rejected', 'buyer_id' => 8, 'buyer_name' => 'BUYER8', 'requested_count' => 1, 'decision_note' => '미수 정리 후', 'decided_at' => now()->toIso8601String()],
+            ]], 200),
+            '*' => Http::response(['count' => 0, 'requests' => [], 'data' => []], 200),
+        ]);
+        $sales = $this->mkUser('sales');
+        $this->actingAs($sales);
+        Volt::test('notify.bell')->call('openPanel')->assertSet('locks', []);
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), 'purchase-lock-requests'));
+
+        $l = $this->mkListing($sales, ['status' => 'accepted', 'buyer_verdict' => 'accepted']);
+        BoardAuditLog::create(['user_id' => $sales->id, 'purchase_listing_id' => $l->id, 'action' => 'erp_purchase_lock_request', 'field' => 'erp_purchase_lock_request',
+            'new_value' => json_encode(['as' => $sales->email, 'buyer_id' => 7, 'count' => 5])]);
+
+        Volt::test('notify.bell')->call('openPanel')
+            ->assertSee('BUYER7')->assertSee(__('auction.lock_bell_approved', ['count' => 3]))
+            ->assertSee('BUYER8')->assertSee('미수 정리 후');
+        Http::assertSent(fn ($r) => str_contains($r->url(), 'purchase-lock-requests') && str_contains($r->url(), 'since='));
     }
 
     /** 락이 안 걸린 바이어는 그대로 통과 — 락이 기본 차단으로 굳으면 매입이 통째로 선다. */

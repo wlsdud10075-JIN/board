@@ -323,7 +323,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
         $this->validate([
             'lockCount' => ['required', 'integer', 'min:1', 'max:999'],
-            'lockReason' => ['required', 'string', 'min:2', 'max:500'],
+            'lockReason' => ['required', 'string', 'min:5', 'max:500'],   // ERP 규격 5~500자
         ], [], ['lockCount' => __('auction.lock_req_count'), 'lockReason' => __('auction.lock_req_reason')]);
 
         [$email] = $this->buyerScope();
@@ -332,7 +332,9 @@ new #[Layout('components.layouts.app')] class extends Component {
             'buyer_id' => (int) $this->buyerId,
             'requested_count' => (int) $this->lockCount,
             'reason' => trim($this->lockReason),
-            'requested_by_name' => auth()->user()->name,
+            'requested_by_name' => mb_substr((string) auth()->user()->name, 0, 50),
+            // 실제 누른 사람의 로그인 이메일 — ERP 가 「대리로 요청한 사람은 그 건을 승인 못 한다」를 판정한다(Jin 2026-11-19).
+            'requested_by_email' => auth()->user()->email,
             'purchase_listing_id' => $l->id,
             'vehicle_number' => $l->vehicle_number,
             'vehicle_label' => null,
@@ -347,9 +349,16 @@ new #[Layout('components.layouts.app')] class extends Component {
             'ip_address' => \App\Models\BoardAuditLog::currentIp(),
         ]);
         if (! $ok) {
+            $code = (string) ($r['error'] ?? '');
             $msg = trim((string) ($r['message'] ?? ''));
-            $this->lockError = $msg !== '' ? $msg : __('auction.lock_req_failed', ['status' => $r['status'] ?? 0]);
-            $this->loadLockStatus();   // 409(이미 요청중) 등 — 지금 상태를 다시 보여 준다
+            $this->lockError = match (true) {
+                $code === 'already_pending' => __('auction.lock_req_err_pending'),
+                $code === 'not_locked' => __('auction.lock_req_err_not_locked'),
+                $msg !== '' => $msg,
+                default => __('auction.lock_req_failed', ['status' => $r['status'] ?? 0]),
+            };
+            $this->loadBuyers();       // not_locked = 그사이 락이 풀렸다 → 바이어 목록부터 다시
+            $this->loadLockStatus();   // already_pending = 지금 대기 건을 그대로 보여 준다
 
             return;
         }
@@ -1371,7 +1380,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <option value="">{{ __('auction.buyer_select') }}</option>
                             @foreach ($buyerOpts as $b)
                                 {{-- 락 표시는 ERP 판정(purchase_locked) 그대로 — board 가 조건을 다시 계산하지 않는다. --}}
-                                <option value="{{ $b['id'] }}">{{ !empty($b['purchase_locked']) ? '🔒 ' : '' }}{{ $b['name'] }}{{ !empty($b['country']) ? ' ('.$b['country'].')' : '' }}{{ !empty($b['salesman_name']) ? ' · '.$b['salesman_name'] : '' }}</option>
+                                <option value="{{ $b['id'] }}">{{ !empty($b['purchase_locked']) ? ((int) data_get($b, 'purchase_lock_allowance.remaining', 0) > 0 ? '🔓'.(int) data_get($b, 'purchase_lock_allowance.remaining').' ' : '🔒 ') : '' }}{{ $b['name'] }}{{ !empty($b['country']) ? ' ('.$b['country'].')' : '' }}{{ !empty($b['salesman_name']) ? ' · '.$b['salesman_name'] : '' }}</option>
                             @endforeach
                         </select>
                         @error('buyerId') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
@@ -1397,12 +1406,18 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     <div class="mt-2 rounded-md border border-gray-200 bg-white p-2 text-gray-700">
                                         <div class="flex flex-wrap items-center gap-1.5">
                                             <span class="font-semibold text-gray-800">{{ __('auction.lock_req_title') }}</span>
+                                            @php $ltStatus = (string) ($lt['status'] ?? ''); @endphp
                                             @if ($rem > 0)
                                                 <span class="badge badge-green">{{ __('auction.lock_req_approved', ['remaining' => $rem, 'until' => $fmt($ls['expires_at'] ?? null)]) }}</span>
-                                            @elseif (($lt['status'] ?? '') === 'pending')
+                                            @endif
+                                            @if ($ltStatus === 'pending')
                                                 <span class="badge badge-amber">{{ __('auction.lock_req_pending', ['count' => $lt['requested_count'] ?? '—', 'at' => $fmt($lt['requested_at'] ?? null)]) }}</span>
-                                            @elseif (($lt['status'] ?? '') === 'rejected')
+                                            @elseif ($rem < 1 && $ltStatus === 'rejected')
                                                 <span class="badge badge-red">{{ __('auction.lock_req_rejected') }}</span>
+                                            @elseif ($rem < 1 && $ltStatus === 'exhausted')
+                                                <span class="badge badge-gray">{{ __('auction.lock_req_exhausted') }}</span>
+                                            @elseif ($rem < 1 && $ltStatus === 'expired')
+                                                <span class="badge badge-gray">{{ __('auction.lock_req_expired') }}</span>
                                             @elseif ($ls !== null && ! $ls['ok'])
                                                 <span class="badge badge-gray">{{ __('auction.lock_req_unknown') }}</span>
                                             @endif
@@ -1410,12 +1425,15 @@ new #[Layout('components.layouts.app')] class extends Component {
                                         </div>
                                         @if ($rem > 0)
                                             <p class="mt-1 text-gray-600">{{ __('auction.lock_req_approved_hint', ['approved' => $ls['approved'] ?? '—']) }}</p>
-                                        @elseif (($lt['status'] ?? '') === 'pending')
+                                        @endif
+                                        {{-- 대기 건이 있으면 새 요청은 못 보낸다(ERP 409). 그 외에는 대수가 남아 있어도 추가 요청 가능 — 승인되면 더해진다(Jin 2026-11-19). --}}
+                                        @if ($ltStatus === 'pending')
                                             <p class="mt-1 text-gray-600">{{ __('auction.lock_req_pending_hint') }}</p>
                                         @else
-                                            @if (($lt['status'] ?? '') === 'rejected' && ! empty($lt['note']))
+                                            @if ($rem < 1 && $ltStatus === 'rejected' && ! empty($lt['note']))
                                                 <p class="mt-1 text-gray-600">{{ __('auction.lock_req_rejected_reason', ['reason' => $lt['note']]) }}</p>
                                             @endif
+                                            @if ($rem > 0)<p class="mt-1.5 text-[10px] text-gray-400">{{ __('auction.lock_req_more') }}</p>@endif
                                             <div class="mt-1.5 flex items-start gap-1.5">
                                                 <div class="w-16 shrink-0">
                                                     <input type="number" min="1" step="1" class="input-base px-2 text-center" wire:model="lockCount" title="{{ __('auction.lock_req_count') }}">

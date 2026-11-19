@@ -511,7 +511,8 @@ class CarErpReadService
      */
     /**
      * 매입 락 승인(2026-11-19 Jin 확정, 정본 = car-erp `docs/design/board-purchase-lock-approval.md`) — 그 바이어의 「남은 등록 대수」와 최근 요청 1건.
-     * ⚠️ 경로·필드명은 ERP 규격 통지 전 **board 초안** — 규격이 다르면 **이 메서드 둘만** 고친다(화면은 정규화된 모양만 본다).
+     * 규격 = car-erp `docs/integration/board-portal-api.md` §17(2026-11-19 확정). 화면은 여기서 정규화한 모양만 본다.
+     * `latest.status` = pending | approved | rejected | exhausted(다 씀) | expired(7일 지남). 통과 판정은 `remaining >= 1` 하나.
      *
      * @return array{ok: bool, remaining: int, approved: ?int, expires_at: ?string, latest: ?array{status: string, requested_count: ?int, approved_count: ?int, note: ?string, requested_at: ?string, decided_at: ?string}}
      *                                                                                                                                                                                                                      ok=false = 못 봤다(호출측은 「승인 없음」으로 다룬다)
@@ -539,7 +540,19 @@ class CarErpReadService
         ];
     }
 
-    /** 매입 락 승인 요청 — 「이 바이어로 N대 더 등록」 + 사유. 금액은 싣지 않는다(승인 대상 아님, Jin). */
+    /**
+     * 매입 락 승인 결과 목록(§17-3) — `since` 이후 결정된(승인·거절) 건, 그 영업의 바이어 범위. 종·웹푸시용.
+     * 응답 `{data: [{id, status, buyer_id, buyer_name, requested_count, approved_count, decision_note, decided_at, decided_by_name, …}]}`.
+     */
+    public function purchaseLockDecided(string $email, string $since): array
+    {
+        return $this->get('/purchase-lock-requests', ['salesman_email' => $email, 'since' => $since]);
+    }
+
+    /**
+     * 매입 락 승인 요청(§17-1) — 「이 바이어로 N대 더 등록」 + 사유. 금액은 싣지 않는다(승인 대상 아님, Jin).
+     * 409 `already_pending`(그 바이어에 대기 건) · 409 `not_locked`(지금 락 아님) · 404(그 영업의 바이어 아님) · 422.
+     */
     public function requestPurchaseLock(string $email, array $payload): array
     {
         $payload['salesman_email'] = $email;
@@ -654,6 +667,8 @@ class CarErpReadService
             return [
                 'ok' => false, 'status' => $res->status(), 'body' => null, 'content_type' => null,
                 'reason' => 'http_error', 'message' => $this->failureMessage($res),
+                // ERP 가 준 기계용 사유 코드(`{error: "already_pending"}` 등) — 화면이 사람 말로 바꿔 쓴다.
+                'error' => is_string($res->json('error')) ? $res->json('error') : null,
             ];
         }
 
@@ -760,6 +775,8 @@ class CarErpReadService
             return [
                 'ok' => false, 'status' => $res->status(), 'data' => null,
                 'reason' => 'http_error', 'message' => $this->failureMessage($res),
+                // ERP 가 준 기계용 사유 코드(`{error: "already_pending"}` 등) — 화면이 사람 말로 바꿔 쓴다.
+                'error' => is_string($res->json('error')) ? $res->json('error') : null,
             ];
         }
 

@@ -7,6 +7,7 @@ use App\Services\CarErpReadService;
 use App\Services\WebPushService;
 use App\Support\BoardRequestLines;
 use App\Support\Instance;
+use App\Support\PurchaseLockResults;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
@@ -66,6 +67,16 @@ class PushRequestResults extends Command
             try {
                 foreach ($fresh as $line) {
                     $sentTotal += $push->sendToUser($u, $this->payload($line));
+                }
+                // 매입 락 승인 결과(2026-11-19) — 최근에 요청을 보낸 사람만 ERP 를 묻는다(그 외 호출 0).
+                foreach (PurchaseLockResults::decided($u, $cursor) as $r) {
+                    $sentTotal += $push->sendToUser($u, [
+                        'title' => ($r['approved'] ? __('nav.bell.push_lock_approved') : __('nav.bell.push_lock_rejected')).' — '.$r['buyer'],
+                        'body' => PurchaseLockResults::line($r),
+                        'url' => route('auction'),
+                        'tag' => 'board-lock-'.$r['id'],
+                        'sticky' => ! $r['approved'],
+                    ]);
                 }
             } finally {
                 app()->setLocale($prevLocale);

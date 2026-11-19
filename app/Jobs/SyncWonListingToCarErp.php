@@ -184,6 +184,8 @@ class SyncWonListingToCarErp implements ShouldQueue
         $payload = [
             'contract_version' => 5,   // v5: v4 + buyer_undecided(재고매입). car-erp SUPPORTED_VERSIONS=[1..5], 2026-09-08 배포됨
             'vehicle_number' => $l->vehicle_number,
+            // 매입 락 승인 차감 기록용(2026-11-19, car-erp §17-5 — 선택 필드·버전 그대로). ERP 는 새 차량이 만들어질 때만 그 바이어의 남은 승인에서 1대 뺀다.
+            'purchase_listing_id' => $l->id,
             'owner_name' => $l->owner_name,
             'source' => $l->source,
             'final_price' => $l->final_price,   // v2 호환 유지(car-erp: purchase_price_krw ?? final_price)

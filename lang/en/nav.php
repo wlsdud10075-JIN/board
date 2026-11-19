@@ -106,6 +106,13 @@ return [
         'toast_claim_rejected' => '⛔ :count claim(s) rejected — open the bell for the reason',
         'push_title_hold' => '🔔 Inspection skipped',
         // Urgent inspection decisions (P1, 2026-10-29) — approved/rejected by a ssancar.com work manager
+        'locks' => 'Purchase lock approvals',
+        'lock_chip_approved' => 'Approved',
+        'lock_chip_rejected' => 'Rejected',
+        'toast_lock_approved' => '✅ :count purchase lock approval(s) — you can confirm the purchase',
+        'toast_lock_rejected' => '⛔ :count purchase lock request(s) rejected — open the bell for the reason',
+        'push_lock_approved' => 'Purchase lock approved',
+        'push_lock_rejected' => 'Purchase lock rejected',
         'urgents' => 'Urgent inspection decisions',
         'urgent_chip_approved' => 'Approved',
         'urgent_chip_rejected' => 'Rejected',
