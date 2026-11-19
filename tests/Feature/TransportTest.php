@@ -312,6 +312,10 @@ class TransportTest extends TestCase
         Volt::test('listings.index')->assertSee(__('listings.transport_state.done'));
 
         $req->forceFill(['status' => TransportRequest::REJECTED])->save();
+        $this->assertSame('rejected', $l->fresh()->transportState());
+        Volt::test('listings.index')->assertSee(__('listings.transport_state.rejected'));
+
+        $req->forceFill(['status' => TransportRequest::EXPIRED])->save();
         $this->assertNull($l->fresh()->transportState());
     }
 

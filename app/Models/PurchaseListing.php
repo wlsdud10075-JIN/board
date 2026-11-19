@@ -686,8 +686,8 @@ class PurchaseListing extends Model
     }
 
     /**
-     * 목록 「배차」 칸(2026-11-19 Jin) — 진행중(open: 예약·요청 보냄) / 배차완료(done: 업체 수락) / 없음(null → 「—」).
-     * 최근 요청이 거절·만료·취소면 지금 걸려 있는 배차가 없으므로 null.
+     * 목록 「배차」 칸(2026-11-19 Jin) — 진행중(open: 예약·요청 보냄) / 배차완료(done: 업체 수락) / 배차거절(rejected) / 없음(null → 「—」).
+     * 최근 요청이 만료·취소면 지금 걸려 있는 배차가 없으므로 null.
      */
     public function transportState(): ?string
     {
@@ -697,6 +697,7 @@ class PurchaseListing extends Model
             $t === null => null,
             $t->status === TransportRequest::ACCEPTED => 'done',
             $t->isOpen() => 'open',
+            $t->status === TransportRequest::REJECTED => 'rejected',
             default => null,
         };
     }

@@ -74,7 +74,7 @@ return [
         'invoice' => 'Invoice',             // 송금인(여권/ID) 입력·ERP 전송 상태(2026-10-29 ②)
         'created' => '등록일',              // 2026-11-05 Jin
     ],
-    'transport_state' => ['open' => '진행중', 'done' => '배차완료'],
+    'transport_state' => ['open' => '진행중', 'done' => '배차완료', 'rejected' => '배차거절'],
     'invoice_state' => ['none' => '미입력', 'entered' => '입력됨', 'synced' => 'ERP 전송됨'],
 
     // 추가 폼

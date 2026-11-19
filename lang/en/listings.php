@@ -74,7 +74,7 @@ return [
         'status' => 'Status',
         'created' => 'Registered',
     ],
-    'transport_state' => ['open' => 'In progress', 'done' => 'Dispatched'],
+    'transport_state' => ['open' => 'In progress', 'done' => 'Dispatched', 'rejected' => 'Declined'],
     'invoice_state' => ['none' => 'Not entered', 'entered' => 'Entered', 'synced' => 'Sent to ERP'],
 
     // Add form
