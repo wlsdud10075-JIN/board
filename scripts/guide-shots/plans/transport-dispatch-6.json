@@ -1,0 +1,7 @@
+{"slug":"transport-dispatch","base":"http://localhost:8003","login":{"email":"admin@board.test"},"viewport":"wide",
+ "steps":[
+  {"goto":"/listings"},{"wait":2500},
+  {"scrollText":"검차 예정일"},{"wait":800},
+  {"mask":{"무사백":"영업A","황진영":"영업B"}},
+  {"shot":"_t-list","full":false}
+ ]}
