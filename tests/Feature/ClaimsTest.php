@@ -332,7 +332,7 @@ class ClaimsTest extends TestCase
     {
         [$c, $sales, $h, $ceo] = $this->pending();
         $this->actingAs($h);
-        $t = Volt::test('claims.index')->call('openDetail', $c->id)->assertSee(__('claims.self_btn'))->call('openSelfModal')->assertSet('selfModal', true);
+        $t = Volt::test('claims.index')->assertSee(__('claims.self_btn'))->call('openSelfFor', $c->id)->assertSet('detailId', $c->id)->assertSet('selfModal', true);
 
         // 캡처 없이 = 모달에 사유, 상태 불변
         $t->set('selfAmount', '700')->call('selfApprove')->assertSet('selfError', __('claims.self_err_proof'));

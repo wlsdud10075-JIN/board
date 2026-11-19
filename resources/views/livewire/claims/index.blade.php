@@ -262,6 +262,13 @@ new #[Layout('components.layouts.app')] class extends Component
         $this->selfModal = true;
     }
 
+    /** 목록 행의 [자체승인] — 그 건 드로어를 열고 곧바로 모달. */
+    public function openSelfFor(int $id): void
+    {
+        $this->openDetail($id);
+        $this->openSelfModal();
+    }
+
     public function closeSelfModal(): void
     {
         $this->reset('selfModal', 'selfProof', 'selfAmount', 'selfMemo', 'selfError');
@@ -415,7 +422,12 @@ new #[Layout('components.layouts.app')] class extends Component
                     <span class="text-gray-700">🧑 {{ $c->buyer_name ?: '—' }}</span>
                     <span class="tabular-nums text-gray-700">{{ $c->salePriceDisplay() }}</span>
                     <span class="text-gray-500">{{ $c->total_purchase_count === null ? '—' : __('claims.total_cars', ['count' => $c->total_purchase_count]) }}</span>
-                    <span class="badge {{ $c->statusBadge() }} ml-auto whitespace-nowrap">{{ $c->statusLabel() }}@if ($c->revision > 1) ·{{ $c->revision }}@endif</span>
+                    {{-- 결재 중인 행 = 상태 칩 앞에 [자체승인](2026-11-19 Jin) — 드로어를 열고 곧바로 모달. --}}
+                    @if ($c->isPendingCeo())
+                        <button type="button" class="ml-auto whitespace-nowrap rounded-md bg-amber-500 px-2 py-0.5 text-[12px] font-bold text-white shadow-sm hover:bg-amber-600"
+                                wire:click.stop="openSelfFor({{ $c->id }})">🖼 {{ __('claims.self_btn') }}</button>
+                    @endif
+                    <span class="badge {{ $c->statusBadge() }} {{ $c->isPendingCeo() ? '' : 'ml-auto' }} whitespace-nowrap">{{ $c->statusLabel() }}@if ($c->revision > 1) ·{{ $c->revision }}@endif</span>
                 </div>
                 <div class="mt-0.5 flex items-center gap-2 text-[12px]">
                     <span class="min-w-0 flex-1 truncate text-gray-600" title="{{ $c->content }}">{{ $c->content }}</span>
