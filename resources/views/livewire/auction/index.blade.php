@@ -368,6 +368,37 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->loadLockStatus();
     }
 
+    /** [요청 취소] — 대기 중인 요청을 거둔다(대수를 잘못 적었을 때, 2026-11-19 Jin). 이미 결정됐으면 그 결과를 보여 준다. */
+    public function cancelLockRequest(): void
+    {
+        $this->lockNotice = $this->lockError = null;
+        $l = $this->detail;
+        $lt = $this->lockStatus['latest'] ?? null;
+        if (! $l || ! $this->buyerId || ! $lt || ($lt['status'] ?? '') !== 'pending' || empty($lt['id'])) {
+            return;
+        }
+        [$email] = $this->buyerScope();
+        $r = app(\App\Services\CarErpReadService::class)->cancelPurchaseLock($email, (int) $lt['id'], auth()->user()->name);
+        $ok = (bool) ($r['ok'] ?? false);
+        \App\Models\BoardAuditLog::create([
+            'user_id' => auth()->id(), 'purchase_listing_id' => $l->id, 'action' => 'erp_purchase_lock_cancel', 'field' => 'erp_purchase_lock_cancel',
+            'old_value' => null,
+            'new_value' => json_encode(['as' => $email, 'buyer_id' => (int) $this->buyerId, 'request_id' => (int) $lt['id'], 'count' => $lt['requested_count'] ?? null,
+                'result' => $ok ? 'ok' : 'failed', 'status' => $r['status'] ?? null, 'error' => $r['error'] ?? null], JSON_UNESCAPED_UNICODE),
+            'ip_address' => \App\Models\BoardAuditLog::currentIp(),
+        ]);
+        if ($ok) {
+            $this->lockNotice = __('auction.lock_req_cancelled');
+        } else {
+            $msg = trim((string) ($r['message'] ?? ''));
+            $this->lockError = ($r['error'] ?? '') === 'already_decided'
+                ? __('auction.lock_req_err_decided')
+                : ($msg !== '' ? $msg : __('auction.lock_req_failed', ['status' => $r['status'] ?? 0]));
+        }
+        $this->loadBuyers();
+        $this->loadLockStatus();
+    }
+
     /** [상태 새로고침] — 승인됐는지 다시 묻는다. */
     public function refreshLockStatus(): void
     {
@@ -1430,6 +1461,9 @@ new #[Layout('components.layouts.app')] class extends Component {
                                         {{-- 대기 건이 있으면 새 요청은 못 보낸다(ERP 409). 그 외에는 대수가 남아 있어도 추가 요청 가능 — 승인되면 더해진다(Jin 2026-11-19). --}}
                                         @if ($ltStatus === 'pending')
                                             <p class="mt-1 text-gray-600">{{ __('auction.lock_req_pending_hint') }}</p>
+                                            {{-- 대수를 잘못 적었으면 거두고 다시 요청한다(2026-11-19 Jin). --}}
+                                            <button type="button" class="btn-outline btn-sm mt-1.5" wire:click="cancelLockRequest" wire:confirm="{{ __('auction.lock_req_cancel_confirm', ['count' => $lt['requested_count'] ?? '—']) }}"
+                                                    wire:loading.attr="disabled" wire:target="cancelLockRequest">{{ __('auction.lock_req_cancel_btn') }}</button>
                                         @else
                                             @if ($rem < 1 && $ltStatus === 'rejected' && ! empty($lt['note']))
                                                 <p class="mt-1 text-gray-600">{{ __('auction.lock_req_rejected_reason', ['reason' => $lt['note']]) }}</p>

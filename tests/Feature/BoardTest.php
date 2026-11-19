@@ -2421,6 +2421,47 @@ class BoardTest extends TestCase
             ->assertSet('lockError', __('auction.lock_req_err_pending'));
     }
 
+    /** [요청 취소] — 대기 건만 거둔다 → 요청 칸이 다시 나온다. 이미 결정됐으면(409) 사람 말로 알리고 그 결과를 보여 준다. */
+    public function test_pending_lock_request_can_be_cancelled_from_board(): void
+    {
+        $this->carErpReadConfig();
+        $state = ['latest' => 'pending', 'cancel' => 200];
+        Http::fake([
+            '*/api/internal/board/buyers*' => Http::response(['count' => 1, 'data' => [$this->buyerRow(7, true)]], 200),
+            '*/api/internal/board/purchase-lock-requests/31/cancel*' => function () use (&$state) {
+                if ($state['cancel'] === 200) {
+                    $state['latest'] = 'cancelled';
+
+                    return Http::response(['id' => 31, 'status' => 'cancelled'], 200);
+                }
+                $state['latest'] = 'rejected';
+
+                return Http::response(['error' => 'already_decided', 'request' => ['id' => 31, 'status' => 'rejected']], 409);
+            },
+            '*/api/internal/board/purchase-lock-requests*' => function () use (&$state) {
+                return Http::response(['buyer_id' => 7, 'allowance' => null,
+                    'latest' => ['id' => 31, 'status' => $state['latest'], 'requested_count' => 30, 'requested_at' => now()->toIso8601String(), 'decision_note' => '대수 과다']], 200);
+            },
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $l = $this->mkListing($this->mkUser('sales'), ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000, 'car_erp_buyer_id' => 7]);
+        $mgr = $this->mkUser('manager', null, 'manager');
+        $this->actingAs($mgr);
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->assertSee(__('auction.lock_req_cancel_btn'))
+            ->call('cancelLockRequest')
+            ->assertSet('lockNotice', __('auction.lock_req_cancelled'))
+            ->assertSee(__('auction.lock_req_reason_ph'))->assertDontSee(__('auction.lock_req_cancel_btn'));
+        $this->assertDatabaseHas('board_audit_logs', ['action' => 'erp_purchase_lock_cancel', 'purchase_listing_id' => $l->id, 'user_id' => $mgr->id]);
+
+        $state = ['latest' => 'pending', 'cancel' => 409];
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->call('cancelLockRequest')
+            ->assertSet('lockError', __('auction.lock_req_err_decided'))
+            ->assertSee(__('auction.lock_req_rejected_reason', ['reason' => '대수 과다']));
+    }
+
     /** 종 — 최근에 요청을 보낸 사람에게만 ERP 를 묻고, 승인·거절 결과가 패널에 뜬다. 요청한 적 없으면 호출 0. */
     public function test_bell_shows_lock_results_only_for_recent_requesters(): void
     {

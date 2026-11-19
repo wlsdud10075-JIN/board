@@ -530,6 +530,7 @@ class CarErpReadService
             'approved' => is_numeric(data_get($allow, 'approved_count')) ? (int) data_get($allow, 'approved_count') : null,
             'expires_at' => data_get($allow, 'expires_at'),
             'latest' => is_array($latest) ? [
+                'id' => is_numeric(data_get($latest, 'id')) ? (int) data_get($latest, 'id') : null,
                 'status' => (string) data_get($latest, 'status', ''),
                 'requested_count' => is_numeric(data_get($latest, 'requested_count')) ? (int) data_get($latest, 'requested_count') : null,
                 'approved_count' => is_numeric(data_get($latest, 'approved_count')) ? (int) data_get($latest, 'approved_count') : null,
@@ -558,6 +559,16 @@ class CarErpReadService
         $payload['salesman_email'] = $email;
 
         return $this->post('/purchase-lock-requests', ['salesman_email' => $email], $payload);
+    }
+
+    /**
+     * 대기 중인 매입 락 승인 요청 취소(§17-1b, 2026-11-19 Jin — 대수를 잘못 적었을 때 board 에서 거둔다). 대기(pending) 건만.
+     * 200 `{id, status: "cancelled"}`(바로 다시 요청 가능) · 409 `already_decided`(이미 승인·거절 — 승인된 대수는 못 거둔다) · 404.
+     */
+    public function cancelPurchaseLock(string $email, int $requestId, ?string $byName = null): array
+    {
+        return $this->post('/purchase-lock-requests/'.$requestId.'/cancel', ['salesman_email' => $email],
+            array_filter(['salesman_email' => $email, 'cancelled_by_name' => $byName !== null ? mb_substr($byName, 0, 50) : null], fn ($v) => $v !== null));
     }
 
     public function sendClaim(string $email, array $payload): array
