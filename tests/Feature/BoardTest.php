@@ -2421,6 +2421,34 @@ class BoardTest extends TestCase
             ->assertSet('lockError', __('auction.lock_req_err_pending'));
     }
 
+    /**
+     * 구매대기 드로어 [내용만 저장](2026-11-19 Jin) — 확정 검사(첨부·바이어·환율) 없이 적은 것만 남긴다. 상태 그대로·ERP 전송 없음.
+     * 엔카 차에는 [매입취소] 버튼을 그리지 않는다(경매 출처의 [유찰]만 남는다).
+     */
+    public function test_accepted_drawer_saves_content_without_confirming(): void
+    {
+        IlluminateSupportFacadesQueue::fake();
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection', 'source' => 'encar',
+        ]);
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->assertSee(__('auction.save_only'))->assertSee(__('auction.confirm_send_encar'))->assertDontSee(__('auction.failed_encar'))
+            ->set('car_cost', '9000000')->set('selling_fee', '300000')->set('payee_name', '홍길동')
+            ->call('savePayee')->assertHasNoErrors()->assertDispatched('auction-saved');
+
+        $f = $l->fresh();
+        $this->assertSame('accepted', $f->status);
+        $this->assertSame(9000000, (int) $f->car_cost);
+        $this->assertSame(300000, (int) $f->selling_fee);
+        $this->assertSame('홍길동', $f->payee_name);
+        IlluminateSupportFacadesQueue::assertNothingPushed();
+
+        // 다시 열면 적어 둔 값이 그대로 나온다.
+        Volt::test('auction.index')->call('openDetail', $l->id)->assertSet('car_cost', '9000000')->assertSet('payee_name', '홍길동');
+    }
+
     /** [요청 취소] — 대기 건만 거둔다 → 요청 칸이 다시 나온다. 이미 결정됐으면(409) 사람 말로 알리고 그 결과를 보여 준다. */
     public function test_pending_lock_request_can_be_cancelled_from_board(): void
     {

@@ -125,7 +125,11 @@ return [
     'account_placeholder' => '계좌번호 (암호화 저장)',
 
     'execute' => '집행',
-    'execute_hint' => '낙찰/구매확정 시 위 입금정보가 함께 저장됩니다.',
+    'execute_hint' => '[내용만 저장]은 지금 적은 내용을 board 에만 저장합니다(ERP 로 보내지 않음). [구매확정 · ERP 전송]을 눌러야 ERP 로 넘어갑니다.',
+    'save_only' => '내용만 저장',
+    'saved_mark' => '저장됨 ✓',
+    'confirm_send_encar' => '구매확정 · ERP 전송',
+    'confirm_send_auction' => '낙찰 · ERP 전송',
     'won_auction' => '낙찰',
     'won_encar' => '구매확정',
     'failed_auction' => '유찰',
@@ -134,7 +138,7 @@ return [
     'save_payment_info' => '입금정보 저장',
 
     // flash
-    'flash_payee_saved' => '입금정보를 저장했습니다.',
+    'flash_payee_saved' => '적은 내용을 저장했습니다.',
     'flash_resent' => ':no 저장 완료 — ERP 로 다시 전송했습니다. 처리되면 ERP전환완료(synced)로 바뀝니다.',
     'flash_only_accepted' => '바이어 수락 상태의 차량만 집행할 수 있습니다.',
     'flash_processed' => ':no — :label 처리되었습니다.',

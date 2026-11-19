@@ -835,6 +835,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->save();
         $this->storeSalesFiles($l);
         unset($this->detail, $this->listings);
+        $this->dispatch('auction-saved');
 
         // 이미 won 인데 ERP 로 못 넘어간 차(금액 누락 422)를 여기서 금액만 채우면 재발사되게 한다.
         // 안 그러면 영업이 금액을 넣어도 아무 일도 안 일어나고, 재전송은 super 전용(/manage)이라 손이 없다.
@@ -1425,9 +1426,12 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     ? __('auction.buyer_lock_ratio', ['current' => rtrim(rtrim(number_format($blk['current'], 1), '0'), '.'), 'limit' => rtrim(rtrim(number_format($blk['limit'], 1), '0'), '.')])
                                     : __('auction.buyer_lock_unsecured', ['current' => number_format($blk['current']), 'limit' => number_format($blk['limit'])]);
                             @endphp
-                            <div class="mt-1.5 rounded-md border px-2.5 py-2 text-[11px] {{ $blk['locked'] ? 'border-red-300 bg-red-50 text-red-700' : 'border-gray-200 bg-gray-50 text-gray-500' }}">
+                            {{-- 승인받은 대수가 남아 있으면 빨간색이 아니다(2026-11-19 Jin) — 막는 안내가 아닌데 빨갛게 두면 구매확정이 다른 칸(첨부 등)에 걸렸을 때
+                                 「오류로 스크롤」이 이 상자로 끌고 와 락 때문에 막힌 것처럼 보인다. --}}
+                            @php $lockOpen = $blk['locked'] && (int) ($lockStatus['remaining'] ?? 0) > 0; @endphp
+                            <div class="mt-1.5 rounded-md border px-2.5 py-2 text-[11px] {{ $lockOpen ? 'border-amber-300 bg-amber-50 text-amber-800' : ($blk['locked'] ? 'border-red-300 bg-red-50 text-red-700' : 'border-gray-200 bg-gray-50 text-gray-500') }}">
                                 @if ($blk['locked'])
-                                    <div class="font-semibold">🔒 {{ __('auction.buyer_lock_title') }}</div>
+                                    <div class="font-semibold">{{ $lockOpen ? '🔓' : '🔒' }} {{ __('auction.buyer_lock_title') }}</div>
                                     <div class="mt-0.5">{{ $blkBasis }}</div>
                                     {{-- 락은 절대 규칙이 아니다 — 아래에서 ERP 승인을 요청하면 승인된 대수만큼 통과한다(2026-11-19 Jin). --}}
                                     <div class="mt-0.5">{{ __('auction.buyer_lock_notice') }}</div>
@@ -1732,9 +1736,17 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <p class="mb-1.5 rounded-md border border-red-300 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700">🔒 {{ $blockWhy }}</p>
                     @endif
                     <div class="flex gap-2">
-                        <button class="btn-green flex-1 justify-center {{ $blockWhy ? 'cursor-not-allowed opacity-40' : '' }}" @disabled($blockWhy !== null) wire:click="conclude({{ $d->id }}, 'won')" @click="window.__auctionConclude = true">{{ $d->isAuction() ? __('auction.won_auction') : __('auction.won_encar') }}</button>
-                        <button class="btn-ghost flex-1 justify-center" wire:click="conclude({{ $d->id }}, 'failed')">{{ $d->isAuction() ? __('auction.failed_auction') : __('auction.failed_encar') }}</button>
+                        <button class="btn-green flex-1 justify-center {{ $blockWhy ? 'cursor-not-allowed opacity-40' : '' }}" @disabled($blockWhy !== null) wire:click="conclude({{ $d->id }}, 'won')" @click="window.__auctionConclude = true">{{ $d->isAuction() ? __('auction.confirm_send_auction') : __('auction.confirm_send_encar') }}</button>
+                        {{-- [매입취소] 자리 → [저장](2026-11-19 Jin): 구매확정이 한 칸에 걸리면 적어 둔 금액·바이어·계좌가 남지 않아 매번 처음부터 적었다.
+                             확정 검사 없이 지금 적은 것만 저장한다(상태는 그대로). 취소는 매입예정 삭제·관리 화면에서. --}}
+                        <button type="button" class="btn-primary flex-1 justify-center" wire:click="savePayee" wire:loading.attr="disabled" wire:target="savePayee"
+                                x-data="{ ok: false }" x-on:auction-saved.window="ok = true; setTimeout(() => ok = false, 2000)">
+                            <span x-show="!ok">{{ __('auction.save_only') }}</span><span x-show="ok" x-cloak>{{ __('auction.saved_mark') }}</span>
+                        </button>
                     </div>
+                    @if ($d->isAuction())
+                        <button type="button" class="btn-ghost mt-2 w-full justify-center" wire:click="conclude({{ $d->id }}, 'failed')">{{ __('auction.failed_auction') }}</button>
+                    @endif
                     {{-- 🚨 [매입취소]가 「닫기」로 읽혀 실제로 매물이 취소됐다(2026-09-10 Jin).
                          ✕ 는 우상단에만 있어 하단 버튼 줄에서는 눈에 안 들어온다 → 여기에도 닫기를 둔다. --}}
                     <button type="button" class="btn-ghost mt-2 w-full justify-center" wire:click="closeDetail">{{ __('auction.close') }}</button>

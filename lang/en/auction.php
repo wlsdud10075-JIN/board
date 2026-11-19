@@ -125,7 +125,11 @@ return [
     'account_placeholder' => 'Account no. (stored encrypted)',
 
     'execute' => 'Execute',
-    'execute_hint' => 'The payment info above is saved together when marking won / purchase confirmed.',
+    'execute_hint' => '[Save only] keeps what you entered on board (nothing is sent to the ERP). Press [Confirm purchase · Send to ERP] to send it.',
+    'save_only' => 'Save only',
+    'saved_mark' => 'Saved ✓',
+    'confirm_send_encar' => 'Confirm purchase · Send to ERP',
+    'confirm_send_auction' => 'Won · Send to ERP',
     'won_auction' => 'Won',
     'won_encar' => 'Purchase confirmed',
     'failed_auction' => 'Failed',
@@ -134,7 +138,7 @@ return [
     'save_payment_info' => 'Save payment info',
 
     // flash
-    'flash_payee_saved' => 'Payment info saved.',
+    'flash_payee_saved' => 'Saved what you entered.',
     'flash_resent' => ':no saved — re-sent to the ERP. It flips to synced once processed.',
     'flash_only_accepted' => 'Only buyer-accepted vehicles can be executed.',
     'flash_processed' => ':no — :label processed.',
