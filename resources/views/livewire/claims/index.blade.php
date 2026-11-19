@@ -505,6 +505,12 @@ new #[Layout('components.layouts.app')] class extends Component
                                 <span class="badge badge-amber">🖼 {{ __('claims.self_badge') }}</span>
                                 @if ($sp = $d->selfProof())<a href="{{ $sp->shareUrl() }}" target="_blank" class="text-[var(--color-primary-text)] hover:underline">{{ __('claims.self_proof_view') }}</a>@endif
                             </div>
+                            {{-- 캡처를 드로어 안에서 바로 본다(2026-11-19 Jin) — 누르면 원본 크기. --}}
+                            @if ($sp)
+                                <a href="{{ $sp->shareUrl() }}" target="_blank" class="mt-1.5 block">
+                                    <img src="{{ $sp->shareUrl() }}" alt="{{ __('claims.self_proof') }}" loading="lazy" class="max-h-72 rounded-md border border-gray-200 bg-white object-contain">
+                                </a>
+                            @endif
                         @endif
                         @if ($d->confirmed_amount !== null)<div class="mt-0.5 font-semibold text-gray-800">FINAL AMOUNT {{ $d->amountDisplay('confirmed_amount') }}</div>@endif
                         {{-- ERP 바이어 「클레임」 탭 미러(2026-11-11 Jin) — 담당자가 눌러야 간다. 반려도 보낸다(declined·0). --}}
