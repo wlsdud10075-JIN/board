@@ -138,7 +138,7 @@ return [
     'save_payment_info' => '입금정보 저장',
 
     // flash
-    'flash_payee_saved' => '적은 내용을 저장했습니다.',
+    'flash_payee_saved' => '적은 내용을 저장했습니다 (ERP 로는 보내지 않았습니다).',
     'flash_resent' => ':no 저장 완료 — ERP 로 다시 전송했습니다. 처리되면 ERP전환완료(synced)로 바뀝니다.',
     'flash_only_accepted' => '바이어 수락 상태의 차량만 집행할 수 있습니다.',
     'flash_processed' => ':no — :label 처리되었습니다.',

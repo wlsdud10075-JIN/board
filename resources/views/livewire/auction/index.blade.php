@@ -847,6 +847,10 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
         session()->flash('ok', __('auction.flash_payee_saved'));
+        // 구매대기 [내용만 저장]은 저장하면 드로어를 닫는다(2026-11-19 Jin — 드로어 안엔 저장 안내가 안 보여 눌린 건지 몰랐다). 목록 위 초록 안내가 보인다.
+        if ($l->status === 'accepted') {
+            $this->closeDetail();
+        }
     }
 
     /** 계좌 후보 → 입력칸 + 즉시 저장(2026-11-05 A안, `saveApplied`). */
@@ -1320,7 +1324,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     @if ($ideal['eur'] !== null)<span>· €{{ number_format($ideal['eur'], 2) }}</span>@endif
                                 </div>
                                 @if ($ideal['diff'] !== null)
-                                    <p class="mt-0.5 font-semibold {{ $ideal['diff'] < 0 ? 'text-red-600' : 'text-emerald-700' }}">{{ __('auction.ideal_diff', ['sale' => number_format($ideal['sale_krw']), 'pct' => ($ideal['diff'] > 0 ? '+' : '').number_format($ideal['diff'], 1).'%']) }}</p>
+                                    {{-- p 가 아니라 div — 빨간 p 는 「오류로 스크롤」이 오류로 본다(2026-11-19 Jin: 첨부 누락 경고 대신 이 줄로 끌려갔다). 참고 수치일 뿐 오류가 아니다. --}}
+                                    <div class="mt-0.5 font-semibold {{ $ideal['diff'] < 0 ? 'text-red-600' : 'text-emerald-700' }}" data-hint>{{ __('auction.ideal_diff', ['sale' => number_format($ideal['sale_krw']), 'pct' => ($ideal['diff'] > 0 ? '+' : '').number_format($ideal['diff'], 1).'%']) }}</div>
                                 @endif
                                 <p class="mt-0.5 text-gray-400">{{ __('auction.ideal_formula', ['vat' => config('board.ideal_vat_rate') * 100, 'share' => config('board.ideal_vat_share') * 100]) }}</p>
                             </div>

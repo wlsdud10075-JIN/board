@@ -2437,7 +2437,7 @@ class BoardTest extends TestCase
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->assertSee(__('auction.save_only'))->assertSee(__('auction.confirm_send_encar'))->assertDontSee(__('auction.failed_encar'))
             ->set('car_cost', '9000000')->set('selling_fee', '300000')->set('payee_name', '홍길동')
-            ->call('savePayee')->assertHasNoErrors()->assertDispatched('auction-saved');
+            ->call('savePayee')->assertHasNoErrors()->assertDispatched('auction-saved')->assertSet('detailId', null)->assertSee(__('auction.flash_payee_saved'));
 
         $f = $l->fresh();
         $this->assertSame('accepted', $f->status);

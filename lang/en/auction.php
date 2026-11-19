@@ -138,7 +138,7 @@ return [
     'save_payment_info' => 'Save payment info',
 
     // flash
-    'flash_payee_saved' => 'Saved what you entered.',
+    'flash_payee_saved' => 'Saved what you entered (nothing was sent to the ERP).',
     'flash_resent' => ':no saved — re-sent to the ERP. It flips to synced once processed.',
     'flash_only_accepted' => 'Only buyer-accepted vehicles can be executed.',
     'flash_processed' => ':no — :label processed.',
