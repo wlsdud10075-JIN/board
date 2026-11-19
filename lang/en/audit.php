@@ -134,6 +134,7 @@ return [
         'erp_remitter_send' => 'Remitter sent to ERP',
         'erp_resync' => 'ERP resend (manage)',
         'commercial_invoice' => 'Invoice download',
+        'erp_purchase_lock_request' => 'Purchase lock approval request',
         'erp_board_request' => 'Portal request (deposit / balance / CEO deposit / sale payment)',
         'erp_shipping_sync' => 'Portal shipping request',
         'erp_bl_request' => 'Portal B/L request',

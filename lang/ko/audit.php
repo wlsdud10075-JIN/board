@@ -135,6 +135,7 @@ return [
         'erp_remitter_send' => 'ERP 송금인 전송',          // 2026-11-03 — 보낸 이름·결과, ID 는 ***
         'erp_resync' => 'ERP 재전송(관리)',               // 2026-11-03 — /manage 재전송 누른 사람
         'commercial_invoice' => '인보이스 다운로드',
+        'erp_purchase_lock_request' => '매입 락 승인 요청',
         'erp_board_request' => '포털 요청 (계약금·매입잔금·대표계약금·판매대금확인)',   // 2026-11-04 — 누가·누구 명의·어느 차·금액·결과
         'erp_shipping_sync' => '포털 선적요청',
         'erp_bl_request' => '포털 B/L 요청',

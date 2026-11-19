@@ -509,6 +509,44 @@ class CarErpReadService
      * `POST /claims` — 멱등키 = (인스턴스, board_claim_id), 같은 키 재전송은 revision 이 클 때만 갱신. 응답 `{erp_claim_id, status}`.
      * 바이어를 못 정하면 422 「ERP 에서 이 차의 바이어를 먼저 정해 주세요」. ERP 는 적립금·미수·정산에 손대지 않는다(기록만).
      */
+    /**
+     * 매입 락 승인(2026-11-19 Jin 확정, 정본 = car-erp `docs/design/board-purchase-lock-approval.md`) — 그 바이어의 「남은 등록 대수」와 최근 요청 1건.
+     * ⚠️ 경로·필드명은 ERP 규격 통지 전 **board 초안** — 규격이 다르면 **이 메서드 둘만** 고친다(화면은 정규화된 모양만 본다).
+     *
+     * @return array{ok: bool, remaining: int, approved: ?int, expires_at: ?string, latest: ?array{status: string, requested_count: ?int, approved_count: ?int, note: ?string, requested_at: ?string, decided_at: ?string}}
+     *                                                                                                                                                                                                                      ok=false = 못 봤다(호출측은 「승인 없음」으로 다룬다)
+     */
+    public function purchaseLockStatus(string $email, int $buyerId): array
+    {
+        $r = $this->get('/purchase-lock-requests', ['salesman_email' => $email, 'buyer_id' => $buyerId]);
+        $d = (array) ($r['data'] ?? []);
+        $allow = data_get($d, 'allowance');
+        $latest = data_get($d, 'latest');
+
+        return [
+            'ok' => (bool) ($r['ok'] ?? false),
+            'remaining' => ($r['ok'] ?? false) ? max(0, (int) data_get($allow, 'remaining', 0)) : 0,
+            'approved' => is_numeric(data_get($allow, 'approved_count')) ? (int) data_get($allow, 'approved_count') : null,
+            'expires_at' => data_get($allow, 'expires_at'),
+            'latest' => is_array($latest) ? [
+                'status' => (string) data_get($latest, 'status', ''),
+                'requested_count' => is_numeric(data_get($latest, 'requested_count')) ? (int) data_get($latest, 'requested_count') : null,
+                'approved_count' => is_numeric(data_get($latest, 'approved_count')) ? (int) data_get($latest, 'approved_count') : null,
+                'note' => data_get($latest, 'decision_note'),
+                'requested_at' => data_get($latest, 'requested_at'),
+                'decided_at' => data_get($latest, 'decided_at'),
+            ] : null,
+        ];
+    }
+
+    /** 매입 락 승인 요청 — 「이 바이어로 N대 더 등록」 + 사유. 금액은 싣지 않는다(승인 대상 아님, Jin). */
+    public function requestPurchaseLock(string $email, array $payload): array
+    {
+        $payload['salesman_email'] = $email;
+
+        return $this->post('/purchase-lock-requests', ['salesman_email' => $email], $payload);
+    }
+
     public function sendClaim(string $email, array $payload): array
     {
         return $this->post('/claims', ['salesman_email' => $email], $payload);
