@@ -70,9 +70,11 @@ return [
         'inspection_state' => '검차상태',    // ssancar.com 폴러 마지막 판정 한 줄(현지확인대기 차만)
         'work_date' => '검차 예정일',        // ssancar.com 이 정한 날(P1, 2026-10-29) — board 계산 없음
         'status' => '상태',
+        'transport' => '배차',   // 탁송 배차 상태(2026-11-19) — 없음 「—」 / 진행중 / 배차완료
         'invoice' => 'Invoice',             // 송금인(여권/ID) 입력·ERP 전송 상태(2026-10-29 ②)
         'created' => '등록일',              // 2026-11-05 Jin
     ],
+    'transport_state' => ['open' => '진행중', 'done' => '배차완료', 'rejected' => '배차거절'],
     'invoice_state' => ['none' => '미입력', 'entered' => '입력됨', 'synced' => 'ERP 전송됨'],
 
     // 추가 폼

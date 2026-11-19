@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Auth;
 
@@ -678,6 +679,29 @@ class PurchaseListing extends Model
     }
 
     /** 연동 B 에 동봉할 도착 위치 — 배차완료 > 그 외 최신 회차의 값(없으면 null). ERP 는 빈 칸만 채운다(fill-if-empty). */
+    /** 가장 최근 탁송 요청(회차 기준) — 매입예정 목록 「배차」 칸용(목록은 eager load). */
+    public function latestTransport(): HasOne
+    {
+        return $this->hasOne(TransportRequest::class)->latestOfMany('revision');
+    }
+
+    /**
+     * 목록 「배차」 칸(2026-11-19 Jin) — 진행중(open: 예약·요청 보냄) / 배차완료(done: 업체 수락) / 배차거절(rejected) / 없음(null → 「—」).
+     * 최근 요청이 만료·취소면 지금 걸려 있는 배차가 없으므로 null.
+     */
+    public function transportState(): ?string
+    {
+        $t = $this->latestTransport;
+
+        return match (true) {
+            $t === null => null,
+            $t->status === TransportRequest::ACCEPTED => 'done',
+            $t->isOpen() => 'open',
+            $t->status === TransportRequest::REJECTED => 'rejected',
+            default => null,
+        };
+    }
+
     public function transportStockLocation(): ?array
     {
         $req = $this->transportRequests()->whereNotNull('stock_location')->orderByRaw("CASE WHEN status = 'accepted' THEN 0 ELSE 1 END")->orderByDesc('revision')->first();

@@ -69,10 +69,12 @@ return [
         'owner' => 'Salesperson',
         'inspection_state' => 'Inspection',
         'work_date' => 'Inspection date',
+        'transport' => 'Transport',   // 탁송 배차 상태(2026-11-19) — 없음 「—」 / 진행중 / 배차완료
         'invoice' => 'Invoice',
         'status' => 'Status',
         'created' => 'Registered',
     ],
+    'transport_state' => ['open' => 'In progress', 'done' => 'Dispatched', 'rejected' => 'Declined'],
     'invoice_state' => ['none' => 'Not entered', 'entered' => 'Entered', 'synced' => 'Sent to ERP'],
 
     // Add form

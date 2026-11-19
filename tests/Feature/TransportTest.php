@@ -294,6 +294,31 @@ class TransportTest extends TestCase
         $this->get($r2->linkFor($r2->recipients->firstWhere('kind', TransportRequestRecipient::KIND_COMPANY)))->assertOk()->assertDontSee(__('transport.page.wanted'));
     }
 
+    /** 매입예정 목록 「배차」 칸(2026-11-19) — 없음 「—」 · 진행중 · 배차완료. 거절로 끝난 최근 요청은 없음으로. */
+    public function test_listings_table_shows_transport_state_column(): void
+    {
+        $sales = $this->user();
+        $c = $this->company();
+        $l = $this->listing($sales);
+        $this->assertNull($l->transportState());
+
+        $req = $this->svc()->create($l, $sales, ['company_id' => $c->id]);
+        $this->assertSame('open', $l->fresh()->transportState());
+        $this->actingAs($sales);
+        Volt::test('listings.index')->assertSee(__('listings.table.transport'))->assertSee(__('listings.transport_state.open'));
+
+        $req->forceFill(['status' => TransportRequest::ACCEPTED])->save();
+        $this->assertSame('done', $l->fresh()->transportState());
+        Volt::test('listings.index')->assertSee(__('listings.transport_state.done'));
+
+        $req->forceFill(['status' => TransportRequest::REJECTED])->save();
+        $this->assertSame('rejected', $l->fresh()->transportState());
+        Volt::test('listings.index')->assertSee(__('listings.transport_state.rejected'));
+
+        $req->forceFill(['status' => TransportRequest::EXPIRED])->save();
+        $this->assertNull($l->fresh()->transportState());
+    }
+
     /** 첨부 탭 사진에서 골라 보내기(2026-11-17) — 처음엔 전부 체크 · 뺀 것은 안 간다 · 서류·남의 매물 사진은 무시 · 새로 올린 것과 합쳐 5장 상한 · 원본 복사. */
     public function test_attachment_photos_can_be_picked_for_the_company_page(): void
     {
