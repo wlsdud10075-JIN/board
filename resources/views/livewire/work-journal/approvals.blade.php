@@ -35,9 +35,12 @@ new #[Layout('components.layouts.app')] class extends Component {
     public string $overall = '';
 
     /** 반려 모달(2026-11-04 Jin — 빨간 [반려] → 사유 모달). 반려는 팀장만·팀장 승인 전에만. */
-    public ?int $rejectingId = null;
+    public bool $rejectModal = false;
 
     public string $rejectReason = '';
+
+    /** 반려할 때 돌려보낼 사람(일지 id 문자열) — 안 골라도 된다(기안만 첫 결재자에게). 첫 단계에서는 한 명 이상. */
+    public array $rejectPick = [];
 
     /** 결재선 모달(2026-11-16 Jin — 클레임 [결재 요청] 과 같은 창). 팀장 승인 때 부장·상무·대표 중 누구에게 올릴지 고른다. */
     public bool $lineModal = false;
@@ -181,36 +184,40 @@ new #[Layout('components.layouts.app')] class extends Component {
         session()->flash('ap_ok', $final ? __('journal.ap_final_flash') : __('journal.ap_approved_flash'));
     }
 
-    public function openReject(int $journalId): void
+    /** [반려] — 기안 전체 반려 창(사유 필수 + 돌려보낼 사람 선택, 2026-11-19). */
+    public function openReject(): void
     {
-        $this->rejectingId = $journalId;
+        $this->rejectModal = true;
         $this->rejectReason = '';
+        $this->rejectPick = [];
         $this->resetErrorBag('rejectReason');
     }
 
     public function closeReject(): void
     {
-        $this->reset('rejectingId', 'rejectReason');
+        $this->reset('rejectModal', 'rejectReason', 'rejectPick');
         $this->resetErrorBag('rejectReason');
     }
 
-    public function rejectJournal(): void
+    public function rejectBatch(): void
     {
-        $journalId = (int) $this->rejectingId;
-        $j = WorkJournal::with('user')->findOrFail($journalId);
+        $b = $this->batch;
+        abort_unless($b, 404);
+        $this->resetErrorBag('rejectReason');
+        $names = $b->journals->whereIn('id', array_map('intval', $this->rejectPick))->map(fn ($j) => $j->user?->name)->filter()->implode(', ');
         try {
-            $this->svc()->reject($j, Auth::user(), $this->rejectReason);
+            $this->svc()->reject($b, Auth::user(), $this->rejectReason, array_map('intval', $this->rejectPick));
         } catch (\DomainException $e) {
             $this->addError('rejectReason', __('journal.err.'.$e->getMessage()));
 
             return;
         }
-        $this->reset('rejectingId', 'rejectReason');
-        unset($this->opinions[$journalId], $this->batch, $this->batches, $this->counts);
+        $this->reset('rejectModal', 'rejectReason', 'rejectPick', 'opinions');
+        unset($this->batch, $this->batches, $this->counts);
         if (! $this->batches->contains('id', $this->sel)) {
-            $this->sel = $this->batches->first()?->id;   // 다 반려해 기안이 사라졌으면 다음 것
+            $this->sel = $this->batches->first()?->id;   // 내 차례에서 빠졌거나 기안이 사라졌으면 다음 것
         }
-        session()->flash('ap_ok', __('journal.ap_rejected_flash', ['name' => $j->user?->name]));
+        session()->flash('ap_ok', $names !== '' ? __('journal.ap_rejected_flash', ['name' => $names]) : __('journal.ap_rejected_flash_all'));
     }
 
     public function dow($date): string
@@ -299,7 +306,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
                     {{-- 인원별 카드 — snapshot 만 그린다(상신 뒤 바뀐 것은 결재 내용에 안 들어간다) --}}
                     @foreach ($journals as $jr)
-                        @php $prev = $b->comments->where('work_journal_id', $jr->id); $snapRows = (array) data_get($jr->snapshot, 'entries', []); @endphp
+                        @php $prev = $b->comments->where('work_journal_id', $jr->id); $snapRows = (array) data_get($jr->snapshot, 'entries', []); $notes = $svc->notesFor($jr->id); $said = $prev->count() + $notes->where('kind', '!=', 'submit')->count(); @endphp
                         {{-- wire:ignore.self — 의견을 칠 때 다시 그려져도 펼친 상태(open)를 유지 --}}
                         <details class="wj-p mb-2 rounded-xl border border-gray-200 bg-white" wire:key="jr-{{ $jr->id }}" wire:ignore.self>
                             <summary class="flex cursor-pointer flex-wrap items-center gap-2 px-3 py-2.5 sm:px-4">
@@ -307,11 +314,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 <span class="badge badge-gray">{{ $jr->user?->roleLabel() }}</span>
                                 <span class="text-xs text-gray-500">{{ __('journal.ap_rows', ['n' => count($snapRows)]) }} · {{ __('journal.submitted_at', ['time' => $jr->submitted_at?->format('H:i')]) }}</span>
                                 <a class="text-xs text-blue-700 underline" href="{{ route('work-journal.excel', $jr) }}" x-data x-on:click.stop>{{ __('journal.excel_download') }}</a>
-                                @if ($prev->isNotEmpty())<span class="badge badge-purple">💬 {{ $prev->count() }}</span>@endif
-                                {{-- 반려 — 팀장만, 팀장 승인 전에만. 빨간 버튼 → 사유 모달(2026-11-04 Jin) --}}
-                                @if ($canReject)
-                                    <button type="button" class="ml-auto rounded-md bg-red-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-red-700" x-data x-on:click.prevent.stop="$wire.openReject({{ $jr->id }})">{{ __('journal.ap_reject') }}</button>
-                                @endif
+                                @if ($said > 0)<span class="badge badge-purple">💬 {{ $said }}</span>@endif
+                                @if ($notes->contains('kind', 'reject'))<span class="badge badge-red">{{ __('journal.ap_was_rejected', ['n' => $notes->where('kind', 'reject')->count()]) }}</span>@endif
                             </summary>
                             <div class="px-3 pb-4 sm:px-4">
                                 @include('livewire.work-journal._entries', ['rows' => $snapRows])
@@ -333,31 +337,42 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 @foreach ($prev as $c)
                                     <div class="mt-2 rounded-r-md border-l-4 border-violet-400 bg-violet-50 px-3 py-1.5 text-[13px]"><div class="text-[11px] text-gray-500">{{ $c->step?->title }} {{ $c->user?->name }}</div><div class="whitespace-pre-line">{{ $c->body }}</div></div>
                                 @endforeach
+                                {{-- 이력 — 상신 의견·결재의견·반려(재상신·재결재를 해도 남는다, 2026-11-19) --}}
+                                <div class="mt-3 border-t border-dashed border-gray-200 pt-2">
+                                    <div class="text-xs font-bold text-gray-700">{{ __('journal.thread_title') }}</div>
+                                    @include('livewire.work-journal._thread', ['notes' => $notes])
+                                </div>
                                 @if ($canApprove)
-                                    <textarea class="input-base mt-2" rows="2" placeholder="{{ __('journal.ap_opinion_ph', ['name' => $jr->user?->name]) }}" wire:model="opinions.{{ $jr->id }}"></textarea>
+                                    <label class="mt-3 block text-xs font-bold text-gray-700">{{ __('journal.ap_opinion_label') }}</label>
+                                    <textarea class="input-base mt-1" rows="2" placeholder="{{ __('journal.ap_opinion_ph', ['name' => $jr->user?->name]) }}" wire:model="opinions.{{ $jr->id }}"></textarea>
                                 @endif
                             </div>
                         </details>
                     @endforeach
 
-                    <h3 class="mt-4 text-sm font-bold text-gray-800">{{ __('journal.ap_overall') }}</h3>
-                    @forelse ($b->comments->whereNull('work_journal_id') as $c)
-                        <div class="mt-2 rounded-r-md border-l-4 border-violet-400 bg-violet-50 px-3 py-1.5 text-[13px]"><div class="text-[11px] text-gray-500">{{ $c->step?->title }} {{ $c->user?->name }}</div><div class="whitespace-pre-line">{{ $c->body }}</div></div>
-                    @empty
-                        <p class="text-xs text-gray-400">{{ __('journal.ap_none_yet') }}</p>
-                    @endforelse
+                    {{-- 기안 반려 이력(그 날짜) — 결재자에게만. 옛 「전체 의견」은 남아 있는 것만 읽기 전용으로 --}}
+                    @php $bNotes = $svc->batchNotes($b->date); $legacyAll = $b->comments->whereNull('work_journal_id'); @endphp
+                    @if ($bNotes->isNotEmpty() || $legacyAll->isNotEmpty())
+                        <h3 class="mt-4 text-sm font-bold text-gray-800">{{ __('journal.ap_batch_thread') }}</h3>
+                        @foreach ($legacyAll as $c)
+                            <div class="mt-2 rounded-r-md border-l-4 border-violet-400 bg-violet-50 px-3 py-1.5 text-[13px]"><div class="text-[11px] text-gray-500">{{ $c->step?->title }} {{ $c->user?->name }} · {{ __('journal.comment_all') }}</div><div class="whitespace-pre-line">{{ $c->body }}</div></div>
+                        @endforeach
+                        @include('livewire.work-journal._thread', ['notes' => $bNotes])
+                    @endif
 
                     @error('approve') <div class="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">⚠ {{ $message }}</div> @enderror
                     @if ($canApprove)
                         @php $next = $b->steps->first(fn ($s) => $s->seq > $cur->seq && $s->status === 'pending'); @endphp
-                        <textarea class="input-base mt-2" rows="2" placeholder="{{ __('journal.ap_overall_ph') }}" wire:model="overall"></textarea>
                         <div class="mt-3 flex flex-wrap items-center gap-2">
-                            <span class="text-xs text-gray-500">{{ $canReject ? __('journal.ap_reject_hint') : __('journal.ap_no_reject') }}</span>
-                            @if ($cur->title === \App\Models\User::TEAM_LEADER)
-                                <button type="button" class="btn-green ml-auto" wire:click="openLineModal">{{ __('journal.ap_line_open') }}</button>
-                            @else
-                                <button type="button" class="btn-green ml-auto" wire:click="approve">{{ __('journal.ap_approve', ['next' => $next ? __('journal.ap_next_to', ['title' => $next->title]) : __('journal.ap_final')]) }}</button>
-                            @endif
+                            <span class="min-w-0 flex-1 text-xs text-gray-500">{{ __('journal.ap_reject_hint') }}</span>
+                            <div class="ml-auto flex shrink-0 gap-2">
+                                <button type="button" class="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700" wire:click="openReject">{{ __('journal.ap_reject') }}</button>
+                                @if ($cur->title === \App\Models\User::TEAM_LEADER)
+                                    <button type="button" class="btn-green" wire:click="openLineModal">{{ __('journal.ap_line_open') }}</button>
+                                @else
+                                    <button type="button" class="btn-green" wire:click="approve">{{ __('journal.ap_approve', ['next' => $next ? __('journal.ap_next_to', ['title' => $next->title]) : __('journal.ap_final')]) }}</button>
+                                @endif
+                            </div>
                         </div>
                     @endif
                 </div>
@@ -415,16 +430,31 @@ new #[Layout('components.layouts.app')] class extends Component {
     @endif
 
     {{-- 반려 사유 모달 --}}
-    @if ($rejectingId && ($rj = \App\Models\WorkJournal::with('user')->find($rejectingId)))
+    @if ($rejectModal && ($rb = $this->batch))
+        @php $firstStep = $svc->atFirstStep($rb); $back = $rb->steps->first(fn ($s) => $s->status !== 'skipped'); @endphp
         <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="closeReject">
-        <div class="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
-            <h3 class="text-base font-bold text-gray-800">{{ __('journal.ap_reject_modal_title', ['name' => $rj->user?->name]) }}</h3>
-            <p class="mt-1 text-xs text-gray-500">{{ __('journal.ap_reject_modal_hint') }}</p>
-            <textarea class="input-base mt-3" rows="4" autofocus placeholder="{{ __('journal.ap_reject_ph', ['name' => $rj->user?->name]) }}" wire:model="rejectReason"></textarea>
-            @error('rejectReason') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+        <div class="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-white p-5 shadow-xl">
+            <h3 class="text-base font-bold text-gray-800">{{ __('journal.ap_reject_modal_title', ['date' => $rb->date->toDateString()]) }}</h3>
+            <p class="mt-1 text-xs text-gray-500">{{ $firstStep ? __('journal.ap_reject_modal_hint_first') : __('journal.ap_reject_modal_hint', ['title' => $back?->title, 'name' => $back?->approver?->name]) }}</p>
+            <label class="mt-3 block text-xs font-bold text-gray-700">{{ __('journal.ap_reject_reason') }}</label>
+            <textarea class="input-base mt-1" rows="3" autofocus placeholder="{{ __('journal.ap_reject_ph') }}" wire:model="rejectReason"></textarea>
+            <label class="mt-3 block text-xs font-bold text-gray-700">{{ $firstStep ? __('journal.ap_reject_pick_required') : __('journal.ap_reject_pick') }}</label>
+            <div class="mt-1 space-y-1">
+                @foreach ($rb->journals->sortBy(fn ($j) => $j->submitted_at) as $rj)
+                    <label class="flex cursor-pointer items-center gap-2 rounded-md border border-gray-200 px-3 py-2 text-sm" wire:key="rjp-{{ $rj->id }}">
+                        <input type="checkbox" wire:model.live="rejectPick" value="{{ $rj->id }}">
+                        <span class="font-semibold text-gray-800">{{ $rj->user?->name }}</span>
+                        <span class="text-xs text-gray-500">{{ $rj->user?->roleLabel() }}</span>
+                    </label>
+                @endforeach
+            </div>
+            <p class="mt-2 rounded-md bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                {{ count($rejectPick) > 0 ? __('journal.ap_reject_result_pick', ['n' => count($rejectPick), 'rest' => $rb->journals->count() - count($rejectPick), 'title' => $back?->title]) : __('journal.ap_reject_result_none', ['title' => $back?->title]) }}
+            </p>
+            @error('rejectReason') <p class="mt-2 text-sm text-red-600">⚠ {{ $message }}</p> @enderror
             <div class="mt-4 flex justify-end gap-2">
                 <button type="button" class="btn-ghost" wire:click="closeReject">{{ __('common.cancel') }}</button>
-                <button type="button" class="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700" wire:click="rejectJournal">{{ __('journal.ap_reject_submit') }}</button>
+                <button type="button" class="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700" wire:click="rejectBatch" wire:loading.attr="disabled" wire:target="rejectBatch">{{ __('journal.ap_reject_submit') }}</button>
             </div>
         </div>
         </div>

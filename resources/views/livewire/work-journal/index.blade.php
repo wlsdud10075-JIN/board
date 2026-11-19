@@ -29,6 +29,9 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public string $remarks = '';
 
+    /** 상신 의견(2026-11-19) — 기본 문구가 채워져 있고 고쳐 쓸 수 있다. 상신할 때 이력에 남는다(저장 칸 아님). */
+    public string $submitNote = '';
+
     /** 고정 업무 추가 칸. */
     public int $rtWeekday = 1;
 
@@ -43,6 +46,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         abort_unless(Auth::user()->isJournalWriter(), 403, __('journal.forbidden'));
         $this->normalizeDate();
         $this->loadRows();
+        $this->submitNote = WorkJournalService::defaultSubmitNote($this->date);
     }
 
     private function normalizeDate(): void
@@ -81,6 +85,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->date = $d;
         $this->normalizeDate();
         $this->loadRows();
+        $this->submitNote = WorkJournalService::defaultSubmitNote($this->date);
     }
 
     /** 쓰기 가능한 일지(없으면 만든다). 상신했으면 null + 에러. */
@@ -255,7 +260,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
         try {
-            $this->svc()->submit($j);
+            $this->svc()->submit($j, $this->submitNote);
         } catch (\DomainException $e) {
             $this->addError('rows', __('journal.err.'.$e->getMessage()));
 
@@ -311,6 +316,15 @@ new #[Layout('components.layouts.app')] class extends Component {
             ->where(fn ($q) => $q->where('work_journal_id', $j->id)->orWhereNull('work_journal_id'))->orderBy('id')->get();
     }
 
+    /** 내 일지 이력 — 상신 의견·결재의견·반려(재상신해도 남는다). 다른 사람 일지 줄·기안 전체 줄은 안 보인다. */
+    #[Computed]
+    public function notes()
+    {
+        $j = $this->journal;
+
+        return $j ? $this->svc()->notesFor($j->id) : collect();
+    }
+
     public function canRecall(): bool
     {
         $j = $this->journal;
@@ -362,7 +376,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         {{-- 팀장 반려 — 내용은 그대로, 사유를 보고 고쳐서 다시 상신(2026-11-04 Jin) --}}
         @if ($status === 'rejected')
             <div class="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">
-                <b>{{ __('journal.rejected_title', ['name' => $j->rejecter?->name, 'time' => $j->rejected_at?->format('m-d H:i')]) }}</b>
+                <b>{{ __('journal.rejected_title', ['title' => $j->rejecter?->approval_title, 'name' => $j->rejecter?->name, 'time' => $j->rejected_at?->format('m-d H:i')]) }}</b>
                 <div class="mt-0.5 whitespace-pre-line">{{ $j->reject_reason }}</div>
                 <div class="mt-1 text-[12px] text-red-600">{{ __('journal.rejected_hint') }}</div>
             </div>
@@ -420,9 +434,16 @@ new #[Layout('components.layouts.app')] class extends Component {
         @endif
 
         @unless ($locked)
-            <div class="mt-3 flex flex-wrap items-center gap-2">
+            <div class="mt-3">
                 <button type="button" class="btn-outline btn-sm" wire:click="addRow">{{ __('journal.add_row') }}</button>
-                <button type="button" class="btn-primary ml-auto" wire:click="submit" wire:confirm="{{ __('journal.submit_confirm') }}">{{ __('journal.submit') }}</button>
+            </div>
+            {{-- 상신 의견 + 상신(2026-11-19 영업팀장 요청) — 기본 문구 그대로 두거나 고쳐 쓴다 --}}
+            <div class="mt-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+                <label class="block text-xs font-bold text-gray-700">{{ __('journal.submit_note_label') }}</label>
+                <div class="mt-1 flex flex-wrap items-end gap-2">
+                    <textarea class="input-base min-w-0 flex-1" rows="2" maxlength="500" wire:model="submitNote"></textarea>
+                    <button type="button" class="btn-primary" wire:click="submit" wire:confirm="{{ __('journal.submit_confirm') }}">{{ __('journal.submit') }}</button>
+                </div>
             </div>
         @else
             <div class="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[13px] text-blue-700">
@@ -464,6 +485,13 @@ new #[Layout('components.layouts.app')] class extends Component {
             @include('livewire.work-journal._activities', ['acts' => $this->activities])
         </div>
     </div>
+
+    @if ($this->notes->isNotEmpty())
+        <div class="card mt-4">
+            <h3 class="text-sm font-bold text-gray-800">{{ __('journal.thread_title') }}</h3>
+            @include('livewire.work-journal._thread', ['notes' => $this->notes])
+        </div>
+    @endif
 
     @if ($this->comments->isNotEmpty())
         <div class="card mt-4">

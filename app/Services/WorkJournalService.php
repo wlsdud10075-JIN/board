@@ -9,7 +9,7 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Models\WorkJournal;
 use App\Models\WorkJournalBatch;
-use App\Models\WorkJournalComment;
+use App\Models\WorkJournalNote;
 use App\Models\WorkJournalRoutine;
 use App\Support\Plate;
 use Carbon\Carbon;
@@ -312,7 +312,7 @@ class WorkJournalService
     /**
      * 상신 — snapshot 고정 + 그날 열린 묶음에 합류(없으면 새 묶음·결재선 생성). 부장·상무·대표가 모두 없으면 \DomainException('no_ceo').
      */
-    public function submit(WorkJournal $j): WorkJournalBatch
+    public function submit(WorkJournal $j, ?string $note = null): WorkJournalBatch
     {
         if (! $j->isDraft()) {
             throw new \DomainException('not_draft');
@@ -322,17 +322,20 @@ class WorkJournalService
             throw new \DomainException('empty');
         }
 
-        return DB::transaction(function () use ($j, $entries) {
+        return DB::transaction(function () use ($j, $entries, $note) {
             $date = $j->date->toDateString();
-            $batch = WorkJournalBatch::whereDate('date', $date)->where('status', 'pending')->orderByDesc('seq')->with('steps')->lockForUpdate()->first();
-            if (! $batch || $batch->hasApprovals()) {
+            // 승인이 아직 없는 열린 기안에 합류한다 — 반려돼 팀장에게 돌아온 기안도 여기에 든다(단계가 전부 pending 으로 되돌려져 있다).
+            // 가장 최근 것 하나만 보면, 추가 기안이 진행 중일 때 반려된 첫 기안으로 못 돌아간다 → 승인 없는 것 중에서 고른다.
+            $batch = WorkJournalBatch::whereDate('date', $date)->where('status', 'pending')->orderBy('seq')->with('steps')->lockForUpdate()->get()
+                ->first(fn (WorkJournalBatch $b) => ! $b->hasApprovals());
+            if (! $batch) {
                 $batch = $this->createBatch($date);
             }
             $j->update([
                 'status' => 'submitted',
                 'submitted_at' => now(),
                 'batch_id' => $batch->id,
-                'rejected_at' => null, 'rejected_by' => null, 'reject_reason' => null,   // 다시 상신 — 반려 이력은 감사 로그에
+                'rejected_at' => null, 'rejected_by' => null, 'reject_reason' => null,   // 다시 상신 — 반려 이력은 work_journal_notes 스레드에 남는다
                 'snapshot' => [
                     'entries' => $entries->map(fn ($e) => ['time' => $e->time, 'location' => $e->location, 'task' => $e->task, 'note' => $e->note])->values()->all(),
                     'activities' => $this->activitiesFor($j->user, $date),
@@ -341,6 +344,9 @@ class WorkJournalService
                     'remarks' => $j->remarks,
                 ],
             ]);
+            // 상신 의견 — 비우면 기본 문구(2026-11-19 영업팀장 요청). 재상신하면 한 줄이 더 쌓인다.
+            $note = trim((string) $note) !== '' ? trim((string) $note) : self::defaultSubmitNote($j->date);
+            $this->note($j->date, $j->id, $batch->seq, WorkJournalNote::SUBMIT, __('journal.note_title_draft'), $j->user, $note);
             $this->audit($j->user_id, 'work_journal_submit', null, json_encode(['date' => $date, 'batch' => $batch->seq, 'entries' => $entries->count()], JSON_UNESCAPED_UNICODE));
 
             return $batch;
@@ -397,38 +403,107 @@ class WorkJournalService
 
     // ───────────── 결재 ─────────────
 
-    /** 반려할 수 있나 — 지금 팀장 단계이고 그 팀장 본인일 때만(부장 이상에게 넘어간 뒤엔 없음). */
+    /** 반려할 수 있나 — 지금 차례인 결재자면 누구나(팀장·부장·상무·대표, 2026-11-19). */
     public function canReject(WorkJournalBatch $b, User $u): bool
     {
-        return $this->canApprove($b, $u) && $b->currentStep()?->title === User::TEAM_LEADER;
+        return $this->canApprove($b, $u);
+    }
+
+    /** 지금 차례가 결재선의 첫 단계인가 — 첫 단계에서 반려하면 기안이 돌아갈 곳이 자기 자신이라 사람을 꼭 골라야 한다. */
+    public function atFirstStep(WorkJournalBatch $b): bool
+    {
+        $first = $b->steps->first(fn ($s) => $s->status !== 'skipped');
+
+        return $first !== null && $b->currentStep()?->id === $first->id;
     }
 
     /**
-     * 반려 — 그 사람 일지만 묶음에서 빼서 rejected(내용 그대로)로 돌려보낸다. 사유 필수. 묶음이 비면 지운다.
+     * 반려 = **기안 전체 반려**(2026-11-19 Jin · 영업팀장 합의). 사유 필수.
+     *
+     *   - 기안은 첫 결재자(팀장)가 결재하기 전 상태로 돌아간다 — 앞 단계 승인은 전부 되돌린다(기록은 감사 로그·스레드에).
+     *   - `$journalIds` 로 고른 사람의 일지만 기안에서 빠져 그 사람에게 돌아간다(rejected, 내용 그대로). 나머지는 기안에 남는다.
+     *   - 안 골라도 된다(「전체적으로 다시 봐라」) — 단 첫 단계에서는 한 명 이상(돌려보낼 곳이 자기 자신).
+     *   - 고른 사람이 고쳐서 재상신하면 같은 기안에 다시 들어온다(`submit` — 승인 없는 열린 기안에 합류) → 처음부터 다시 결재.
+     *   - 기안이 비면 지운다. 이력(work_journal_notes)은 일지·날짜에 묶여 남는다.
+     *
+     * @param  list<int>  $journalIds
      */
-    public function reject(WorkJournal $j, User $actor, string $reason): void
+    public function reject(WorkJournalBatch $b, User $actor, string $reason, array $journalIds = []): void
     {
+        $b->load('steps');
         $reason = trim($reason);
-        $b = $j->batch()->with('steps')->first();
-        if ($j->status !== 'submitted' || ! $b || ! $this->canReject($b, $actor)) {
+        if (! $this->canReject($b, $actor)) {
             throw new \DomainException('cannot_reject');
         }
         if ($reason === '') {
             throw new \DomainException('reason_required');
         }
-        DB::transaction(function () use ($j, $b, $actor, $reason) {
-            $j->update([
-                'status' => 'rejected', 'batch_id' => null, 'snapshot' => null, 'submitted_at' => null,
-                'rejected_at' => now(), 'rejected_by' => $actor->id, 'reject_reason' => mb_substr($reason, 0, 500),
-            ]);
+        $targets = $b->journals()->with('user')->whereIn('id', array_map('intval', $journalIds))->where('status', 'submitted')->get();
+        if ($targets->isEmpty() && $this->atFirstStep($b)) {
+            throw new \DomainException('reject_pick_required');
+        }
+        $step = $b->currentStep();
+        $first = $b->steps->first(fn ($s) => $s->status !== 'skipped');
+        $names = $targets->map(fn ($j) => $j->user?->name)->filter()->implode(', ');
+        $deleted = false;
+
+        DB::transaction(function () use ($b, $actor, $reason, $targets, $step, $first, $names, &$deleted) {
+            foreach ($targets as $j) {
+                $j->update([
+                    'status' => 'rejected', 'batch_id' => null, 'snapshot' => null, 'submitted_at' => null,
+                    'rejected_at' => now(), 'rejected_by' => $actor->id, 'reject_reason' => mb_substr($reason, 0, 500),
+                ]);
+                $this->note($b->date, $j->id, $b->seq, WorkJournalNote::REJECT, $step->title, $actor, $reason);
+            }
+            // 기안 전체 줄 — 결재자에게만 보인다(누구를 돌려보냈는지까지)
+            $this->note($b->date, null, $b->seq, WorkJournalNote::REJECT, $step->title, $actor, $reason, $names ?: null);
             if (! $b->journals()->exists()) {
                 $b->delete();
+                $deleted = true;
+            } else {
+                $b->steps()->where('status', 'approved')->update(['status' => 'pending', 'acted_at' => null]);
+                $b->update(['status' => 'pending', 'current_step' => $first->seq, 'approved_at' => null]);
             }
             $this->audit($actor->id, 'work_journal_reject', null, json_encode([
-                'date' => $j->date->toDateString(), 'user' => $j->user?->name, 'reason' => $reason,
+                'date' => $b->date->toDateString(), 'batch' => $b->seq, 'title' => $step->title, 'users' => $names ?: '—', 'reason' => $reason,
             ], JSON_UNESCAPED_UNICODE));
         });
-        $this->push($j->user, __('journal.push.reject_title'), __('journal.push.reject_body', ['date' => $j->date->format('m-d'), 'reason' => mb_substr($reason, 0, 80)]), 'wj-reject-'.$j->id, route('work-journal', ['date' => $j->date->toDateString()]));
+
+        $label = $b->date->format('m-d');
+        foreach ($targets as $j) {
+            $this->push($j->user, __('journal.push.reject_title'), __('journal.push.reject_body', ['date' => $label, 'reason' => mb_substr($reason, 0, 80)]), 'wj-reject-'.$j->id, route('work-journal', ['date' => $b->date->toDateString()]));
+        }
+        if (! $deleted && $first->approver_user_id !== $actor->id) {
+            $this->push($first->approver, __('journal.push.returned_title'), __('journal.push.returned_body', ['date' => $label, 'title' => $step->title, 'reason' => mb_substr($reason, 0, 80)]), 'wj-returned-'.$b->id);
+        }
+    }
+
+    /** 상신 의견 기본 문구 — 「11월 18일 업무일지 상신드립니다. 검토 후 재가 부탁드립니다.」 */
+    public static function defaultSubmitNote(Carbon|string $date): string
+    {
+        $d = Carbon::parse($date);
+
+        return __('journal.submit_note_default', ['m' => $d->month, 'd' => $d->day]);
+    }
+
+    private function note(Carbon|string $date, ?int $journalId, ?int $seq, string $kind, ?string $title, ?User $by, string $body, ?string $targets = null): void
+    {
+        WorkJournalNote::create([
+            'date' => Carbon::parse($date)->toDateString(), 'work_journal_id' => $journalId, 'batch_seq' => $seq, 'kind' => $kind,
+            'title' => $title, 'user_id' => $by?->id, 'user_name' => $by?->name, 'body' => mb_substr($body, 0, 2000), 'targets' => $targets ? mb_substr($targets, 0, 500) : null,
+        ]);
+    }
+
+    /** 한 사람 일지의 이력(상신 의견·결재의견·반려) — 작성자 본인과 결재자가 본다. */
+    public function notesFor(int $journalId): Collection
+    {
+        return WorkJournalNote::where('work_journal_id', $journalId)->orderBy('id')->get();
+    }
+
+    /** 그 날짜 기안 전체 줄(사람을 안 고른 반려 포함 반려 이력) — 결재자에게만. */
+    public function batchNotes(Carbon|string $date): Collection
+    {
+        return WorkJournalNote::whereDate('date', Carbon::parse($date)->toDateString())->whereNull('work_journal_id')->orderBy('id')->get();
     }
 
     public function canApprove(WorkJournalBatch $b, User $u): bool
@@ -484,13 +559,14 @@ class WorkJournalService
             foreach ($perJournal as $jid => $body) {
                 $body = trim((string) $body);
                 if ($body !== '' && in_array((int) $jid, $memberIds, true)) {
-                    WorkJournalComment::create(['batch_id' => $b->id, 'step_id' => $step->id, 'work_journal_id' => (int) $jid, 'user_id' => $actor->id, 'body' => mb_substr($body, 0, 2000)]);
+                    // 결재의견 — 스레드 표에 쓴다(종전 work_journal_comments 는 단계에 묶여 결재선을 다시 깔면 사라진다. 옛 행은 읽기만).
+                    $this->note($b->date, (int) $jid, $b->seq, WorkJournalNote::OPINION, $step->title, $actor, $body);
                     $saved[(int) $jid] = $body;
                 }
             }
             $overall = trim((string) $overall);
-            if ($overall !== '') {
-                WorkJournalComment::create(['batch_id' => $b->id, 'step_id' => $step->id, 'work_journal_id' => null, 'user_id' => $actor->id, 'body' => mb_substr($overall, 0, 2000)]);
+            if ($overall !== '') {   // 화면에선 없앴다(2026-11-19 「결재의견 하나만」) — 넘어오면 기안 전체 줄(결재자에게만)로 남긴다
+                $this->note($b->date, null, $b->seq, WorkJournalNote::OPINION, $step->title, $actor, $overall);
             }
             $step->update(['status' => 'approved', 'acted_at' => now()]);
             $next = $b->steps->first(fn ($s) => $s->seq > $step->seq && $s->status === 'pending');

@@ -65,7 +65,9 @@
   {"clickText": "전체 펼치기", "in": "button"},
   {"clickText": "씬 점검 매입예정 3대 등록", "in": "td"},
   {"check": "ceo — 오늘 기안을 열었음(대표 차례)", "text": "지금은 대표"},
-  {"set": "textarea@model(overall)", "value": "씬 점검 의견 수고했습니다"},
+  {"check": "ceo — 사람 카드에 상신 의견 이력", "text": "업무일지 상신드립니다"},
+  {"check": "ceo — 반려 버튼 설명(기안 전체 반려)", "text": "반려하면 기안 전체가 첫 결재자에게 돌아갑니다"},
+  {"set": "textarea[wire\\:model^=\"opinions.\"]", "value": "씬 점검 의견 수고했습니다"},
   {"clickText": "승인 → 최종 승인", "in": "button.btn-green"},
   {"check": "ceo — 승인 안내", "text": "최종 승인했습니다"},
   {"check": "ceo — 오늘 기안이 다음 단계로", "db": "select status, current_step from work_journal_batches where date = curdate() order by seq desc limit 1", "expect": {"status": "approved", "current_step": null}},
@@ -73,7 +75,7 @@
   {"login": {"email": "guide-demo@local.test"}},
   {"goto": "/work-journal"},
   {"check": "작성자 화면 결재 완료", "text": "결재 완료"},
-  {"check": "결재 의견 칸", "text": "결재 의견"},
-  {"check": "대표 전체 의견이 보임", "text": "씬 점검 의견 수고했습니다"},
+  {"check": "결재 이력 칸", "text": "결재 이력"},
+  {"check": "대표 결재의견이 보임", "text": "씬 점검 의견 수고했습니다"},
   {"check": "일지 결재 완료", "db": "select j.status, j.batch_id, (select count(*) from work_journal_entries e where e.work_journal_id = j.id) as n from work_journals j join users u on u.id = j.user_id where u.email = ? and j.date = curdate()", "args": ["guide-demo@local.test"], "expect": {"status": "approved", "batch_id": "*"}}
  ]}

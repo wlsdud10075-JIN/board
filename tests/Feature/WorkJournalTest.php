@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Models\WorkJournal;
 use App\Models\WorkJournalBatch;
 use App\Models\WorkJournalComment;
+use App\Models\WorkJournalNote;
 use App\Services\WorkJournalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -231,11 +232,13 @@ class WorkJournalTest extends TestCase
         $this->assertSame(['approved', null], [$batch->status, $batch->current_step]);
         $this->assertSame(['approved', 'approved'], [$ja->fresh()->status, $jb->fresh()->status]);
         $this->assertSame(4, BoardAuditLog::where('action', 'work_journal_approve')->count());
-        $this->assertSame(4, WorkJournalComment::count());
+        $this->assertSame(0, WorkJournalComment::count());   // 옛 표에는 더 안 쓴다
+        $this->assertSame(2, WorkJournalNote::where('kind', 'submit')->count());
+        $this->assertSame(2, WorkJournalNote::where('kind', 'opinion')->whereNotNull('work_journal_id')->count());
 
-        // 김영업 화면 — 자기 의견 + 전체 의견 2개, 이영업에게 달린 의견은 안 보임
+        // 김영업 화면 — 자기 상신 의견·자기에게 달린 결재의견만. 이영업 것·기안 전체 줄은 안 보임
         $this->actingAs($a);
-        Volt::test('work-journal.index')->assertSee('김영업 잘했음')->assertSee('전체 양호')->assertSee('확인')->assertDontSee('이영업 확인');
+        Volt::test('work-journal.index')->assertSee('김영업 잘했음')->assertSee(__('journal.note_kind.submit'))->assertDontSee('이영업 확인')->assertDontSee('전체 양호');
     }
 
     /** 결재 카드는 snapshot 을 그린다 — 상신 뒤 바뀐 매물 상태가 결재 내용에 섞이지 않는다. 미상신자 표시(마감 지남·평일). */
@@ -281,8 +284,8 @@ class WorkJournalTest extends TestCase
         $this->assertTrue(BoardAuditLog::where('field', 'work_journal_cutoff')->exists());
     }
 
-    /** 반려 — 팀장만·팀장 승인 전에만·사람별·사유 필수. 내용 그대로 돌아가 고쳐서 다시 상신하면 같은 기안(팀장 승인 전)에 합류. 부장은 반려 못 함. */
-    public function test_team_leader_rejects_per_person_and_writer_resubmits(): void
+    /** 첫 단계(팀장) 반려 — 사유·사람 한 명 이상 필수, 고른 사람만 돌아가고 나머지는 기안에 남는다. 재상신하면 같은 기안. 이력은 재상신 뒤에도 남는다. */
+    public function test_first_step_reject_sends_picked_people_back_and_history_stays(): void
     {
         $line = $this->line();
         $a = $this->mk('김영업');
@@ -292,9 +295,10 @@ class WorkJournalTest extends TestCase
         $batch = $ja->fresh()->batch;
 
         $this->actingAs($line['lead']);
-        Volt::test('work-journal.approvals')->call('pick', $batch->id)->call('openReject', $ja->id)->assertSee(__('journal.ap_reject_modal_title', ['name' => '김영업']))
-            ->call('rejectJournal')->assertHasErrors('rejectReason');   // 사유 없음 — 모달은 열린 채
-        Volt::test('work-journal.approvals')->call('pick', $batch->id)->call('openReject', $ja->id)->set('rejectReason', '오후 업무 빠짐 — 다시 작성')->call('rejectJournal')->assertHasNoErrors()->assertSet('rejectingId', null);
+        $c = Volt::test('work-journal.approvals')->call('pick', $batch->id)->call('openReject')->assertSee(__('journal.ap_reject_pick_required'));
+        $c->call('rejectBatch')->assertHasErrors('rejectReason');                                         // 사유 없음
+        $c->set('rejectReason', '오후 업무 빠짐 — 다시 작성')->call('rejectBatch')->assertHasErrors('rejectReason');   // 첫 단계 — 사람 필수
+        $c->set('rejectPick', [(string) $ja->id])->call('rejectBatch')->assertHasNoErrors()->assertSet('rejectModal', false);
 
         $ja->refresh();
         $this->assertSame(['rejected', null, '오후 업무 빠짐 — 다시 작성', $line['lead']->id], [$ja->status, $ja->batch_id, $ja->reject_reason, $ja->rejected_by]);
@@ -302,28 +306,96 @@ class WorkJournalTest extends TestCase
         $this->assertSame($batch->id, $jb->fresh()->batch_id);               // 나머지는 기안에 그대로
         $this->assertTrue(BoardAuditLog::where('action', 'work_journal_reject')->exists());
 
-        // 작성자 — 사유가 보이고, 고쳐서 다시 상신하면 같은 기안(팀장 아직 승인 전)
+        // 작성자 — 사유가 보이고, 고쳐서 다시 상신하면 같은 기안. 반려 이력은 재상신 뒤에도 남는다.
         $this->actingAs($a);
         Volt::test('work-journal.index')->assertSee('오후 업무 빠짐 — 다시 작성')->assertSee(__('journal.status.rejected'))
-            ->set('rows.0.task', '늦게 온 일지 + 오후 업무')->call('submit')->assertHasNoErrors();
+            ->set('rows.0.task', '늦게 온 일지 + 오후 업무')->set('submitNote', '고쳐서 다시 올립니다')->call('submit')->assertHasNoErrors();
         $ja->refresh();
         $this->assertSame(['submitted', $batch->id, null], [$ja->status, $ja->batch_id, $ja->reject_reason]);
-
-        // 팀장 승인 뒤 부장은 반려 못 함
-        $this->approveAs($line['lead'], $batch);
-        $this->actingAs($line['bujang']);
-        Volt::test('work-journal.approvals')->call('pick', $batch->id)->call('openReject', $jb->id)->set('rejectReason', 'x')->call('rejectJournal')->assertHasErrors('rejectReason');
-        $this->assertSame('submitted', $jb->fresh()->status);
+        Volt::test('work-journal.index')->assertSee(__('journal.thread_title'))->assertSee('오후 업무 빠짐 — 다시 작성')->assertSee('고쳐서 다시 올립니다');
+        // 이영업에게는 김영업의 반려 이력이 안 보인다
+        $this->actingAs($b);
+        Volt::test('work-journal.index')->assertDontSee('오후 업무 빠짐 — 다시 작성');
+        // 결재자 — 사람 카드와 기안 반려 이력에 보인다
+        $this->actingAs($line['lead']);
+        Volt::test('work-journal.approvals')->call('pick', $batch->id)->assertSee('오후 업무 빠짐 — 다시 작성')->assertSee(__('journal.note_targets', ['names' => '김영업']))->assertSee('고쳐서 다시 올립니다');
     }
 
-    /** 팀장이 모두 반려하면 빈 기안은 사라진다. */
+    /** 상무 반려 = 기안 전체 반려 — 고른 사람은 본인에게, 나머지는 기안에 남아 팀장 결재 전 상태로. 재상신 → 같은 기안 → 팀장부터 다시. */
+    public function test_later_step_reject_returns_whole_batch_to_first_approver(): void
+    {
+        $line = $this->line();
+        $writers = collect(['일영업', '이영업', '삼영업'])->map(fn ($n) => $this->mk($n));
+        $js = $writers->map(fn ($w) => $this->writeAndSubmit($w, $w->name.' 일'))->all();
+        $batch = $js[0]->fresh()->batch;
+
+        // 팀장: 상무만 지정 → 팀장 → 상무
+        $this->actingAs($line['lead']);
+        Volt::test('work-journal.approvals')->call('pick', $batch->id)->call('openLineModal')
+            ->set('line', ['부장' => '', '상무' => (string) $line['sangmu']->id, '대표' => ''])->call('approve')->assertSet('lineError', null);
+        $this->assertSame(2, $batch->fresh()->current_step);
+        $this->assertFalse(app(WorkJournalService::class)->canReject($batch->fresh()->load('steps'), $line['lead']));   // 내 차례가 아니면 반려 못 함
+
+        // 상무: 삼영업을 골라 반려
+        $this->actingAs($line['sangmu']);
+        Volt::test('work-journal.approvals')->call('pick', $batch->id)->call('openReject')->assertSee(__('journal.ap_reject_pick'))
+            ->set('rejectReason', '계약 차량 금액 확인 필요')->set('rejectPick', [(string) $js[2]->id])->call('rejectBatch')->assertHasNoErrors();
+
+        $batch->refresh()->load('steps');
+        $this->assertSame(['pending', 1], [$batch->status, $batch->current_step]);
+        $this->assertSame(['pending', 'pending'], $batch->steps->pluck('status')->all());   // 팀장 승인도 되돌려진다
+        $this->assertSame(['submitted', 'submitted', 'rejected'], collect($js)->map(fn ($j) => $j->fresh()->status)->all());
+        $this->assertSame([$batch->id, $batch->id, null], collect($js)->map(fn ($j) => $j->fresh()->batch_id)->all());
+        $this->assertTrue(app(WorkJournalService::class)->canApprove($batch, $line['lead']));    // 다시 팀장 차례
+        $this->assertFalse(app(WorkJournalService::class)->canApprove($batch, $line['sangmu']));
+
+        // 삼영업 재상신 → 같은 기안에 다시 모인다
+        $this->actingAs($writers[2]);
+        Volt::test('work-journal.index')->assertSee('계약 차량 금액 확인 필요')->call('submit')->assertHasNoErrors();
+        $this->assertSame($batch->id, $js[2]->fresh()->batch_id);
+        $this->assertSame(1, WorkJournalBatch::count());
+
+        // 팀장부터 다시 — 결재선 기본값 = 지난번(상무만), 다음 결재자(상무)가 반려 이력을 본다
+        $this->actingAs($line['lead']);
+        Volt::test('work-journal.approvals')->call('pick', $batch->id)->assertSee('계약 차량 금액 확인 필요')->call('openLineModal')
+            ->assertSet('line', ['부장' => '', '상무' => (string) $line['sangmu']->id, '대표' => ''])->call('approve')->assertSet('lineError', null);
+        $this->actingAs($line['sangmu']);
+        Volt::test('work-journal.approvals')->call('pick', $batch->id)->assertSee('계약 차량 금액 확인 필요')->assertSee(__('journal.note_targets', ['names' => '삼영업']))
+            ->call('approve')->assertHasNoErrors();
+        $this->assertSame('approved', $batch->fresh()->status);
+        $this->assertSame(['approved', 'approved', 'approved'], collect($js)->map(fn ($j) => $j->fresh()->status)->all());
+    }
+
+    /** 사람을 안 고른 반려(첫 단계 아님) — 일지는 모두 기안에 남고 기안만 팀장에게. 그 줄은 결재자에게만 보인다. */
+    public function test_reject_without_people_returns_batch_only_and_is_approver_only(): void
+    {
+        $line = $this->line();
+        $w = $this->mk('김영업');
+        $j = $this->writeAndSubmit($w);
+        $batch = $j->fresh()->batch;
+        $this->approveAs($line['lead'], $batch);
+
+        $this->actingAs($line['bujang']);
+        Volt::test('work-journal.approvals')->call('pick', $batch->id)->call('openReject')->set('rejectReason', '전체적으로 다시 확인')->call('rejectBatch')->assertHasNoErrors();
+        $batch->refresh();
+        $this->assertSame(['pending', 1], [$batch->status, $batch->current_step]);
+        $this->assertSame(['submitted', $batch->id], [$j->fresh()->status, $j->fresh()->batch_id]);
+
+        $this->actingAs($w);
+        Volt::test('work-journal.index')->assertDontSee('전체적으로 다시 확인');   // 작성자에겐 안 보임(자기 일지가 반려된 게 아니다)
+        $this->actingAs($line['lead']);
+        Volt::test('work-journal.approvals')->call('pick', $batch->id)->assertSee('전체적으로 다시 확인')->assertSee(__('journal.note_targets_none'));
+    }
+
+    /** 모두 돌려보내면 빈 기안은 사라진다 — 이력은 남는다. */
     public function test_rejecting_everyone_removes_empty_batch(): void
     {
         $line = $this->line();
         $j = $this->writeAndSubmit($this->mk('김영업'));
         $this->actingAs($line['lead']);
-        Volt::test('work-journal.approvals')->call('pick', $j->batch_id)->call('openReject', $j->id)->set('rejectReason', '다시')->call('rejectJournal')->assertHasNoErrors();
+        Volt::test('work-journal.approvals')->call('pick', $j->batch_id)->call('openReject')->set('rejectReason', '다시')->set('rejectPick', [(string) $j->id])->call('rejectBatch')->assertHasNoErrors();
         $this->assertSame(0, WorkJournalBatch::count());
+        $this->assertSame(1, WorkJournalNote::where('work_journal_id', $j->id)->where('kind', 'reject')->count());
     }
 
     /** 결재 화면 탭 — 결재할 것(내 차례) · 진행 중(다른 사람 차례) · 완료(월). 결재자는 「결재할 것」으로 열리고, 승인하면 거기서 빠진다. */
