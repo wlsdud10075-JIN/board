@@ -44,6 +44,7 @@ return [
         'claim_request' => 'Claim approval request',
         'claim_decision' => 'Claim CEO decision',
         'claim_file' => 'Claim file added',
+        'claim_self_approve' => 'Claim self-approved',
         'claim_erp_reload' => 'Claim ERP reload',
         'claim_handlers' => 'Claim handlers',
         'claim_buyer_contact_name' => 'Claim BUYER NAME',

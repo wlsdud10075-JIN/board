@@ -20,6 +20,9 @@ class ClaimFile extends Model
 
     public const KIND_OTHER = 'other';
 
+    /** 자체승인 증빙(결재자 답장 캡처, 2026-11-19 Jin) — 바이어 증빙이 아니라 KINDS 밖. 보고서·결재 링크 화면에는 안 나온다. */
+    public const KIND_SELF_PROOF = 'self_proof';
+
     public const KINDS = [self::KIND_ODOMETER, self::KIND_DAMAGE, self::KIND_INVOICE, self::KIND_OTHER];
 
     /** 접수 저장에 꼭 있어야 하는 종류(§12 → §15). */

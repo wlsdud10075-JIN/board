@@ -326,6 +326,73 @@ class ClaimsTest extends TestCase
         $this->assertSame(Claim::APPROVED, $c->fresh()->status);
     }
 
+    // ── 자체승인(2026-11-19) ──
+
+    public function test_self_approve_from_drawer_with_proof_finalizes_and_audits(): void
+    {
+        [$c, $sales, $h, $ceo] = $this->pending();
+        $this->actingAs($h);
+        $t = Volt::test('claims.index')->call('openDetail', $c->id)->assertSee(__('claims.self_btn'))->call('openSelfModal')->assertSet('selfModal', true);
+
+        // 캡처 없이 = 모달에 사유, 상태 불변
+        $t->set('selfAmount', '700')->call('selfApprove')->assertSet('selfError', __('claims.self_err_proof'));
+        $this->assertSame(Claim::PENDING_CEO, $c->fresh()->status);
+
+        // 금액 없이 = 막힘
+        $t->set('selfProof', UploadedFile::fake()->image('reply.png'))->set('selfAmount', '')->call('selfApprove')->assertSet('selfError', __('claims.self_err_amount'));
+        $this->assertSame(Claim::PENDING_CEO, $c->fresh()->status);
+
+        // 이미지가 아니면 막힘
+        $t->set('selfProof', UploadedFile::fake()->create('reply.pdf', 10, 'application/pdf'))->set('selfAmount', '700')->call('selfApprove')->assertHasErrors('selfProof');
+        $this->assertSame(Claim::PENDING_CEO, $c->fresh()->status);
+
+        $t->set('selfProof', UploadedFile::fake()->image('reply.png'))->set('selfMemo', '카톡 답장')->call('selfApprove')
+            ->assertHasNoErrors()->assertSet('selfModal', false)->assertSee(__('claims.self_badge'))->assertSee(__('claims.self_proof_view'));
+
+        $c->refresh();
+        $this->assertSame(Claim::APPROVED, $c->status);
+        $this->assertSame('approved', $c->decision);
+        $this->assertEquals(700, $c->confirmed_amount);
+        $this->assertNotNull($c->self_approved_at);
+        $this->assertSame($h->id, (int) $c->approver_user_id);
+        $this->assertStringContainsString('카톡 답장', $c->decision_reason);
+        $step = $c->lineSteps()->first();
+        $this->assertSame('approved', $step->status);
+        $this->assertTrue($step->byProxy());
+        $proof = $c->files()->where('kind', 'self_proof')->firstOrFail();
+        Storage::disk('public')->assertExists($proof->s3_path);
+        $this->assertDatabaseHas('board_audit_logs', ['action' => 'claim', 'field' => 'claim_self_approve', 'user_id' => $h->id]);
+        $this->assertDatabaseHas('board_audit_logs', ['field' => 'claim_confirmed_amount', 'user_id' => $h->id]);
+
+        // 캡처는 바이어 증빙이 아니다 — 결재 링크 보고서에 안 나온다. 결재자의 옛 링크는 이미 끝난 건.
+        $this->post($this->decideUrl($c, $ceo), ['action' => 'reject', 'reason' => 'x'])->assertStatus(410);
+        $this->assertTrue($c->canSendToErp());
+
+        // 재요청하면 자체승인 표시는 지워진다
+        app(ClaimService::class)->requestApproval($c, $h, ['대표' => $ceo->id]);
+        $this->assertNull($c->fresh()->self_approved_at);
+    }
+
+    public function test_self_approve_refused_when_not_pending_or_already_decided(): void
+    {
+        [$c, $sales, $h, $ceo] = $this->pending();
+        $svc = app(ClaimService::class);
+        $stale = $c->replicate()->forceFill(['id' => $c->id]);   // 결재 전 화면에 떠 있던 사본
+        $stale->exists = true;
+        $this->post($this->decideUrl($c, $ceo), ['action' => 'approve', 'reason' => '', 'confirmed_amount' => '800'])->assertOk();
+
+        try {
+            $svc->selfApprove($stale, $h, UploadedFile::fake()->image('r.png'), '100');
+            $this->fail('should refuse');
+        } catch (\DomainException $e) {
+            $this->assertSame('not_pending', $e->getMessage());
+        }
+        $c->refresh();
+        $this->assertEquals(800, $c->confirmed_amount);
+        $this->assertNull($c->self_approved_at);
+        $this->assertSame(0, $c->files()->where('kind', 'self_proof')->count());
+    }
+
     public function test_reject_then_rerequest_invalidates_old_link(): void
     {
         [$c, $sales, $h, $ceo] = $this->pending();
