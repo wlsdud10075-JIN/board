@@ -110,7 +110,12 @@ class TransportService
             $store = Storage::disk($disk);
             foreach ($picked as $p) {   // 원본을 복사한다 — 첨부를 나중에 지워도 업체 링크 사진은 남는다
                 $dst = 'transport/'.$l->id.'/'.$req->id.'/att-'.$p->id.'-'.basename($p->s3_path);
-                $store->copy($p->s3_path, $dst);
+                // 🚨 `copy()` 금지 — S3 에서는 먼저 원본의 공개 설정(GetObjectAcl)을 읽는데 운영 키에 그 권한이 없어 조용히 false → 아래 size() 가 500(2026-11-19 ssancarboard).
+                //    읽어서 다시 쓴다(GetObject + PutObject = 일반 업로드와 같은 권한). 실패는 화면 안내로.
+                $stream = $store->readStream($p->s3_path);
+                if (! is_resource($stream) || ! $store->writeStream($dst, $stream)) {
+                    throw new \DomainException('attach_copy_failed');
+                }
                 TransportRequestFile::create([
                     'transport_request_id' => $req->id, 's3_path' => $dst, 'original_name' => $p->original_name,
                     'mime' => $store->mimeType($dst) ?: 'image/jpeg', 'size' => $store->size($dst), 'uploaded_by_user_id' => $by->id,

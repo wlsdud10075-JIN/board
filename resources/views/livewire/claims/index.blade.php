@@ -480,7 +480,7 @@ new #[Layout('components.layouts.app')] class extends Component
                         @endif
                         {{-- 자체승인(2026-11-19 Jin) — 결재자가 버튼 대신 답장으로 승인했을 때: 그 캡처를 붙여 승인 처리. --}}
                         <div class="mt-2 flex flex-wrap items-center gap-2 border-t border-black/5 pt-2">
-                            <button type="button" class="btn-outline btn-sm" wire:click="openSelfModal">🖼 {{ __('claims.self_btn') }}</button>
+                            <button type="button" class="btn-sm rounded-md bg-amber-500 px-3 font-bold text-white shadow-sm hover:bg-amber-600" wire:click="openSelfModal">🖼 {{ __('claims.self_btn') }}</button>
                             <span class="text-[11px] text-gray-400">{{ __('claims.self_btn_hint') }}</span>
                         </div>
                     </div>

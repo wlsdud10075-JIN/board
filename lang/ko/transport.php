@@ -66,6 +66,7 @@ return [
         'recipient_required' => '업체를 고르거나 추가 번호를 넣으세요.',
         'bad_location' => '도착 위치 값이 목록에 없습니다.',
         'too_many_files' => '사진은 최대 :max장입니다.',
+        'attach_copy_failed' => '첨부 사진을 가져오지 못했습니다. 첨부 사진 체크를 끄고 사진을 직접 올려 다시 요청해 주세요.',
         'executable_file' => '실행 파일은 올릴 수 없습니다.',
         'not_scheduled' => '발송 전 요청만 바꿀 수 있습니다.',
         'send_at_past' => '예약 시각은 지금 이후여야 합니다.',
