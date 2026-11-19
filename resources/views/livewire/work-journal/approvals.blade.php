@@ -295,13 +295,13 @@ new #[Layout('components.layouts.app')] class extends Component {
             @endif
             @if ($tab === 'rejected')
                 @forelse ($this->rejGroups as $key => $grp)
-                    @php $g0 = $grp->first(); $who = $grp->pluck('targets')->filter()->flatMap(fn ($t) => explode(', ', $t))->unique()->implode(', '); @endphp
+                    @php $g0 = $grp->first(); $whoAll = $grp->pluck('targets')->filter()->flatMap(fn ($t) => explode(', ', $t))->unique()->values(); $who = $whoAll->count() > 2 ? __('journal.ap_rejected_more', ['name' => $whoAll->first(), 'n' => $whoAll->count() - 1]) : $whoAll->implode(', '); @endphp
                     <button type="button" wire:click="pickRej('{{ $key }}')" wire:key="rjg-{{ $key }}"
                             class="mb-2 block w-full rounded-lg border bg-white px-3 py-2.5 text-left {{ $rejSel === $key ? 'border-[var(--color-primary)] ring-2 ring-violet-100' : 'border-gray-200' }}">
                         <div class="text-sm font-bold text-gray-800">{{ __('journal.ap_batch', ['date' => $g0->date->toDateString(), 'dow' => $this->dow($g0->date)]) }}@if ((int) $g0->batch_seq > 1) <span class="badge badge-gray">{{ __('journal.ap_batch_extra', ['seq' => $g0->batch_seq]) }}</span>@endif</div>
                         <div class="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
                             <span class="badge badge-red">{{ __('journal.ap_was_rejected', ['n' => $grp->count()]) }}</span>
-                            <span class="font-semibold text-gray-700">{{ $who !== '' ? $who : __('journal.note_targets_none') }}</span>
+                            <span class="font-semibold text-gray-700" title="{{ $whoAll->implode(', ') }}">{{ $who !== '' ? $who : __('journal.note_targets_none') }}</span>
                         </div>
                     </button>
                 @empty

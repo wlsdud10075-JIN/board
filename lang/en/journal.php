@@ -104,6 +104,7 @@ return [
     'ap_rejected_flash_all' => 'Batch returned — it went back to the first approver.',
     'ap_rejected_title' => ':date (:dow) work journals — return history',
     'ap_rejected_hint' => 'Every return at any step is listed (including ones the team leader returned that never went further) — who, when, whom and why.',
+    'ap_rejected_more' => ':name and :n more',
     'my_rejections' => 'My return history (latest :n)',
     'ap_reject_modal_hint_first' => 'People you pick below get their journal back. When they fix and resubmit, it rejoins this batch. The rest stay.',
     'ap_reject_reason' => 'Reason (required)',
