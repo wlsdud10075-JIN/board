@@ -1,0 +1,17 @@
+{"slug":"work-journal","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"tall",
+ "steps":[
+  {"goto":"/work-journal"},{"wait":2500},
+  {"clickText":"하루 틀 만들기"},{"wait":2500},
+  {"set":"input@model(rows.0.location)","value":"사무실"},
+  {"set":"textarea@model(rows.0.task)","value":"엔카 매물 3대 확인 · 11가1004 매입예정 등록"},
+  {"set":"input@model(rows.2.location)","value":"수원 매매단지"},
+  {"set":"textarea@model(rows.2.task)","value":"딜러 미팅 — 11가1004 차값 협의"},
+  {"set":"input@model(rows.5.location)","value":"사무실"},
+  {"set":"textarea@model(rows.5.task)","value":"GUIDE SAMPLE TRADING 바이어 통화 — 선적 일정 안내"},
+  {"set":"textarea[wire\\:model\\.live\\.debounce\\.800ms=\"plan\"]","value":"11가1004 검차 결과 확인 후 바이어 전달\n수원 매매단지 딜러 2곳 방문"},
+  {"wait":2500},
+  {"shot":"_g-01-write","full":false},
+  {"dialog":"accept"},
+  {"click":"button[wire\\:click=\"submit\"]"},{"wait":3000},
+  {"shot":"_g-02-submitted","full":false}
+ ]}
