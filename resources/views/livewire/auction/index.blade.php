@@ -835,7 +835,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->save();
         $this->storeSalesFiles($l);
         unset($this->detail, $this->listings);
-        $this->dispatch('auction-saved');
+        $this->dispatch('auction-saved', msg: __('auction.flash_payee_saved'));
 
         // 이미 won 인데 ERP 로 못 넘어간 차(금액 누락 422)를 여기서 금액만 채우면 재발사되게 한다.
         // 안 그러면 영업이 금액을 넣어도 아무 일도 안 일어나고, 재전송은 super 전용(/manage)이라 손이 없다.
@@ -1115,6 +1115,13 @@ new #[Layout('components.layouts.app')] class extends Component {
 }; ?>
 
 <div class="p-3 md:p-6">
+    {{-- 저장 알림 — 화면 오른쪽 위에 잠깐 뜬다(2026-11-19 Jin: 목록 위 초록 줄보다 눈에 띄게). 누르면 바로 닫힌다. --}}
+    <div x-data="{ show: false, msg: '', _t: null }" x-on:auction-saved.window="msg = $event.detail.msg || ''; show = msg !== ''; clearTimeout(_t); _t = setTimeout(() => show = false, 3500)">
+        <div x-show="show" x-transition x-cloak @click="show = false"
+             class="fixed right-4 top-4 z-[70] flex max-w-[90vw] cursor-pointer items-center gap-2 rounded-lg bg-green-600 px-4 py-3 text-sm font-semibold text-white shadow-lg">
+            <span>✓</span><span x-text="msg"></span>
+        </div>
+    </div>
     <div class="mb-4">
         <h1 class="text-xl font-bold text-gray-800">{{ __('auction.title') }}</h1>
         <p class="mt-0.5 text-xs text-gray-500">{!! __('auction.subtitle') !!}</p>
