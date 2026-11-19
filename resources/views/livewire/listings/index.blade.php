@@ -362,7 +362,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             );
         }
 
-        return $this->tabQuery()->with('creator')->latest()->paginate($this->perPage);
+        return $this->tabQuery()->with(['creator', 'latestTransport'])->latest()->paginate($this->perPage);
     }
 
     /**
@@ -1988,7 +1988,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             @php $showOwner = auth()->user()->canSeeAll(); @endphp
             <table class="tbl tbl-center">
                 <thead>
-                    <tr><th class="w-px whitespace-nowrap">{{ __('listings.table.created') }}</th><th class="w-px whitespace-nowrap">{{ __('listings.table.vehicle') }}</th><th>{{ __('listings.table.source') }}</th>@if ($showOwner)<th>{{ __('listings.table.owner') }}</th>@endif<th>{{ __('listings.table.total') }}</th><th>{{ __('listings.table.inspection_request') }}</th><th>{{ __('listings.table.inspection_note') }}</th><th>{{ __('listings.table.buyer') }}</th><th>{{ __('listings.table.verdict') }}</th><th>{{ __('listings.table.status') }}</th><th>{{ __('listings.table.inspection_state') }}</th><th>{{ __('listings.table.work_date') }}</th><th>{{ __('listings.table.invoice') }}</th></tr>
+                    <tr><th class="w-px whitespace-nowrap">{{ __('listings.table.created') }}</th><th class="w-px whitespace-nowrap">{{ __('listings.table.vehicle') }}</th><th>{{ __('listings.table.source') }}</th>@if ($showOwner)<th>{{ __('listings.table.owner') }}</th>@endif<th>{{ __('listings.table.total') }}</th><th>{{ __('listings.table.inspection_request') }}</th><th>{{ __('listings.table.inspection_note') }}</th><th>{{ __('listings.table.buyer') }}</th><th>{{ __('listings.table.verdict') }}</th><th>{{ __('listings.table.status') }}</th><th>{{ __('listings.table.inspection_state') }}</th><th>{{ __('listings.table.work_date') }}</th><th>{{ __('listings.table.transport') }}</th><th>{{ __('listings.table.invoice') }}</th></tr>
                 </thead>
                 <tbody>
                     @forelse ($this->listings as $l)
@@ -2012,12 +2012,15 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <td class="max-w-[260px] whitespace-normal text-[11px] leading-snug text-gray-500">@if ($hold = $l->ssancarHoldHint())@if (! empty($hold['alert']))<span class="font-semibold text-red-600">⚠ {{ __($hold['key'], $hold['params']) }}</span>@else{{ __($hold['key'], $hold['params']) }}@endif @else<span class="text-gray-300">—</span>@endif</td>
                             {{-- 검차 예정일(P1, 2026-10-29) — ssancar 가 정한 날(현지확인대기 차만). 오늘 목록이면 초록. 긴급 요청·결정은 드로어·종에서. --}}
                             <td class="whitespace-nowrap text-[12px]">@if ($l->status === 'draft' && $l->inspection_work_date)<span class="{{ $l->inspectionDueToday() ? 'font-semibold text-green-700' : 'text-gray-700' }}">{{ $l->inspection_work_date->format('m-d') }}</span>@if ($l->inspectionDueToday()) <span class="text-[10px] text-green-700">{{ __('listings.drawer.work_date_today') }}</span>@endif @else<span class="text-gray-300">—</span>@endif</td>
+                            {{-- 배차(2026-11-19 Jin) — 없음 「—」 / 진행중 / 배차완료. 최근 탁송 요청 1건(eager load) 기준. --}}
+                            @php $tr = $l->transportState(); @endphp
+                            <td class="whitespace-nowrap">@if ($tr)<span class="badge {{ $tr === 'done' ? 'badge-green' : 'badge-amber' }}">{{ __('listings.transport_state.'.$tr) }}</span>@else<span class="text-gray-300">—</span>@endif</td>
                             {{-- Invoice(송금인) — 미입력 / 입력됨 / ERP 전송됨 (2026-10-29 ②, 추가 쿼리 0). --}}
                             @php $inv = $l->invoiceState(); @endphp
                             <td class="whitespace-nowrap"><span class="badge {{ ['none' => 'badge-gray', 'entered' => 'badge-blue', 'synced' => 'badge-green'][$inv] }}">{{ __('listings.invoice_state.'.$inv) }}</span></td>
                         </tr>
                     @empty
-                        <tr><td colspan="{{ $showOwner ? 13 : 12 }}" class="py-8 text-center text-gray-400">{{ ($q !== '' || $qVin !== '') ? __('listings.list.search_empty') : __('listings.list.empty') }}</td></tr>
+                        <tr><td colspan="{{ $showOwner ? 14 : 13 }}" class="py-8 text-center text-gray-400">{{ ($q !== '' || $qVin !== '') ? __('listings.list.search_empty') : __('listings.list.empty') }}</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -2039,6 +2042,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }}</span>
                             @if ($l->verdictLabel())<span class="badge {{ $l->verdictBadge() }}">{{ $l->verdictLabel() }}</span>@endif
                             @php $inv = $l->invoiceState(); @endphp<span class="badge {{ ['none' => 'badge-gray', 'entered' => 'badge-blue', 'synced' => 'badge-green'][$inv] }}">📄 {{ __('listings.invoice_state.'.$inv) }}</span>
+                            @if ($tr = $l->transportState())<span class="badge {{ $tr === 'done' ? 'badge-green' : 'badge-amber' }}">🚚 {{ __('listings.transport_state.'.$tr) }}</span>@endif
                             {{-- 바이어는 항상 한 줄(없으면 —) — 모바일에서 「안 보인다」로 읽혔다(2026-10-24 Jin). --}}
                             <span class="min-w-0 max-w-full truncate text-xs text-gray-600">🧑 {{ __('listings.table.buyer') }}: {{ $l->buyerDisplay() ?: '—' }}</span>
                             @if (auth()->user()->canSeeAll() && $l->creator)<span class="truncate text-xs text-gray-500">👤 {{ $l->creator->name }}</span>@endif
