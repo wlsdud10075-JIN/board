@@ -334,7 +334,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             'reason' => trim($this->lockReason),
             'requested_by_name' => mb_substr((string) auth()->user()->name, 0, 50),
             // 실제 누른 사람의 로그인 이메일 — ERP 가 「대리로 요청한 사람은 그 건을 승인 못 한다」를 판정한다(Jin 2026-11-19).
-            'requested_by_email' => auth()->user()->email,
+            //   ERP 는 이 값을 ERP 로그인 이메일과 비교한다 → ERP 매핑 이메일(오버라이드)이 있으면 그 값, 없으면 로그인 이메일.
+            'requested_by_email' => auth()->user()->car_erp_salesman_email ?: auth()->user()->email,
             'purchase_listing_id' => $l->id,
             'vehicle_number' => $l->vehicle_number,
             'vehicle_label' => null,
