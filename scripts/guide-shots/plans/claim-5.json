@@ -1,0 +1,14 @@
+{"slug":"claim-handle","base":"http://localhost:8003","login":{"email":"manager@board.test"},"viewport":"tall",
+ "steps":[
+  {"goto":"/claims"},{"wait":2500},
+  {"mask":{"무사백":"영업A","황진영":"영업B","시스템관리자":"영업C"}},
+  {"shot":"_s-list","full":false},
+  {"clickText":"자체승인","in":"div.cursor-pointer button"},{"wait":3000},
+  {"upload":"input@model(selfProof)","files":["fixtures/claim-reply.png"],"after":3000},
+  {"set":"input@model(selfMemo)","value":"대표님 카톡 답장으로 승인"},{"wait":1500},
+  {"mask":{"무사백":"영업A","황진영":"영업B","시스템관리자":"영업C"}},
+  {"shot":"_s-modal","full":false},
+  {"click":"button@click(selfApprove)"},{"wait":4000},
+  {"mask":{"무사백":"영업A","황진영":"영업B","시스템관리자":"영업C"}},
+  {"shot":"_s-done","full":false}
+ ]}
