@@ -18,6 +18,9 @@ new #[Layout('components.layouts.app')] class extends Component {
     #[Url]
     public ?int $sel = null;
 
+    /** 「반려」 탭에서 고른 기안 — 「날짜|순번」(반려 기록은 기안이 지워져도 남으므로 id 가 아니라 날짜·순번으로 고른다). */
+    public string $rejSel = '';
+
     /**
      * 탭(2026-11-04 Jin — 지난 날·오늘 기안이 섞여 헷갈린다): mine = 지금 내 차례 / open = 진행 중이지만 다른 사람 차례 / done = 최종 승인.
      * 결재자는 mine 으로, 관리자 등급(조회)은 open 으로 연다. 세 탭은 겹치지 않는다.
@@ -60,7 +63,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         if (! preg_match('/^\d{4}-\d{2}$/', $this->month)) {
             $this->month = today()->format('Y-m');
         }
-        if (! $this->sel || ! $this->batches->contains('id', $this->sel)) {
+        if ($this->tab === 'rejected') {
+            $this->pickRej((string) $this->rejGroups->keys()->first());
+        } elseif (! $this->sel || ! $this->batches->contains('id', $this->sel)) {
             $this->sel = $this->batches->first()?->id;
         }
     }
@@ -74,6 +79,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->reset('opinions', 'overall');
         unset($this->batches, $this->batch);
         $this->sel = $this->batches->first()?->id;
+        if ($t === 'rejected') {
+            $this->pickRej((string) $this->rejGroups->keys()->first());
+        }
     }
 
     public function updatedMonth(): void
@@ -81,8 +89,11 @@ new #[Layout('components.layouts.app')] class extends Component {
         if (! preg_match('/^\d{4}-\d{2}$/', $this->month)) {
             $this->month = today()->format('Y-m');
         }
-        unset($this->batches, $this->batch, $this->rejections);
+        unset($this->batches, $this->batch, $this->rejections, $this->rejGroups);
         $this->sel = $this->batches->first()?->id;
+        if ($this->tab === 'rejected') {
+            $this->pickRej((string) $this->rejGroups->keys()->first());
+        }
     }
 
     /**
@@ -97,6 +108,24 @@ new #[Layout('components.layouts.app')] class extends Component {
         return \App\Models\WorkJournalNote::where('kind', 'reject')->whereNull('work_journal_id')
             ->whereDate('date', '>=', $from->toDateString())->whereDate('date', '<=', $from->copy()->endOfMonth()->toDateString())
             ->orderByDesc('id')->get();
+    }
+
+    /** 반려 기록을 기안(날짜·순번)별로 묶은 것 — 왼쪽 목록. 최근 날짜가 위. */
+    #[Computed]
+    public function rejGroups()
+    {
+        return $this->rejections->groupBy(fn ($n) => $n->date->toDateString().'|'.(int) $n->batch_seq)
+            ->sortByDesc(fn ($g, $k) => $k);
+    }
+
+    /** 왼쪽 목록에서 반려된 기안 고르기 — 그 기안이 아직 있으면 아래에 상세도 같이 연다(전부 돌려보내 지워졌으면 반려 기록만). */
+    public function pickRej(string $key): void
+    {
+        $this->rejSel = $key;
+        $this->reset('opinions', 'overall');
+        [$date, $seq] = array_pad(explode('|', $key), 2, null);
+        $this->sel = $date ? WorkJournalBatch::whereDate('date', $date)->where('seq', (int) $seq)->value('id') : null;
+        unset($this->batch);
     }
 
     /** 탭 숫자 — 결재할 것 · 진행 중(완료는 개수 대신 월). */
@@ -266,7 +295,22 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <input type="month" class="input-filter mb-3 w-full" wire:model.live="month" max="{{ today()->format('Y-m') }}">
             @endif
             @if ($tab === 'rejected')
-                <div class="card-sm text-center text-sm text-gray-500">{{ __('journal.ap_rejected_count', ['n' => $this->rejections->count()]) }}</div>
+                @php $rjStates = \App\Models\WorkJournalBatch::with('steps')->whereIn('date', $this->rejections->pluck('date')->map->toDateString()->unique()->all())->get()->keyBy(fn ($x) => $x->date->toDateString().'|'.$x->seq); @endphp
+                @forelse ($this->rejGroups as $key => $grp)
+                    @php $g0 = $grp->first(); $st = $rjStates->get($key); $stCur = $st?->currentStep(); @endphp
+                    <button type="button" wire:click="pickRej('{{ $key }}')" wire:key="rjg-{{ $key }}"
+                            class="mb-2 block w-full rounded-lg border bg-white px-3 py-2.5 text-left {{ $rejSel === $key ? 'border-[var(--color-primary)] ring-2 ring-violet-100' : 'border-gray-200' }}">
+                        <div class="text-sm font-bold text-gray-800">{{ __('journal.ap_batch', ['date' => $g0->date->toDateString(), 'dow' => $this->dow($g0->date)]) }}@if ((int) $g0->batch_seq > 1) <span class="badge badge-gray">{{ __('journal.ap_batch_extra', ['seq' => $g0->batch_seq]) }}</span>@endif</div>
+                        <div class="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+                            <span class="badge badge-red">{{ __('journal.ap_was_rejected', ['n' => $grp->count()]) }}</span>
+                            @if (! $st)<span class="badge badge-gray">{{ __('journal.ap_rejected_state_none') }}</span>
+                            @elseif ($st->status === 'approved')<span class="badge badge-green">{{ __('journal.ap_done') }}</span>
+                            @elseif ($stCur)<span class="badge badge-amber">{{ __('journal.ap_turn', ['title' => $stCur->title]) }}</span>@endif
+                        </div>
+                    </button>
+                @empty
+                    <div class="card-sm text-center text-sm text-gray-400">{{ __('journal.ap_empty.rejected') }}</div>
+                @endforelse
             @else
             @forelse ($this->batches as $bt)
                 @php $cur = $bt->currentStep(); $mine = $svc->canApprove($bt, $me); @endphp
@@ -287,28 +331,16 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         {{-- 기안 상세 --}}
         <div>
-            @if ($tab === 'rejected')
-                <div class="card">
-                    <h3 class="text-base font-bold text-gray-800">{{ __('journal.ap_rejected_title', ['month' => $month]) }}</h3>
+            @if ($tab === 'rejected' && ($grp = $this->rejGroups->get($rejSel)))
+                @php $g0 = $grp->first(); @endphp
+                <div class="card mb-3">
+                    <h3 class="text-base font-bold text-gray-800">{{ __('journal.ap_rejected_title', ['date' => $g0->date->toDateString(), 'dow' => $this->dow($g0->date)]) }}</h3>
                     <p class="mt-0.5 text-xs text-gray-500">{{ __('journal.ap_rejected_hint') }}</p>
-                    @php $states = \App\Models\WorkJournalBatch::with('steps')->whereIn('date', $this->rejections->pluck('date')->map->toDateString()->unique()->all())->get()->keyBy(fn ($x) => $x->date->toDateString().'|'.$x->seq); @endphp
-                    @forelse ($this->rejections as $rn)
-                        @php $st = $states->get($rn->date->toDateString().'|'.$rn->batch_seq); $stCur = $st?->currentStep(); @endphp
-                        <div class="mt-3 rounded-r-md border-l-4 border-red-400 bg-red-50 px-3 py-2 text-[13px]" wire:key="rjn-{{ $rn->id }}">
-                            <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                <b class="text-gray-800">{{ __('journal.ap_batch', ['date' => $rn->date->toDateString(), 'dow' => $this->dow($rn->date)]) }}</b>
-                                @if (! $st)<span class="badge badge-gray">{{ __('journal.ap_rejected_state_none') }}</span>
-                                @elseif ($st->status === 'approved')<span class="badge badge-green">{{ __('journal.ap_done') }}</span>
-                                @elseif ($stCur)<span class="badge badge-amber">{{ __('journal.ap_turn', ['title' => $stCur->title]) }}</span>@endif
-                            </div>
-                            <div class="mt-0.5 text-[11px] text-gray-500">{{ $rn->title }} {{ $rn->user_name }} · {{ $rn->created_at?->format('m-d H:i') }} · {{ $rn->targets ? __('journal.note_targets', ['names' => $rn->targets]) : __('journal.note_targets_none') }}</div>
-                            <div class="mt-0.5 whitespace-pre-line text-gray-800">{{ $rn->body }}</div>
-                        </div>
-                    @empty
-                        <p class="mt-3 text-sm text-gray-400">{{ __('journal.ap_empty.rejected') }}</p>
-                    @endforelse
+                    @include('livewire.work-journal._thread', ['notes' => $grp->sortBy('id')])
+                    @unless ($sel)<p class="mt-3 text-xs text-gray-500">{{ __('journal.ap_rejected_gone') }}</p>@endunless
                 </div>
-            @elseif ($b = $this->batch)
+            @endif
+            @if ($b = $this->batch)
                 @php $cur = $b->currentStep(); $canApprove = $svc->canApprove($b, $me); $canReject = $svc->canReject($b, $me); $journals = $b->journals->sortBy(fn ($j) => $j->submitted_at); @endphp
                 <div class="card">
                     <div class="flex flex-wrap items-center justify-between gap-2">
