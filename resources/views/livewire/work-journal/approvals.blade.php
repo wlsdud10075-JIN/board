@@ -118,13 +118,12 @@ new #[Layout('components.layouts.app')] class extends Component {
             ->sortByDesc(fn ($g, $k) => $k);
     }
 
-    /** 왼쪽 목록에서 반려된 기안 고르기 — 그 기안이 아직 있으면 아래에 상세도 같이 연다(전부 돌려보내 지워졌으면 반려 기록만). */
+    /** 왼쪽 목록에서 반려된 기안 고르기 — 오른쪽엔 **반려 이력만** 보인다(결재 줄·일지 상세는 안 연다 — 섞이면 헷갈린다, Jin 2026-11-19). */
     public function pickRej(string $key): void
     {
         $this->rejSel = $key;
         $this->reset('opinions', 'overall');
-        [$date, $seq] = array_pad(explode('|', $key), 2, null);
-        $this->sel = $date ? WorkJournalBatch::whereDate('date', $date)->where('seq', (int) $seq)->value('id') : null;
+        $this->sel = null;
         unset($this->batch);
     }
 
@@ -295,17 +294,14 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <input type="month" class="input-filter mb-3 w-full" wire:model.live="month" max="{{ today()->format('Y-m') }}">
             @endif
             @if ($tab === 'rejected')
-                @php $rjStates = \App\Models\WorkJournalBatch::with('steps')->whereIn('date', $this->rejections->pluck('date')->map->toDateString()->unique()->all())->get()->keyBy(fn ($x) => $x->date->toDateString().'|'.$x->seq); @endphp
                 @forelse ($this->rejGroups as $key => $grp)
-                    @php $g0 = $grp->first(); $st = $rjStates->get($key); $stCur = $st?->currentStep(); @endphp
+                    @php $g0 = $grp->first(); $whoAll = $grp->pluck('targets')->filter()->flatMap(fn ($t) => explode(', ', $t))->unique()->values(); $who = $whoAll->count() > 2 ? __('journal.ap_rejected_more', ['name' => $whoAll->first(), 'n' => $whoAll->count() - 1]) : $whoAll->implode(', '); @endphp
                     <button type="button" wire:click="pickRej('{{ $key }}')" wire:key="rjg-{{ $key }}"
                             class="mb-2 block w-full rounded-lg border bg-white px-3 py-2.5 text-left {{ $rejSel === $key ? 'border-[var(--color-primary)] ring-2 ring-violet-100' : 'border-gray-200' }}">
                         <div class="text-sm font-bold text-gray-800">{{ __('journal.ap_batch', ['date' => $g0->date->toDateString(), 'dow' => $this->dow($g0->date)]) }}@if ((int) $g0->batch_seq > 1) <span class="badge badge-gray">{{ __('journal.ap_batch_extra', ['seq' => $g0->batch_seq]) }}</span>@endif</div>
                         <div class="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
                             <span class="badge badge-red">{{ __('journal.ap_was_rejected', ['n' => $grp->count()]) }}</span>
-                            @if (! $st)<span class="badge badge-gray">{{ __('journal.ap_rejected_state_none') }}</span>
-                            @elseif ($st->status === 'approved')<span class="badge badge-green">{{ __('journal.ap_done') }}</span>
-                            @elseif ($stCur)<span class="badge badge-amber">{{ __('journal.ap_turn', ['title' => $stCur->title]) }}</span>@endif
+                            <span class="font-semibold text-gray-700" title="{{ $whoAll->implode(', ') }}">{{ $who !== '' ? $who : __('journal.note_targets_none') }}</span>
                         </div>
                     </button>
                 @empty
@@ -337,10 +333,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                     <h3 class="text-base font-bold text-gray-800">{{ __('journal.ap_rejected_title', ['date' => $g0->date->toDateString(), 'dow' => $this->dow($g0->date)]) }}</h3>
                     <p class="mt-0.5 text-xs text-gray-500">{{ __('journal.ap_rejected_hint') }}</p>
                     @include('livewire.work-journal._thread', ['notes' => $grp->sortBy('id')])
-                    @unless ($sel)<p class="mt-3 text-xs text-gray-500">{{ __('journal.ap_rejected_gone') }}</p>@endunless
                 </div>
-            @endif
-            @if ($b = $this->batch)
+            @elseif ($tab !== 'rejected' && ($b = $this->batch))
                 @php $cur = $b->currentStep(); $canApprove = $svc->canApprove($b, $me); $canReject = $svc->canReject($b, $me); $journals = $b->journals->sortBy(fn ($j) => $j->submitted_at); @endphp
                 <div class="card">
                     <div class="flex flex-wrap items-center justify-between gap-2">

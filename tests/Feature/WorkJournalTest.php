@@ -288,6 +288,16 @@ class WorkJournalTest extends TestCase
         Volt::test('work-journal.index')->assertSee(__('journal.my_rejections', ['n' => 1]))->assertSee('오후 업무 누락');
         $this->actingAs($b);
         Volt::test('work-journal.index')->assertDontSee('오후 업무 누락');
+
+        // 왼쪽 목록 — 반려된 사람이 3명 이상이면 「첫 사람 외 N명」(오른쪽 이력엔 전원)
+        Carbon::setTestNow(now()->addDay()->setTime(10, 0));
+        $ws = collect(['가영업', '나영업', '다영업'])->map(fn ($n) => $this->writeAndSubmit($this->mk($n)));
+        $this->actingAs($line['lead']);
+        Volt::test('work-journal.approvals')->call('pick', $ws[0]->batch_id)->call('openReject')->set('rejectReason', '전원 다시')
+            ->set('rejectPick', $ws->map(fn ($j) => (string) $j->id)->all())->call('rejectBatch')->assertHasNoErrors();
+        $this->actingAs($line['sangmu']);
+        Volt::test('work-journal.approvals')->call('setTab', 'rejected')
+            ->assertSee(__('journal.ap_rejected_more', ['name' => '가영업', 'n' => 2]))->assertSee(__('journal.note_targets', ['names' => '가영업, 나영업, 다영업']));
     }
 
     /** 첫 단계(팀장) 반려 — 사유·사람 한 명 이상 필수, 고른 사람만 돌아가고 나머지는 기안에 남는다. 재상신하면 같은 기안. 이력은 재상신 뒤에도 남는다. */
