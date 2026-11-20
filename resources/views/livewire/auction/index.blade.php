@@ -1257,7 +1257,11 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     {{-- ─────────── 상세 드로어 (읽기전용 + 집행) ─────────── --}}
     @if ($this->detail)
-        @php $d = $this->detail; @endphp
+        @php
+            $d = $this->detail;
+            // 일반재고 상한 안내 금액은 「억원」으로 줄여 쓴다(2026-11-20 Jin) — 2.27억원 · 0.6억원(소수 둘째 자리까지, 끝 0 생략).
+            $eok = fn ($v) => $v === null ? '—' : rtrim(rtrim(number_format((int) $v / 100000000, 2), '0'), '.').'억원';
+        @endphp
         <div class="fixed inset-0 z-40 bg-black/40" wire:click="closeDetail"></div>
         <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[440px]">
             {{-- 구매확정이 검사에 걸리면 첫 오류 문구로 스크롤(2026-11-11 — 오류가 드로어 아래쪽에 떠서 안 보였다). 확정 버튼을 누른 직후에만. --}}
@@ -1480,7 +1484,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <p class="text-xs text-gray-500">{{ __('auction.stock_purchase_buyer_off') }}</p>
                         {{-- 일반재고 인원당 상한(2026-11-20 Jin) — 기존 합(ERP) + 이번 차 매입가(입력칸)가 한도를 넘으면 구매확정이 막힌다. --}}
                         @if ($stockCap && $d->status === 'accepted')
-                            @php $sc = $stockCap; $scIn = $this->stockIncoming(); $scOver = $this->stockCapBlocked(); $won = fn ($v) => $v === null ? '—' : number_format((int) $v).'원'; @endphp
+                            @php $sc = $stockCap; $scIn = $this->stockIncoming(); $scOver = $this->stockCapBlocked(); $won = $eok; @endphp
                             <div class="mt-1.5 rounded-md border px-2.5 py-2 text-[11px] {{ $scOver ? 'border-red-300 bg-red-50 text-red-700' : 'border-gray-200 bg-gray-50 text-gray-600' }}">
                                 <div class="flex items-center gap-1.5">
                                     <span class="font-semibold">{{ __('auction.stock_cap_title') }}</span>
@@ -1861,7 +1865,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @if ($capRej = $d->erpStockCapRejection())
                         <div class="mt-3 rounded-md border border-red-300 bg-red-50 px-2.5 py-2 text-[11px] text-red-700">
                             <div class="font-semibold">⚠ {{ __('auction.cap_rejected_title') }}</div>
-                            <div class="mt-0.5">{{ __('auction.stock_cap_line', ['name' => $capRej['salesman_name'] ?: '—', 'used' => $capRej['used'] === null ? '—' : number_format($capRej['used']).'원', 'count' => $capRej['count'] ?? '—', 'cap' => $capRej['cap'] === null ? '—' : number_format($capRej['cap']).'원']) }}</div>
+                            <div class="mt-0.5">{{ __('auction.stock_cap_line', ['name' => $capRej['salesman_name'] ?: '—', 'used' => $eok($capRej['used']), 'count' => $capRej['count'] ?? '—', 'cap' => $eok($capRej['cap'])]) }}</div>
                             <div class="mt-0.5">{{ __('auction.cap_rejected_hint') }}</div>
                         </div>
                     @endif
