@@ -434,4 +434,14 @@ class Claim extends Model
 
         return (int) $q->count();
     }
+
+    /**
+     * 담당자가 아직 볼 일이 남은 클레임 — 사이드바 「클레임」 뱃지 기준(2026-11-20 Jin: 「ERP 전송되면 끝」).
+     * 종결 건 + **지금 판(revision)을 ERP 로 이미 보낸 건**은 뺀다. 보낸 뒤 다시 결재 요청해 판이 올라가면 다시 센다.
+     */
+    public function scopeNeedsHandler($query)
+    {
+        return $query->where('status', '!=', self::CLOSED)
+            ->where(fn ($q) => $q->whereNull('erp_sent_at')->orWhereColumn('erp_sent_revision', '<', 'revision'));
+    }
 }

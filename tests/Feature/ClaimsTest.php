@@ -259,6 +259,23 @@ class ClaimsTest extends TestCase
 
     // ── 대표 링크 ──
 
+    /** 사이드바 뱃지 — ERP 로 보낸 건은 종결을 안 눌러도 세지 않는다(2026-11-20 Jin). 다시 결재 요청해 판이 올라가면 다시 센다. */
+    public function test_sidebar_badge_drops_claims_already_sent_to_erp(): void
+    {
+        $this->fakeErp();
+        $c = $this->intake($this->mk('영업A'));
+        $this->assertSame(1, Claim::needsHandler()->count());
+
+        $c->forceFill(['status' => Claim::APPROVED, 'erp_sent_at' => now(), 'erp_sent_revision' => $c->revision])->saveQuietly();
+        $this->assertSame(0, Claim::needsHandler()->count());
+
+        $c->forceFill(['revision' => $c->revision + 1, 'status' => Claim::PENDING_CEO])->saveQuietly();
+        $this->assertSame(1, Claim::needsHandler()->count());
+
+        $c->forceFill(['status' => Claim::CLOSED])->saveQuietly();
+        $this->assertSame(0, Claim::needsHandler()->count());
+    }
+
     private function pending(): array
     {
         $this->fakeErp();
