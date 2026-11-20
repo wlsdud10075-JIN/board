@@ -104,7 +104,6 @@ return [
     'err_stock_cap' => '담당자의 일반재고 합계가 상한을 넘어 재고매입으로 구매확정할 수 없습니다 — 바이어를 지정하거나 일반재고가 줄어든 뒤 다시 시도해 주세요.',
     'stock_cap_title' => '일반재고 상한',
     'stock_cap_line' => ':name 일반재고 :used (:count대) / 상한 :cap',
-    'stock_cap_incoming' => '이번 차 매입가 :incoming · 등록 후 남는 금액 :left',
     'stock_cap_over' => '상한을 :over 넘습니다 — 재고매입으로는 ERP 에 넘길 수 없습니다.',
     'stock_cap_unknown' => 'ERP 에서 일반재고 합계를 불러오지 못했습니다 — 구매확정은 되지만, 상한을 넘으면 ERP 가 받지 않습니다.',
     'stock_cap_no_salesman' => 'ERP 에서 담당자를 찾지 못해 상한을 적용하지 않습니다.',

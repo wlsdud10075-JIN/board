@@ -1496,7 +1496,6 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     <div class="mt-0.5">{{ __('auction.stock_cap_no_salesman') }}</div>
                                 @else
                                     <div class="mt-0.5">{{ __('auction.stock_cap_line', ['name' => $sc['salesman_name'] ?: '—', 'used' => $won($sc['used']), 'count' => $sc['count'] ?? '—', 'cap' => $won($sc['cap'])]) }}</div>
-                                    <div class="mt-0.5">{{ __('auction.stock_cap_incoming', ['incoming' => $won($scIn), 'left' => $won(max(0, (int) $sc['cap'] - (int) $sc['used'] - $scIn))]) }}</div>
                                     @if ($scOver)
                                         <div class="mt-0.5 font-semibold">{{ __('auction.stock_cap_over', ['over' => $won((int) $sc['used'] + $scIn - (int) $sc['cap'])]) }}</div>
                                     @endif

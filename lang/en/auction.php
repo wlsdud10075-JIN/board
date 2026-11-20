@@ -104,7 +104,6 @@ return [
     'err_stock_cap' => 'The salesperson\'s general stock total exceeds the cap, so this cannot be confirmed as a stock purchase — assign a buyer or try again after general stock goes down.',
     'stock_cap_title' => 'General stock cap',
     'stock_cap_line' => ':name general stock :used (:count cars) / cap :cap',
-    'stock_cap_incoming' => 'This car :incoming · left after registering :left',
     'stock_cap_over' => 'Over the cap by :over — it cannot be sent to the ERP as a stock purchase.',
     'stock_cap_unknown' => 'Could not load the general stock total from the ERP — you can still confirm, but the ERP will refuse it if the cap is exceeded.',
     'stock_cap_no_salesman' => 'The ERP could not match the salesperson, so the cap is not applied.',
