@@ -505,10 +505,36 @@ class CarErpReadService
     }
 
     /**
-     * 확정 클레임 → ERP 바이어 「클레임」 탭 미러(2026-11-11 Jin, board 정본 plan-claims §25 · 받는 쪽 권위 = car-erp `board-portal-api.md` claims 행).
-     * `POST /claims` — 멱등키 = (인스턴스, board_claim_id), 같은 키 재전송은 revision 이 클 때만 갱신. 응답 `{erp_claim_id, status}`.
-     * 바이어를 못 정하면 422 「ERP 에서 이 차의 바이어를 먼저 정해 주세요」. ERP 는 적립금·미수·정산에 손대지 않는다(기록만).
+     * 일반재고 인원당 상한(2억) 사전 조회 — 재고매입(바이어 미정) 구매확정 전에 묻는다(2026-11-20 Jin, ERP §18).
+     * 담당자 매칭·금액 기준은 purchase-sync 와 같다(car_erp_salesman_id 우선, incoming = 매입가 원). 실제 차단은 ERP 수신(409)이 한다.
+     * ok=false = 못 봤다(호출측은 막지 않는다 — ERP 수신이 최종 판정). applies=false = 담당자를 못 찾음(한도 미적용).
+     *
+     * @return array{ok: bool, applies: bool, blocked: bool, cap: ?int, used: ?int, count: ?int, incoming: ?int, remaining: ?int, salesman_name: ?string}
      */
+    public function generalStockCap(string $email, ?int $salesmanId, int $incoming): array
+    {
+        $r = $this->get('/general-stock-cap', array_filter([
+            'salesman_email' => $email, 'car_erp_salesman_id' => $salesmanId, 'incoming' => max(0, $incoming),
+        ], fn ($v) => $v !== null));
+
+        return self::normalizeStockCap((array) ($r['data'] ?? []), (bool) ($r['ok'] ?? false));
+    }
+
+    /** ERP `general_stock_cap` 모양(사전 조회 응답·purchase-sync 409 본문 공통)을 화면용으로. */
+    public static function normalizeStockCap(array $d, bool $ok = true): array
+    {
+        $int = fn ($k) => is_numeric(data_get($d, $k)) ? (int) data_get($d, $k) : null;
+
+        return [
+            'ok' => $ok,
+            'applies' => $ok && (bool) data_get($d, 'applies', false),
+            'blocked' => $ok && (bool) data_get($d, 'blocked', false),
+            'cap' => $int('cap'), 'used' => $int('used'), 'count' => $int('count'),
+            'incoming' => $int('incoming'), 'remaining' => $int('remaining'),
+            'salesman_name' => is_string(data_get($d, 'salesman_name')) ? data_get($d, 'salesman_name') : null,
+        ];
+    }
+
     /**
      * 매입 락 승인(2026-11-19 Jin 확정, 정본 = car-erp `docs/design/board-purchase-lock-approval.md`) — 그 바이어의 「남은 등록 대수」와 최근 요청 1건.
      * 규격 = car-erp `docs/integration/board-portal-api.md` §17(2026-11-19 확정). 화면은 여기서 정규화한 모양만 본다.
@@ -571,6 +597,11 @@ class CarErpReadService
             array_filter(['salesman_email' => $email, 'cancelled_by_name' => $byName !== null ? mb_substr($byName, 0, 50) : null], fn ($v) => $v !== null));
     }
 
+    /**
+     * 확정 클레임 → ERP 바이어 「클레임」 탭 미러(2026-11-11 Jin, board 정본 plan-claims §25 · 받는 쪽 권위 = car-erp `board-portal-api.md` claims 행).
+     * `POST /claims` — 멱등키 = (인스턴스, board_claim_id), 같은 키 재전송은 revision 이 클 때만 갱신. 응답 `{erp_claim_id, status}`.
+     * 바이어를 못 정하면 422 「ERP 에서 이 차의 바이어를 먼저 정해 주세요」. ERP 는 적립금·미수·정산에 손대지 않는다(기록만).
+     */
     public function sendClaim(string $email, array $payload): array
     {
         return $this->post('/claims', ['salesman_email' => $email], $payload);

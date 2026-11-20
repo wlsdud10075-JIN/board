@@ -8706,6 +8706,91 @@ class BoardTest extends TestCase
     }
 
     /**
+     * 일반재고 인원당 상한 2억(2026-11-20 Jin, ERP §18) — 재고매입을 체크하면 ERP 에 담당자 일반재고 합계를 묻고,
+     * 기존 합 + 이번 매입가(차값 − 매도비) > 상한이면 구매확정을 막는다. 정확히 상한은 통과. 조회 실패는 막지 않는다(ERP 수신이 최종 판정).
+     */
+    public function test_stock_purchase_is_blocked_when_general_stock_cap_is_exceeded(): void
+    {
+        Bus::fake();
+        $this->carErpReadConfig();
+        $used = 150000000;
+        Http::fake([
+            '*/api/internal/board/general-stock-cap*' => function ($req) use (&$used) {
+                return $used === null
+                    ? Http::response(['error' => 'x'], 500)
+                    : Http::response(['applies' => true, 'blocked' => false, 'salesman_id' => 12, 'salesman_name' => '김영업',
+                        'cap' => 200000000, 'used' => $used, 'count' => 3, 'incoming' => 0, 'remaining' => 200000000 - $used], 200);
+            },
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction',
+            'car_cost' => 60000000, 'expected_price_currency' => 'KRW', 'car_erp_buyer_id' => null,
+        ]);
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
+
+        // 1.5억 + 6천만 > 2억 → 막힘(버튼 사유 + 서버 차단)
+        $c = Volt::test('auction.index')->call('openDetail', $l->id)->set('buyerUndecided', true)
+            ->assertSee(__('auction.stock_cap_title'))->assertSee(__('auction.err_stock_cap'));
+        $this->assertSame(__('auction.err_stock_cap'), $c->instance()->purchaseBlockReason());
+        $c->call('conclude', $l->id, 'won')->assertHasErrors('buyerId');
+        $this->assertSame('accepted', $l->fresh()->status);
+        Bus::assertNotDispatched(SyncWonListingToCarErp::class);
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/general-stock-cap') && (int) $r['incoming'] === 60000000);
+
+        // 매도비 1천만을 적으면 매입가 5천만 → 정확히 2억 = 통과
+        $c->set('selling_fee', '10000000');
+        $this->assertNull($c->instance()->purchaseBlockReason());
+
+        // 바이어를 지정하는 차(재고매입 해제)는 조회·차단 대상이 아니다
+        $c->set('selling_fee', null)->set('buyerUndecided', false)->assertSet('stockCap', null);
+
+        // 조회 실패 → 막지 않는다
+        $used = null;
+        $c->set('buyerUndecided', true)->assertSee(__('auction.stock_cap_unknown'));
+        $this->assertNull($c->instance()->purchaseBlockReason());
+    }
+
+    /**
+     * ERP 가 409 `general_stock_cap_exceeded` 로 거절하면 **다시 보내지 않는다**(예외 없음 = 큐 재시도 없음) —
+     * 매물은 won·미연동으로 남고 감사 행이 남으며, /auction 이 사유를 보여 준다.
+     */
+    public function test_purchase_sync_cap_rejection_is_not_retried_and_is_shown(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh']);
+        Http::fake(['*/api/internal/purchase-sync' => Http::response([
+            'error' => 'general_stock_cap_exceeded', 'message' => '상한 초과',
+            'general_stock_cap' => ['applies' => true, 'blocked' => true, 'salesman_id' => 12, 'salesman_name' => '김영업',
+                'cap' => 200000000, 'used' => 150000000, 'count' => 3, 'incoming' => 60000000, 'remaining' => 50000000],
+        ], 409)]);
+        $l = $this->mkListing($this->mkUser('sales'), [
+            'status' => 'won', 'source' => 'auction', 'car_cost' => 60000000, 'expected_price_currency' => 'KRW', 'buyer_undecided' => true,
+        ]);
+
+        (new SyncWonListingToCarErp($l->id))->handle();   // 예외가 나면 여기서 테스트가 깨진다
+
+        $f = $l->fresh();
+        $this->assertSame('won', $f->status);
+        $this->assertNull($f->car_erp_vehicle_id);
+        $this->assertDatabaseHas('board_audit_logs', ['action' => 'erp_sync_cap_blocked', 'purchase_listing_id' => $l->id, 'user_id' => null]);
+        $this->assertSame(150000000, $f->erpStockCapRejection()['used']);
+
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
+        Volt::test('auction.index')->assertSee(__('auction.cap_rejected_badge'))
+            ->call('openDetail', $l->id)->assertSee(__('auction.cap_rejected_title'));
+    }
+
+    /** 상한 거절이 아닌 409 는 종전대로 예외(큐 재시도) — 사유를 모르는 실패를 조용히 삼키지 않는다. */
+    public function test_purchase_sync_other_409_still_throws(): void
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.hmac_secret' => 'shh']);
+        Http::fake(['*/api/internal/purchase-sync' => Http::response(['error' => 'other'], 409)]);
+        $l2 = $this->mkListing($this->mkUser('sales'), ['status' => 'won', 'source' => 'auction', 'car_cost' => 5000000, 'expected_price_currency' => 'KRW', 'buyer_undecided' => true]);
+        $this->expectException(\RuntimeException::class);
+        (new SyncWonListingToCarErp($l2->id))->handle();
+    }
+
+    /**
      * 셀프검차 필수 락 4개 중 **판매측 3개(판매가·통화·환율)는 건너뛴다** — 재고매입은 팔 상대가 없어
      * 판매 금액이 아직 없는 게 정상이다. 차값 게이트는 그대로 걸린다(위 test 가 지킨다).
      */

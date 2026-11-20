@@ -7,6 +7,7 @@ use App\Jobs\SyncWonListingToCarErp;
 use App\Models\Concerns\NormalizesRegion;
 use App\Models\Scopes\SalesmanScope;
 use App\Services\BoardAudit;
+use App\Services\CarErpReadService;
 use App\Support\Money;
 use App\Support\SsancarInspection;
 use Illuminate\Database\Eloquent\Attributes\ScopedBy;
@@ -496,6 +497,27 @@ class PurchaseListing extends Model
     {
         return $this->payeeExtractionPending()
             && ($this->payee_extraction_at === null || $this->payee_extraction_at->lte(now()->subMinutes(self::PAYEE_EXTRACT_WAIT_MINUTES)));
+    }
+
+    /**
+     * ERP 가 「일반재고 상한 초과」로 받지 않은 차(2026-11-20) — 구매확정은 됐는데(won) ERP 차량이 없고, 마지막 전송이 409 general_stock_cap_exceeded.
+     * 반환 = ERP 가 준 합계·한도(화면 안내용), 해당 없으면 null.
+     */
+    public function erpStockCapRejection(): ?array
+    {
+        if ($this->status !== 'won' || $this->car_erp_vehicle_id !== null) {
+            return null;
+        }
+        $ev = IntegrationEvent::where('purchase_listing_id', $this->id)->where('event_type', 'purchase_sync')->latest('id')->first();
+        if (! $ev || (int) $ev->response_status !== 409) {
+            return null;
+        }
+        $body = json_decode((string) $ev->response_body, true);
+        if (! is_array($body) || ($body['error'] ?? null) !== 'general_stock_cap_exceeded') {
+            return null;
+        }
+
+        return CarErpReadService::normalizeStockCap((array) ($body['general_stock_cap'] ?? []));
     }
 
     public function payeeExtractionInFlight(): bool

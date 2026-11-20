@@ -2,10 +2,14 @@
 
 namespace App\Jobs;
 
+use App\Models\BoardAuditLog;
 use App\Models\IntegrationEvent;
 use App\Models\PurchaseListing;
 use App\Models\Scopes\SalesmanScope;
+use App\Services\CarErpReadService;
 use App\Services\ExchangeRateService;
+use App\Services\WebPushService;
+use App\Support\Plate;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -270,6 +274,29 @@ class SyncWonListingToCarErp implements ShouldQueue
             'response_body' => mb_substr((string) $response->body(), 0, 2000),
             'error' => $response->failed() ? 'HTTP '.$response->status() : null,
         ]);
+
+        // 일반재고 인원당 상한(2억) 초과 — ERP 가 차량을 만들지 않았다(2026-11-20 Jin). **다시 보내지 않는다**:
+        //    일반재고가 팔리거나 바이어가 지정돼야 풀리는 거절이라 자동 재시도는 뜻이 없고, 그사이 한도가 비면 사람이 모르는 새 들어간다.
+        //    매물은 won·ERP 미연동으로 남는다 → /auction 드로어가 사유를 보여 주고, 거기서 저장하면 다시 보낸다(savePayee).
+        if ($response->status() === 409 && $response->json('error') === 'general_stock_cap_exceeded') {
+            $cap = CarErpReadService::normalizeStockCap((array) $response->json('general_stock_cap', []));
+            BoardAuditLog::create([
+                'user_id' => null, 'purchase_listing_id' => $l->id, 'action' => 'erp_sync_cap_blocked', 'field' => 'erp_sync_cap_blocked',
+                'old_value' => null,
+                'new_value' => json_encode(['used' => $cap['used'], 'incoming' => $cap['incoming'], 'cap' => $cap['cap'], 'count' => $cap['count'], 'salesman' => $cap['salesman_name']], JSON_UNESCAPED_UNICODE),
+            ]);
+            if ($l->creator) {
+                app(WebPushService::class)->sendToUser($l->creator, [
+                    'title' => __('auction.cap_push_title').' — '.Plate::show($l->vehicle_number),
+                    'body' => __('auction.cap_push_body'),
+                    'url' => route('auction'),
+                    'tag' => 'board-cap-'.$l->id,
+                    'sticky' => true,
+                ]);
+            }
+
+            return;
+        }
 
         if ($response->failed()) {
             throw new \RuntimeException("purchase-sync 실패 (listing {$l->id}): HTTP ".$response->status());

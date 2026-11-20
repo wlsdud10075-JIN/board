@@ -135,6 +135,7 @@ return [
         'erp_resync' => 'ERP resend (manage)',
         'commercial_invoice' => 'Invoice download',
         'erp_purchase_lock_request' => 'Purchase lock approval request',
+        'erp_sync_cap_blocked' => 'ERP refused transfer (general stock cap)',
         'erp_purchase_lock_cancel' => 'Purchase lock approval request cancelled',
         'erp_board_request' => 'Portal request (deposit / balance / CEO deposit / sale payment)',
         'erp_shipping_sync' => 'Portal shipping request',

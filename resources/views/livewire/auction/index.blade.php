@@ -91,6 +91,9 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** 고른 바이어의 승인 상태(ERP 조회 결과, CarErpReadService::purchaseLockStatus 모양) — 락 바이어일 때만 채운다. */
     public ?array $lockStatus = null;
 
+    /** 재고매입 — ERP 일반재고 인원당 상한 조회 결과(2026-11-20). null = 안 물었거나 재고매입 아님. */
+    public ?array $stockCap = null;
+
     public ?string $lockNotice = null;
 
     public ?string $lockError = null;
@@ -280,7 +283,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         // 재고매입은 바이어가 없는 게 정상 → 필수·락 둘 다 해당 없음(걸 대상이 없다).
         // ⚠️ 서버(`conclude`)와 **같은 조건**이어야 한다 — 갈리면 버튼은 죽어 있는데 서버는 통과한다.
         if ($this->buyerUndecided) {
-            return null;
+            // 재고매입은 담당자 일반재고 합계가 상한(2억)을 넘으면 ERP 가 받지 않는다(2026-11-20 Jin) → 여기서 미리 막는다.
+            return $this->stockCapBlocked() ? __('auction.err_stock_cap') : null;
         }
         if (! $this->buyerId) {
             return __('auction.err_buyer_required');
@@ -289,6 +293,49 @@ new #[Layout('components.layouts.app')] class extends Component {
 
         // 락이어도 ERP 승인으로 받은 「남은 등록 대수」가 있으면 통과(2026-11-19 Jin).
         return ($lock && $lock['locked'] && $this->lockRemaining() < 1) ? __('auction.err_buyer_purchase_locked') : null;
+    }
+
+    /** 이번 차 매입가(원) — ERP 로 갈 매입가와 같은 식(차값 − 매도비), 입력칸 기준. */
+    public function stockIncoming(): int
+    {
+        $cost = $this->carCostKrwInput();
+        if ($cost === null) {
+            return 0;
+        }
+        $fee = ($this->selling_fee === null || $this->selling_fee === '') ? 0 : (int) $this->selling_fee;
+
+        return max(0, $cost - max(0, $fee));
+    }
+
+    /** 재고매입을 체크했을 때만 ERP 에 담당자 일반재고 합계를 묻는다(그 밖엔 호출 없음). */
+    private function loadStockCap(): void
+    {
+        $this->stockCap = null;
+        $l = $this->detail;
+        if (! $this->buyerUndecided || ! $l || $l->status !== 'accepted') {
+            return;
+        }
+        $this->stockCap = app(\App\Services\CarErpReadService::class)
+            ->generalStockCap($this->salesmanEmail(), $l->creator?->car_erp_salesman_id, $this->stockIncoming());
+    }
+
+    public function refreshStockCap(): void
+    {
+        $this->loadStockCap();
+    }
+
+    /**
+     * 일반재고 상한에 걸리나 — 기존 합(ERP) + 이번 매입가(지금 입력칸) > 한도. 정확히 한도는 통과.
+     * 조회 실패·담당자 미매칭(applies=false)은 막지 않는다(최종 판정은 ERP 수신).
+     */
+    public function stockCapBlocked(): bool
+    {
+        $c = $this->stockCap;
+        if (! $this->buyerUndecided || ! $c || ! ($c['applies'] ?? false) || ($c['cap'] ?? null) === null) {
+            return false;
+        }
+
+        return (int) ($c['used'] ?? 0) + $this->stockIncoming() > (int) $c['cap'];
     }
 
     /** 고른 바이어의 남은 승인 대수(조회 실패·미조회 = 0). */
@@ -417,6 +464,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
         $this->resetErrorBag(['buyerId']);
         $this->loadLockStatus();
+        $this->loadStockCap();
     }
 
     /** 바이어 변경 시 컨사이니 목록 갱신 + 선택 초기화. */
@@ -644,6 +692,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->loadConsignees();
         $this->reset('lockCount', 'lockReason', 'lockNotice', 'lockError');
         $this->loadLockStatus();
+        $this->loadStockCap();
         $this->resetErrorBag();
     }
 
@@ -655,7 +704,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'selling_fee', 'sale_price', 'offer_rate', 'transport_fee',
             'sale_total', 'transport_fee_usd', 'rate_usd', 'rate_eur',
             'buyerUndecided', 'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts', 'salesFiles',
-            'lockCount', 'lockReason', 'lockStatus', 'lockNotice', 'lockError']);
+            'lockCount', 'lockReason', 'lockStatus', 'lockNotice', 'lockError', 'stockCap']);
         unset($this->detail);
     }
 
@@ -1004,6 +1053,15 @@ new #[Layout('components.layouts.app')] class extends Component {
             //    ⚠️ 차값 게이트(위 `hasSyncableAmount`)와 첨부 필수(아래)는 **그대로 건다** — 매입 원가와
             //    딜러 자료는 재고매입에도 똑같이 필요하다.
             $stock = (bool) $this->buyerUndecided;
+            // 재고매입 — 일반재고 상한을 확정 직전에 다시 묻는다(드로어를 열어 둔 사이 다른 차가 들어갔을 수 있다). 조회 실패는 막지 않는다.
+            if ($stock) {
+                $this->loadStockCap();
+                if ($this->stockCapBlocked()) {
+                    $this->addError('buyerId', __('auction.err_stock_cap'));
+
+                    return;
+                }
+            }
             // 판매측 락을 거는 차 — 셀프검차는 항상, 그 외는 **총판매가를 적었을 때만**(2026-10-16 Jin 「비-셀프는 판매 없이도 확정」 유지).
             $sells = $l->isSelfInspection() || $l->sale_price !== null;
 
@@ -1158,6 +1216,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     <span class="badge badge-amber">{{ __('auction.pending_click') }}</span>
                                 @else
                                     <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }} ✓</span>
+                                    @if ($l->erpStockCapRejection())<span class="badge badge-red">{{ __('auction.cap_rejected_badge') }}</span>@endif
                                 @endif
                             </td>
                         </tr>
@@ -1184,6 +1243,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <span class="badge badge-amber">{{ __('auction.pending_tap') }}</span>
                         @else
                             <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }} ✓</span>
+                                    @if ($l->erpStockCapRejection())<span class="badge badge-red">{{ __('auction.cap_rejected_badge') }}</span>@endif
                         @endif
                         <span class="shrink-0 text-sm font-semibold text-[var(--color-primary-text)]">{{ $l->offerDisplay() ?? '—' }}</span>
                     </div>
@@ -1418,6 +1478,27 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @endif
                     @if ($buyerUndecided)
                         <p class="text-xs text-gray-500">{{ __('auction.stock_purchase_buyer_off') }}</p>
+                        {{-- 일반재고 인원당 상한(2026-11-20 Jin) — 기존 합(ERP) + 이번 차 매입가(입력칸)가 한도를 넘으면 구매확정이 막힌다. --}}
+                        @if ($stockCap && $d->status === 'accepted')
+                            @php $sc = $stockCap; $scIn = $this->stockIncoming(); $scOver = $this->stockCapBlocked(); $won = fn ($v) => $v === null ? '—' : number_format((int) $v).'원'; @endphp
+                            <div class="mt-1.5 rounded-md border px-2.5 py-2 text-[11px] {{ $scOver ? 'border-red-300 bg-red-50 text-red-700' : 'border-gray-200 bg-gray-50 text-gray-600' }}">
+                                <div class="flex items-center gap-1.5">
+                                    <span class="font-semibold">{{ __('auction.stock_cap_title') }}</span>
+                                    <button type="button" class="ml-auto text-[11px] text-[var(--color-primary-text)] hover:underline" wire:click="refreshStockCap" wire:loading.attr="disabled" wire:target="refreshStockCap">↻ {{ __('auction.lock_req_refresh') }}</button>
+                                </div>
+                                @if (! $sc['ok'])
+                                    <div class="mt-0.5">{{ __('auction.stock_cap_unknown') }}</div>
+                                @elseif (! $sc['applies'])
+                                    <div class="mt-0.5">{{ __('auction.stock_cap_no_salesman') }}</div>
+                                @else
+                                    <div class="mt-0.5">{{ __('auction.stock_cap_line', ['name' => $sc['salesman_name'] ?: '—', 'used' => $won($sc['used']), 'count' => $sc['count'] ?? '—', 'cap' => $won($sc['cap'])]) }}</div>
+                                    <div class="mt-0.5">{{ __('auction.stock_cap_incoming', ['incoming' => $won($scIn), 'left' => $won(max(0, (int) $sc['cap'] - (int) $sc['used'] - $scIn))]) }}</div>
+                                    @if ($scOver)
+                                        <div class="mt-0.5 font-semibold">{{ __('auction.stock_cap_over', ['over' => $won((int) $sc['used'] + $scIn - (int) $sc['cap'])]) }}</div>
+                                    @endif
+                                @endif
+                            </div>
+                        @endif
                     @elseif (empty($buyerOpts))
                         <p class="text-xs text-gray-400">{{ __('auction.buyer_unavailable') }}</p>
                     @else
@@ -1776,6 +1857,14 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 wire:click="$set('skipPayeeWait', true); $wire.conclude({{ $d->id }}, 'won')" @click="window.__auctionConclude = true">{{ __('auction.payee_extract.skip') }}</button>
                     @endif
                 @elseif ($d->status === 'won')
+                    {{-- ERP 가 일반재고 상한으로 받지 않은 차(2026-11-20) — 사유와 다시 보내는 방법. --}}
+                    @if ($capRej = $d->erpStockCapRejection())
+                        <div class="mt-3 rounded-md border border-red-300 bg-red-50 px-2.5 py-2 text-[11px] text-red-700">
+                            <div class="font-semibold">⚠ {{ __('auction.cap_rejected_title') }}</div>
+                            <div class="mt-0.5">{{ __('auction.stock_cap_line', ['name' => $capRej['salesman_name'] ?: '—', 'used' => $capRej['used'] === null ? '—' : number_format($capRej['used']).'원', 'count' => $capRej['count'] ?? '—', 'cap' => $capRej['cap'] === null ? '—' : number_format($capRej['cap']).'원']) }}</div>
+                            <div class="mt-0.5">{{ __('auction.cap_rejected_hint') }}</div>
+                        </div>
+                    @endif
                     <button class="btn-primary mt-3 w-full justify-center" wire:click="savePayee">{{ __('auction.save_payment_info') }}</button>
                 @endif
             </div>
