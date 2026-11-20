@@ -1,0 +1,9 @@
+{"slug":"lock-approval","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"tall",
+ "steps":[
+  {"goto":"/auction"},{"wait":3000},
+  {"clickText":"11가1006","in":"td"},{"wait":15000},
+  {"waitFor":"select@model(buyerId)"},
+  {"select":"select@model(buyerId)","text":"SAMPLE MOTORS"},{"wait":15000},
+  {"scrollText":"ERP 승인 요청"},{"wait":800},
+  {"shot":"_a-pending","full":false}
+ ]}
