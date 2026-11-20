@@ -274,17 +274,18 @@
 
             {{-- i18n Phase 0 — 언어 전환 (영어 활성 시만 노출) --}}
             @if ($localeEnEnabled)
-                <form method="POST" action="{{ route('locale.update') }}" class="flex items-center gap-0.5 rounded-md bg-gray-100 p-0.5">
+                <form method="POST" action="{{ route('locale.update') }}" class="flex shrink-0 items-center gap-0.5 rounded-md bg-gray-100 p-0.5">
                     @csrf
                     @foreach (['ko', 'en'] as $loc)
                         <button type="submit" name="locale" value="{{ $loc }}"
                                 @class([
-                                    'rounded px-2 py-0.5 text-[11px] font-medium transition',
+                                    'whitespace-nowrap rounded px-2 py-0.5 text-[11px] font-medium transition',   // 좁은 화면에서 「한국어」가 한 글자씩 세로로 접혔다(2026-11-19)
                                     'text-white' => app()->getLocale() === $loc,
                                     'text-gray-500 hover:bg-gray-200' => app()->getLocale() !== $loc,
                                 ])
                                 @style(['background-color: var(--color-primary)' => app()->getLocale() === $loc])>
-                            {{ __('nav.lang.'.$loc) }}
+                            {{-- 폰에서는 KO / EN 으로 짧게(2026-11-20 Jin) — 상단바 자리가 모자란다. --}}
+                            <span class="sm:hidden">{{ strtoupper($loc) }}</span><span class="hidden sm:inline">{{ __('nav.lang.'.$loc) }}</span>
                         </button>
                     @endforeach
                 </form>

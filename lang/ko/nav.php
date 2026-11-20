@@ -108,6 +108,13 @@ return [
         'toast_claim_approved' => '✅ 클레임 승인 :count건',
         'toast_claim_rejected' => '⛔ 클레임 반려 :count건 — 종을 눌러 사유를 확인하세요',
         // 긴급 검차 결정(P1, 2026-10-29) — ssancar.com 업무관리자 승인·기각
+        'locks' => '매입 락 승인 결과',
+        'lock_chip_approved' => '승인',
+        'lock_chip_rejected' => '거절',
+        'toast_lock_approved' => '✅ 매입 락 승인 :count건 — 구매확정할 수 있습니다',
+        'toast_lock_rejected' => '⛔ 매입 락 승인 거절 :count건 — 종을 눌러 사유를 확인하세요',
+        'push_lock_approved' => '매입 락 승인',
+        'push_lock_rejected' => '매입 락 승인 거절',
         'urgents' => '긴급 검차 결정',
         'urgent_chip_approved' => '승인',
         'urgent_chip_rejected' => '기각',

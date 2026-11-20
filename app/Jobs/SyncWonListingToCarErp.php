@@ -2,10 +2,14 @@
 
 namespace App\Jobs;
 
+use App\Models\BoardAuditLog;
 use App\Models\IntegrationEvent;
 use App\Models\PurchaseListing;
 use App\Models\Scopes\SalesmanScope;
+use App\Services\CarErpReadService;
 use App\Services\ExchangeRateService;
+use App\Services\WebPushService;
+use App\Support\Plate;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -184,6 +188,8 @@ class SyncWonListingToCarErp implements ShouldQueue
         $payload = [
             'contract_version' => 5,   // v5: v4 + buyer_undecided(재고매입). car-erp SUPPORTED_VERSIONS=[1..5], 2026-09-08 배포됨
             'vehicle_number' => $l->vehicle_number,
+            // 매입 락 승인 차감 기록용(2026-11-19, car-erp §17-5 — 선택 필드·버전 그대로). ERP 는 새 차량이 만들어질 때만 그 바이어의 남은 승인에서 1대 뺀다.
+            'purchase_listing_id' => $l->id,
             'owner_name' => $l->owner_name,
             'source' => $l->source,
             'final_price' => $l->final_price,   // v2 호환 유지(car-erp: purchase_price_krw ?? final_price)
@@ -268,6 +274,29 @@ class SyncWonListingToCarErp implements ShouldQueue
             'response_body' => mb_substr((string) $response->body(), 0, 2000),
             'error' => $response->failed() ? 'HTTP '.$response->status() : null,
         ]);
+
+        // 일반재고 인원당 상한(2억) 초과 — ERP 가 차량을 만들지 않았다(2026-11-20 Jin). **다시 보내지 않는다**:
+        //    일반재고가 팔리거나 바이어가 지정돼야 풀리는 거절이라 자동 재시도는 뜻이 없고, 그사이 한도가 비면 사람이 모르는 새 들어간다.
+        //    매물은 won·ERP 미연동으로 남는다 → /auction 드로어가 사유를 보여 주고, 거기서 저장하면 다시 보낸다(savePayee).
+        if ($response->status() === 409 && $response->json('error') === 'general_stock_cap_exceeded') {
+            $cap = CarErpReadService::normalizeStockCap((array) $response->json('general_stock_cap', []));
+            BoardAuditLog::create([
+                'user_id' => null, 'purchase_listing_id' => $l->id, 'action' => 'erp_sync_cap_blocked', 'field' => 'erp_sync_cap_blocked',
+                'old_value' => null,
+                'new_value' => json_encode(['used' => $cap['used'], 'incoming' => $cap['incoming'], 'cap' => $cap['cap'], 'count' => $cap['count'], 'salesman' => $cap['salesman_name']], JSON_UNESCAPED_UNICODE),
+            ]);
+            if ($l->creator) {
+                app(WebPushService::class)->sendToUser($l->creator, [
+                    'title' => __('auction.cap_push_title').' — '.Plate::show($l->vehicle_number),
+                    'body' => __('auction.cap_push_body'),
+                    'url' => route('auction'),
+                    'tag' => 'board-cap-'.$l->id,
+                    'sticky' => true,
+                ]);
+            }
+
+            return;
+        }
 
         if ($response->failed()) {
             throw new \RuntimeException("purchase-sync 실패 (listing {$l->id}): HTTP ".$response->status());

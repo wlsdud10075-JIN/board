@@ -38,6 +38,9 @@ if (DB::table('inspection_photos')->where('purchase_listing_id', $l->id)->exists
 }
 DB::table('purchase_listings')->where('id', $l->id)->update([
     'status' => 'accepted', 'buyer_verdict' => 'accepted', 'car_cost' => 9500000, 'car_erp_buyer_id' => null, 'car_erp_vehicle_id' => null, 'deleted_at' => null,
+    // 누가 이 차로 구매확정까지 해 봤으면(2026-11-19 로컬 테스트) 금액·바이어 값이 남아 「차값 비우면 막힘」이 안 걸린다(final_price 가 있으면 통과) → 같이 비운다.
+    'final_price' => null, 'sale_price' => null, 'offer_currency' => null, 'offer_rate' => null, 'offer_rate_usd' => null, 'offer_rate_eur' => null,
+    'transport_fee' => null, 'transport_fee_usd' => null, 'selling_fee' => null, 'car_erp_buyer_name' => null, 'car_erp_consignee_id' => null, 'buyer_undecided' => false,
 ]);
 $out[] = '11가1006 → 구매대기·차값 9,500,000';
 

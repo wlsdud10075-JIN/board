@@ -50,6 +50,9 @@ new class extends Component
     /** 탁송 배차 결과(2026-11-12) — 내가 등록·요청했거나 수신자(영업·관리)로 받은 요청의 완료·거절. board 값. */
     public array $transports = [];
 
+    /** 매입 락 승인 결과(2026-11-19) — ERP 승인큐의 승인·거절. 최근에 요청을 보낸 사람에게만 ERP 를 묻는다(PurchaseLockResults). */
+    public array $locks = [];
+
     /** 마지막 열람 시각(ISO8601) — 미읽음 판정 기준. 패널을 열 때 now 로 갱신된다. */
     public ?string $seenAt = null;
 
@@ -210,6 +213,19 @@ new class extends Component
             $this->dispatch('forward-arrived', type: 'rejected', msg: __('nav.bell.toast_claim_rejected', ['count' => $claimFresh->count() - $claimOk]));
         }
 
+        // 매입 락 승인 결과 — 최근 요청이 없으면 ERP 호출 자체가 없다.
+        $seenC = Carbon::parse($this->seenAt);
+        $pollC = Carbon::parse($this->pollFrom);
+        $lockRows = \App\Support\PurchaseLockResults::decided(Auth::user(), $seenC->lt($pollC) ? $seenC : $pollC);
+        $holdUnread += count(array_filter($lockRows, fn ($r) => $r['at']->gt($seenC)));
+        $lockFresh = array_filter($lockRows, fn ($r) => $r['at']->gt($pollC));
+        if (($lockOk = count(array_filter($lockFresh, fn ($r) => $r['approved']))) > 0) {
+            $this->dispatch('forward-arrived', type: 'done', msg: __('nav.bell.toast_lock_approved', ['count' => $lockOk]));
+        }
+        if (count($lockFresh) - $lockOk > 0) {
+            $this->dispatch('forward-arrived', type: 'rejected', msg: __('nav.bell.toast_lock_rejected', ['count' => count($lockFresh) - $lockOk]));
+        }
+
         $lines = $this->lines($this->seenAt);
         if ($lines === null) {
             $this->loadFailed = true;
@@ -282,6 +298,10 @@ new class extends Component
                 'at' => $c->decided_at->timezone(config('app.timezone'))->format('m-d H:i'), 'new' => $c->decided_at->gt($seen),
                 'href' => Auth::user()->isClaimHandler() ? route('claims') : route('portal'),
             ]))->values()->all();
+        $this->locks = array_map(fn ($r) => [
+            'id' => $r['id'], 'approved' => $r['approved'], 'buyer' => $r['buyer'], 'text' => \App\Support\PurchaseLockResults::line($r),
+            'at' => $r['at']->copy()->timezone(config('app.timezone'))->format('m-d H:i'), 'new' => $r['at']->gt($seen),
+        ], array_slice(\App\Support\PurchaseLockResults::decided(Auth::user(), now()->subDays(\App\Support\PurchaseLockResults::WINDOW_DAYS)), 0, 10));
         // 패널도 전체 이력을 끌어오지 않는다 — 최근 PANEL_WINDOW_DAYS 일(ERP `since` = updated_at 기준)만.
         //   진행 중(open) 라인도 같은 호출에서 나오므로 그보다 오래 방치된 open 요청은 여기 안 보인다(포털 칩엔 보인다).
         //   잔금은 지급 시 자동소멸·계약금은 계약금 행 저장 시 소멸이라 90일 넘게 열린 요청은 사실상 없다.
@@ -421,6 +441,21 @@ new class extends Component
                             </div>
                             @if ($cl['text'] !== '')<p class="mt-0.5 text-[12px] {{ $txt }}">{{ $cl['text'] }}</p>@endif
                             <p class="mt-0.5 text-[11px] text-gray-400">{{ $cl['at'] }}@if ($cl['new'])<span class="ml-1 rounded bg-red-600 px-1 text-[10px] font-bold text-white">{{ __('nav.bell.new') }}</span>@endif</p>
+                        </a>
+                    @endforeach
+                @endif
+
+                {{-- 매입 락 승인 결과(2026-11-19) — ERP 승인큐의 승인·거절. 누르면 경매/구매 화면. --}}
+                @if ($locks)
+                    <div class="px-3 pt-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">{{ __('nav.bell.locks') }}</div>
+                    @foreach ($locks as $lk)
+                        <a wire:key="bell-lk-{{ $lk['id'] }}" href="{{ route('auction') }}" wire:navigate class="block border-b border-gray-50 px-3 py-2 hover:bg-gray-50 {{ $lk['new'] ? ($lk['approved'] ? 'bg-green-50/60' : 'bg-red-50/60') : '' }}">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-[13px] font-semibold text-gray-800">🧑 {{ $lk['buyer'] }}</span>
+                                <span class="badge {{ $lk['approved'] ? 'badge-green' : 'badge-red' }} shrink-0 whitespace-nowrap">{{ $lk['approved'] ? __('nav.bell.lock_chip_approved') : __('nav.bell.lock_chip_rejected') }}</span>
+                            </div>
+                            <p class="mt-0.5 text-[12px] {{ $lk['approved'] ? 'text-green-700' : 'text-red-700' }}">{{ $lk['text'] }}</p>
+                            <p class="mt-0.5 text-[11px] text-gray-400">{{ $lk['at'] }}@if ($lk['new'])<span class="ml-1 rounded bg-red-600 px-1 text-[10px] font-bold text-white">{{ __('nav.bell.new') }}</span>@endif</p>
                         </a>
                     @endforeach
                 @endif

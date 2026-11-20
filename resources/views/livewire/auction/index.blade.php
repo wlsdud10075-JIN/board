@@ -83,6 +83,21 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public ?string $rate_eur = null;
 
+    // ── 매입 락 승인 요청(2026-11-19 Jin) — 🔒 바이어 + 대수 + 사유 → ERP 승인큐. 금액은 승인 대상이 아니다.
+    public string $lockCount = '1';
+
+    public string $lockReason = '';
+
+    /** 고른 바이어의 승인 상태(ERP 조회 결과, CarErpReadService::purchaseLockStatus 모양) — 락 바이어일 때만 채운다. */
+    public ?array $lockStatus = null;
+
+    /** 재고매입 — ERP 일반재고 인원당 상한 조회 결과(2026-11-20). null = 안 물었거나 재고매입 아님. */
+    public ?array $stockCap = null;
+
+    public ?string $lockNotice = null;
+
+    public ?string $lockError = null;
+
 
     /** 견적 통화 — 드로어 열 때 offer_currency 표시, 저장 시 바뀐 경우만 재스냅(EUR 딜 보존). */
     public string $quoteCurrency = 'KRW';
@@ -268,14 +283,175 @@ new #[Layout('components.layouts.app')] class extends Component {
         // 재고매입은 바이어가 없는 게 정상 → 필수·락 둘 다 해당 없음(걸 대상이 없다).
         // ⚠️ 서버(`conclude`)와 **같은 조건**이어야 한다 — 갈리면 버튼은 죽어 있는데 서버는 통과한다.
         if ($this->buyerUndecided) {
-            return null;
+            // 재고매입은 담당자 일반재고 합계가 상한(2억)을 넘으면 ERP 가 받지 않는다(2026-11-20 Jin) → 여기서 미리 막는다.
+            return $this->stockCapBlocked() ? __('auction.err_stock_cap') : null;
         }
         if (! $this->buyerId) {
             return __('auction.err_buyer_required');
         }
         $lock = $this->buyerLock();
 
-        return ($lock && $lock['locked']) ? __('auction.err_buyer_purchase_locked') : null;
+        // 락이어도 ERP 승인으로 받은 「남은 등록 대수」가 있으면 통과(2026-11-19 Jin).
+        return ($lock && $lock['locked'] && $this->lockRemaining() < 1) ? __('auction.err_buyer_purchase_locked') : null;
+    }
+
+    /** 이번 차 매입가(원) — ERP 로 갈 매입가와 같은 식(차값 − 매도비), 입력칸 기준. */
+    public function stockIncoming(): int
+    {
+        $cost = $this->carCostKrwInput();
+        if ($cost === null) {
+            return 0;
+        }
+        $fee = ($this->selling_fee === null || $this->selling_fee === '') ? 0 : (int) $this->selling_fee;
+
+        return max(0, $cost - max(0, $fee));
+    }
+
+    /** 재고매입을 체크했을 때만 ERP 에 담당자 일반재고 합계를 묻는다(그 밖엔 호출 없음). */
+    private function loadStockCap(): void
+    {
+        $this->stockCap = null;
+        $l = $this->detail;
+        if (! $this->buyerUndecided || ! $l || $l->status !== 'accepted') {
+            return;
+        }
+        $this->stockCap = app(\App\Services\CarErpReadService::class)
+            ->generalStockCap($this->salesmanEmail(), $l->creator?->car_erp_salesman_id, $this->stockIncoming());
+    }
+
+    public function refreshStockCap(): void
+    {
+        $this->loadStockCap();
+    }
+
+    /**
+     * 일반재고 상한에 걸리나 — 기존 합(ERP) + 이번 매입가(지금 입력칸) > 한도. 정확히 한도는 통과.
+     * 조회 실패·담당자 미매칭(applies=false)은 막지 않는다(최종 판정은 ERP 수신).
+     */
+    public function stockCapBlocked(): bool
+    {
+        $c = $this->stockCap;
+        if (! $this->buyerUndecided || ! $c || ! ($c['applies'] ?? false) || ($c['cap'] ?? null) === null) {
+            return false;
+        }
+
+        return (int) ($c['used'] ?? 0) + $this->stockIncoming() > (int) $c['cap'];
+    }
+
+    /** 고른 바이어의 남은 승인 대수(조회 실패·미조회 = 0). */
+    public function lockRemaining(): int
+    {
+        return (int) ($this->lockStatus['remaining'] ?? 0);
+    }
+
+    /** 락 바이어를 골랐을 때만 ERP 에 승인 상태를 묻는다(락 아닌 바이어·재고매입은 호출 없음). */
+    private function loadLockStatus(): void
+    {
+        $this->lockStatus = null;
+        $lock = $this->buyerLock();
+        if ($this->buyerUndecided || ! $this->buyerId || ! $lock || ! $lock['locked']) {
+            return;
+        }
+        [$email] = $this->buyerScope();
+        $this->lockStatus = app(\App\Services\CarErpReadService::class)->purchaseLockStatus($email, (int) $this->buyerId);
+    }
+
+    /**
+     * [ERP 승인 요청] — 「이 바이어로 N대 더 등록」 + 사유를 ERP 승인큐로. 등록 영업 명의(누른 사람 이름은 따로 실린다).
+     * 금액·첨부는 보내지 않고 드로어 값도 저장하지 않는다(Jin: 락을 풀 것이냐만 판단).
+     */
+    public function requestLockApproval(): void
+    {
+        $this->lockNotice = $this->lockError = null;
+        $l = $this->detail;
+        $lock = $this->buyerLock();
+        if (! $l || ! $this->buyerId || ! $lock || ! $lock['locked']) {
+            return;
+        }
+        $this->validate([
+            'lockCount' => ['required', 'integer', 'min:1', 'max:999'],
+            'lockReason' => ['required', 'string', 'min:5', 'max:500'],   // ERP 규격 5~500자
+        ], [], ['lockCount' => __('auction.lock_req_count'), 'lockReason' => __('auction.lock_req_reason')]);
+
+        [$email] = $this->buyerScope();
+        $buyer = collect($this->buyerOpts)->firstWhere('id', (int) $this->buyerId);
+        $payload = [
+            'buyer_id' => (int) $this->buyerId,
+            'requested_count' => (int) $this->lockCount,
+            'reason' => trim($this->lockReason),
+            'requested_by_name' => mb_substr((string) auth()->user()->name, 0, 50),
+            // 실제 누른 사람의 로그인 이메일 — ERP 가 「대리로 요청한 사람은 그 건을 승인 못 한다」를 판정한다(Jin 2026-11-19).
+            //   ERP 는 이 값을 ERP 로그인 이메일과 비교한다 → ERP 매핑 이메일(오버라이드)이 있으면 그 값, 없으면 로그인 이메일.
+            'requested_by_email' => auth()->user()->car_erp_salesman_email ?: auth()->user()->email,
+            'purchase_listing_id' => $l->id,
+            'vehicle_number' => $l->vehicle_number,
+            'vehicle_label' => null,
+        ];
+        $r = app(\App\Services\CarErpReadService::class)->requestPurchaseLock($email, $payload);
+        $ok = (bool) ($r['ok'] ?? false);
+        \App\Models\BoardAuditLog::create([
+            'user_id' => auth()->id(), 'purchase_listing_id' => $l->id, 'action' => 'erp_purchase_lock_request', 'field' => 'erp_purchase_lock_request',
+            'old_value' => null,
+            'new_value' => json_encode(['as' => $email, 'buyer_id' => (int) $this->buyerId, 'buyer' => $buyer['name'] ?? null, 'count' => (int) $this->lockCount,
+                'reason' => trim($this->lockReason), 'result' => $ok ? 'ok' : 'failed', 'status' => $r['status'] ?? null], JSON_UNESCAPED_UNICODE),
+            'ip_address' => \App\Models\BoardAuditLog::currentIp(),
+        ]);
+        if (! $ok) {
+            $code = (string) ($r['error'] ?? '');
+            $msg = trim((string) ($r['message'] ?? ''));
+            $this->lockError = match (true) {
+                $code === 'already_pending' => __('auction.lock_req_err_pending'),
+                $code === 'not_locked' => __('auction.lock_req_err_not_locked'),
+                $msg !== '' => $msg,
+                default => __('auction.lock_req_failed', ['status' => $r['status'] ?? 0]),
+            };
+            $this->loadBuyers();       // not_locked = 그사이 락이 풀렸다 → 바이어 목록부터 다시
+            $this->loadLockStatus();   // already_pending = 지금 대기 건을 그대로 보여 준다
+
+            return;
+        }
+        $this->lockReason = '';
+        $this->lockNotice = __('auction.lock_req_sent', ['count' => (int) $this->lockCount]);
+        $this->loadLockStatus();
+    }
+
+    /** [요청 취소] — 대기 중인 요청을 거둔다(대수를 잘못 적었을 때, 2026-11-19 Jin). 이미 결정됐으면 그 결과를 보여 준다. */
+    public function cancelLockRequest(): void
+    {
+        $this->lockNotice = $this->lockError = null;
+        $l = $this->detail;
+        $lt = $this->lockStatus['latest'] ?? null;
+        if (! $l || ! $this->buyerId || ! $lt || ($lt['status'] ?? '') !== 'pending' || empty($lt['id'])) {
+            return;
+        }
+        [$email] = $this->buyerScope();
+        $r = app(\App\Services\CarErpReadService::class)->cancelPurchaseLock($email, (int) $lt['id'], auth()->user()->name);
+        $ok = (bool) ($r['ok'] ?? false);
+        \App\Models\BoardAuditLog::create([
+            'user_id' => auth()->id(), 'purchase_listing_id' => $l->id, 'action' => 'erp_purchase_lock_cancel', 'field' => 'erp_purchase_lock_cancel',
+            'old_value' => null,
+            'new_value' => json_encode(['as' => $email, 'buyer_id' => (int) $this->buyerId, 'request_id' => (int) $lt['id'], 'count' => $lt['requested_count'] ?? null,
+                'result' => $ok ? 'ok' : 'failed', 'status' => $r['status'] ?? null, 'error' => $r['error'] ?? null], JSON_UNESCAPED_UNICODE),
+            'ip_address' => \App\Models\BoardAuditLog::currentIp(),
+        ]);
+        if ($ok) {
+            $this->lockNotice = __('auction.lock_req_cancelled');
+        } else {
+            $msg = trim((string) ($r['message'] ?? ''));
+            $this->lockError = ($r['error'] ?? '') === 'already_decided'
+                ? __('auction.lock_req_err_decided')
+                : ($msg !== '' ? $msg : __('auction.lock_req_failed', ['status' => $r['status'] ?? 0]));
+        }
+        $this->loadBuyers();
+        $this->loadLockStatus();
+    }
+
+    /** [상태 새로고침] — 승인됐는지 다시 묻는다. */
+    public function refreshLockStatus(): void
+    {
+        $this->lockNotice = $this->lockError = null;
+        $this->loadBuyers();
+        $this->loadLockStatus();
     }
 
     /** 재고매입을 켜면 골라둔 바이어를 **즉시 지운다** — 남겨두면 화면과 전송값이 갈린다. */
@@ -287,6 +463,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             $this->consigneeOpts = [];
         }
         $this->resetErrorBag(['buyerId']);
+        $this->loadLockStatus();
+        $this->loadStockCap();
     }
 
     /** 바이어 변경 시 컨사이니 목록 갱신 + 선택 초기화. */
@@ -295,6 +473,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->buyerId = $this->buyerId ?: null;
         $this->consigneeId = null;
         $this->loadConsignees();
+        $this->lockNotice = $this->lockError = null;
+        $this->loadLockStatus();
     }
 
     private function payeeRules(): array
@@ -510,6 +690,9 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->consigneeId = $l->car_erp_consignee_id;
         $this->loadBuyers();
         $this->loadConsignees();
+        $this->reset('lockCount', 'lockReason', 'lockNotice', 'lockError');
+        $this->loadLockStatus();
+        $this->loadStockCap();
         $this->resetErrorBag();
     }
 
@@ -520,7 +703,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             'car_cost', 'discount_rate', 'sale_discount', 'shipping_usd', 'quoteCurrency',
             'selling_fee', 'sale_price', 'offer_rate', 'transport_fee',
             'sale_total', 'transport_fee_usd', 'rate_usd', 'rate_eur',
-            'buyerUndecided', 'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts', 'salesFiles']);
+            'buyerUndecided', 'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts', 'salesFiles',
+            'lockCount', 'lockReason', 'lockStatus', 'lockNotice', 'lockError', 'stockCap']);
         unset($this->detail);
     }
 
@@ -700,6 +884,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->save();
         $this->storeSalesFiles($l);
         unset($this->detail, $this->listings);
+        $this->dispatch('auction-saved', msg: __('auction.flash_payee_saved'));
 
         // 이미 won 인데 ERP 로 못 넘어간 차(금액 누락 422)를 여기서 금액만 채우면 재발사되게 한다.
         // 안 그러면 영업이 금액을 넣어도 아무 일도 안 일어나고, 재전송은 super 전용(/manage)이라 손이 없다.
@@ -711,6 +896,10 @@ new #[Layout('components.layouts.app')] class extends Component {
             return;
         }
         session()->flash('ok', __('auction.flash_payee_saved'));
+        // 구매대기 [내용만 저장]은 저장하면 드로어를 닫는다(2026-11-19 Jin — 드로어 안엔 저장 안내가 안 보여 눌린 건지 몰랐다). 목록 위 초록 안내가 보인다.
+        if ($l->status === 'accepted') {
+            $this->closeDetail();
+        }
     }
 
     /** 계좌 후보 → 입력칸 + 즉시 저장(2026-11-05 A안, `saveApplied`). */
@@ -864,6 +1053,15 @@ new #[Layout('components.layouts.app')] class extends Component {
             //    ⚠️ 차값 게이트(위 `hasSyncableAmount`)와 첨부 필수(아래)는 **그대로 건다** — 매입 원가와
             //    딜러 자료는 재고매입에도 똑같이 필요하다.
             $stock = (bool) $this->buyerUndecided;
+            // 재고매입 — 일반재고 상한을 확정 직전에 다시 묻는다(드로어를 열어 둔 사이 다른 차가 들어갔을 수 있다). 조회 실패는 막지 않는다.
+            if ($stock) {
+                $this->loadStockCap();
+                if ($this->stockCapBlocked()) {
+                    $this->addError('buyerId', __('auction.err_stock_cap'));
+
+                    return;
+                }
+            }
             // 판매측 락을 거는 차 — 셀프검차는 항상, 그 외는 **총판매가를 적었을 때만**(2026-10-16 Jin 「비-셀프는 판매 없이도 확정」 유지).
             $sells = $l->isSelfInspection() || $l->sale_price !== null;
 
@@ -920,9 +1118,14 @@ new #[Layout('components.layouts.app')] class extends Component {
             // 화면 버튼도 같이 비활성이지만 서버에서 한 번 더 본다(드로어를 열어둔 사이 바뀔 수 있고,
             // Livewire 액션은 직접 호출될 수 있다).
             if (! $stock && $this->buyerLockedNow((int) $this->buyerId)) {
-                $this->addError('buyerId', __('auction.err_buyer_purchase_locked'));
+                // 락이어도 ERP 승인으로 받은 남은 대수가 있으면 통과(2026-11-19 Jin). 저장 직전에 다시 묻는다 —
+                // 그사이 다른 차가 대수를 썼거나 7일이 지났을 수 있다. 조회 실패 = 승인 없음(막는 쪽).
+                $this->loadLockStatus();
+                if ($this->lockRemaining() < 1) {
+                    $this->addError('buyerId', __('auction.err_buyer_purchase_locked'));
 
-                return;
+                    return;
+                }
             }
 
             // 딜러 첨부 필수 (2026-08-18 Jin) — 첨부 없이 확정하면 ERP 첨부탭이 빈 채로 생긴다.
@@ -970,6 +1173,13 @@ new #[Layout('components.layouts.app')] class extends Component {
 }; ?>
 
 <div class="p-3 md:p-6">
+    {{-- 저장 알림 — 화면 오른쪽 위에 잠깐 뜬다(2026-11-19 Jin: 목록 위 초록 줄보다 눈에 띄게). 누르면 바로 닫힌다. --}}
+    <div x-data="{ show: false, msg: '', _t: null }" x-on:auction-saved.window="msg = $event.detail.msg || ''; show = msg !== ''; clearTimeout(_t); _t = setTimeout(() => show = false, 3500)">
+        <div x-show="show" x-transition x-cloak @click="show = false"
+             class="fixed right-4 top-4 z-[70] flex max-w-[90vw] cursor-pointer items-center gap-2 rounded-lg bg-green-600 px-4 py-3 text-sm font-semibold text-white shadow-lg">
+            <span>✓</span><span x-text="msg"></span>
+        </div>
+    </div>
     <div class="mb-4">
         <h1 class="text-xl font-bold text-gray-800">{{ __('auction.title') }}</h1>
         <p class="mt-0.5 text-xs text-gray-500">{!! __('auction.subtitle') !!}</p>
@@ -1006,6 +1216,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     <span class="badge badge-amber">{{ __('auction.pending_click') }}</span>
                                 @else
                                     <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }} ✓</span>
+                                    @if ($l->erpStockCapRejection())<span class="badge badge-red">{{ __('auction.cap_rejected_badge') }}</span>@endif
                                 @endif
                             </td>
                         </tr>
@@ -1032,6 +1243,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <span class="badge badge-amber">{{ __('auction.pending_tap') }}</span>
                         @else
                             <span class="badge {{ $l->statusBadge() }}">{{ $l->statusLabel() }} ✓</span>
+                                    @if ($l->erpStockCapRejection())<span class="badge badge-red">{{ __('auction.cap_rejected_badge') }}</span>@endif
                         @endif
                         <span class="shrink-0 text-sm font-semibold text-[var(--color-primary-text)]">{{ $l->offerDisplay() ?? '—' }}</span>
                     </div>
@@ -1045,7 +1257,11 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     {{-- ─────────── 상세 드로어 (읽기전용 + 집행) ─────────── --}}
     @if ($this->detail)
-        @php $d = $this->detail; @endphp
+        @php
+            $d = $this->detail;
+            // 일반재고 상한 안내 금액은 「억원」으로 줄여 쓴다(2026-11-20 Jin) — 2.27억원 · 0.6억원(소수 둘째 자리까지, 끝 0 생략).
+            $eok = fn ($v) => $v === null ? '—' : rtrim(rtrim(number_format((int) $v / 100000000, 2), '0'), '.').'억원';
+        @endphp
         <div class="fixed inset-0 z-40 bg-black/40" wire:click="closeDetail"></div>
         <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[440px]">
             {{-- 구매확정이 검사에 걸리면 첫 오류 문구로 스크롤(2026-11-11 — 오류가 드로어 아래쪽에 떠서 안 보였다). 확정 버튼을 누른 직후에만. --}}
@@ -1179,7 +1395,8 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     @if ($ideal['eur'] !== null)<span>· €{{ number_format($ideal['eur'], 2) }}</span>@endif
                                 </div>
                                 @if ($ideal['diff'] !== null)
-                                    <p class="mt-0.5 font-semibold {{ $ideal['diff'] < 0 ? 'text-red-600' : 'text-emerald-700' }}">{{ __('auction.ideal_diff', ['sale' => number_format($ideal['sale_krw']), 'pct' => ($ideal['diff'] > 0 ? '+' : '').number_format($ideal['diff'], 1).'%']) }}</p>
+                                    {{-- p 가 아니라 div — 빨간 p 는 「오류로 스크롤」이 오류로 본다(2026-11-19 Jin: 첨부 누락 경고 대신 이 줄로 끌려갔다). 참고 수치일 뿐 오류가 아니다. --}}
+                                    <div class="mt-0.5 font-semibold {{ $ideal['diff'] < 0 ? 'text-red-600' : 'text-emerald-700' }}" data-hint>{{ __('auction.ideal_diff', ['sale' => number_format($ideal['sale_krw']), 'pct' => ($ideal['diff'] > 0 ? '+' : '').number_format($ideal['diff'], 1).'%']) }}</div>
                                 @endif
                                 <p class="mt-0.5 text-gray-400">{{ __('auction.ideal_formula', ['vat' => config('board.ideal_vat_rate') * 100, 'share' => config('board.ideal_vat_share') * 100]) }}</p>
                             </div>
@@ -1265,6 +1482,26 @@ new #[Layout('components.layouts.app')] class extends Component {
                     @endif
                     @if ($buyerUndecided)
                         <p class="text-xs text-gray-500">{{ __('auction.stock_purchase_buyer_off') }}</p>
+                        {{-- 일반재고 인원당 상한(2026-11-20 Jin) — 기존 합(ERP) + 이번 차 매입가(입력칸)가 한도를 넘으면 구매확정이 막힌다. --}}
+                        @if ($stockCap && $d->status === 'accepted')
+                            @php $sc = $stockCap; $scIn = $this->stockIncoming(); $scOver = $this->stockCapBlocked(); $won = $eok; @endphp
+                            <div class="mt-1.5 rounded-md border px-2.5 py-2 text-[11px] {{ $scOver ? 'border-red-300 bg-red-50 text-red-700' : 'border-gray-200 bg-gray-50 text-gray-600' }}">
+                                <div class="flex items-center gap-1.5">
+                                    <span class="font-semibold">{{ __('auction.stock_cap_title') }}</span>
+                                    <button type="button" class="ml-auto text-[11px] text-[var(--color-primary-text)] hover:underline" wire:click="refreshStockCap" wire:loading.attr="disabled" wire:target="refreshStockCap">↻ {{ __('auction.lock_req_refresh') }}</button>
+                                </div>
+                                @if (! $sc['ok'])
+                                    <div class="mt-0.5">{{ __('auction.stock_cap_unknown') }}</div>
+                                @elseif (! $sc['applies'])
+                                    <div class="mt-0.5">{{ __('auction.stock_cap_no_salesman') }}</div>
+                                @else
+                                    <div class="mt-0.5">{{ __('auction.stock_cap_line', ['name' => $sc['salesman_name'] ?: '—', 'used' => $won($sc['used']), 'count' => $sc['count'] ?? '—', 'cap' => $won($sc['cap'])]) }}</div>
+                                    @if ($scOver)
+                                        <div class="mt-0.5 font-semibold">{{ __('auction.stock_cap_over', ['over' => $won((int) $sc['used'] + $scIn - (int) $sc['cap'])]) }}</div>
+                                    @endif
+                                @endif
+                            </div>
+                        @endif
                     @elseif (empty($buyerOpts))
                         <p class="text-xs text-gray-400">{{ __('auction.buyer_unavailable') }}</p>
                     @else
@@ -1272,7 +1509,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <option value="">{{ __('auction.buyer_select') }}</option>
                             @foreach ($buyerOpts as $b)
                                 {{-- 락 표시는 ERP 판정(purchase_locked) 그대로 — board 가 조건을 다시 계산하지 않는다. --}}
-                                <option value="{{ $b['id'] }}">{{ !empty($b['purchase_locked']) ? '🔒 ' : '' }}{{ $b['name'] }}{{ !empty($b['country']) ? ' ('.$b['country'].')' : '' }}{{ !empty($b['salesman_name']) ? ' · '.$b['salesman_name'] : '' }}</option>
+                                <option value="{{ $b['id'] }}">{{ !empty($b['purchase_locked']) ? ((int) data_get($b, 'purchase_lock_allowance.remaining', 0) > 0 ? '🔓'.(int) data_get($b, 'purchase_lock_allowance.remaining').' ' : '🔒 ') : '' }}{{ $b['name'] }}{{ !empty($b['country']) ? ' ('.$b['country'].')' : '' }}{{ !empty($b['salesman_name']) ? ' · '.$b['salesman_name'] : '' }}</option>
                             @endforeach
                         </select>
                         @error('buyerId') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
@@ -1285,12 +1522,68 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     ? __('auction.buyer_lock_ratio', ['current' => rtrim(rtrim(number_format($blk['current'], 1), '0'), '.'), 'limit' => rtrim(rtrim(number_format($blk['limit'], 1), '0'), '.')])
                                     : __('auction.buyer_lock_unsecured', ['current' => number_format($blk['current']), 'limit' => number_format($blk['limit'])]);
                             @endphp
-                            <div class="mt-1.5 rounded-md border px-2.5 py-2 text-[11px] {{ $blk['locked'] ? 'border-red-300 bg-red-50 text-red-700' : 'border-gray-200 bg-gray-50 text-gray-500' }}">
+                            {{-- 승인받은 대수가 남아 있으면 빨간색이 아니다(2026-11-19 Jin) — 막는 안내가 아닌데 빨갛게 두면 구매확정이 다른 칸(첨부 등)에 걸렸을 때
+                                 「오류로 스크롤」이 이 상자로 끌고 와 락 때문에 막힌 것처럼 보인다. --}}
+                            @php $lockOpen = $blk['locked'] && (int) ($lockStatus['remaining'] ?? 0) > 0; @endphp
+                            <div class="mt-1.5 rounded-md border px-2.5 py-2 text-[11px] {{ $lockOpen ? 'border-amber-300 bg-amber-50 text-amber-800' : ($blk['locked'] ? 'border-red-300 bg-red-50 text-red-700' : 'border-gray-200 bg-gray-50 text-gray-500') }}">
                                 @if ($blk['locked'])
-                                    <div class="font-semibold">🔒 {{ __('auction.buyer_lock_title') }}</div>
+                                    <div class="font-semibold">{{ $lockOpen ? '🔓' : '🔒' }} {{ __('auction.buyer_lock_title') }}</div>
                                     <div class="mt-0.5">{{ $blkBasis }}</div>
-                                    {{-- 락은 절대 규칙이 아니다 — ERP 에서 사유를 적으면 1회 통과한다. --}}
+                                    {{-- 락은 절대 규칙이 아니다 — 아래에서 ERP 승인을 요청하면 승인된 대수만큼 통과한다(2026-11-19 Jin). --}}
                                     <div class="mt-0.5">{{ __('auction.buyer_lock_notice') }}</div>
+                                    @php
+                                        $ls = $lockStatus; $lt = $ls['latest'] ?? null; $rem = (int) ($ls['remaining'] ?? 0);
+                                        $fmt = fn ($v) => $v ? \Illuminate\Support\Carbon::parse($v)->timezone(config('app.timezone'))->format('m-d H:i') : '—';
+                                    @endphp
+                                    <div class="mt-2 rounded-md border border-gray-200 bg-white p-2 text-gray-700">
+                                        <div class="flex flex-wrap items-center gap-1.5">
+                                            <span class="font-semibold text-gray-800">{{ __('auction.lock_req_title') }}</span>
+                                            @php $ltStatus = (string) ($lt['status'] ?? ''); @endphp
+                                            @if ($rem > 0)
+                                                <span class="badge badge-green">{{ __('auction.lock_req_approved', ['remaining' => $rem, 'until' => $fmt($ls['expires_at'] ?? null)]) }}</span>
+                                            @endif
+                                            @if ($ltStatus === 'pending')
+                                                <span class="badge badge-amber">{{ __('auction.lock_req_pending', ['count' => $lt['requested_count'] ?? '—', 'at' => $fmt($lt['requested_at'] ?? null)]) }}</span>
+                                            @elseif ($rem < 1 && $ltStatus === 'rejected')
+                                                <span class="badge badge-red">{{ __('auction.lock_req_rejected') }}</span>
+                                            @elseif ($rem < 1 && $ltStatus === 'exhausted')
+                                                <span class="badge badge-gray">{{ __('auction.lock_req_exhausted') }}</span>
+                                            @elseif ($rem < 1 && $ltStatus === 'expired')
+                                                <span class="badge badge-gray">{{ __('auction.lock_req_expired') }}</span>
+                                            @elseif ($ls !== null && ! $ls['ok'])
+                                                <span class="badge badge-gray">{{ __('auction.lock_req_unknown') }}</span>
+                                            @endif
+                                            <button type="button" class="ml-auto text-[11px] text-[var(--color-primary-text)] hover:underline" wire:click="refreshLockStatus" wire:loading.attr="disabled" wire:target="refreshLockStatus">↻ {{ __('auction.lock_req_refresh') }}</button>
+                                        </div>
+                                        @if ($rem > 0)
+                                            <p class="mt-1 text-gray-600">{{ __('auction.lock_req_approved_hint', ['approved' => $ls['approved'] ?? '—']) }}</p>
+                                        @endif
+                                        {{-- 대기 건이 있으면 새 요청은 못 보낸다(ERP 409). 그 외에는 대수가 남아 있어도 추가 요청 가능 — 승인되면 더해진다(Jin 2026-11-19). --}}
+                                        @if ($ltStatus === 'pending')
+                                            <p class="mt-1 text-gray-600">{{ __('auction.lock_req_pending_hint') }}</p>
+                                            {{-- 대수를 잘못 적었으면 거두고 다시 요청한다(2026-11-19 Jin). --}}
+                                            <button type="button" class="btn-outline btn-sm mt-1.5" wire:click="cancelLockRequest" wire:confirm="{{ __('auction.lock_req_cancel_confirm', ['count' => $lt['requested_count'] ?? '—']) }}"
+                                                    wire:loading.attr="disabled" wire:target="cancelLockRequest">{{ __('auction.lock_req_cancel_btn') }}</button>
+                                        @else
+                                            @if ($rem < 1 && $ltStatus === 'rejected' && ! empty($lt['note']))
+                                                <p class="mt-1 text-gray-600">{{ __('auction.lock_req_rejected_reason', ['reason' => $lt['note']]) }}</p>
+                                            @endif
+                                            @if ($rem > 0)<p class="mt-1.5 text-[10px] text-gray-400">{{ __('auction.lock_req_more') }}</p>@endif
+                                            <div class="mt-1.5 flex items-start gap-1.5">
+                                                <div class="w-16 shrink-0">
+                                                    <input type="number" min="1" step="1" class="input-base px-2 text-center" wire:model="lockCount" title="{{ __('auction.lock_req_count') }}">
+                                                    <div class="mt-0.5 text-center text-[10px] text-gray-400">{{ __('auction.lock_req_count_unit') }}</div>
+                                                </div>
+                                                <input class="input-base min-w-0 flex-1" maxlength="500" wire:model="lockReason" placeholder="{{ __('auction.lock_req_reason_ph') }}">
+                                                <button type="button" class="btn-primary btn-sm shrink-0 whitespace-nowrap" wire:click="requestLockApproval" wire:loading.attr="disabled" wire:target="requestLockApproval">{{ __('auction.lock_req_btn') }}</button>
+                                            </div>
+                                            @error('lockCount')<p class="mt-1 text-gray-800">{{ $message }}</p>@enderror
+                                            @error('lockReason')<p class="mt-1 text-gray-800">{{ $message }}</p>@enderror
+                                            <p class="mt-1 text-[10px] text-gray-400">{{ __('auction.lock_req_hint') }}</p>
+                                        @endif
+                                        @if ($lockNotice)<p class="mt-1 font-semibold text-green-700">✓ {{ $lockNotice }}</p>@endif
+                                        @if ($lockError)<p class="mt-1 font-semibold text-gray-800">⚠️ {{ $lockError }}</p>@endif
+                                    </div>
                                 @else
                                     {{ $blkBasis }}
                                 @endif
@@ -1539,9 +1832,23 @@ new #[Layout('components.layouts.app')] class extends Component {
                         <p class="mb-1.5 rounded-md border border-red-300 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700">🔒 {{ $blockWhy }}</p>
                     @endif
                     <div class="flex gap-2">
-                        <button class="btn-green flex-1 justify-center {{ $blockWhy ? 'cursor-not-allowed opacity-40' : '' }}" @disabled($blockWhy !== null) wire:click="conclude({{ $d->id }}, 'won')" @click="window.__auctionConclude = true">{{ $d->isAuction() ? __('auction.won_auction') : __('auction.won_encar') }}</button>
-                        <button class="btn-ghost flex-1 justify-center" wire:click="conclude({{ $d->id }}, 'failed')">{{ $d->isAuction() ? __('auction.failed_auction') : __('auction.failed_encar') }}</button>
+                        <button class="btn-green flex-1 justify-center {{ $blockWhy ? 'cursor-not-allowed opacity-40' : '' }}" @disabled($blockWhy !== null) wire:click="conclude({{ $d->id }}, 'won')" @click="window.__auctionConclude = true" wire:loading.attr="disabled" wire:target="conclude, savePayee">
+                            {{-- 누른 뒤 응답까지(사진 올리기·ERP 조회) 멈춘 것처럼 보였다(2026-11-19 Jin) → 처리 중 표시. --}}
+                            <span wire:loading.remove wire:target="conclude">{{ $d->isAuction() ? __('auction.confirm_send_auction') : __('auction.confirm_send_encar') }}</span>
+                            <span wire:loading wire:target="conclude">⟳ {{ __('auction.working') }}</span>
+                        </button>
+                        {{-- [매입취소] 자리 → [저장](2026-11-19 Jin): 구매확정이 한 칸에 걸리면 적어 둔 금액·바이어·계좌가 남지 않아 매번 처음부터 적었다.
+                             확정 검사 없이 지금 적은 것만 저장한다(상태는 그대로). 취소는 매입예정 삭제·관리 화면에서. --}}
+                        <button type="button" class="btn-primary flex-1 justify-center" wire:click="savePayee" wire:loading.attr="disabled" wire:target="savePayee"
+                                x-data="{ ok: false }" x-on:auction-saved.window="ok = true; setTimeout(() => ok = false, 2000)">
+                            <span wire:loading.remove wire:target="savePayee"><span x-show="!ok">{{ __('auction.save_only') }}</span><span x-show="ok" x-cloak>{{ __('auction.saved_mark') }}</span></span>
+                            <span wire:loading wire:target="savePayee">⟳ {{ __('auction.working') }}</span>
+                        </button>
                     </div>
+                    <p class="mt-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700" wire:loading wire:target="conclude, savePayee">⟳ {{ __('auction.working_hint') }}</p>
+                    @if ($d->isAuction())
+                        <button type="button" class="btn-ghost mt-2 w-full justify-center" wire:click="conclude({{ $d->id }}, 'failed')">{{ __('auction.failed_auction') }}</button>
+                    @endif
                     {{-- 🚨 [매입취소]가 「닫기」로 읽혀 실제로 매물이 취소됐다(2026-09-10 Jin).
                          ✕ 는 우상단에만 있어 하단 버튼 줄에서는 눈에 안 들어온다 → 여기에도 닫기를 둔다. --}}
                     <button type="button" class="btn-ghost mt-2 w-full justify-center" wire:click="closeDetail">{{ __('auction.close') }}</button>
@@ -1553,6 +1860,14 @@ new #[Layout('components.layouts.app')] class extends Component {
                                 wire:click="$set('skipPayeeWait', true); $wire.conclude({{ $d->id }}, 'won')" @click="window.__auctionConclude = true">{{ __('auction.payee_extract.skip') }}</button>
                     @endif
                 @elseif ($d->status === 'won')
+                    {{-- ERP 가 일반재고 상한으로 받지 않은 차(2026-11-20) — 사유와 다시 보내는 방법. --}}
+                    @if ($capRej = $d->erpStockCapRejection())
+                        <div class="mt-3 rounded-md border border-red-300 bg-red-50 px-2.5 py-2 text-[11px] text-red-700">
+                            <div class="font-semibold">⚠ {{ __('auction.cap_rejected_title') }}</div>
+                            <div class="mt-0.5">{{ __('auction.stock_cap_line', ['name' => $capRej['salesman_name'] ?: '—', 'used' => $eok($capRej['used']), 'count' => $capRej['count'] ?? '—', 'cap' => $eok($capRej['cap'])]) }}</div>
+                            <div class="mt-0.5">{{ __('auction.cap_rejected_hint') }}</div>
+                        </div>
+                    @endif
                     <button class="btn-primary mt-3 w-full justify-center" wire:click="savePayee">{{ __('auction.save_payment_info') }}</button>
                 @endif
             </div>

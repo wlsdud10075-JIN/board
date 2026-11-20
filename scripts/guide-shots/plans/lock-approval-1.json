@@ -1,0 +1,13 @@
+{"slug":"lock-approval","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"xtall",
+ "steps":[
+  {"goto":"/auction"},{"wait":3000},
+  {"clickText":"12R8162","in":"td"},{"wait":20000},
+  {"shot":"_d-cap","clip":{"x":840,"y":0,"width":440,"height":1700}},
+  {"click":"input@model(buyerUndecided)"},{"wait":20000},
+  {"waitFor":"select@model(buyerId)"},
+  {"select":"select@model(buyerId)","text":"B2B데모 파트너"},{"wait":20000},
+  {"shot":"_b-approved","clip":{"x":840,"y":0,"width":440,"height":2200}},
+  {"select":"select@model(buyerId)","text":"데모 수출바이어"},{"wait":20000},
+  {"type":"input@model(lockReason)","text":"기존 거래처 추가 매입 — 이번 주 입금 예정"},{"wait":1500},
+  {"shot":"_c-form","clip":{"x":840,"y":0,"width":440,"height":2200}}
+ ]}
