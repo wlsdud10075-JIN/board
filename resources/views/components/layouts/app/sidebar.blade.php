@@ -284,7 +284,8 @@
                                     'text-gray-500 hover:bg-gray-200' => app()->getLocale() !== $loc,
                                 ])
                                 @style(['background-color: var(--color-primary)' => app()->getLocale() === $loc])>
-                            {{ __('nav.lang.'.$loc) }}
+                            {{-- 폰에서는 KO / EN 으로 짧게(2026-11-20 Jin) — 상단바 자리가 모자란다. --}}
+                            <span class="sm:hidden">{{ strtoupper($loc) }}</span><span class="hidden sm:inline">{{ __('nav.lang.'.$loc) }}</span>
                         </button>
                     @endforeach
                 </form>
