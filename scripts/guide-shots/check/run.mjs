@@ -42,7 +42,7 @@ const SCENES = process.env.SCENES ? process.env.SCENES.split(',')
 // listing-register → listing-delete 는 같은 차(11가1101) — 등록이 큐에 upsert, 삭제가 withdraw 로 정리한다(로컬 8002).
 // ERP·바깥 서비스로 쓰거나 바깥을 부르는 버튼(wire:click 메서드 이름) — 씬이 allowClicks 로 열지 않으면 누르지 않는다.
 //   로컬 ERP 데이터는 board 가 되돌릴 수 없고(ERP 가 알림톡도 보낼 수 있다), 엔카·ssancar·GPU PC 는 바깥 서비스다.
-const DENY = ['conclude', 'sendPurchaseRequest', 'sendSaleConfirm', 'syncBundles', 'cancelBundle', 'requestBl', 'cancelBl', 'requestChange', 'requestSignature',
+const DENY = ['conclude', 'requestLockApproval', 'cancelLockRequest', 'sendPurchaseRequest', 'sendSaleConfirm', 'syncBundles', 'cancelBundle', 'requestBl', 'cancelBl', 'requestChange', 'requestSignature',
     'sendToErp', 'resyncToCarErp', 'resendToErp', 'resendSplit', 'sendRemitter', 'addAttachments', 'extractPassport', 'extractFromImages', 'parseLink',
     'requestReinspection', 'requestUrgent', 'requestBalance', 'resend'];
 

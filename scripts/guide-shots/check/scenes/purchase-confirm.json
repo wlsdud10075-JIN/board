@@ -31,6 +31,14 @@
   {"select":"select@model(buyerId)","text":"BOARD CHECK TRADING","exact":true},{"wait":1500},
   {"check":"점검 바이어가 잠겨 있지 않음","noText":"이 바이어는 매입 등록이 막혀 있습니다"},
 
+  {"check":"버튼 이름 — 구매확정 · ERP 전송","text":"구매확정 · ERP 전송"},
+  {"check":"매입취소 버튼은 없음","noText":"매입취소"},
+  {"clickText":"내용만 저장","in":"button"},{"wait":2500},
+  {"check":"저장 안내(ERP 로는 안 보냄)","text":"적은 내용을 저장했습니다 (ERP 로는 보내지 않았습니다)."},
+  {"check":"내용만 저장 — 값은 남고 구매대기 그대로, ERP 전송 없음","db":"select status, car_erp_vehicle_id, selling_fee, offer_currency, car_erp_buyer_name as b, (select count(*) from integration_events where event_type = 'purchase_sync' and purchase_listing_id = purchase_listings.id) as sent from purchase_listings where vehicle_number = ? and deleted_at is null","args":["30가3001"],"expect":{"status":"accepted","car_erp_vehicle_id":null,"selling_fee":"440000","offer_currency":"USD","b":"BOARD CHECK TRADING","sent":0}},
+  {"clickText":"30가3001","in":"td, tr"},{"wait":2500},
+  {"check":"다시 열면 적어 둔 매입가가 그대로","text":"최종 매입가 9,360,000원"},
+
   {"upload":"input@model(salesFiles)","files":["fixtures/board-check-doc.pdf"],"after":2000},
   {"check":"고른 서류가 미리보기에","text":"board-check-doc.pdf"},
   {"clickText":"구매확정","in":"button.btn-green"},{"wait":1500},
