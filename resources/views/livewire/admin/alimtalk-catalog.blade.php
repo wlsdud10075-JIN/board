@@ -12,8 +12,8 @@ use Livewire\Volt\Component;
 
 /**
  * 알림톡 안내(2026-11-23 Jin «ERP 알림톡 안내처럼 인원별로 체크해서 보내게», car-erp `/admin/alimtalk-catalog` 의 역할 피커 미러). 시스템관리자 전용.
- * 알림마다 「자동으로 받는 사람」(고정)과 「추가로 받을 사람」(역할째 또는 사람별 체크)을 보여 주고 저장한다.
- * 규칙·저장 형식 = App\Support\AlimtalkRecipients. 체크가 없으면 발송 대상은 종전 그대로다.
+ * 알림마다 받는 사람을 체크로 보여 주고 저장한다 — 그 건의 당사자 줄(지금까지 자동으로 받던 사람, 기본 체크) + 역할째·사람별.
+ * 규칙·저장 형식 = App\Support\AlimtalkRecipients. 저장한 적이 없으면 발송 대상은 종전 그대로다(당사자 줄만 체크).
  */
 new #[Layout('components.layouts.app')] class extends Component {
     /** 알림 => 토큰 배열(역할 키 · user:{id} · approval_line). 저장 전 편집 상태. */
@@ -26,7 +26,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function mount(): void
     {
         abort_unless(Auth::user()?->isSuper(), 403);
-        foreach (AlimtalkRecipients::PICKABLE as $notice) {
+        foreach (array_keys(AlimtalkRecipients::CONTEXT) as $notice) {
             $this->roles[$notice] = AlimtalkRecipients::selected($notice);
         }
     }
@@ -114,14 +114,14 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->put($notice, $tokens);
     }
 
-    public function toggleLine(string $notice): void
+    /** 당사자 줄(담당자·접수 영업·등록 영업·결재선 전원 …) 켜기/끄기 — 그 알림에 있는 줄만. */
+    public function toggleContext(string $notice, string $token): void
     {
-        if (! AlimtalkRecipients::supportsLine($notice)) {
+        if (! isset(AlimtalkRecipients::contextOf($notice)[$token])) {
             return;
         }
         $cur = $this->tokens($notice);
-        $line = AlimtalkRecipients::APPROVAL_LINE;
-        $this->put($notice, in_array($line, $cur, true) ? array_filter($cur, fn ($t) => $t !== $line) : [...$cur, $line]);
+        $this->put($notice, in_array($token, $cur, true) ? array_filter($cur, fn ($t) => $t !== $token) : [...$cur, $token]);
     }
 
     /** 저장 — 못 쓰는 토큰은 버린다(남기면 「체크돼 있는데 아무에게도 안 가는」 상태가 된다). 바뀌었으면 감사 1행. */
@@ -134,7 +134,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $tokens = array_values(array_unique(array_filter($this->tokens($notice), fn ($t) => AlimtalkRecipients::isValidToken($notice, $t))));
         $old = implode(',', AlimtalkRecipients::selected($notice));
         $new = implode(',', $tokens);
-        Setting::updateOrCreate(['key' => 'alimtalk_roles_'.$notice], ['value' => $new, 'type' => 'string', 'description' => '알림톡 추가 수신자 '.$notice]);
+        // 전부 끈 상태는 `none` 으로 — 빈 값이면 「설정 없음 = 기본 체크」로 되돌아가 버린다.
+        Setting::updateOrCreate(['key' => 'alimtalk_roles_'.$notice], ['value' => $new === '' ? AlimtalkRecipients::NONE : $new, 'type' => 'string', 'description' => '알림톡 받는 사람 '.$notice]);
         if ($old !== $new) {
             BoardAuditLog::create([
                 'user_id' => Auth::id(), 'purchase_listing_id' => null, 'action' => 'setting_change', 'field' => 'alimtalk_recipients',
@@ -152,8 +153,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         foreach (array_filter(explode(',', $csv)) as $t) {
             if (isset(AlimtalkRecipients::GROUPS[$t])) {
                 $names[] = __(AlimtalkRecipients::GROUPS[$t]);
-            } elseif ($t === AlimtalkRecipients::APPROVAL_LINE) {
-                $names[] = __('alimtalk_catalog.group.approval_line');
+            } elseif (str_starts_with($t, 'ctx_') || $t === AlimtalkRecipients::APPROVAL_LINE) {
+                $names[] = __('alimtalk_catalog.ctx_short.'.$t);
             } elseif (($id = AlimtalkRecipients::userIdOf($t)) !== null) {
                 $names[] = \App\Models\User::query()->whereKey($id)->value('name') ?? $t;
             }
@@ -172,12 +173,12 @@ new #[Layout('components.layouts.app')] class extends Component {
         return $a !== $b;
     }
 
-    public function lineOn(string $notice): bool
+    public function ctxOn(string $notice, string $token): bool
     {
-        return in_array(AlimtalkRecipients::APPROVAL_LINE, $this->tokens($notice), true);
+        return in_array($token, $this->tokens($notice), true);
     }
 
-    /** 저장된 설정 기준 지금 추가로 받는 인원(번호 있는 사람만, 결재선 전원 제외 — 건마다 다르다). */
+    /** 저장된 설정 기준, 역할·사람으로 체크돼 받는 인원(번호 있는 사람만 — 당사자 줄은 건마다 달라 세지 않는다). */
     public function extraCount(string $notice): int
     {
         return AlimtalkRecipients::countExtras($notice);
@@ -198,7 +199,6 @@ new #[Layout('components.layouts.app')] class extends Component {
             @php
                 $tpl = AlimtalkRecipients::templateOf($notice);
                 $pickable = AlimtalkRecipients::isPickable($notice);
-                $auto = AlimtalkRecipients::AUTO[$notice] ?? null;
                 $canSend = $this->config->canSend($tpl);
             @endphp
             <div class="rounded-lg border border-gray-200 bg-white p-3 md:p-4" wire:key="notice-{{ $notice }}" data-notice="{{ $notice }}" x-data="{ open: '', body: false }">
@@ -217,27 +217,24 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @endif
                 <pre x-show="body" x-cloak class="mt-2 whitespace-pre-wrap rounded bg-gray-50 p-2 text-[11px] leading-relaxed text-gray-600">{{ AlimtalkTemplates::TEMPLATES[$tpl]['body'] ?? '' }}</pre>
 
-                <div class="mt-3 grid gap-3 md:grid-cols-[14rem_1fr]">
+                <div class="mt-3">
                     <div>
-                        <div class="mb-1 text-[11px] font-medium text-gray-500">{{ __('alimtalk_catalog.auto_label') }}</div>
-                        <div class="rounded bg-gray-50 px-2 py-1.5 text-xs text-gray-700">{{ $auto ? __($auto) : __('alimtalk_catalog.auto.none') }}</div>
-                    </div>
-
-                    <div>
-                        <div class="mb-1 text-[11px] font-medium text-gray-500">{{ __('alimtalk_catalog.extra_label') }}</div>
+                        <div class="mb-1 text-[11px] font-medium text-gray-500">{{ __('alimtalk_catalog.recipients_label') }}</div>
                         @if(! $pickable)
-                            <div class="rounded bg-gray-50 px-2 py-1.5 text-xs text-gray-500">{{ __('alimtalk_catalog.not_pickable') }}</div>
+                            <div class="rounded bg-gray-50 px-2 py-1.5 text-xs text-gray-700">{{ __(AlimtalkRecipients::FIXED[$notice] ?? '') }}</div>
+                            <div class="mt-1 text-[11px] text-gray-400">{{ __('alimtalk_catalog.not_pickable') }}</div>
                         @else
                             <div class="flex flex-col gap-0.5 rounded bg-gray-50 p-1">
-                                @if(AlimtalkRecipients::supportsLine($notice))
-                                    <div class="rounded bg-white px-2 py-1">
-                                        <label class="flex items-center gap-1 pl-6 text-xs text-gray-700">
-                                            <input type="checkbox" class="h-3.5 w-3.5 rounded border-gray-300" wire:click="toggleLine('{{ $notice }}')" @checked($this->lineOn($notice)) />
-                                            <span class="font-medium">{{ __('alimtalk_catalog.group.approval_line') }}</span>
-                                            <span class="text-[11px] text-gray-400">{{ __('alimtalk_catalog.line_hint') }}</span>
+                                {{-- 그 건의 당사자 — 지금까지 자동으로 받던 사람들. 기본 체크, 끄면 알림톡을 안 받는다. --}}
+                                @foreach(AlimtalkRecipients::contextOf($notice) as $ctx => $ctxKey)
+                                    <div class="rounded bg-blue-50/60 px-2 py-1" wire:key="ctx-{{ $notice }}-{{ $ctx }}">
+                                        <label class="flex flex-wrap items-center gap-1 pl-6 text-xs text-gray-700">
+                                            <input type="checkbox" class="h-3.5 w-3.5 rounded border-gray-300" wire:click="toggleContext('{{ $notice }}', '{{ $ctx }}')" @checked($this->ctxOn($notice, $ctx)) />
+                                            <span class="font-medium">{{ __($ctxKey) }}</span>
+                                            <span class="text-[11px] text-gray-400">{{ __('alimtalk_catalog.ctx_hint') }}</span>
                                         </label>
                                     </div>
-                                @endif
+                                @endforeach
                                 @foreach(AlimtalkRecipients::GROUPS as $g => $gKey)
                                     @php
                                         $st = $this->groupState($notice, $g);

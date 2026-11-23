@@ -305,9 +305,14 @@ class TransportService
             'url' => route('listings', ['edit' => $req->purchase_listing_id]),
             'tag' => 'transport-'.$req->id,
         ];
+        $already = [];
         foreach ($req->recipients()->whereIn('kind', [TransportRequestRecipient::KIND_SALES, TransportRequestRecipient::KIND_MANAGER])->get() as $r) {
-            $log = $this->alimtalk->send('board_transport_result', $r->phone, $vars, ['user_id' => $r->user_id]);
-            $r->forceFill(['result_log_id' => $log->id])->save();
+            // 알림톡은 「알림톡 안내」 체크대로(요청 영업·담당 관리 줄은 기본 체크 — 끄면 알림톡만 안 간다, 종·웹푸시는 그대로).
+            if (AlimtalkRecipients::wants('board_transport_result', $r->kind === TransportRequestRecipient::KIND_SALES ? AlimtalkRecipients::CTX_SALES : AlimtalkRecipients::CTX_MANAGER)) {
+                $log = $this->alimtalk->send('board_transport_result', $r->phone, $vars, ['user_id' => $r->user_id]);
+                $r->forceFill(['result_log_id' => $log->id])->save();
+                $already[] = $r->phone;
+            }
             if ($r->user_id && ($u = User::find($r->user_id))) {
                 try {
                     $this->push->sendToUser($u, $payload);
@@ -316,8 +321,8 @@ class TransportService
                 }
             }
         }
-        // 「알림톡 안내」에서 체크한 사람들 — 요청 영업·담당 관리 위에 더 받는다(알림톡만, 2026-11-23 Jin).
-        $extras = AlimtalkRecipients::extras('board_transport_result', $req->recipients()->pluck('phone'));
+        // 「알림톡 안내」에서 역할·사람으로 체크한 사람들(알림톡만, 2026-11-23 Jin).
+        $extras = AlimtalkRecipients::extras('board_transport_result', $already);
         foreach ($extras as $u) {
             $this->alimtalk->send('board_transport_result', $u->phone, $vars, ['user_id' => $u->id]);
         }

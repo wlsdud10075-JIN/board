@@ -63,8 +63,10 @@ class RegionInspectionNotifier
         $noRecipient = 0;
 
         foreach ($groups as $region => $listings) {
-            $recipients = $this->recipientsFor($date, (string) $region);
-            if ($recipients->isEmpty()) {
+            // 「배정 검차원」 줄(기본 체크)을 끄면 검차원에게는 안 보내고, 역할·사람으로 체크한 사람만 받는다(2026-11-23 Jin).
+            $toInspectors = AlimtalkRecipients::wants('board_region_inspection', AlimtalkRecipients::CTX_INSPECTOR);
+            $recipients = $toInspectors ? $this->recipientsFor($date, (string) $region) : collect();
+            if ($toInspectors && $recipients->isEmpty()) {
                 $noRecipient++;   // 수신자 없음 → stamp 안 함(배정/로스터 생기면 다음 실행에 재시도)
 
                 continue;
@@ -100,11 +102,16 @@ class RegionInspectionNotifier
                 }
             }
 
-            // 「알림톡 안내」에서 체크한 사람들 — 배정 검차원 위에 더 받는다(2026-11-23 Jin).
-            //   🚫 집계·dedup stamp 에 넣지 않는다 — 추가 수신자 발송 성공으로 stamp 가 찍히면 정작 검차원이 영영 못 받는다.
-            //   배정 검차원에게 실제로 나갔을 때만 보낸다 — 아니면 stamp 가 안 찍혀 다음 실행마다 같은 목록을 또 받는다.
-            foreach ($anySent ? AlimtalkRecipients::extras('board_region_inspection', $recipients->pluck('phone')) : [] as $u) {
-                $this->alimtalk->send('board_region_inspection', $u->phone, $vars, ['user_id' => $u->id, 'region' => (string) $region]);
+            // 「알림톡 안내」에서 역할·사람으로 체크한 사람들.
+            //   검차원 줄이 켜져 있으면: 검차원에게 실제로 나갔을 때만 같이 보낸다(집계·stamp 는 검차원 기준 —
+            //     이 사람들 발송으로 stamp 가 찍히면 정작 검차원이 영영 못 받고, 반대로 안 찍힌 채 보내면 실행마다 또 받는다).
+            //   검차원 줄이 꺼져 있으면: 이 사람들이 유일한 수신자라 여기 발송 성공으로 stamp 를 찍는다.
+            foreach ($anySent || ! $toInspectors ? AlimtalkRecipients::extras('board_region_inspection', $recipients->pluck('phone')) : [] as $u) {
+                $log = $this->alimtalk->send('board_region_inspection', $u->phone, $vars, ['user_id' => $u->id, 'region' => (string) $region]);
+                if (! $toInspectors && $log->status === 'sent') {
+                    $sent++;
+                    $anySent = true;
+                }
             }
 
             // 실발송 성공했을 때만 dedup stamp(off/no_phone 로 skip 된 경우는 미stamp = 재시도 여지).

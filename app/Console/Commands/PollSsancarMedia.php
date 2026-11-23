@@ -88,13 +88,14 @@ class PollSsancarMedia extends Command
             // 알림톡 B(전달대기) — 그 매물 작성 영업에게 "사진/영상 업로드 완료, 바이어 전달 대기".
             // fire-and-forget(발송기가 예외 안 던짐). 알림톡 off/미승인이면 skipped.
             $creator = $listing->creator;
-            if ($creator && trim((string) $creator->phone) !== '') {
+            //   받는 사람은 「알림톡 안내」 체크대로 — 「등록 영업」 줄(기본 체크) + 역할·사람으로 체크한 사람들(2026-11-23 Jin).
+            $toCreator = $creator && trim((string) $creator->phone) !== '' && AlimtalkRecipients::wants('board_forward_ready', AlimtalkRecipients::CTX_CREATOR);
+            if ($toCreator) {
                 $alimtalk->send('board_forward_ready', $creator->phone,
                     ['차량번호' => $listing->vehicle_number ?: '(번호미정)'],
                     ['user_id' => $creator->id]);
             }
-            // 「알림톡 안내」에서 체크한 사람들 — 등록 영업 위에 더 받는다(2026-11-23 Jin).
-            foreach (AlimtalkRecipients::extras('board_forward_ready', [$creator?->phone]) as $u) {
+            foreach (AlimtalkRecipients::extras('board_forward_ready', $toCreator ? [$creator->phone] : []) as $u) {
                 $alimtalk->send('board_forward_ready', $u->phone,
                     ['차량번호' => $listing->vehicle_number ?: '(번호미정)'],
                     ['user_id' => $u->id]);

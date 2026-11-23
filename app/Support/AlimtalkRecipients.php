@@ -7,16 +7,20 @@ use App\Models\User;
 use Illuminate\Support\Collection;
 
 /**
- * 알림톡 「추가로 받을 사람」 — 알림마다 역할·사람을 체크해 둔다(2026-11-23 Jin «ERP 알림톡 안내처럼 인원별로 체크», car-erp AlimtalkRecipients 의 역할 피커만 미러).
+ * 알림톡 받는 사람 — 알림마다 체크해 둔다(2026-11-23 Jin «ERP 알림톡 안내처럼 인원별로 체크», car-erp AlimtalkRecipients 의 역할 피커만 미러).
  *
- * board 알림톡은 전부 **그 건의 당사자**(담당자·접수 영업·등록 영업·지금 차례 결재자·업체)에게 자동으로 간다 — 그건 그대로다(AUTO).
- * 여기서 정하는 건 **그 위에 더 받을 사람**뿐이고, 기본은 아무도 없음(설정이 없으면 발송 대상이 종전과 글자 그대로 같다).
+ * 줄은 두 종류다:
+ *   ① **그 건의 당사자**(CONTEXT — 클레임 담당자·접수 영업·등록 영업·담당 관리·배정 검차원·결재선 전원). 사람 집합이 아니라 건마다 다르다.
+ *      지금까지 자동으로 받던 사람들이라 **기본 체크**(DEFAULTS)로 화면에 보이고, 끄면 그 사람은 알림톡을 안 받는다
+ *      (Jin «안 보이는 상태로 받고 여기서 추가만 하면 더 헷갈린다» — 넣고 빼기를 한 화면에서).
+ *   ② **역할·사람**(GROUPS · `user:{id}`) — 체크한 사람은 그 알림을 건마다 전부 받는다(담당 차량 가림 없음).
  *
- * - 저장 = Setting `alimtalk_roles_{알림}` 콤마 토큰: 역할 키(GROUPS) · `user:{id}`(개별 지정) · `approval_line`(그 클레임 결재선 전원).
+ * - 저장 = Setting `alimtalk_roles_{알림}` 콤마 토큰. **설정 행이 없으면 DEFAULTS**(= 배포 전과 같은 발송 대상), 전부 끄고 저장하면 `none`(아무도 안 받음).
  *   🔑 사람을 번호가 아니라 계정으로 가리킨다 — 비활성·삭제되면 자동으로 빠진다. 번호 직접 입력은 두지 않는다.
- * - 키는 **템플릿 코드가 아니라 알림**이다: 「클레임 결재 결과」 템플릿 하나를 최종 결재 때(자동 + 체크)와 ERP 전송 완료 때(체크한 사람만) 두 번 쓴다.
- * - 서명 링크가 붙는 두 알림(클레임 결재요청·탁송 배차 요청)은 받는 사람이 곧 처리 권한이라 추가 수신을 열지 않는다(PICKABLE 에 없음).
- * - board 는 박스당 1회사 → ERP 의 회사(set) 접미사 없음. 시각 규칙·단계별 확대·차량 스코프도 없음(체크한 사람은 그 알림을 전부 받는다).
+ * - 키는 **템플릿 코드가 아니라 알림**이다: 「클레임 결재 결과」 템플릿 하나를 최종 결재 때와 ERP 전송 완료 때(기본 아무도 없음) 두 번 쓴다.
+ * - 서명 링크가 붙는 두 알림(클레임 결재요청·탁송 배차 요청)은 받는 사람이 곧 처리 권한이라 고를 수 없다(PICKABLE 에 없음, FIXED 설명만).
+ * - 끄는 건 **알림톡만**이다 — 종·웹푸시는 그대로 간다.
+ * - board 는 박스당 1회사 → ERP 의 회사(set) 접미사 없음. 시각 규칙·단계별 확대·차량 스코프도 없음.
  */
 class AlimtalkRecipients
 {
@@ -40,27 +44,50 @@ class AlimtalkRecipients
     /** 알림 => 실제 템플릿 코드(다를 때만). */
     public const TEMPLATE_OF = [self::CLAIM_ERP_SENT => 'board_claim_decision'];
 
-    /** 알림 => 자동으로 받는 사람 설명(lang 키). 체크와 무관하게 항상 간다. null = 자동 수신자 없음(체크한 사람만). */
-    public const AUTO = [
-        'board_region_inspection' => 'alimtalk_catalog.auto.region_inspection',
-        'board_forward_ready' => 'alimtalk_catalog.auto.forward_ready',
-        'board_claim_approval_request' => 'alimtalk_catalog.auto.claim_approval_request',
-        'board_claim_decision' => 'alimtalk_catalog.auto.claim_decision',
-        self::CLAIM_ERP_SENT => null,
-        'board_transport_request' => 'alimtalk_catalog.auto.transport_request',
-        'board_transport_result' => 'alimtalk_catalog.auto.transport_result',
+    // 당사자 줄 토큰
+    public const CTX_HANDLER = 'ctx_handler';      // 클레임 담당자
+
+    public const CTX_SALES = 'ctx_sales';          // 클레임 접수 영업 · 탁송 요청 영업
+
+    public const CTX_MANAGER = 'ctx_manager';      // 탁송 — 요청 영업의 담당 관리
+
+    public const CTX_CREATOR = 'ctx_creator';      // 매물 등록 영업
+
+    public const CTX_INSPECTOR = 'ctx_inspector';  // 그 지역 배정 검차원
+
+    /** 알림 => 당사자 줄 [토큰 => lang 키]. 화면 맨 위에 이 순서로 뜬다. */
+    public const CONTEXT = [
+        'board_region_inspection' => [self::CTX_INSPECTOR => 'alimtalk_catalog.ctx.inspector'],
+        'board_forward_ready' => [self::CTX_CREATOR => 'alimtalk_catalog.ctx.creator'],
+        'board_claim_decision' => [self::CTX_HANDLER => 'alimtalk_catalog.ctx.handler', self::CTX_SALES => 'alimtalk_catalog.ctx.claim_sales', self::APPROVAL_LINE => 'alimtalk_catalog.ctx.approval_line'],
+        self::CLAIM_ERP_SENT => [self::CTX_HANDLER => 'alimtalk_catalog.ctx.handler', self::CTX_SALES => 'alimtalk_catalog.ctx.claim_sales', self::APPROVAL_LINE => 'alimtalk_catalog.ctx.approval_line'],
+        'board_transport_result' => [self::CTX_SALES => 'alimtalk_catalog.ctx.transport_sales', self::CTX_MANAGER => 'alimtalk_catalog.ctx.transport_manager'],
     ];
 
-    /** 추가 수신을 고를 수 있는 알림. */
-    public const PICKABLE = ['board_region_inspection', 'board_forward_ready', 'board_claim_decision', self::CLAIM_ERP_SENT, 'board_transport_result'];
+    /** 설정 행이 없을 때의 체크 = **이 기능 전의 발송 대상 그대로**. ERP 전송 완료는 새 알림이라 아무도 없음. */
+    public const DEFAULTS = [
+        'board_region_inspection' => [self::CTX_INSPECTOR],
+        'board_forward_ready' => [self::CTX_CREATOR],
+        'board_claim_decision' => [self::CTX_HANDLER, self::CTX_SALES],
+        self::CLAIM_ERP_SENT => [],
+        'board_transport_result' => [self::CTX_SALES, self::CTX_MANAGER],
+    ];
 
-    /** 「결재선 전원」 줄이 뜨는 알림(클레임 건에 묶인 것). */
-    public const LINE_NOTICES = ['board_claim_decision', self::CLAIM_ERP_SENT];
+    /** 고를 수 없는 알림의 받는 사람 설명(lang 키). */
+    public const FIXED = [
+        'board_claim_approval_request' => 'alimtalk_catalog.fixed.claim_approval_request',
+        'board_transport_request' => 'alimtalk_catalog.fixed.transport_request',
+    ];
 
-    /** 안내 화면에 그리는 순서. */
+    /** 안내 화면에 그리는 알림 순서. */
+    public const NOTICES = ['board_region_inspection', 'board_forward_ready', 'board_claim_approval_request', 'board_claim_decision', self::CLAIM_ERP_SENT, 'board_transport_request', 'board_transport_result'];
+
+    /** 「전부 끄고 저장」 표시 — 빈 값으로 두면 「설정 없음 = 기본값」과 구분이 안 된다. */
+    public const NONE = 'none';
+
     public static function notices(): array
     {
-        return array_keys(self::AUTO);
+        return self::NOTICES;
     }
 
     public static function templateOf(string $notice): string
@@ -70,12 +97,24 @@ class AlimtalkRecipients
 
     public static function isPickable(string $notice): bool
     {
-        return in_array($notice, self::PICKABLE, true);
+        return isset(self::CONTEXT[$notice]);
+    }
+
+    /** 이 알림의 당사자 줄 [토큰 => lang 키]. */
+    public static function contextOf(string $notice): array
+    {
+        return self::CONTEXT[$notice] ?? [];
     }
 
     public static function supportsLine(string $notice): bool
     {
-        return in_array($notice, self::LINE_NOTICES, true);
+        return isset(self::CONTEXT[$notice][self::APPROVAL_LINE]);
+    }
+
+    /** 그 당사자 줄(또는 역할 줄)이 켜져 있나 — 발송 지점이 당사자에게 보낼지 정할 때 쓴다. */
+    public static function wants(string $notice, string $token): bool
+    {
+        return in_array($token, self::selected($notice), true);
     }
 
     public static function userIdOf(string $token): ?int
@@ -83,15 +122,18 @@ class AlimtalkRecipients
         return preg_match('/^user:(\d+)$/', trim($token), $m) ? (int) $m[1] : null;
     }
 
-    /** 저장된 토큰. 미설정 = 빈 배열(추가 수신자 없음 — 종전 동작). */
+    /** 지금 적용되는 토큰. 설정 행이 없으면 DEFAULTS(종전 발송 대상), `none` 으로 저장돼 있으면 아무도 없음. */
     public static function selected(string $notice): array
     {
         if (! self::isPickable($notice)) {
             return [];
         }
-        $raw = (string) (Setting::get('alimtalk_roles_'.$notice, '') ?: '');
+        $raw = Setting::get('alimtalk_roles_'.$notice);
+        if ($raw === null) {
+            return self::DEFAULTS[$notice] ?? [];
+        }
 
-        return collect(explode(',', $raw))->map(fn ($t) => trim($t))->filter()->unique()->values()->all();
+        return collect(explode(',', (string) $raw))->map(fn ($t) => trim($t))->filter(fn ($t) => $t !== '' && $t !== self::NONE)->unique()->values()->all();
     }
 
     /** 이 알림에 저장해도 되는 토큰인가 — 화면 저장 검증과 발송 해석이 같은 판정을 쓴다. */
@@ -103,8 +145,8 @@ class AlimtalkRecipients
         if (isset(self::GROUPS[$token])) {
             return true;
         }
-        if ($token === self::APPROVAL_LINE) {
-            return self::supportsLine($notice);
+        if (isset(self::CONTEXT[$notice][$token])) {
+            return true;
         }
         $id = self::userIdOf($token);
 
@@ -174,11 +216,14 @@ class AlimtalkRecipients
     /**
      * 추가로 보낼 대상 — 번호 있는 사람만, 자동 수신자(`$already` 번호)와 겹치면 뺀다(숫자만 비교).
      *
+     * `$parties` = 호출부가 당사자 줄 체크를 보고 이미 고른 사용자(ERP 전송 완료처럼 당사자를 여기서 함께 보낼 때).
+     *
      * @param  iterable<string|null>  $already
      * @param  iterable<User|null>  $line
+     * @param  iterable<User|null>  $parties
      * @return Collection<int, User>
      */
-    public static function extras(string $notice, iterable $already = [], iterable $line = []): Collection
+    public static function extras(string $notice, iterable $already = [], iterable $line = [], iterable $parties = []): Collection
     {
         $seen = [];
         foreach ($already as $p) {
@@ -186,7 +231,9 @@ class AlimtalkRecipients
         }
         unset($seen['']);
 
-        return self::users($notice, $line)->filter(function (User $u) use (&$seen) {
+        $all = collect($parties)->filter(fn ($u) => $u instanceof User && $u->is_active)->concat(self::users($notice, $line))->unique('id')->values();
+
+        return $all->filter(function (User $u) use (&$seen) {
             $d = self::digits($u->phone);
             if ($d === '' || isset($seen[$d])) {
                 return false;

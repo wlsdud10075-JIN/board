@@ -9952,8 +9952,8 @@ class BoardTest extends TestCase
         ]);
         $boss = $this->mkUser('manager', null, 'manager');
         $boss->update(['phone' => '01077770000']);
-        Setting::create(['key' => 'alimtalk_roles_board_forward_ready', 'value' => 'manager', 'type' => 'string']);
-        Setting::create(['key' => 'alimtalk_roles_board_region_inspection', 'value' => 'user:'.$boss->id, 'type' => 'string']);
+        Setting::create(['key' => 'alimtalk_roles_board_forward_ready', 'value' => 'ctx_creator,manager', 'type' => 'string']);
+        Setting::create(['key' => 'alimtalk_roles_board_region_inspection', 'value' => 'ctx_inspector,user:'.$boss->id, 'type' => 'string']);
         $logs = fn (string $code) => AlimtalkLog::where('template_code', $code)->where('phone', '01077770000')->count();
 
         // 자동 전환

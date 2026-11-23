@@ -3,7 +3,7 @@
 // Alimtalk guide (2026-11-23) — automatic recipients + extra recipients per notice. Rules = App\Support\AlimtalkRecipients.
 return [
     'title' => 'Alimtalk guide',
-    'intro' => 'See who receives each Alimtalk and check extra recipients by role or by person. With nothing checked, only the automatic recipients get it, as before.',
+    'intro' => 'Checked people receive each Alimtalk. Blue rows are the people tied to that case (who received it automatically until now); below, add or remove by role or by person.',
     'master_off' => 'The Alimtalk master switch is off — turn it on in Settings for messages to actually go out.',
 
     'state_on' => 'Sending',
@@ -12,9 +12,9 @@ return [
     'show_body' => 'Show message',
     'same_template' => 'Sent with the same message as ":name".',
 
-    'auto_label' => 'Automatic recipients (always)',
-    'extra_label' => 'Extra recipients (checked only)',
-    'not_pickable' => 'Each recipient gets a personal action link, so extra recipients cannot be added.',
+    'recipients_label' => 'Recipients (checked only)',
+    'ctx_hint' => 'whoever it is for each case',
+    'not_pickable' => 'Each recipient gets a personal action link, so recipients cannot be changed.',
 
     'group_all' => 'All :n (newcomers included)',
     'group_some' => ':n selected',
@@ -22,13 +22,12 @@ return [
     'group_empty' => 'No one in this role',
     'no_phone' => 'No number',
     'no_phone_hint' => 'No mobile number in User management — will not receive even if checked.',
-    'line_hint' => 'Everyone on that claim\'s approval line',
 
     'save' => 'Save',
     'saved' => 'Saved',
     'unsaved' => 'Not saved — press [Save] to apply',
-    'extra_count' => ':n extra recipients now (with a number · approval line not counted)',
-    'footnote' => 'Checked people receive every instance of that notice (not filtered by their own vehicles). Inactive accounts drop out automatically. Changes are written to the audit log.',
+    'extra_count' => ':n people checked by role or person (with a number · blue-row parties vary per case and are not counted)',
+    'footnote' => 'People checked by role or person receive every instance of that notice (not filtered by their own vehicles). One person on several rows still gets one message. Unchecking does not stop in-app notifications (bell, web push). Inactive accounts drop out automatically, and changes are written to the audit log.',
 
     'notice' => [
         'board_region_inspection' => 'Region inspection notice',
@@ -50,18 +49,31 @@ return [
         'board_transport_result' => 'Sent when the transport company accepts or rejects the dispatch.',
     ],
 
-    'auto' => [
-        'none' => 'None — only checked people receive it',
-        'region_inspection' => 'Inspectors assigned to that region',
-        'forward_ready' => 'The salesperson who registered the listing',
+    'fixed' => [
         'claim_approval_request' => 'The one approver whose turn it is',
-        'claim_decision' => 'Claim handler + the salesperson who filed it',
         'transport_request' => 'Company numbers + typed number + requesting salesperson + their manager',
-        'transport_result' => 'Requesting salesperson + their manager',
+    ],
+
+    // People tied to that case — the ones who received it automatically until now (checked by default)
+    'ctx' => [
+        'inspector' => 'Inspectors assigned to that region',
+        'creator' => 'The salesperson who registered the listing',
+        'handler' => 'That claim\'s handler',
+        'claim_sales' => 'The salesperson who filed that claim',
+        'approval_line' => 'Everyone on that claim\'s approval line',
+        'transport_sales' => 'The salesperson who requested the transport',
+        'transport_manager' => 'That salesperson\'s manager',
+    ],
+    'ctx_short' => [
+        'ctx_inspector' => 'Assigned inspectors',
+        'ctx_creator' => 'Registering salesperson',
+        'ctx_handler' => 'Handler',
+        'ctx_sales' => 'Salesperson (party)',
+        'ctx_manager' => 'Their manager',
+        'approval_line' => 'Approval line',
     ],
 
     'group' => [
-        'approval_line' => 'Whole approval line',
         'super' => 'System admin',
         'admin' => 'Top manager',
         'manager' => 'Work manager',
