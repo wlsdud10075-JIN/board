@@ -55,6 +55,7 @@
         'settings.appearance' => __('nav.crumb.settings_appearance'),
         'admin.settings' => __('nav.crumb.admin_settings'),
         'admin.alimtalk-logs' => __('nav.crumb.alimtalk_logs'),
+        'admin.alimtalk-catalog' => __('nav.crumb.alimtalk_catalog'),
         'work-journal' => __('nav.crumb.work_journal'),
         'work-journal.approvals' => __('nav.crumb.work_journal_approvals'),
         'claims' => __('nav.crumb.claims'),
@@ -90,6 +91,7 @@
             ['label' => __('nav.menu.transport_companies'), 'href' => route('transport.companies'), 'icon' => 'truck', 'active' => request()->routeIs('transport.companies'), 'show' => $can(['manager'])],
             ['label' => __('nav.menu.audit'), 'href' => route('audit'), 'icon' => 'document', 'active' => request()->routeIs('audit'), 'show' => $user->hasFullAccess()],
             ['label' => __('nav.menu.alimtalk_logs'), 'href' => route('admin.alimtalk-logs'), 'icon' => 'chat', 'active' => request()->routeIs('admin.alimtalk-logs'), 'show' => $user->isSuper(), 'badge' => $alimtalkAttention ?: null],
+            ['label' => __('nav.menu.alimtalk_catalog'), 'href' => route('admin.alimtalk-catalog'), 'icon' => 'chat', 'active' => request()->routeIs('admin.alimtalk-catalog'), 'show' => $user->isSuper()],
             ['label' => __('nav.menu.settings'), 'href' => route('admin.settings'), 'icon' => 'cog', 'active' => request()->routeIs('admin.settings'), 'show' => $user->isSuper()],
         ]],
     ];

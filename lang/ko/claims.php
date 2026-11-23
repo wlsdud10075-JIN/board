@@ -147,6 +147,7 @@ return [
     'erp_send_not_ready' => '결재가 끝난 건만, 회차마다 한 번 보낼 수 있습니다.',
     'erp_sent_badge' => 'ERP 반영됨 #:id (:at)',
     'erp_sent_old' => ':rev차 반영됨 — 재승인 금액은 아직',
+    'audit_notice_extra' => '「:notice」 알림톡 추가 수신 :n명 (:names)',
     'audit_erp_sent' => ':rev차 ERP 반영 — :result · :amount · ERP #:erp',
     'audit_erp_failed' => ':rev차 ERP 전송 실패 — :reason',
     'erp_modal_title' => 'ERP 로 보내기 — 받을 바이어 확인',

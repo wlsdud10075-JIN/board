@@ -12,6 +12,7 @@ use App\Models\TransportRequest;
 use App\Models\TransportRequestFile;
 use App\Models\TransportRequestRecipient;
 use App\Models\User;
+use App\Support\AlimtalkRecipients;
 use App\Support\Instance;
 use App\Support\UploadGuard;
 use Illuminate\Http\UploadedFile;
@@ -314,6 +315,14 @@ class TransportService
                     Log::warning('[transport] push failed', ['user' => $u->id, 'error' => $e->getMessage()]);
                 }
             }
+        }
+        // 「알림톡 안내」에서 체크한 사람들 — 요청 영업·담당 관리 위에 더 받는다(알림톡만, 2026-11-23 Jin).
+        $extras = AlimtalkRecipients::extras('board_transport_result', $req->recipients()->pluck('phone'));
+        foreach ($extras as $u) {
+            $this->alimtalk->send('board_transport_result', $u->phone, $vars, ['user_id' => $u->id]);
+        }
+        if ($extras->isNotEmpty()) {
+            $this->audit($req, null, 'transport_notice_extra', null, sprintf('결과 알림톡 추가 수신 %d명 (%s)', $extras->count(), $extras->pluck('name')->implode(', ')));
         }
     }
 

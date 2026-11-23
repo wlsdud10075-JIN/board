@@ -601,6 +601,11 @@ new #[Layout('components.layouts.app')] class extends Component {
             app(\App\Services\BizmAlimtalkService::class)->send('board_forward_ready', $creator->phone,
                 ['차량번호' => $l->vehicle_number ?: '(번호미정)'], ['user_id' => $creator->id]);
         }
+        // 「알림톡 안내」에서 체크한 사람들 — 등록 영업 위에 더 받는다(자동 전환과 같은 규칙).
+        foreach (\App\Support\AlimtalkRecipients::extras('board_forward_ready', [$creator?->phone]) as $u) {
+            app(\App\Services\BizmAlimtalkService::class)->send('board_forward_ready', $u->phone,
+                ['차량번호' => $l->vehicle_number ?: '(번호미정)'], ['user_id' => $u->id]);
+        }
 
         unset($this->listings, $this->tabCounts);
         session()->flash('ok', __('listings.drawer.forward_photos_flash', ['number' => \App\Support\Plate::show($l->vehicle_number)]));

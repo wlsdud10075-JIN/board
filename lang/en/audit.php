@@ -59,6 +59,8 @@ return [
         'claim_cs_proposed_amount' => 'Claim CS PROPOSED AMOUNT',
         'claim_confirmed_amount' => 'Claim final confirmed amount',
         'claim_erp_send' => 'Claim sent to ERP',
+        'claim_notice_extra' => 'Claim Alimtalk extra recipients',
+        'alimtalk_recipients' => 'Alimtalk extra recipients setting',
         'claim_refundable_amount' => 'Claim REFUNDABLE',
         'claim_result' => 'Claim RESULT',
         'claim_result_reason' => 'Claim REASON',

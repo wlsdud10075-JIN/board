@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\InspectionAssignment;
 use App\Models\PurchaseListing;
 use App\Models\User;
+use App\Support\AlimtalkRecipients;
 use Illuminate\Support\Collection;
 
 /**
@@ -97,6 +98,12 @@ class RegionInspectionNotifier
                 } else {
                     $skipped++;
                 }
+            }
+
+            // 「알림톡 안내」에서 체크한 사람들 — 배정 검차원 위에 더 받는다(2026-11-23 Jin).
+            //   🚫 집계·dedup stamp 에 넣지 않는다 — 추가 수신자 발송 성공으로 stamp 가 찍히면 정작 검차원이 영영 못 받는다.
+            foreach (AlimtalkRecipients::extras('board_region_inspection', $recipients->pluck('phone')) as $u) {
+                $this->alimtalk->send('board_region_inspection', $u->phone, $vars, ['user_id' => $u->id, 'region' => (string) $region]);
             }
 
             // 실발송 성공했을 때만 dedup stamp(off/no_phone 로 skip 된 경우는 미stamp = 재시도 여지).

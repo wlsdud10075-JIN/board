@@ -6,6 +6,7 @@ use App\Models\IntegrationEvent;
 use App\Models\PurchaseListing;
 use App\Services\BizmAlimtalkService;
 use App\Services\SsancarMediaService;
+use App\Support\AlimtalkRecipients;
 use Illuminate\Console\Command;
 
 /**
@@ -91,6 +92,12 @@ class PollSsancarMedia extends Command
                 $alimtalk->send('board_forward_ready', $creator->phone,
                     ['차량번호' => $listing->vehicle_number ?: '(번호미정)'],
                     ['user_id' => $creator->id]);
+            }
+            // 「알림톡 안내」에서 체크한 사람들 — 등록 영업 위에 더 받는다(2026-11-23 Jin).
+            foreach (AlimtalkRecipients::extras('board_forward_ready', [$creator?->phone]) as $u) {
+                $alimtalk->send('board_forward_ready', $u->phone,
+                    ['차량번호' => $listing->vehicle_number ?: '(번호미정)'],
+                    ['user_id' => $u->id]);
             }
 
             $advanced++;

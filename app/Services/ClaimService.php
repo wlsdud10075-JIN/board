@@ -8,6 +8,7 @@ use App\Models\ClaimFile;
 use App\Models\PurchaseListing;
 use App\Models\Scopes\SalesmanScope;
 use App\Models\User;
+use App\Support\AlimtalkRecipients;
 use App\Support\AlimtalkTemplates;
 use App\Support\Plate;
 use Illuminate\Http\UploadedFile;
@@ -441,12 +442,7 @@ class ClaimService
     {
         $approved = $claim->status === Claim::APPROVED;
         $recipients = collect([$claim->requester, $claim->salesman])->filter()->unique('id');
-        $vars = [
-            '차량번호' => $claim->vehicle_number,
-            '바이어' => $claim->buyer_name ?: '—',
-            '결과' => $approved ? '승인' : '반려',
-            '사유' => trim((string) $claim->decision_reason) !== '' ? $claim->decision_reason : '—',
-        ];
+        $vars = $this->decisionVars($claim);
         $title = $approved ? __('claims.push_approved_title') : __('claims.push_rejected_title');
         $body = Plate::show($claim->vehicle_number).' · '.($claim->buyer_name ?: '—').($claim->decision_reason ? ' · '.$claim->decision_reason : '');
         foreach ($recipients as $u) {
@@ -454,6 +450,32 @@ class ClaimService
                 BizmAlimtalkService::active()->send('board_claim_decision', $u->phone, $vars, ['user_id' => $u->id]);
             }
             $this->push($u, $title, $body, $u->isClaimHandler() ? route('claims') : route('portal'), 'claim-dec-'.$claim->id.'-'.$claim->revision);
+        }
+        // 「알림톡 안내」에서 체크한 사람들 — 담당자·접수 영업 위에 더 받는다(알림톡만, 2026-11-23 Jin).
+        $this->notifyExtras($claim, 'board_claim_decision', $vars, $recipients->pluck('phone'));
+    }
+
+    private function decisionVars(Claim $claim): array
+    {
+        return [
+            '차량번호' => $claim->vehicle_number,
+            '바이어' => $claim->buyer_name ?: '—',
+            '결과' => $claim->decision === Claim::APPROVED ? '승인' : '반려',
+            '사유' => trim((string) $claim->decision_reason) !== '' ? $claim->decision_reason : '—',
+        ];
+    }
+
+    /** 체크된 추가 수신자에게 결재 결과 템플릿을 보낸다(결재선 전원 = 이번 회차 결재선). 보낸 인원은 감사 1행. */
+    private function notifyExtras(Claim $claim, string $notice, array $vars, iterable $already): void
+    {
+        $extras = AlimtalkRecipients::extras($notice, $already, $claim->lineSteps()->map->approver);
+        foreach ($extras as $u) {
+            BizmAlimtalkService::active()->send(AlimtalkRecipients::templateOf($notice), $u->phone, $vars, ['user_id' => $u->id]);
+        }
+        if ($extras->isNotEmpty()) {
+            $this->audit($claim, null, 'claim_notice_extra', null, __('claims.audit_notice_extra', [
+                'notice' => __('alimtalk_catalog.notice.'.$notice), 'n' => $extras->count(), 'names' => $extras->pluck('name')->implode(', '),
+            ]));
         }
     }
 
@@ -505,6 +527,9 @@ class ClaimService
             $this->audit($claim, $handler->id, 'claim_erp_send', null, __('claims.audit_erp_sent', [
                 'rev' => $claim->revision, 'result' => $payload['result'], 'amount' => $approved ? $claim->amountDisplay('confirmed_amount') : '0', 'erp' => $claim->erp_claim_id ?? '—',
             ]));
+
+            // ERP 전송 완료 알림 — 「알림톡 안내」에서 체크한 사람만(기본 없음). 결재 결과와 같은 템플릿(확정 금액 = 보낸 금액). 성공일 때만.
+            $this->notifyExtras($claim, AlimtalkRecipients::CLAIM_ERP_SENT, $this->decisionVars($claim), []);
 
             return ['ok' => true, 'message' => null];
         }
