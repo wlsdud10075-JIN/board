@@ -1,6 +1,10 @@
 <?php
 
 /**
+ * 🗄️ **옛 가이드(2026-11-22 Jin)** — 직원이 보는 업무 가이드의 정본은 앱 안 `/guides`(`resources/guides/`, 2026-11-14~)다.
+ *    이 Notion 가이드는 7월 내용에서 멈춘 채 보관만 한다: 새 기능을 여기에 옮기지 않고, 새벽 Notion 대조(nightly-notion.ps1)에도 넣지 않는다.
+ *    (챗봇용 기능 카드 `scripts/notion-cards/` 와 개발 현황판 `scripts/notion-dev-status-sync.php` 는 별개 — 그쪽은 계속 맞춘다.)
+ *
  * Notion "사내 업무 가이드" 허브에 매입보드(board) 업무 가이드를 발행(교체)한다.
  *
  * car-erp 의 scripts/notion-guide-publish.php 패턴을 미러 — 단, board 전용 중첩 구조:

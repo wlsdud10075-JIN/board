@@ -18,6 +18,7 @@
  *   php publish.php                       전체 dry-run (쓰기 없음)
  *   php publish.php --apply               최초 발행 (이미 있으면 중단)
  *   php publish.php --apply --replace     전체 재발행 — 그룹 페이지째 교체
+ *   php publish.php --sync [--apply]      어긋난 것 전부를 PHP 가 직접 맞춘다(그룹 생성·카드 추가/교체/삭제, LLM 없음 — 새벽 배치용)
  *
  * ⭐ **평소 작업 = `--verify` → 어긋난 카드마다 `--card … --apply` → 다시 `--verify`.**
  *    car-erp `scripts/notion-cards/publish.php` 와 같은 흐름이다(그쪽은 audience 필수, board 는 없음).
@@ -308,6 +309,85 @@ if ($verify) {
         ? "✅ 정합 — 라이브와 cards.json 이 완전히 같습니다 (카드 {$total}장).\n"
         : "⚠️ 불일치 {$problems}건. cards.json 을 고친 뒤 --card \"제목\" --apply 로 반영하세요.\n");
     exit($problems === 0 ? 0 : 1);
+}
+
+// ── --sync : 어긋난 것 전부를 PHP 가 직접 맞춘다 (2026-11-22 Jin «새벽에 자동으로») ──────
+//   --sync            무엇을 할지 목록만(쓰기 없음). 할 일이 있으면 exit 1.
+//   --sync --apply    없는 그룹 페이지 만들기 · 없는 카드 추가 · 본문 다른 카드 제자리 교체 · cards.json 에 없는 라이브 카드 삭제.
+//   LLM·Codex 를 거치지 않는다 — 회사 PC 새벽 배치(nightly-notion.ps1)가 --verify 뒤 exit 1 이면 이걸 부른다.
+//   🚫 cards.json 에 없는 **그룹 페이지**는 지우지 않고 알리기만 한다(사람이 만든 페이지일 수 있다).
+if (in_array('--sync', $argv, true)) {
+    $tree = findTree($boardSection, $parentTitle, $token, $notionVersion);
+    if (! $tree) {
+        fwrite(STDERR, "❌ 「{$parentTitle}」 페이지를 Notion 에서 못 찾음 — 최초 발행은 --apply\n");
+        exit(2);
+    }
+    $norm = fn ($rows) => array_map(fn ($r) => preg_replace('/\s+/u', ' ', $r[0].': '.$r[1]), $rows);
+    $todo = 0;
+    echo ($apply ? '▶ SYNC APPLY' : '▶ SYNC DRY-RUN')." — 라이브 「{$parentTitle}」 ← cards.json\n";
+    foreach (array_diff(array_keys($tree['groups']), array_column($cards, 'group')) as $g) {
+        echo "  ⚠️ cards.json 에 없는 그룹(그대로 둠 — 손으로 확인): $g\n";
+    }
+    foreach ($cards as $g) {
+        $gid = $tree['groups'][$g['group']] ?? null;
+        if ($gid === null) {
+            echo "  ＋그룹 만들기: {$g['group']}\n";
+            $todo++;
+            if ($apply) {
+                $page = notion('POST', 'https://api.notion.com/v1/pages', [
+                    'parent' => ['page_id' => $tree['id']],
+                    'properties' => ['title' => ['title' => [['type' => 'text', 'text' => ['content' => $g['group']]]]]],
+                ], $token, $notionVersion);
+                $gid = $page['id'];
+            }
+        }
+        $live = [];
+        if ($gid !== null) {
+            foreach (liveCards($gid, $token, $notionVersion) as $lc) {
+                $live[$lc['title']] = $lc;
+            }
+        }
+        foreach ($g['cards'] as $c) {
+            $l = $live[$c['title']] ?? null;
+            unset($live[$c['title']]);
+            if ($l === null) {
+                echo "  ＋카드 추가: {$g['group']} / {$c['title']}\n";
+                $todo++;
+                if ($apply) {
+                    notion('PATCH', "https://api.notion.com/v1/blocks/$gid/children", ['children' => cardBlocks($c)], $token, $notionVersion);
+                }
+
+                continue;
+            }
+            if ($norm($l['rows']) !== $norm($c['rows']) || $l['extra']) {
+                echo "  ↻카드 교체: {$c['title']}\n";
+                $todo++;
+                if ($apply) {
+                    foreach ($l['blockIds'] as $bid) {
+                        notion('DELETE', "https://api.notion.com/v1/blocks/$bid", [], $token, $notionVersion);
+                    }
+                    $new = cardBlocks($c);
+                    array_shift($new);
+                    notion('PATCH', "https://api.notion.com/v1/blocks/$gid/children", ['children' => $new, 'after' => $l['h2id']], $token, $notionVersion);
+                }
+            }
+        }
+        foreach ($live as $t2 => $lc) {
+            echo "  －카드 삭제(cards.json 에 없음): {$g['group']} / $t2\n";
+            $todo++;
+            if ($apply) {
+                foreach (array_merge($lc['blockIds'], [$lc['h2id']]) as $bid) {
+                    notion('DELETE', "https://api.notion.com/v1/blocks/$bid", [], $token, $notionVersion);
+                }
+            }
+        }
+    }
+    if ($todo === 0) {
+        echo "✅ 맞출 것이 없습니다.\n";
+        exit(0);
+    }
+    echo $apply ? "✅ {$todo}건 반영. 확인: php publish.php --verify\n" : "⚠️ 맞출 것 {$todo}건. 실제 반영: --sync --apply\n";
+    exit($apply ? 0 : 1);
 }
 
 // ── --card : 카드 1장 제자리 갱신 ────────────────────────

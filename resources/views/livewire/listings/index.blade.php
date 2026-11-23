@@ -597,9 +597,15 @@ new #[Layout('components.layouts.app')] class extends Component {
         $l->save();
 
         $creator = $l->creator;
-        if ($creator && trim((string) $creator->phone) !== '') {
+        // 받는 사람은 「알림톡 안내」 체크대로 — 「등록 영업」 줄(기본 체크) + 역할·사람으로 체크한 사람들(자동 전환과 같은 규칙).
+        $toCreator = $creator && trim((string) $creator->phone) !== '' && \App\Support\AlimtalkRecipients::wants('board_forward_ready', \App\Support\AlimtalkRecipients::CTX_CREATOR);
+        if ($toCreator) {
             app(\App\Services\BizmAlimtalkService::class)->send('board_forward_ready', $creator->phone,
                 ['차량번호' => $l->vehicle_number ?: '(번호미정)'], ['user_id' => $creator->id]);
+        }
+        foreach (\App\Support\AlimtalkRecipients::extras('board_forward_ready', $toCreator ? [$creator->phone] : []) as $u) {
+            app(\App\Services\BizmAlimtalkService::class)->send('board_forward_ready', $u->phone,
+                ['차량번호' => $l->vehicle_number ?: '(번호미정)'], ['user_id' => $u->id]);
         }
 
         unset($this->listings, $this->tabCounts);

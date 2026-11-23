@@ -12,6 +12,7 @@ return [
     'menu' => [
         'claims' => '클레임',
         'alimtalk_logs' => '알림톡 로그',
+        'alimtalk_catalog' => '알림톡 안내',
         'work_journal' => '업무일지',
         'work_journal_approvals' => '업무일지결재',
         'listings' => '매입예정(Invoice)',
@@ -31,6 +32,7 @@ return [
         'claims' => '클레임',
         'transport_companies' => '탁송 업체',
         'alimtalk_logs' => '알림톡 로그',
+        'alimtalk_catalog' => '알림톡 안내',
         'work_journal' => '업무일지',
         'work_journal_approvals' => '업무일지결재',
         'dashboard' => '대시보드',

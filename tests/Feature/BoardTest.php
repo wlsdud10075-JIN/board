@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Jobs\SendOfferToBuyer;
 use App\Jobs\SyncWonListingToCarErp;
+use App\Models\AlimtalkLog;
 use App\Models\BoardAuditLog;
 use App\Models\ExchangeRate;
 use App\Models\InspectionAssignment;
@@ -9938,5 +9939,50 @@ class BoardTest extends TestCase
         $html = $clean(Volt::test('auction.index')->call('openDetail', $l->id)->html());
         $this->assertStringContainsString(__('auction.payee_extract.failed'), $html);
         $this->assertStringContainsString(__('auction.payee_extract.under_failed'), $html);
+    }
+
+    /** 「알림톡 안내」 추가 수신자 — 전달 대기(자동 전환·영업이 직접 넘기기)와 지역 검차 안내(2026-11-23). */
+    public function test_checked_extra_recipients_get_forward_ready_and_region_notices(): void
+    {
+        $this->ssancarMediaConfig();
+        $this->alimtalkOn();
+        Http::fake([
+            '*api_car_media.php*' => Http::response($this->ssancarResp(1, 0, 0), 200),
+            '*bizmsg.kr*' => Http::response([['code' => 'success', 'data' => ['msgid' => 'M']]], 200),
+        ]);
+        $boss = $this->mkUser('manager', null, 'manager');
+        $boss->update(['phone' => '01077770000']);
+        Setting::create(['key' => 'alimtalk_roles_board_forward_ready', 'value' => 'ctx_creator,manager', 'type' => 'string']);
+        Setting::create(['key' => 'alimtalk_roles_board_region_inspection', 'value' => 'ctx_inspector,user:'.$boss->id, 'type' => 'string']);
+        $logs = fn (string $code) => AlimtalkLog::where('template_code', $code)->where('phone', '01077770000')->count();
+
+        // 자동 전환
+        $sales = $this->mkUser('sales');
+        $sales->update(['phone' => '01099998888']);
+        $l = $this->mkListing($sales, ['status' => 'draft', 'vehicle_number' => '44라4444']);
+        $this->artisan('board:poll-ssancar-media')->assertExitCode(0);
+        $this->assertSame('inspected', $l->fresh()->status);
+        $this->assertSame(1, $logs('board_forward_ready'));
+
+        // 영업이 「지금 있는 사진으로 넘기기」
+        $l2 = $this->mkListing($sales, ['vehicle_number' => '55마5555', 'status' => 'draft']);
+        $l2->forceFill(['ssancar_checked_at' => now(), 'ssancar_insp_photos' => 12, 'ssancar_insp_videos' => 0, 'ssancar_stock_photos' => 0])->save();
+        $this->actingAs($sales);
+        Volt::test('listings.index')->call('openEdit', $l2->id)->call('forwardWithPhotos')->assertHasNoErrors();
+        $this->assertSame(2, $logs('board_forward_ready'));
+
+        // 지역 검차 — 배정 검차원이 없으면 추가 수신자도 안 받는다 / 검차원에게 나가면 같이 한 번, 다음 실행엔 다시 안 간다
+        $l3 = $this->mkListing($sales, ['status' => 'draft', 'region' => '경기 화성', 'vehicle_number' => '66바6666']);
+        $date = now()->addDay()->toDateString();
+        app(RegionInspectionNotifier::class)->run($date);
+        $this->assertSame(0, $logs('board_region_inspection'));
+        $insp = $this->mkUser('inspection');
+        $insp->update(['phone' => '01011112222', 'region' => '경기 화성']);
+        $r = app(RegionInspectionNotifier::class)->run($date);
+        $this->assertSame(1, $r['sent']);   // 집계는 검차원만
+        $this->assertSame(1, $logs('board_region_inspection'));
+        $this->assertNotNull($l3->fresh()->region_notified_at);
+        app(RegionInspectionNotifier::class)->run($date);
+        $this->assertSame(1, $logs('board_region_inspection'));
     }
 }

@@ -6,6 +6,7 @@ use App\Models\AlimtalkLog;
 use App\Models\BoardAuditLog;
 use App\Models\InspectionPhoto;
 use App\Models\PurchaseListing;
+use App\Models\Setting;
 use App\Models\TransportCompany;
 use App\Models\TransportRequest;
 use App\Models\TransportRequestRecipient;
@@ -398,5 +399,21 @@ class TransportTest extends TestCase
             ->assertSet('editingId', $l->id)
             ->assertSet('drawerTab', 'transport')
             ->assertSet('edit', 0);
+    }
+
+    /** 「알림톡 안내」에서 체크한 사람도 배차 결과를 받는다 — 이미 받는 영업과 번호가 겹치면 한 통(2026-11-23). */
+    public function test_decision_also_notifies_checked_extra_recipients(): void
+    {
+        $sales = $this->user('sales', 'user', '01011112222');
+        $boss = $this->user('manager', 'manager', '01077770000');
+        Setting::updateOrCreate(['key' => 'alimtalk_roles_board_transport_result'], ['type' => 'string', 'value' => "manager,user:{$sales->id}"]);
+        $c = $this->company(['01099990001' => '김기사']);
+        $req = $this->svc()->create($this->listing($sales), $sales, ['company_id' => $c->id]);
+
+        $this->svc()->decide($req, $req->recipients->first(), 'accept', null, '김기사', null);
+
+        $this->assertEqualsCanonicalizing(['01011112222', '01077770000'], AlimtalkLog::where('template_code', 'board_transport_result')->pluck('phone')->all());
+        $this->assertSame($boss->id, (int) AlimtalkLog::where('phone', '01077770000')->value('user_id'));
+        $this->assertNotNull(BoardAuditLog::where('action', 'transport_notice_extra')->first());
     }
 }

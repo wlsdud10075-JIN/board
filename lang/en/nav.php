@@ -12,6 +12,7 @@ return [
     'menu' => [
         'claims' => 'Claims',
         'alimtalk_logs' => 'Alimtalk log',
+        'alimtalk_catalog' => 'Alimtalk guide',
         'work_journal' => 'Work journal',
         'work_journal_approvals' => 'Journal approvals',
         'listings' => 'Purchases (Invoice)',
@@ -31,6 +32,7 @@ return [
         'claims' => 'Claims',
         'transport_companies' => 'Transport companies',
         'alimtalk_logs' => 'Alimtalk log',
+        'alimtalk_catalog' => 'Alimtalk guide',
         'work_journal' => 'Work journal',
         'work_journal_approvals' => 'Journal approvals',
         'dashboard' => 'Dashboard',

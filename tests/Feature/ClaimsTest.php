@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\CarErpReadService;
 use App\Services\ClaimService;
 use App\Support\AlimtalkConfig;
+use App\Support\AlimtalkRecipients;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
@@ -729,5 +730,71 @@ class ClaimsTest extends TestCase
         $t->assertSee(__('claims.intake_btn'));
         $this->intake($sales);
         Volt::test('portal.index')->call('setTab', 'sales')->set('vehicleSearch', 'VIN55')->assertSee(__('claims.status.received'))->assertDontSee('34나5678');
+    }
+
+    // ── 알림톡 추가 수신자(2026-11-23, 「알림톡 안내」) ──
+
+    private function decisionPhones(): array
+    {
+        return AlimtalkLog::where('template_code', 'board_claim_decision')->orderBy('id')->pluck('phone')->all();
+    }
+
+    public function test_without_recipient_setting_decision_goes_to_handler_and_sales_only_and_erp_send_is_silent(): void
+    {
+        [$c, $sales, $h, $ceo] = $this->pending();
+        $this->mk('구경꾼', 'manager', 'manager', ['phone' => '010-7777-0000']);
+        $this->post($this->decideUrl($c, $ceo), ['action' => 'approve', 'confirmed_amount' => '850'])->assertOk();
+        $this->assertEqualsCanonicalizing(['01055556666', '01033334444'], $this->decisionPhones());
+
+        $r = app(ClaimService::class)->sendToErp($c->fresh(), $h);
+        $this->assertTrue($r['ok']);
+        $this->assertCount(2, $this->decisionPhones());   // ERP 전송 알림은 체크한 사람이 없으면 0통
+        $this->assertDatabaseMissing('board_audit_logs', ['field' => 'claim_notice_extra']);
+    }
+
+    public function test_checked_people_get_decision_and_erp_sent_notice_only_on_success(): void
+    {
+        [$c, $sales, $h, $ceo] = $this->pending();
+        $extra = $this->mk('박부장', 'manager', 'manager', ['phone' => '010-7777-0000']);
+        $noPhone = $this->mk('번호없음', 'manager', 'manager');
+        $gone = $this->mk('퇴사자', 'sales', 'user', ['phone' => '010-8888-0000', 'is_active' => false]);
+        // 결재 결과 = 박부장 + 결재선 전원(대표) + 담당자 본인(자동 수신과 겹침 → 한 통만) + 번호 없는 사람·비활성(빠짐)
+        Setting::updateOrCreate(['key' => 'alimtalk_roles_board_claim_decision'], ['type' => 'string',
+            'value' => "ctx_handler,ctx_sales,user:{$extra->id},approval_line,user:{$h->id},user:{$noPhone->id},user:{$gone->id}"]);
+        Setting::updateOrCreate(['key' => 'alimtalk_roles_board_claim_erp_sent'], ['type' => 'string', 'value' => 'manager']);   // 업무관리자 역할째
+
+        $this->post($this->decideUrl($c, $ceo), ['action' => 'approve', 'confirmed_amount' => '850'])->assertOk();
+        $this->assertEqualsCanonicalizing(['01055556666', '01033334444', '01077770000', '01011112222'], $this->decisionPhones());
+        $this->assertDatabaseHas('board_audit_logs', ['field' => 'claim_notice_extra', 'user_id' => null]);
+
+        // ERP 가 거절하면 아무에게도 안 간다
+        $this->claimMirror = ['status' => 422, 'body' => ['message' => '바이어 없음']];
+        $this->assertFalse(app(ClaimService::class)->sendToErp($c->fresh(), $h)['ok']);
+        $this->assertCount(4, $this->decisionPhones());
+
+        // 성공하면 체크한 역할(업무관리자 중 번호 있는 사람)에게만 결재 결과를 한 번 더
+        $this->claimMirror = null;
+        $this->assertTrue(app(ClaimService::class)->sendToErp($c->fresh(), $h)['ok']);
+        $phones = $this->decisionPhones();
+        $this->assertCount(5, $phones);
+        $this->assertSame('01077770000', end($phones));
+    }
+
+    public function test_unchecking_a_party_row_stops_only_that_alimtalk(): void
+    {
+        [$c, $sales, $h, $ceo] = $this->pending();
+        // 결재 결과 = 담당자만(접수 영업 줄 끔) · ERP 전송 완료 = 접수 영업만
+        Setting::updateOrCreate(['key' => 'alimtalk_roles_board_claim_decision'], ['type' => 'string', 'value' => 'ctx_handler']);
+        Setting::updateOrCreate(['key' => 'alimtalk_roles_board_claim_erp_sent'], ['type' => 'string', 'value' => 'ctx_sales']);
+
+        $this->post($this->decideUrl($c, $ceo), ['action' => 'approve', 'confirmed_amount' => '850'])->assertOk();
+        $this->assertSame(['01055556666'], $this->decisionPhones());
+
+        $this->assertTrue(app(ClaimService::class)->sendToErp($c->fresh(), $h)['ok']);
+        $this->assertSame(['01055556666', '01033334444'], $this->decisionPhones());
+
+        // 전부 끄고 저장한 상태(none) = 아무도 안 받는다 — 기본값으로 되돌아가지 않는다
+        Setting::updateOrCreate(['key' => 'alimtalk_roles_board_claim_decision'], ['type' => 'string', 'value' => 'none']);
+        $this->assertSame([], AlimtalkRecipients::selected('board_claim_decision'));
     }
 }

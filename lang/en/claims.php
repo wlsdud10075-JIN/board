@@ -147,6 +147,7 @@ return [
     'erp_send_not_ready' => 'Only decided claims can be sent, once per request.',
     'erp_sent_badge' => 'In ERP #:id (:at)',
     'erp_sent_old' => 'request #:rev sent — re-approved amount not yet',
+    'audit_notice_extra' => '[:notice] Alimtalk sent to :n extra recipients (:names)',
     'audit_erp_sent' => 'request #:rev sent to ERP — :result · :amount · ERP #:erp',
     'audit_erp_failed' => 'request #:rev ERP send failed — :reason',
     'erp_modal_title' => 'Send to ERP — confirm the buyer',
