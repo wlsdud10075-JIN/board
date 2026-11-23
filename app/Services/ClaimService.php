@@ -442,7 +442,7 @@ class ClaimService
     {
         $approved = $claim->status === Claim::APPROVED;
         $recipients = collect([$claim->requester, $claim->salesman])->filter()->unique('id');
-        $vars = $this->decisionVars($claim);
+        $vars = $this->detailVars($claim);   // 금액·클레임 내용·처리안까지(2026-11-23 Jin — ERP 전송 완료 알림과 같은 내용)
         $title = $approved ? __('claims.push_approved_title') : __('claims.push_rejected_title');
         $body = Plate::show($claim->vehicle_number).' · '.($claim->buyer_name ?: '—').($claim->decision_reason ? ' · '.$claim->decision_reason : '');
         // 알림톡은 「알림톡 안내」 체크대로(담당자·접수 영업 줄은 기본 체크 — 끄면 그 사람은 알림톡만 안 받는다, 종·웹푸시는 그대로).
@@ -475,7 +475,7 @@ class ClaimService
     }
 
     /**
-     * ERP 전송 완료 알림용 — 같은 템플릿의 「결과」·「사유」 칸에 금액·원인·처리 내용을 채운다(2026-11-23 Jin «최소한 금액 얼마, 원인이 뭐였고, 어떻게 처리됐는지»).
+     * 결재 결과·ERP 전송 완료 알림 공통 — 같은 템플릿의 「결과」·「사유」 칸에 금액·원인·처리 내용을 채운다(2026-11-23 Jin «최소한 금액 얼마, 원인이 뭐였고, 어떻게 처리됐는지»).
      * 템플릿 문구(BizM 승인본)는 그대로고 변수 값만 길어진다 — 재승인 없음. 알림톡 본문은 1,000자 한도라 긴 칸은 잘라 「…」.
      *   결과 = 승인 · 확정 EUR 400 (청구 EUR 1,950 · REFUND)
      *   사유 = 결재 사유 + ■ 클레임 내용 + ■ 처리안 + ■ 처리 사유 (비어 있는 칸은 줄째 뺀다)
