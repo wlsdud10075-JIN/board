@@ -442,7 +442,7 @@ class ClaimService
     {
         $approved = $claim->status === Claim::APPROVED;
         $recipients = collect([$claim->requester, $claim->salesman])->filter()->unique('id');
-        $vars = $this->decisionVars($claim);
+        $vars = $this->detailVars($claim);   // 금액·클레임 내용·처리안까지(2026-11-23 Jin — ERP 전송 완료 알림과 같은 내용)
         $title = $approved ? __('claims.push_approved_title') : __('claims.push_rejected_title');
         $body = Plate::show($claim->vehicle_number).' · '.($claim->buyer_name ?: '—').($claim->decision_reason ? ' · '.$claim->decision_reason : '');
         // 알림톡은 「알림톡 안내」 체크대로(담당자·접수 영업 줄은 기본 체크 — 끄면 그 사람은 알림톡만 안 받는다, 종·웹푸시는 그대로).
@@ -472,6 +472,35 @@ class ClaimService
             '결과' => $claim->decision === Claim::APPROVED ? '승인' : '반려',
             '사유' => trim((string) $claim->decision_reason) !== '' ? $claim->decision_reason : '—',
         ];
+    }
+
+    /**
+     * 결재 결과·ERP 전송 완료 알림 공통 — 같은 템플릿의 「결과」·「사유」 칸에 금액·원인·처리 내용을 채운다(2026-11-23 Jin «최소한 금액 얼마, 원인이 뭐였고, 어떻게 처리됐는지»).
+     * 템플릿 문구(BizM 승인본)는 그대로고 변수 값만 길어진다 — 재승인 없음. 알림톡 본문은 1,000자 한도라 긴 칸은 잘라 「…」.
+     *   결과 = 승인 · 확정 EUR 400 (청구 EUR 1,950 · REFUND)
+     *   사유 = 결재 사유 + ■ 클레임 내용 + ■ 처리안 + ■ 처리 사유 (비어 있는 칸은 줄째 뺀다)
+     */
+    public function detailVars(Claim $claim): array
+    {
+        $vars = $this->decisionVars($claim);
+        $approved = $claim->decision === Claim::APPROVED;
+        $cut = fn (?string $t, int $n) => ($t = trim((string) preg_replace('/\s*\n\s*/u', ' ', (string) $t))) === '' ? '' : (mb_strlen($t) > $n ? mb_substr($t, 0, $n - 1).'…' : $t);
+
+        $paren = array_filter([
+            $claim->claim_amount !== null ? '청구 '.$claim->claimAmountDisplay() : null,
+            $claim->compensation_type ? strtoupper((string) $claim->compensation_type) : null,
+        ]);
+        $vars['결과'] = ($approved ? '승인 · 확정 '.$claim->amountDisplay('confirmed_amount') : '반려 · 보상 없음').($paren ? ' ('.implode(' · ', $paren).')' : '');
+
+        $parts = [$cut($claim->decision_reason, 120) ?: '—'];
+        foreach ([['클레임 내용', $claim->content, 200], ['처리안', $claim->result, 230], ['처리 사유', $claim->result_reason, 200]] as [$label, $text, $n]) {
+            if (($t = $cut($text, $n)) !== '') {
+                $parts[] = '■ '.$label.': '.$t;
+            }
+        }
+        $vars['사유'] = implode("\n", $parts);
+
+        return $vars;
     }
 
     /** 체크된 추가 수신자에게 결재 결과 템플릿을 보낸다(결재선 전원 = 이번 회차 결재선). 보낸 인원은 감사 1행. */
@@ -539,8 +568,8 @@ class ClaimService
                 'rev' => $claim->revision, 'result' => $payload['result'], 'amount' => $approved ? $claim->amountDisplay('confirmed_amount') : '0', 'erp' => $claim->erp_claim_id ?? '—',
             ]));
 
-            // ERP 전송 완료 알림 — 「알림톡 안내」에서 체크한 사람만(기본 없음). 결재 결과와 같은 템플릿(확정 금액 = 보낸 금액). 성공일 때만.
-            $this->notifyExtras($claim, AlimtalkRecipients::CLAIM_ERP_SENT, $this->decisionVars($claim), []);
+            // ERP 전송 완료 알림 — 「알림톡 안내」에서 체크한 사람만(기본 없음). 결재 결과와 같은 템플릿에 금액·원인·처리 내용을 채워서(확정 금액 = 보낸 금액). 성공일 때만.
+            $this->notifyExtras($claim, AlimtalkRecipients::CLAIM_ERP_SENT, $this->detailVars($claim), []);
 
             return ['ok' => true, 'message' => null];
         }
