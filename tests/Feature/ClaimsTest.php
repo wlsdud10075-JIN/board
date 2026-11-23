@@ -11,6 +11,7 @@ use App\Services\CarErpReadService;
 use App\Services\ClaimService;
 use App\Support\AlimtalkConfig;
 use App\Support\AlimtalkRecipients;
+use App\Support\AlimtalkTemplates;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
@@ -796,5 +797,21 @@ class ClaimsTest extends TestCase
         // 전부 끄고 저장한 상태(none) = 아무도 안 받는다 — 기본값으로 되돌아가지 않는다
         Setting::updateOrCreate(['key' => 'alimtalk_roles_board_claim_decision'], ['type' => 'string', 'value' => 'none']);
         $this->assertSame([], AlimtalkRecipients::selected('board_claim_decision'));
+    }
+
+    /** ERP 전송 완료 알림은 「결과」·「사유」 칸에 금액·원인·처리 내용을 채운다 — 본문 1,000자 한도 안에서. */
+    public function test_erp_sent_notice_carries_amount_cause_and_handling(): void
+    {
+        [$c, $sales, $h, $ceo] = $this->pending();
+        $c->forceFill(['claim_amount' => 1950, 'claim_currency' => 'EUR', 'compensation_type' => 'refund',
+            'content' => "미션 문제\n터보 연결", 'result' => str_repeat('가', 600), 'result_reason' => null])->saveQuietly();
+        $this->post($this->decideUrl($c, $ceo), ['action' => 'approve', 'confirmed_amount' => '400'])->assertOk();
+
+        $v = app(ClaimService::class)->detailVars($c->fresh());
+        $this->assertSame('승인 · 확정 EUR 400 (청구 EUR 1,950 · REFUND)', $v['결과']);
+        $this->assertStringContainsString('■ 클레임 내용: 미션 문제 터보 연결', $v['사유']);
+        $this->assertStringContainsString('■ 처리안: '.str_repeat('가', 229).'…', $v['사유']);
+        $this->assertStringNotContainsString('처리 사유', $v['사유']);   // 빈 칸은 줄째 뺀다
+        $this->assertLessThanOrEqual(1000, mb_strlen(AlimtalkTemplates::render('board_claim_decision', $v)));
     }
 }
