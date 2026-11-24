@@ -1,0 +1,7 @@
+{"slug":"today","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/today"},{"wait":2000},
+  {"shot":"_01-sales","full":true},
+  {"clickText":"전달 화면에서 열기","in":"a"},{"wait":3000},
+  {"shot":"_04-open","full":false}
+ ]}

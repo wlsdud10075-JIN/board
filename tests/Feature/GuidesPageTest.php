@@ -70,10 +70,10 @@ class GuidesPageTest extends TestCase
         $this->scene('payment-request', '<div class="gd-step"><p>금액칸을 비우고 [매입잔금]을 누르면 남은 금액 전부를 요청합니다.</p></div>');
 
         $all = collect(GuideCatalog::all())->keyBy('slug');
-        $this->assertCount(24, $all);
+        $this->assertCount(25, $all);
         $this->assertSame('new', $all['payment-request']['status']);
         $this->assertSame('wait', $all['listing-register']['status']);
-        $this->assertSame(range(1, 24), $all->pluck('no')->values()->all());
+        $this->assertSame(range(1, 25), $all->pluck('no')->values()->all());
 
         $this->actingAs($this->staff())->get('/guides')->assertOk()
             ->assertSee('업무 가이드')

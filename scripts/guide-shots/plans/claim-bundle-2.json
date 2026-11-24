@@ -1,0 +1,7 @@
+{"slug":"claim-handle","base":"http://localhost:8003","login":{"email":"admin@board.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/claims?tab=closed"},{"wait":2000},
+  {"shot":"_b5-closed","full":false},
+  {"clickText":"90데0001","in":"span"},{"wait":2500},
+  {"shot":"_b4-drawer","full":false}
+ ]}
