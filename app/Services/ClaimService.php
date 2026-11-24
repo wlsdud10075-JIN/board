@@ -550,6 +550,7 @@ class ClaimService
 
             // ERP 전송 완료 알림 — 「알림톡 안내」에서 체크한 사람만(기본 없음). 결재 결과와 같은 템플릿에 금액·원인·처리 내용을 채워서(확정 금액 = 보낸 금액). 성공일 때만.
             $this->notifyExtras($claim, AlimtalkRecipients::CLAIM_ERP_SENT, $this->detailVars($claim), []);
+            $this->closeAfterErp($claim, $handler);
 
             return ['ok' => true, 'message' => null];
         }
@@ -653,6 +654,7 @@ class ClaimService
             if (! $wasSent) {
                 $this->notifyExtras($c, AlimtalkRecipients::CLAIM_ERP_SENT, $this->detailVars($c), []);
             }
+            $this->closeAfterErp($c, $handler);
         }
 
         return ['ok' => true, 'message' => null, 'bundle_id' => $bundleId];
@@ -667,6 +669,18 @@ class ClaimService
     }
 
     // ── 종결 ──
+
+    /**
+     * ERP 로 보낸 승인 클레임은 그 자리에서 종결(2026-11-24 Jin 로컬 확인 「자동 종결이 안 됐다」) — ERP 로 보낸 건은 다시 결재 요청을 못 하므로
+     * (`canRequestApproval`) 남은 일이 [종결]뿐이었다. 반려(declined)는 상태 전이상 종결이 없어 그대로 둔다(이미 잠겨 더 할 일 없음).
+     */
+    private function closeAfterErp(Claim $claim, User $handler): void
+    {
+        $claim->refresh();
+        if ($claim->status === Claim::APPROVED) {
+            $this->close($claim, $handler);
+        }
+    }
 
     public function close(Claim $claim, User $handler): void
     {

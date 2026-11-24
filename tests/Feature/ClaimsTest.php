@@ -849,6 +849,7 @@ class ClaimsTest extends TestCase
         $this->assertNotNull($c2->erp_sent_at);
         $this->assertTrue($sentAt->equalTo($c->erp_sent_at));   // 연결 = 보낸 시각 그대로
         $this->assertFalse($c->canBundle());
+        $this->assertSame(Claim::CLOSED, $c2->status);   // 묶음으로 보내도 자동 종결
         Http::assertSent(function ($req) use ($c) {
             if (! str_ends_with(parse_url($req->url(), PHP_URL_PATH), '/claims/bundle')) {
                 return false;
@@ -908,8 +909,7 @@ class ClaimsTest extends TestCase
         app(ClaimService::class)->sendToErp($c, $h);
         $c->refresh();
         $this->assertFalse($c->canRequestApproval());
-        $this->actingAs($h);
-        Volt::test('claims.index')->call('openDetail', $c->id)->assertSee('data-erp-locked', false);
+        $this->assertSame(Claim::CLOSED, $c->status);   // ERP 로 보내면 자동 종결(2026-11-24)
         $this->expectException(\DomainException::class);
         app(ClaimService::class)->requestApproval($c, $h, ['대표' => $c->approver_user_id ?? $h->id]);
     }

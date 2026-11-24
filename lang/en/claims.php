@@ -53,7 +53,7 @@ return [
     'resend' => 'Resend',
     'link_hint' => 'If the KakaoTalk template is not approved yet, send this link (current approver\'s) directly (valid 5 days).',
     'decided_banner' => 'Final :result by :name (:at)',
-    'approved_next' => 'Close once settled with the buyer. If the agreed amount differs, edit and request approval again (from step 1).',
+    'approved_next' => 'When the buyer agrees, press [Send to ERP] — sending closes the claim automatically. If the agreed amount differs from the approved one, fix it and request approval again before sending (from step 1).',
     'salesman' => 'Sales',
     'by' => 'submitted by :name',
     'received_at' => 'Received',
