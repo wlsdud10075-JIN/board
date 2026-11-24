@@ -182,6 +182,12 @@ class SyncWonListingToCarErp implements ShouldQueue
             $usdRate = $l->offer_rate_usd;
             $buyerId = $l->car_erp_buyer_id;
             $consigneeId = $l->car_erp_consignee_id;
+            // 재고매입 차에 바이어를 §19(assign-buyer)로 붙였으면, 그 뒤 재전송엔 바이어를 싣지 않는다(2026-11-24 car-erp 요청) —
+            //   purchase-sync 재전송 길엔 락 검사가 없다. ERP 에 바이어가 이미 있어 보통은 무시되지만, ERP 에서 비운 뒤라면 락 없이 채워진다.
+            if (BoardAuditLog::where('purchase_listing_id', $l->id)->where('field', 'erp_assign_buyer')->exists()) {
+                $buyerId = null;
+                $consigneeId = null;
+            }
         }
 
         // board 는 VIN 을 모른다(NICE 조회=car-erp). 매칭키 = vehicle_number, NICE 입력 = owner_name.

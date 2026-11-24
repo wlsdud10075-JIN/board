@@ -133,6 +133,8 @@ return [
         'seller_company' => '매입처 법인명',
         'seller_ceo' => '매입처 대표자',
         'seller_phone' => '매입처 휴대폰',
+        'erp_assign_buyer' => '재고매입 차 바이어 지정(ERP)',   // 2026-11-24 — §19 assign-buyer, 값 JSON(바이어·금액·결과·승인 대수)
+        'erp_assign_buyer_failed' => '재고매입 차 바이어 지정 실패(ERP)',
         'erp_attachments_send' => 'ERP 사진·서류 전송',     // 2026-11-03 — 누가·어떤 파일을, 결과(붙은 장수)는 전송 표
         'erp_remitter_send' => 'ERP 송금인 전송',          // 2026-11-03 — 보낸 이름·결과, ID 는 ***
         'erp_resync' => 'ERP 재전송(관리)',               // 2026-11-03 — /manage 재전송 누른 사람
@@ -189,6 +191,7 @@ return [
             'signing_request' => '서명 요청',
             'bl_request' => 'B/L 요청',
             'bl_cancel' => 'B/L 요청 취소',
+            'assign_buyer' => '재고매입 차 바이어 지정',
             'erp_write' => 'ERP 쓰기',
             'unknown' => '알 수 없는 이벤트',
         ],

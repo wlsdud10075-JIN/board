@@ -246,6 +246,37 @@ return [
     ],
 
     // Edit drawer
+    // Assign buyer + sale amount to a stock-purchase car (2026-11-24, ERP §19) — listings drawer
+    'assign' => [
+        'title' => 'Assign buyer and send to ERP',
+        'hint' => 'Car sent to ERP as a stock purchase (no buyer) — once the buyer is decided, send the buyer and sale amount together.',
+        'buyer' => 'Buyer',
+        'buyer_none' => 'Could not load the buyer list',
+        'consignee' => 'Consignee (optional)',
+        'buyer_required' => 'Choose a buyer.',
+        'amount_required' => 'Enter the total sale price and currency — the buyer and sale amount are sent together.',
+        'not_stock' => 'Only cars sent to ERP as a stock purchase can get a buyer here.',
+        'locked' => 'This buyer is purchase-locked with no approved units left — request approval from ERP below.',
+        'lock_allowance' => 'Purchase-locked buyer — uses 1 of :n approved units left.',
+        'confirm' => 'Send this buyer and sale amount to ERP? The car becomes pre-shipment stock in ERP and the sale date is set to today. Changing the buyer afterwards must be done in ERP.',
+        'btn' => 'Assign buyer and send to ERP',
+        'working' => 'Sending…',
+        'ok' => 'Applied in ERP — buyer :buyer · moved to pre-shipment stock',
+        'ok_date' => '(sale date :date)',
+        'ok_consumed' => 'Used 1 approved purchase-lock unit — :n left',
+        'error_http' => 'ERP did not accept it (HTTP :status) — try again shortly.',
+        'error' => [
+            'already_has_buyer' => 'ERP already has a buyer — change it in ERP vehicle management.',
+            'purchase_locked' => 'This buyer is purchase-locked with no approved units left — request approval and try again.',
+            'purchase_cancelled' => 'This car\'s purchase was cancelled in ERP.',
+            'settlement_locked' => 'Settlement is confirmed or paid, so ERP did not accept it.',
+            'ledger_closed' => 'The car is closed in ERP, so it was not accepted.',
+            'invalid_buyer' => 'Not an active buyer of this salesperson — reopen the list and choose again.',
+            'invalid_consignee' => 'Not an active consignee of this buyer.',
+            'missing_exchange_rate' => 'A foreign-currency sale needs an exchange rate.',
+        ],
+    ],
+
     'resync' => [
         'title' => '💰 Resend the amount',
         'hint' => 'Saving also sends changed amounts to ERP · this button sends amounts right away · board amounts overwrite the ERP sale fields',

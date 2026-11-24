@@ -132,6 +132,8 @@ return [
         'seller_company' => 'Seller company',
         'seller_ceo' => 'Seller CEO',
         'seller_phone' => 'Seller mobile',
+        'erp_assign_buyer' => 'Stock car buyer assigned (ERP)',   // 2026-11-24 — §19 assign-buyer, 값 JSON(바이어·금액·결과·승인 대수)
+        'erp_assign_buyer_failed' => 'Stock car buyer assignment failed (ERP)',
         'erp_attachments_send' => 'Photos/docs sent to ERP',
         'erp_remitter_send' => 'Remitter sent to ERP',
         'erp_resync' => 'ERP resend (manage)',
@@ -188,6 +190,7 @@ return [
             'signing_request' => 'Signature request',
             'bl_request' => 'B/L request',
             'bl_cancel' => 'B/L request cancelled',
+            'assign_buyer' => 'Stock car buyer assignment',
             'erp_write' => 'ERP write',
             'unknown' => 'Unknown event',
         ],

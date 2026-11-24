@@ -560,7 +560,10 @@ class CarErpReadService
                 'status' => (string) data_get($latest, 'status', ''),
                 'requested_count' => is_numeric(data_get($latest, 'requested_count')) ? (int) data_get($latest, 'requested_count') : null,
                 'approved_count' => is_numeric(data_get($latest, 'approved_count')) ? (int) data_get($latest, 'approved_count') : null,
-                'note' => data_get($latest, 'decision_note'),
+                'note' => data_get($latest, 'decision_note'),           // ERP 승인·거절 메모(2026-11-24 Jin — 승인 때 쓴 것도 보여 준다)
+                'reason' => data_get($latest, 'reason'),                 // 요청 사유(영업이 적은 것)
+                'requested_by_name' => data_get($latest, 'requested_by_name'),
+                'decided_by_name' => data_get($latest, 'decided_by_name'),
                 'requested_at' => data_get($latest, 'requested_at'),
                 'decided_at' => data_get($latest, 'decided_at'),
             ] : null,
@@ -585,6 +588,20 @@ class CarErpReadService
         $payload['salesman_email'] = $email;
 
         return $this->post('/purchase-lock-requests', ['salesman_email' => $email], $payload);
+    }
+
+    /**
+     * 재고매입(바이어 미정) 차에 바이어 + 판매 금액 지정(§19, 2026-11-24 Jin — 함께 보낸다·락 규칙은 구매확정과 같게).
+     * `salesman_email` = 등록 영업(그 영업 차만, 아니면 403) · `requested_by_email` = 실제 누른 사람(ERP 감사 행위자).
+     * 200 `{vehicle_id, buyer_id, consignee_id, sale_date, updated[], purchase_lock:{locked, consumed, remaining}}`
+     * 422 `{error}` already_has_buyer·purchase_locked·purchase_cancelled·settlement_locked·ledger_closed·invalid_buyer·invalid_consignee·missing_exchange_rate
+     * 락·승인 대수 판정은 ERP 가 한다(board 는 /buyers 로 미리 보여 주기만). 🚫 purchase-sync 재전송에 buyer_id 를 싣지 않는다(그 길엔 락이 없다).
+     */
+    public function assignBuyer(string $email, int $vehicleId, array $payload): array
+    {
+        $payload['salesman_email'] = $email;
+
+        return $this->post('/vehicles/'.$vehicleId.'/assign-buyer', ['salesman_email' => $email], $payload);
     }
 
     /**
@@ -763,6 +780,7 @@ class CarErpReadService
         $type = match (true) {
             $endpoint === '/requests' => 'board_request',
             $endpoint === '/claims' => 'claim_mirror',
+            str_ends_with($endpoint, '/assign-buyer') => 'assign_buyer',   // 재고매입 차 바이어 지정(§19, 2026-11-24)
             str_ends_with($endpoint, '/stock-location') => 'stock_location',   // 탁송 도착 위치 → ERP 보관 위치(2026-11-12)
             $endpoint === '/shipping-requests/sync' => 'shipping_sync',
             $endpoint === '/shipping-request' => 'shipping_request',

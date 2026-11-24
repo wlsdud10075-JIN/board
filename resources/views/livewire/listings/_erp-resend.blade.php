@@ -8,16 +8,52 @@
     🔁 2026-10-29 Jin — **이 경로의 판매측 6칸은 ERP 를 덮어쓴다**(`amounts_overwrite`, 종전 fill-if-empty 는 「금액만 보내기」를 무의미하게 했다). null 은 지우지 않는다.
     🚨 200 만 보고 "반영됨"이라 하지 않는다 — `fields_filled`·`fields_overwritten` 둘 다 비면 **바뀐 게 없는 것**이다(같은 값 또는 환율 없음 보류).
 --}}
-@php $synced = (bool) $e->car_erp_vehicle_id; @endphp
-{{-- 재고매입(바이어 미정)은 이 칸을 아예 안 준다 — 판매가·바이어는 ERP 에서 지정한다(거기엔 락 게이트가 있다).
-     칸만 남겨두면 채워 넣고 [다시 보내기]를 눌러도 ERP 엔 아무것도 안 들어간다(Job 이 판매측을 비운다). --}}
-@if ($synced && $e->buyer_undecided)
-    <div class="section-title-sm mt-4">{{ __('listings.resync.title') }}</div>
-    <p class="mt-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-800">{{ __('listings.resync.stock_purchase') }}</p>
+@php
+    $synced = (bool) $e->car_erp_vehicle_id;
+    // 재고매입(바이어 미정) 차 = 「바이어 지정해서 ERP 로 보내기」(2026-11-24 Jin, ERP §19). 금액 칸은 아래 「금액 다시 보내기」와 같은 칸·같은 쪼개기.
+    //   종전(~11-23)엔 이 칸을 아예 안 줬다 — 재전송 길엔 락이 없어서. 이제 전용 길(assign-buyer)이 ERP 에서 락을 판정한다.
+    $stock = $synced && $e->buyer_undecided;
+@endphp
+@if ($stock)
+    <div class="section-title-sm mt-4">{{ __('listings.assign.title') }}
+        <span class="text-[11px] font-normal text-gray-400">{{ __('listings.assign.hint') }}</span>
+    </div>
+    <div class="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div>
+            <label class="label-base">{{ __('listings.assign.buyer') }}</label>
+            <select wire:model.live="a_buyer_id" class="input-base text-[12px]" data-assign-buyer>
+                <option value="">{{ $aBuyerOpts === [] ? __('listings.assign.buyer_none') : '—' }}</option>
+                @foreach ($aBuyerOpts as $b)
+                    {{-- 락 표시는 ERP 판정 그대로(구매 화면과 같은 표시) — 🔒 = 락·남은 승인 없음 / 🔓N = 승인 남은 대수 --}}
+                    <option value="{{ $b['id'] }}">{{ !empty($b['purchase_locked']) ? ((int) data_get($b, 'purchase_lock_allowance.remaining', 0) > 0 ? '🔓'.(int) data_get($b, 'purchase_lock_allowance.remaining').' ' : '🔒 ') : '' }}{{ $b['name'] }}{{ !empty($b['country']) ? ' ('.$b['country'].')' : '' }}</option>
+                @endforeach
+            </select>
+        </div>
+        <div>
+            <label class="label-base">{{ __('listings.assign.consignee') }}</label>
+            <select wire:model="a_consignee_id" class="input-base text-[12px]" @disabled(! $a_buyer_id)>
+                <option value="">—</option>
+                @foreach ($aConsigneeOpts as $c)
+                    <option value="{{ $c['id'] }}">{{ $c['name'] }}</option>
+                @endforeach
+            </select>
+        </div>
+    </div>
+    @php $aLock = $this->assignBuyerLock(); @endphp
+    @if ($aLock && $aLock['locked'])
+        {{-- 락 바이어 — 구매탭과 같은 승인 요청 상자(2026-11-24 Jin: 이 차는 구매탭에 없으니 여기서 요청한다). 승인 남은 대수가 있으면 노란색. --}}
+        <div class="mt-1.5 rounded-md border px-2.5 py-2 text-[11px] {{ $aLock['remaining'] > 0 ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-red-300 bg-red-50 text-red-700' }}" data-assign-lock>
+            <div class="font-semibold">{{ $aLock['remaining'] > 0 ? '🔓 '.__('listings.assign.lock_allowance', ['n' => $aLock['remaining']]) : '🔒 '.__('listings.assign.locked') }}</div>
+            @include('livewire._lock-request')
+        </div>
+    @endif
+    @error('a_buyer_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 @elseif ($synced)
     <div class="section-title-sm mt-4">{{ __('listings.resync.title') }}
         <span class="text-[11px] font-normal text-gray-400">{{ __('listings.resync.hint') }}</span>
     </div>
+@endif
+@if ($synced)
     {{-- 2026-10-29 Jin — /auction 구매 탭과 같은 칸·같은 공식. 사람이 적는 것 = 총판매가·통화·운임비 USD·환율 USD/EUR, 판매가·운임비(견적통화)는 계산(resendSplit). --}}
     @php $sp = $this->resendSplit(); @endphp
     <div class="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-5">
@@ -64,6 +100,15 @@
     @error('e_rate_eur') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
     @error('e_sale_currency') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
+    @if ($stock)
+        <button type="button" wire:click="assignBuyer" wire:loading.attr="disabled" wire:target="assignBuyer"
+            wire:confirm="{{ __('listings.assign.confirm') }}"
+            @disabled($aLock && $aLock['locked'] && $aLock['remaining'] < 1)
+            class="btn-primary btn-sm mt-2 disabled:opacity-50">
+            <span wire:loading.remove wire:target="assignBuyer">📤 {{ __('listings.assign.btn') }}</span>
+            <span wire:loading wire:target="assignBuyer">{{ __('listings.assign.working') }}</span>
+        </button>
+    @else
     <button type="button" wire:click="resendToErp" wire:loading.attr="disabled" wire:target="resendToErp"
         class="btn-outline btn-sm mt-2">↻ {{ __('listings.resync.btn') }}</button>
 
@@ -98,4 +143,20 @@
             @endif
         </div>
     @endif
+    @endif
 @endif
+{{-- 바이어 지정 결과 — 성공하면 재고매입 표시가 풀려 아래 칸이 「금액 다시 보내기」로 바뀌므로 분기 밖(맨 아래, 버튼 바로 밑)에 둔다. --}}
+@if ($assignResult !== null)
+        @if ($assignResult['ok'])
+            <div class="card-sm mt-2 border-green-200 bg-green-50 text-[12px] text-green-800" data-assign-ok>
+                <b>{{ __('listings.assign.ok', ['buyer' => $assignResult['buyer'] ?: '—']) }}</b>
+                @if ($assignResult['sale_date'])<span class="ml-1">{{ __('listings.assign.ok_date', ['date' => $assignResult['sale_date']]) }}</span>@endif
+                @if ($assignResult['consumed'])<div class="mt-0.5 text-[11px]">{{ __('listings.assign.ok_consumed', ['n' => (int) $assignResult['remaining']]) }}</div>@endif
+            </div>
+        @else
+            <div class="card-sm mt-2 border-red-200 bg-red-50 text-[12px] text-red-700" data-assign-fail>
+                <b>{{ $assignResult['message'] }}</b>
+                @if ($assignResult['raw'])<span class="ml-1 text-[11px] text-red-500">({{ $assignResult['raw'] }})</span>@endif
+            </div>
+        @endif
+    @endif

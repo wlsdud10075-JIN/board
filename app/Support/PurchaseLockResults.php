@@ -82,6 +82,7 @@ class PurchaseLockResults
             if ($r['requested'] !== null && $r['count'] !== null && $r['requested'] !== $r['count']) {
                 $s .= ' '.__('auction.lock_bell_requested', ['count' => $r['requested']]);
             }
+            $s .= $r['note'] !== '' ? ' — '.$r['note'] : '';   // 승인 메모도(2026-11-24 Jin)
         } else {
             $s = __('auction.lock_bell_rejected').($r['note'] !== '' ? ' — '.$r['note'] : '');
         }

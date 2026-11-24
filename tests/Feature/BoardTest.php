@@ -2369,7 +2369,7 @@ class BoardTest extends TestCase
         $this->actingAs($mgr);
 
         $c = Volt::test('auction.index')->call('openDetail', $l->id)
-            ->assertSee(__('auction.lock_req_rejected_reason', ['reason' => '미수 정리 후 다시']));
+            ->assertSee('“미수 정리 후 다시”')->assertSee(__('auction.lock_hist_rejected'))->assertSee(__('auction.lock_req_rejected_again'));
 
         $c->set('lockCount', '3')->set('lockReason', '')->call('requestLockApproval')->assertHasErrors('lockReason');
         $c->set('lockCount', '0')->set('lockReason', '다음 주 입금 예정')->call('requestLockApproval')->assertHasErrors('lockCount');
@@ -2489,7 +2489,7 @@ class BoardTest extends TestCase
         Volt::test('auction.index')->call('openDetail', $l->id)
             ->call('cancelLockRequest')
             ->assertSet('lockError', __('auction.lock_req_err_decided'))
-            ->assertSee(__('auction.lock_req_rejected_reason', ['reason' => '대수 과다']));
+            ->assertSee('“대수 과다”');
     }
 
     /** 종 — 최근에 요청을 보낸 사람에게만 ERP 를 묻고, 승인·거절 결과가 패널에 뜬다. 요청한 적 없으면 호출 0. */
@@ -2498,7 +2498,7 @@ class BoardTest extends TestCase
         $this->carErpReadConfig();
         Http::fake([
             '*/api/internal/board/purchase-lock-requests*' => Http::response(['data' => [
-                ['id' => 5, 'status' => 'approved', 'buyer_id' => 7, 'buyer_name' => 'BUYER7', 'requested_count' => 5, 'approved_count' => 3, 'decided_at' => now()->toIso8601String(), 'decided_by_name' => '홍부장'],
+                ['id' => 5, 'status' => 'approved', 'buyer_id' => 7, 'buyer_name' => 'BUYER7', 'requested_count' => 5, 'approved_count' => 3, 'decision_note' => '이번 달 3대까지', 'decided_at' => now()->toIso8601String(), 'decided_by_name' => '홍부장'],
                 ['id' => 6, 'status' => 'rejected', 'buyer_id' => 8, 'buyer_name' => 'BUYER8', 'requested_count' => 1, 'decision_note' => '미수 정리 후', 'decided_at' => now()->toIso8601String()],
             ]], 200),
             '*' => Http::response(['count' => 0, 'requests' => [], 'data' => []], 200),
@@ -2514,7 +2514,7 @@ class BoardTest extends TestCase
 
         Volt::test('notify.bell')->call('openPanel')
             ->assertSee('BUYER7')->assertSee(__('auction.lock_bell_approved', ['count' => 3]))
-            ->assertSee('BUYER8')->assertSee('미수 정리 후');
+            ->assertSee('BUYER8')->assertSee('미수 정리 후')->assertSee('이번 달 3대까지');   // 승인 메모도 보인다(2026-11-24)
         Http::assertSent(fn ($r) => str_contains($r->url(), 'purchase-lock-requests') && str_contains($r->url(), 'since='));
     }
 
@@ -8853,8 +8853,9 @@ class BoardTest extends TestCase
         ]);
         $this->actingAs($kim);
 
+        // 2026-11-24 — 안내문 대신 「바이어 지정해서 ERP 로 보내기」(§19)가 뜬다. 금액 재전송(purchase-sync) 길은 여전히 막힌다.
         Volt::test('listings.index')->call('openEdit', $l->id)
-            ->assertSee(__('listings.resync.stock_purchase'))
+            ->assertSee(__('listings.assign.title'))->assertDontSee(__('listings.resync.btn'))
             ->set('e_sale_total', '8590')->set('e_sale_currency', 'USD')->set('e_rate_usd', '1380')
             ->call('resendToErp')->assertHasErrors('e_sale_total');
 
@@ -9984,5 +9985,131 @@ class BoardTest extends TestCase
         $this->assertNotNull($l3->fresh()->region_notified_at);
         app(RegionInspectionNotifier::class)->run($date);
         $this->assertSame(1, $logs('board_region_inspection'));
+    }
+
+    // ── 재고매입 차에 바이어 + 판매 금액 지정(2026-11-24 Jin, ERP §19 assign-buyer) ──
+
+    private function stockCar(array $erpBuyer, array $assignResponse, int $assignStatus = 200): array
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs', 'services.car_erp.hmac_secret' => 'shh']);
+        Http::fake([
+            '*/vehicles/900/assign-buyer*' => Http::response($assignResponse, $assignStatus),
+            '*/buyers*' => Http::response(['data' => [$erpBuyer]], 200),
+            '*/consignees*' => Http::response(['data' => []], 200),
+            '*/purchase-lock-requests*' => fn ($r) => $r->method() === 'POST'
+                ? Http::response(['id' => 77, 'status' => 'pending'], 201)
+                : Http::response(['data' => ['allowance' => ['remaining' => (int) data_get($erpBuyer, 'purchase_lock_allowance.remaining', 0)], 'latest' => null]], 200),
+            '*/api/internal/purchase-sync' => Http::response(['vehicle_id' => 900], 200),
+            '*' => Http::response(['data' => []], 200),
+        ]);
+        $sales = $this->mkUser('sales', 'kim-stock@t.test');
+        $l = $this->mkListing($sales, [
+            'status' => 'synced', 'source' => 'auction', 'car_cost' => 9000000, 'expected_price_currency' => 'KRW',
+            'buyer_undecided' => true, 'car_erp_buyer_id' => null, 'car_erp_vehicle_id' => 900,
+        ]);
+
+        return [$sales, $l];
+    }
+
+    public function test_stock_car_buyer_assign_sends_buyer_and_amounts_and_updates_listing(): void
+    {
+        [$sales, $l] = $this->stockCar(['id' => 12, 'name' => 'BUYER ALPHA', 'purchase_locked' => false],
+            ['vehicle_id' => 900, 'buyer_id' => 12, 'consignee_id' => null, 'sale_date' => '2026-11-24', 'updated' => ['buyer_id', 'sale_price'], 'purchase_lock' => ['locked' => false, 'consumed' => false, 'remaining' => 0]]);
+        $this->actingAs($sales);
+
+        Volt::test('listings.index')->call('openEdit', $l->id)
+            ->assertSee(__('listings.assign.title'))->assertSee('BUYER ALPHA')
+            ->set('a_buyer_id', 12)->set('e_sale_total', '9000')->set('e_sale_currency', 'USD')
+            ->set('e_rate_usd', '1400')->set('e_transport_fee_usd', '1500')
+            ->call('assignBuyer')->assertHasNoErrors()
+            ->assertDispatched('listings-saved')->assertSet('editingId', null);   // 성공 = 오른쪽 위 알림 + 드로어 닫힘(2026-11-24 Jin)
+
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/vehicles/900/assign-buyer')
+            && $r['salesman_email'] === 'kim-stock@t.test' && $r['buyer_id'] === 12
+            && (float) $r['sale_price'] === 7500.0 && $r['sale_currency'] === 'USD' && (int) $r['sale_exchange_rate'] === 1400
+            && (float) $r['transport_fee'] === 1500.0 && (int) $r['transport_fee_usd'] === 1500 && $r['board_listing_id'] === $l->id
+            && $r['requested_by_email'] === 'kim-stock@t.test');
+        $f = $l->fresh();
+        $this->assertFalse((bool) $f->buyer_undecided);
+        $this->assertSame(12, (int) $f->car_erp_buyer_id);
+        $this->assertSame('BUYER ALPHA', $f->car_erp_buyer_name);
+        $this->assertSame(7500.0, (float) $f->sale_price);
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'action' => 'erp_assign_buyer', 'field' => 'erp_assign_buyer', 'user_id' => $sales->id]);
+
+        // 그 뒤 재전송(purchase-sync)엔 바이어를 싣지 않는다 — 그 길엔 락 검사가 없다(ERP §19-3)
+        (new SyncWonListingToCarErp($l->id, resync: true))->handle();
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/api/internal/purchase-sync') && $r['buyer_id'] === null && $r['buyer_undecided'] === false);
+    }
+
+    public function test_stock_car_buyer_assign_blocked_for_locked_buyer_without_allowance(): void
+    {
+        [$sales, $l] = $this->stockCar(['id' => 13, 'name' => 'BUYER LOCK', 'purchase_locked' => true, 'purchase_lock_allowance' => ['remaining' => 0]], []);
+        $this->actingAs($sales);
+
+        $t = Volt::test('listings.index')->call('openEdit', $l->id)
+            ->set('a_buyer_id', 13)->set('e_sale_total', '9000')->set('e_sale_currency', 'KRW')
+            ->assertSee(__('listings.assign.locked'))->assertSee(__('auction.lock_req_btn'))
+            ->call('assignBuyer')->assertHasErrors('a_buyer_id');
+
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), 'assign-buyer'));
+        $this->assertTrue((bool) $l->fresh()->buyer_undecided);
+
+        // 이 차는 구매탭에 없다 — 매입예정 드로어에서 바로 ERP 승인큐로(등록 영업 명의, 이 차 번호를 실어서)
+        $t->set('lockCount', '2')->set('lockReason', '재고 차 바이어 확정')->call('requestLockApproval')->assertHasNoErrors()
+            ->assertSee(__('auction.lock_req_sent', ['count' => 2]));
+        Http::assertSent(fn ($r) => $r->method() === 'POST' && str_contains($r->url(), '/purchase-lock-requests')
+            && $r['buyer_id'] === 13 && $r['requested_count'] === 2 && $r['purchase_listing_id'] === $l->id && $r['salesman_email'] === 'kim-stock@t.test');
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'action' => 'erp_purchase_lock_request']);
+    }
+
+    public function test_stock_car_buyer_assign_shows_erp_reason_and_keeps_listing(): void
+    {
+        [$sales, $l] = $this->stockCar(['id' => 14, 'name' => 'BUYER GAMMA', 'purchase_locked' => true, 'purchase_lock_allowance' => ['remaining' => 2]],
+            ['error' => 'already_has_buyer'], 422);
+        $this->actingAs($sales);
+
+        Volt::test('listings.index')->call('openEdit', $l->id)
+            ->set('a_buyer_id', 14)->set('e_sale_total', '5000')->set('e_sale_currency', 'EUR')->set('e_rate_eur', '1500')
+            ->assertSee(__('listings.assign.lock_allowance', ['n' => 2]))
+            ->call('assignBuyer')
+            ->assertSee(__('listings.assign.error.already_has_buyer'));
+
+        $f = $l->fresh();
+        $this->assertTrue((bool) $f->buyer_undecided);
+        $this->assertNull($f->sale_price);   // 실패하면 board 에 금액을 남기지 않는다(원장과 갈림 방지)
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'field' => 'erp_assign_buyer_failed']);
+    }
+
+    public function test_normal_synced_car_keeps_amount_resend_and_no_buyer_assign(): void
+    {
+        [$sales, $l] = $this->stockCar(['id' => 12, 'name' => 'BUYER ALPHA', 'purchase_locked' => false], []);
+        $l->forceFill(['buyer_undecided' => false, 'car_erp_buyer_id' => 12])->saveQuietly();
+        $this->actingAs($sales);
+
+        Volt::test('listings.index')->call('openEdit', $l->id)
+            ->assertDontSee(__('listings.assign.title'))->assertSee(__('listings.resync.title'));
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), '/buyers'));
+    }
+
+    /** 승인 요청 상자 — ERP 에서 적은 승인 메모·요청 사유·결정한 사람이 보인다(2026-11-24 Jin). */
+    public function test_lock_box_shows_request_reason_and_approval_note(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake([
+            '*/api/internal/board/buyers*' => Http::response(['count' => 1, 'data' => [$this->buyerRow(7, true)]], 200),
+            '*/api/internal/board/purchase-lock-requests*' => Http::response(['buyer_id' => 7,
+                'allowance' => ['remaining' => 2, 'approved_count' => 2, 'expires_at' => now()->addDays(5)->toIso8601String()],
+                'latest' => ['id' => 9, 'status' => 'approved', 'requested_count' => 3, 'approved_count' => 2, 'reason' => '다음 주 입금 예정',
+                    'decision_note' => '2대만 우선 승인', 'requested_by_name' => '김영업', 'requested_at' => now()->subHour()->toIso8601String(),
+                    'decided_by_name' => '홍부장', 'decided_at' => now()->toIso8601String()]], 200),
+            '*' => Http::response(['count' => 0, 'data' => []], 200),
+        ]);
+        $sales = $this->mkUser('sales');
+        $l = $this->mkListing($sales, ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'source' => 'auction', 'final_price' => 9000000, 'car_erp_buyer_id' => 7]);
+        $this->actingAs($sales);
+
+        Volt::test('auction.index')->call('openDetail', $l->id)
+            ->assertSee('“다음 주 입금 예정”')->assertSee('“2대만 우선 승인”')
+            ->assertSee(__('auction.lock_hist_approved', ['count' => 2]))->assertSee('홍부장');
     }
 }

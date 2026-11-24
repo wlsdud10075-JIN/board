@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>board 목업 — 오늘 할 일 · 확정 준비 · 화면 줄이기 · 카톡에서 처리</title>
+<!-- 2026-11-24 Jin 요청 목업. 이름·차량번호·금액은 전부 가짜 값. 실제 화면 아님(동작 없음, 탭 전환만). -->
+<style>
+  :root { --bg:#f3f4f6; --card:#fff; --line:#e5e7eb; --ink:#111827; --sub:#4b5563; --mute:#6b7280;
+          --blue:#2563eb; --blue-bg:#eff6ff; --red:#dc2626; --red-bg:#fef2f2; --amber:#b45309; --amber-bg:#fffbeb;
+          --green:#047857; --green-bg:#ecfdf5; --violet:#6d28d9; --violet-bg:#f5f3ff; --kakao:#fee500; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif; background:var(--bg); color:var(--ink); font-size:14px; }
+  header.top { background:#111827; color:#fff; padding:14px 16px; }
+  header.top h1 { margin:0; font-size:16px; }
+  header.top p { margin:4px 0 0; font-size:12px; color:#d1d5db; }
+  nav.tabs { display:flex; gap:6px; flex-wrap:wrap; padding:10px 16px; background:#fff; border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
+  nav.tabs button { border:1px solid var(--line); background:#fff; border-radius:999px; padding:6px 12px; font-size:13px; cursor:pointer; color:var(--sub); }
+  nav.tabs button.on { background:var(--blue); border-color:var(--blue); color:#fff; font-weight:600; }
+  main { max-width:1180px; margin:0 auto; padding:16px; }
+  section.scene { display:none; }
+  section.scene.on { display:block; }
+  .explain { background:var(--blue-bg); border:1px solid #bfdbfe; border-radius:10px; padding:12px 14px; margin-bottom:14px; line-height:1.6; }
+  .explain b { color:#1e3a8a; }
+  .explain ul { margin:6px 0 0; padding-left:18px; }
+  .app { display:grid; grid-template-columns: 210px 1fr; background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; min-height:560px; }
+  .side { background:#f9fafb; border-right:1px solid var(--line); padding:12px 10px; font-size:13px; }
+  .side .g { margin:12px 6px 4px; font-size:11px; color:var(--mute); font-weight:600; }
+  .side a { display:flex; justify-content:space-between; align-items:center; padding:7px 8px; border-radius:6px; color:#374151; text-decoration:none; }
+  .side a.on { background:var(--blue-bg); color:var(--blue); font-weight:600; }
+  .side a.gone { color:var(--mute); text-decoration:line-through; }
+  .side .badge { background:var(--red); color:#fff; border-radius:999px; font-size:11px; padding:0 6px; }
+  .side .new { background:var(--violet); color:#fff; border-radius:4px; font-size:11px; padding:0 4px; margin-left:4px; }
+  .body { padding:16px 18px; position:relative; }
+  .h { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  .h h2 { margin:0; font-size:18px; }
+  .h .sub { color:var(--sub); font-size:12px; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
+  .chip { border:1px solid var(--line); border-radius:999px; padding:4px 10px; font-size:12px; background:#fff; color:#374151; }
+  .chip.on { background:#111827; color:#fff; border-color:#111827; }
+  .chip .n { font-weight:700; margin-left:4px; }
+  .todo { border:1px solid var(--line); border-radius:10px; padding:10px 12px; display:grid; grid-template-columns: 34px 1fr auto; gap:10px; align-items:center; margin-bottom:8px; background:#fff; }
+  .todo .ic { width:34px; height:34px; border-radius:8px; display:grid; place-items:center; font-size:17px; }
+  .todo .t { font-weight:600; }
+  .todo .d { color:var(--sub); font-size:12px; margin-top:2px; }
+  .todo .age { font-size:11px; color:var(--mute); }
+  .todo.red .ic { background:var(--red-bg); } .todo.red { border-color:#fecaca; }
+  .todo.amber .ic { background:var(--amber-bg); } .todo.amber { border-color:#fde68a; }
+  .todo.blue .ic { background:var(--blue-bg); } .todo.blue { border-color:#bfdbfe; }
+  .todo.green .ic { background:var(--green-bg); } .todo.green { border-color:#a7f3d0; }
+  .btn { border:0; border-radius:7px; padding:7px 12px; font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap; }
+  .btn.p { background:var(--blue); color:#fff; } .btn.g { background:#fff; border:1px solid var(--line); color:#374151; }
+  .btn.ok { background:#047857; color:#fff; } .btn.dis { background:#e5e7eb; color:#4b5563; cursor:not-allowed; }
+  .btn.big { padding:11px 16px; font-size:14px; width:100%; }
+  .acts { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+  .done-line { color:var(--mute); font-size:12px; padding:8px 4px; border-top:1px dashed var(--line); margin-top:10px; }
+  .note { position:absolute; background:var(--violet); color:#fff; font-size:11px; border-radius:6px; padding:4px 8px; max-width:220px; line-height:1.45; box-shadow:0 2px 6px rgba(0,0,0,.15); }
+  .pin { display:inline-block; background:var(--violet); color:#fff; border-radius:999px; width:18px; height:18px; text-align:center; font-size:11px; line-height:18px; margin-right:4px; font-weight:700; }
+  table.team { width:100%; border-collapse:collapse; font-size:13px; }
+  table.team th, table.team td { border-bottom:1px solid var(--line); padding:8px 6px; text-align:center; }
+  table.team th { color:var(--sub); font-weight:600; font-size:12px; background:#f9fafb; }
+  table.team td.l { text-align:left; }
+  .cnt { display:inline-block; min-width:24px; border-radius:6px; padding:1px 6px; font-weight:700; }
+  .cnt.r { background:var(--red-bg); color:var(--red); } .cnt.a { background:var(--amber-bg); color:var(--amber); } .cnt.z { color:var(--mute); }
+  /* drawer */
+  .drawer-wrap { display:grid; grid-template-columns: 1fr 470px; gap:0; }
+  .list-dim { padding:16px; opacity:.45; }
+  .drawer { border-left:1px solid var(--line); background:#fff; padding:14px 16px; min-height:620px; box-shadow:-6px 0 14px rgba(0,0,0,.05); }
+  .dh { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+  .dh .plate { font-size:18px; font-weight:700; }
+  .dh .meta { color:var(--sub); font-size:12px; margin-top:2px; }
+  .steps { display:flex; align-items:center; margin:14px 0 6px; }
+  .step { flex:1; text-align:center; font-size:11px; color:var(--mute); position:relative; }
+  .step .dot { width:24px; height:24px; border-radius:999px; margin:0 auto 4px; display:grid; place-items:center; background:#e5e7eb; color:#374151; font-weight:700; font-size:12px; }
+  .step.done .dot { background:#047857; color:#fff; } .step.done { color:var(--green); }
+  .step.cur .dot { background:var(--blue); box-shadow:0 0 0 4px #dbeafe; } .step.cur { color:var(--blue); font-weight:700; }
+  .step:not(:last-child)::after { content:""; position:absolute; top:12px; left:calc(50% + 14px); right:calc(-50% + 14px); height:2px; background:#e5e7eb; }
+  .step.done:not(:last-child)::after { background:#10b981; }
+  .stage-box { border:1px solid #bfdbfe; background:var(--blue-bg); border-radius:10px; padding:12px; margin:10px 0; }
+  .stage-box .ttl { font-weight:700; color:#1e3a8a; margin-bottom:6px; }
+  .check { border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:10px 0; }
+  .check .ttl { font-weight:700; margin-bottom:6px; display:flex; justify-content:space-between; }
+  .ck { display:grid; grid-template-columns:22px 1fr auto; gap:6px; align-items:start; padding:6px 0; border-top:1px solid #f3f4f6; font-size:13px; }
+  .ck:first-of-type { border-top:0; }
+  .ck .s { font-size:15px; line-height:18px; }
+  .ck .x { color:var(--sub); font-size:12px; }
+  .ck.bad .t { color:var(--red); font-weight:600; }
+  .ck.warn .t { color:var(--amber); font-weight:600; }
+  .read { background:#f9fafb; border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin-top:6px; font-size:12px; }
+  .read table { width:100%; border-collapse:collapse; }
+  .read td { padding:3px 4px; }
+  .read td.k { color:var(--sub); width:84px; }
+  .tag { display:inline-block; font-size:11px; border-radius:4px; padding:0 5px; font-weight:600; }
+  .tag.ok { background:var(--green-bg); color:var(--green); } .tag.no { background:var(--red-bg); color:var(--red); } .tag.ai { background:var(--violet-bg); color:var(--violet); }
+  .thumbs { display:flex; gap:6px; margin-top:6px; }
+  .thumbs div { width:54px; height:40px; border-radius:6px; background:linear-gradient(135deg,#e2e8f0,#cbd5e1); font-size:11px; color:#1f2937; display:grid; place-items:center; }
+  .field { display:grid; grid-template-columns:96px 1fr; gap:6px; align-items:center; margin:6px 0; font-size:13px; }
+  .field .v { border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:#fff; }
+  .field .v.filled { border-color:#c4b5fd; background:var(--violet-bg); }
+  .compare { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .mini { border:1px solid var(--line); border-radius:10px; background:#fff; padding:10px; }
+  .mini h4 { margin:0 0 8px; font-size:13px; }
+  .flow { display:flex; align-items:center; flex-wrap:wrap; gap:6px; font-size:12px; }
+  .flow span.b { border:1px solid var(--line); border-radius:6px; padding:5px 8px; background:#f9fafb; }
+  .flow span.b.hot { border-color:#93c5fd; background:var(--blue-bg); color:#1e3a8a; font-weight:600; }
+  .flow .ar { color:var(--mute); }
+  /* phone */
+  .phones { display:flex; gap:22px; flex-wrap:wrap; justify-content:center; }
+  .phone { width:300px; border:10px solid #111827; border-radius:34px; background:#b2c7da; overflow:hidden; box-shadow:0 10px 24px rgba(0,0,0,.18); }
+  .phone .bar { background:#a3b9cc; padding:10px 14px; font-size:12px; font-weight:700; color:#1f2937; }
+  .phone .chat { padding:12px 10px 16px; min-height:470px; }
+  .bubble { background:#fff; border-radius:4px 14px 14px 14px; overflow:hidden; font-size:12.5px; line-height:1.55; }
+  .bubble .kh { background:var(--kakao); padding:8px 10px; font-weight:700; font-size:12px; }
+  .bubble .kb { padding:10px; white-space:pre-line; }
+  .bubble .kbtn { border-top:1px solid #f1f1f1; padding:9px; text-align:center; font-weight:600; color:#1f2937; background:#fafafa; }
+  .bubble .kbtn.new { background:#fff7cc; color:#7c2d12; }
+  .who { font-size:11px; color:#334155; margin:0 0 4px 2px; }
+  .page { background:#fff; min-height:470px; padding:16px 14px; font-size:13px; }
+  .page h3 { margin:0 0 4px; font-size:16px; }
+  .page .muted { color:var(--sub); font-size:12px; }
+  .page .box { border:1px solid var(--line); border-radius:8px; padding:10px; margin:10px 0; }
+  .page .row { display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid #f3f4f6; }
+  .page .row:last-child { border-bottom:0; }
+  .arrow-down { text-align:center; color:var(--sub); font-size:12px; margin:8px 0; }
+  .sum { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:10px; }
+  .sum .c { background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px; }
+  .sum .c b { display:block; font-size:15px; margin-bottom:4px; }
+  .sum .c p { margin:0; color:var(--sub); font-size:12px; line-height:1.55; }
+  .sum .c .tg { display:inline-block; margin-top:8px; font-size:11px; border-radius:4px; padding:1px 6px; }
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; } .side { display:none; }
+    .drawer-wrap { grid-template-columns: 1fr; } .list-dim { display:none; }
+    .compare { grid-template-columns: 1fr; } .sum { grid-template-columns: 1fr 1fr; }
+    .note { position:static; display:block; margin:6px 0; max-width:none; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>board 목업 — 「오늘 할 일」 · 확정 준비 · 화면 줄이기 · 카톡에서 처리</h1>
+  <p>2026-11-24 · 실제 화면이 아닌 그림입니다(버튼은 동작하지 않음). 이름·차량번호·금액은 전부 가짜 값입니다. 보라색 동그라미 = 설명.</p>
+</header>
+<nav class="tabs">
+  <button data-s="s0" class="on">0. 한눈에</button>
+  <button data-s="s1">1. 오늘 할 일 (영업)</button>
+  <button data-s="s2">1-b. 오늘 할 일 (관리자)</button>
+  <button data-s="s3">5. 확정 준비 (구매확정 드로어)</button>
+  <button data-s="s4">6. 화면 줄이기 (매입예정 드로어 단계)</button>
+  <button data-s="s5">4. 카톡에서 바로 처리</button>
+</nav>
+<main>
+
+<!-- ───────── 0. 한눈에 ───────── -->
+<section class="scene on" id="s0">
+  <div class="explain">
+    <b>무엇이 달라지나</b> — 화면을 늘리지 않고 <b>누를 곳과 찾아다닐 곳을 줄이는 것</b>이 목표입니다.
+    <ul>
+      <li>지금은 할 일이 매입예정·전달 대기·바이어 회신·구매탭·포털·클레임·종 뱃지에 흩어져 있어 사람이 화면을 돌며 찾습니다.</li>
+      <li>목업 4장은 서로 이어집니다: <b>오늘 할 일</b>에서 줄을 누르면 → <b>매입예정 드로어</b>(단계가 한 곳에) → 구매 단계면 <b>확정 준비 체크리스트</b> → 밖에 있을 땐 <b>카톡 버튼</b>으로.</li>
+      <li>ERP 쪽 변경은 없습니다(전부 board 가 이미 가진 값·이미 있는 ERP 조회로 그림). 4번만 알림톡 버튼이 바뀌어 BizM 재승인이 필요합니다.</li>
+    </ul>
+  </div>
+  <div class="sum">
+    <div class="c"><b>1. 오늘 할 일</b><p>로그인하면 첫 화면. 「내가 지금 처리해야 하는 것」만 줄로. 줄마다 버튼 하나로 그 자리에서 처리하거나 드로어로 바로 갑니다. 관리자는 팀 전체 표.</p><span class="tg" style="background:#ecfdf5;color:#047857">board 만 · 새 데이터 없음</span></div>
+    <div class="c"><b>5. 확정 준비</b><p>구매확정 드로어 맨 위에 「확정까지 남은 것 N개」. 사진에서 읽은 값을 칸에 미리 채우고, 등록한 차량번호·차대번호와 맞는지 대조. ERP 락·재고 상한도 미리 검사.</p><span class="tg" style="background:#ecfdf5;color:#047857">board 만 · 기존 사진 읽기 확장</span></div>
+    <div class="c"><b>6. 화면 줄이기</b><p>「전달 대기」「바이어 회신」 메뉴를 없애고 매입예정 드로어의 단계 버튼으로. 영업이 다니는 화면이 줄고, 한 차의 일은 한 드로어에서 끝납니다.</p><span class="tg" style="background:#fffbeb;color:#b45309">결정 필요 · 메뉴 변경 공지</span></div>
+    <div class="c"><b>4. 카톡에서 처리</b><p>알림톡에 처리 버튼을 붙여, 운전·외근 중에 board 를 열지 않고 끝냅니다. 결재자·탁송 업체가 이미 쓰는 방식(본인 전용 링크)을 직원에게 넓힘.</p><span class="tg" style="background:#fef2f2;color:#dc2626">BizM 재승인 필요</span></div>
+  </div>
+</section>
+
+<!-- ───────── 1. 오늘 할 일 (영업) ───────── -->
+<section class="scene" id="s1">
+  <div class="explain">
+    <b>영업 「김영업」이 로그인했을 때 첫 화면</b>입니다. 지금은 대시보드가 매입예정으로 바로 보내지만, 이 화면이 먼저 뜹니다.
+    <ul>
+      <li>목록은 <b>board 가 이미 알고 있는 사실</b>로만 만듭니다(검차 판정·첨부 유무·ERP 응답·결재 차례·탁송 결과·포털 요청 결과). 사람이 적는 것 없음.</li>
+      <li>급한 순서(빨강 → 노랑 → 파랑 → 초록). 처리하면 줄이 사라지고 아래 「오늘 끝낸 것」으로 내려갑니다.</li>
+      <li>버튼이 하나면 그 자리에서 처리, 판단이 필요하면 [열기] = 그 차 드로어가 바로 열립니다.</li>
+    </ul>
+  </div>
+  <div class="app">
+    <aside class="side">
+      <div class="g">업무</div>
+      <a class="on">오늘 할 일 <span class="badge">6</span></a>
+      <a>매입예정(Invoice)</a>
+      <a>경매/구매</a>
+      <a>내 정산·미수 (포털)</a>
+      <div class="g">클레임</div>
+      <a>클레임</a>
+      <div class="g">업무일지</div>
+      <a>업무일지</a>
+    </aside>
+    <div class="body">
+      <div class="h"><h2>오늘 할 일</h2><span class="sub">11월 24일 (월) · 김영업 · 지금 6건</span></div>
+      <div class="chips">
+        <span class="chip on">전체<span class="n">6</span></span>
+        <span class="chip">막힘<span class="n">2</span></span>
+        <span class="chip">내 결정 필요<span class="n">2</span></span>
+        <span class="chip">다음 단계 가능<span class="n">2</span></span>
+      </div>
+
+      <div class="todo red">
+        <div class="ic">⛔</div>
+        <div><div class="t">12가3456 · ERP 가 거절했습니다 — 재고 상한 초과</div>
+          <div class="d">재고매입으로 확정했지만 담당자 일반재고 합계가 2억을 넘어 ERP 에 등록되지 않았습니다. 바이어를 정하거나 관리자에게 상한 조정을 요청하세요.</div>
+          <div class="age">구매확정 11-22 15:10 · 2일째</div></div>
+        <div class="acts"><button class="btn p">열기</button></div>
+      </div>
+
+      <div class="todo red">
+        <div class="ic">📎</div>
+        <div><div class="t">34나5678 · 구매확정을 못 하고 있습니다 — 첨부 0장</div>
+          <div class="d">금액·바이어는 저장돼 있고 사진·서류만 없습니다. 사진을 올리면 계좌·소유자를 같이 찾아 드립니다.</div>
+          <div class="age">구매대기 3일째</div></div>
+        <div class="acts"><button class="btn p">📷 사진 올리기</button></div>
+      </div>
+
+      <div class="todo amber">
+        <div class="ic">🔓</div>
+        <div><div class="t">56다7890 · 매입 락 승인이 났습니다 (BUYER ALPHA · 2대 · 7일)</div>
+          <div class="d">승인된 대수 안에서 지금 구매확정할 수 있습니다. 남은 대수 2 · 11-30 까지.</div>
+          <div class="age">승인 오늘 09:42 · 업무관리자</div></div>
+        <div class="acts"><button class="btn p">확정하러 가기</button></div>
+      </div>
+
+      <div class="todo amber">
+        <div class="ic">🚚</div>
+        <div><div class="t">78라1234 · 배차완료 — 매입잔금 요청을 보낼 차례입니다</div>
+          <div class="d">○○탁송 · 기사 010-****-0001 · 희망 11-24 13:00. 금액을 비우면 ERP 미지급 전액(₩8,420,000)으로 요청합니다.</div>
+          <div class="age">배차완료 오늘 10:15</div></div>
+        <div class="acts"><button class="btn g">열기</button><button class="btn p">매입잔금 요청</button></div>
+      </div>
+
+      <div class="todo blue">
+        <div class="ic">🎬</div>
+        <div><div class="t">90마5678 · 검차 영상이 올라왔습니다 — 바이어에게 전달할 수 있습니다</div>
+          <div class="d">사진 42 · 영상 2. 바이어 BUYER BETA · 견적 통화 EUR. [바이어에게 전달]을 누르면 폰 공유 창이 떠서 카톡·왓츠앱 등 원하는 앱으로 보냅니다(지금과 같음).</div>
+          <div class="age">전달 대기 오늘 08:51</div></div>
+        <div class="acts"><button class="btn g">열기</button><button class="btn p">바이어에게 전달</button></div>
+      </div>
+
+      <div class="todo green">
+        <div class="ic">✅</div>
+        <div><div class="t">11바2222 · 바이어가 「살게요」라고 답했습니다</div>
+          <div class="d">respond.io 회신 수락. 수락으로 넘기면 구매대기(경매/구매)로 갑니다.</div>
+          <div class="age">회신 오늘 07:30</div></div>
+        <div class="acts"><button class="btn g">거절</button><button class="btn ok">수락</button></div>
+      </div>
+
+      <div class="done-line">오늘 끝낸 것 3 — 22사3333 계약금 요청 확인됨 · 44아4444 전달 완료 · 66자6666 클레임 접수 ▸</div>
+      <span class="note" style="top:84px; right:18px;"><span class="pin">1</span>탭 칩은 종류별 필터. 「막힘」 = 내가 손대지 않으면 영영 안 움직이는 것.</span>
+    </div>
+  </div>
+</section>
+
+<!-- ───────── 1-b. 관리자 ───────── -->
+<section class="scene" id="s2">
+  <div class="explain">
+    <b>관리자(업무관리자·관리)가 보는 같은 화면</b> — 본인 할 일 위에 <b>팀 표</b>가 붙습니다. 관리 role 은 공유받은 영업만 보입니다(지금 규칙 그대로).
+    <ul>
+      <li>「누가 어디서 막혔나」를 감사 로그나 화면을 돌며 찾지 않아도 됩니다. 숫자를 누르면 그 사람의 그 줄들이 펼쳐집니다.</li>
+      <li>오래된 것(3일 이상)은 빨간 숫자. 대신 처리할 권한이 있는 것은 그 자리에서 [대신 처리](지금 포털 대리실행과 같은 규칙).</li>
+    </ul>
+  </div>
+  <div class="app">
+    <aside class="side">
+      <div class="g">업무</div>
+      <a class="on">오늘 할 일 <span class="badge">3</span></a>
+      <a>매입예정(Invoice)</a><a>경매/구매</a><a>관리자</a>
+      <div class="g">시스템</div><a>사용자 관리</a><a>감사 로그</a>
+    </aside>
+    <div class="body">
+      <div class="h"><h2>오늘 할 일</h2><span class="sub">팀 · 영업 4명 · 막힌 것 9건</span></div>
+      <table class="team">
+        <thead><tr><th class="l">영업</th><th>ERP 거절</th><th>첨부 없음</th><th>검차 정체<br><span style="font-weight:400">(3일+)</span></th><th>바이어 전달 대기</th><th>회신 대기</th><th>잔금 요청 대기</th><th>결재 내 차례</th></tr></thead>
+        <tbody>
+          <tr><td class="l">김영업</td><td><span class="cnt r">1</span></td><td><span class="cnt r">1</span></td><td><span class="cnt z">0</span></td><td><span class="cnt a">1</span></td><td><span class="cnt a">1</span></td><td><span class="cnt a">1</span></td><td><span class="cnt z">0</span></td></tr>
+          <tr><td class="l">이영업</td><td><span class="cnt z">0</span></td><td><span class="cnt r">2</span></td><td><span class="cnt r">3</span></td><td><span class="cnt z">0</span></td><td><span class="cnt a">2</span></td><td><span class="cnt z">0</span></td><td><span class="cnt z">0</span></td></tr>
+          <tr><td class="l">박영업</td><td><span class="cnt z">0</span></td><td><span class="cnt z">0</span></td><td><span class="cnt a">1</span></td><td><span class="cnt a">3</span></td><td><span class="cnt z">0</span></td><td><span class="cnt a">1</span></td><td><span class="cnt z">0</span></td></tr>
+          <tr><td class="l">최영업</td><td><span class="cnt z">0</span></td><td><span class="cnt z">0</span></td><td><span class="cnt z">0</span></td><td><span class="cnt z">0</span></td><td><span class="cnt z">0</span></td><td><span class="cnt z">0</span></td><td><span class="cnt z">0</span></td></tr>
+        </tbody>
+      </table>
+      <div style="margin-top:14px; font-weight:600;">▾ 이영업 · 검차 정체 3</div>
+      <div class="todo amber" style="margin-top:8px">
+        <div class="ic">⏳</div>
+        <div><div class="t">13가0001 · 검차 사진은 있는데 영상이 4일째 없습니다</div>
+          <div class="d">ssancar.com 검차글 사진 18 · 영상 0. 지금 있는 사진으로 전달대기로 넘길 수 있습니다(지금도 있는 버튼).</div></div>
+        <div class="acts"><button class="btn g">영업에게 알림</button><button class="btn p">열기</button></div>
+      </div>
+      <div class="todo amber">
+        <div class="ic">⏳</div>
+        <div><div class="t">13가0002 · 검차 Skip — 「차 없음/연락 불가」 3일째</div>
+          <div class="d">검차원이 넘긴 차입니다. 재검차 요청 또는 삭제를 정해야 합니다.</div></div>
+        <div class="acts"><button class="btn g">재검차 요청</button><button class="btn p">열기</button></div>
+      </div>
+      <div class="done-line">▸ 내 할 일 3 (클레임 결재 1 · 매입 락 승인 요청 2 — ERP 에서 승인)</div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────── 5. 확정 준비 ───────── -->
+<section class="scene" id="s3">
+  <div class="explain">
+    <b>구매확정 드로어 맨 위에 「확정까지 남은 것」</b> — 지금은 [구매확정]을 눌러야 막힌 이유가 빨간 글씨로 하나씩 나오고, 그 위치로 스크롤됩니다(지난주 「사진 안 넣었는데 락 상자로 스크롤」 건).
+    <ul>
+      <li>드로어를 여는 순간 <b>막는 조건 전부</b>를 한 번에 검사해 체크리스트로 보여 줍니다: 필수 칸 · 첨부 · 바이어 매입 락(승인 남은 대수) · 일반재고 상한 · 계좌 읽는 중.</li>
+      <li>사진을 올리면 지금처럼 계좌·소유자·매입처를 읽고, <b>등록증에서 차량번호·차대번호도 읽어</b> board 에 등록한 값과 대조합니다(다른 차 서류를 올린 실수 방지).</li>
+      <li>읽은 값은 <b>보라색 칸에 미리 채워</b> 두고 사람이 [맞음]만 누릅니다. 지금처럼 자동 확정은 없습니다.</li>
+      <li>전부 초록이 되면 버튼이 「구매확정 · ERP 전송」으로 켜집니다.</li>
+    </ul>
+  </div>
+  <div class="app">
+    <aside class="side">
+      <div class="g">업무</div><a>오늘 할 일 <span class="badge">5</span></a><a>매입예정(Invoice)</a><a class="on">경매/구매</a><a>내 정산·미수 (포털)</a>
+    </aside>
+    <div class="drawer-wrap">
+      <div class="list-dim"><div class="h"><h2>경매/구매</h2></div>
+        <div class="todo"><div class="ic">🚗</div><div><div class="t">34나5678</div><div class="d">구매대기</div></div><div></div></div>
+        <div class="todo"><div class="ic">🚗</div><div><div class="t">56다7890</div><div class="d">구매대기</div></div><div></div></div>
+      </div>
+      <div class="drawer">
+        <div class="dh"><div><div class="plate">34나5678</div><div class="meta">엔카 · 2019 아반떼 · 등록 김영업 · 바이어 BUYER GAMMA</div></div><button class="btn g">✕</button></div>
+
+        <div class="check">
+          <div class="ttl"><span>확정까지 남은 것 <span style="color:var(--red)">2</span></span><span class="x" style="font-weight:400;color:var(--sub);font-size:12px">드로어 열 때 자동 검사</span></div>
+          <div class="ck"><span class="s">✅</span><span class="t">차값 · 매도비 · 총판매가 · 통화 · 환율</span><span class="x">저장됨</span></div>
+          <div class="ck"><span class="s">✅</span><span class="t">바이어 매입 락</span><span class="x">락 없음</span></div>
+          <div class="ck"><span class="s">✅</span><span class="t">일반재고 상한</span><span class="x">해당 없음(바이어 있음)</span></div>
+          <div class="ck"><span class="s">✅</span><span class="t">첨부 사진·서류</span><span class="x">5장 · 방금 올림</span></div>
+          <div class="ck warn"><span class="s">🟡</span><span class="t">사진에서 읽은 값 확인 — 계좌·소유자·매입처</span><span class="x"><button class="btn g">아래로</button></span></div>
+          <div class="ck bad"><span class="s">⛔</span><span class="t">등록증 차대번호가 등록한 값과 다릅니다</span><span class="x"><button class="btn g">아래로</button></span></div>
+        </div>
+
+        <div class="read">
+          <div style="font-weight:700;margin-bottom:4px">사진에서 읽은 값 <span class="tag ai">사내 AI</span> <span style="color:var(--sub);font-weight:400">· 18초 · 5장 중 3장에서</span></div>
+          <div class="thumbs"><div>등록증</div><div>통장</div><div>사업자</div><div>외관</div><div>외관</div></div>
+          <table style="margin-top:8px">
+            <tr><td class="k">차량번호</td><td>34나5678</td><td><span class="tag ok">등록값과 같음</span></td></tr>
+            <tr><td class="k">차대번호</td><td><b>KMHD341CBKU0000<u>9</u>2</b></td><td><span class="tag no">등록값 …0000<u>2</u>9 와 다름</span></td></tr>
+            <tr><td class="k">소유자</td><td>(주)가나모터스 상품용</td><td><span class="tag ok">후보 1개</span></td></tr>
+          </table>
+          <div style="margin-top:6px;color:var(--red);font-size:12px">→ 다른 차 등록증을 올렸거나, 등록 때 차대번호를 잘못 적었을 수 있습니다. 등록증 사진을 다시 보거나, 관리자에게 차대번호 정정을 요청하세요(ERP 미연동 차만 정정 가능 — 지금 규칙).</div>
+        </div>
+
+        <div class="field"><span>예금주</span><span class="v filled">(주)가나모터스 · 후보에서 채움</span></div>
+        <div class="field"><span>은행 / 계좌</span><span class="v filled">국민 · 123456-**-******</span></div>
+        <div class="field"><span>매입처</span><span class="v filled">(주)가나모터스 · 대표 홍길동</span></div>
+        <div style="display:flex;gap:6px;justify-content:flex-end;margin:6px 0 12px"><button class="btn g">고치기</button><button class="btn ok">읽은 값 맞음</button></div>
+
+        <button class="btn dis big">구매확정 · ERP 전송 (남은 것 2)</button>
+        <div style="text-align:center;margin-top:8px"><button class="btn g">내용만 저장</button></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────── 6. 화면 줄이기 ───────── -->
+<section class="scene" id="s4">
+  <div class="explain">
+    <b>「전달 대기」「바이어 회신」 메뉴를 없애고, 매입예정 드로어 안의 단계로</b> — 한 차의 일을 한 드로어에서 처음부터 끝까지 합니다.
+    <ul>
+      <li>운영 기록(11-22): 전달 대기를 거친 차 heymanboard 14대 · ssancarboard 2대, 셀프검차로 건너뛴 차 109대 · 149대. 두 화면은 거의 안 쓰이는 길입니다.</li>
+      <li>드로어 위에 단계 줄(등록 → 검차 → 바이어 전달 → 회신 → 구매)이 보이고, <b>지금 단계의 버튼만</b> 파란 상자에 나옵니다.</li>
+      <li>목록에서 단계를 고르고 싶으면 매입예정의 상태 탭(지금 있는 「검차완료」「회신대기」)이 그 역할을 합니다.</li>
+      <li>전달 대기 금액 칸 결정(보류 중)은 여기서 같이 정리: 전달 단계에서는 금액을 받지 않고(나 안), 금액은 구매 단계에서만.</li>
+    </ul>
+  </div>
+  <div class="compare" style="margin-bottom:14px">
+    <div class="mini"><h4>지금 — 차 한 대가 거치는 화면</h4>
+      <div class="flow"><span class="b">매입예정</span><span class="ar">→</span><span class="b">전달 대기</span><span class="ar">→</span><span class="b">바이어 회신</span><span class="ar">→</span><span class="b">경매/구매</span><span class="ar">→</span><span class="b">매입예정(첨부 추가)</span></div>
+      <div style="margin-top:8px;color:var(--sub);font-size:12px">영업 사이드바 메뉴 6개 · 화면마다 차를 다시 찾아 엶</div></div>
+    <div class="mini"><h4>바꾸면</h4>
+      <div class="flow"><span class="b hot">매입예정 드로어 (등록 → 검차 → 전달 → 회신)</span><span class="ar">→</span><span class="b">경매/구매 (확정 준비)</span></div>
+      <div style="margin-top:8px;color:var(--sub);font-size:12px">영업 사이드바 메뉴 4개 · 「오늘 할 일」에서 누르면 그 단계로 바로 열림</div></div>
+  </div>
+  <div class="app">
+    <aside class="side">
+      <div class="g">업무</div>
+      <a>오늘 할 일 <span class="badge">5</span></a>
+      <a class="on">매입예정(Invoice)</a>
+      <a class="gone">전달 대기</a>
+      <a class="gone">바이어 회신</a>
+      <a>경매/구매</a>
+      <a>내 정산·미수 (포털)</a>
+    </aside>
+    <div class="drawer-wrap">
+      <div class="list-dim"><div class="h"><h2>매입예정</h2></div>
+        <div class="chips"><span class="chip">전체</span><span class="chip">현지확인대기</span><span class="chip on">검차완료 3</span><span class="chip">회신대기 2</span></div>
+        <div class="todo"><div class="ic">🚗</div><div><div class="t">90마5678</div><div class="d">검차완료</div></div><div></div></div>
+      </div>
+      <div class="drawer">
+        <div class="dh"><div><div class="plate">90마5678</div><div class="meta">싼카-재고 · 2020 쏘렌토 · 등록 김영업</div></div><button class="btn g">✕</button></div>
+        <div class="steps">
+          <div class="step done"><div class="dot">✓</div>등록</div>
+          <div class="step done"><div class="dot">✓</div>검차</div>
+          <div class="step cur"><div class="dot">3</div>바이어 전달</div>
+          <div class="step"><div class="dot">4</div>회신</div>
+          <div class="step"><div class="dot">5</div>구매</div>
+        </div>
+        <div class="stage-box">
+          <div class="ttl">3. 바이어에게 전달</div>
+          <div style="font-size:12px;color:#1e3a8a;margin-bottom:8px">검차 사진 42 · 영상 2 (ssancar.com) · 오늘 08:51 도착</div>
+          <div class="field"><span>바이어</span><span class="v">BUYER BETA · respond.io 대화 연결됨</span></div>
+          <div class="field"><span>견적 통화</span><span class="v">EUR</span></div>
+          <div style="font-size:12px;color:var(--sub);margin:4px 0 8px">금액은 구매 단계에서 적습니다(총판매가·운임비 USD).</div>
+          <div style="display:flex;gap:6px;justify-content:flex-end"><button class="btn g">바이어 링크 미리보기</button><button class="btn p">바이어에게 전달</button></div>
+        </div>
+        <div style="font-size:12px;color:var(--sub);margin:10px 0 4px">다음 단계 미리보기</div>
+        <div class="mini" style="opacity:.6"><b style="font-size:12px">4. 회신</b><div style="font-size:12px;color:var(--sub)">바이어가 답하면(respond.io) 여기에 [수락] [거절]이 나옵니다. 수락하면 「5. 구매」 = 경매/구매 드로어(확정 준비)로 이어집니다.</div></div>
+        <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:10px;font-size:12px;color:var(--sub)">탭: 기본정보 · 검차 사진·영상 · 첨부 · 탁송 배차 · 이력 (지금과 같음)</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────── 4. 카톡에서 처리 ───────── -->
+<section class="scene" id="s5">
+  <div class="explain">
+    <b>알림톡 버튼으로 board 를 열지 않고 처리</b> — 결재자(클레임)·탁송 업체가 이미 쓰는 「본인 전용 링크」 방식을 직원 알림톡 2종에 붙입니다.
+    <ul>
+      <li>링크는 받은 사람 본인 것(5일)이고, 누르면 <b>그 한 가지 일만</b> 하는 작은 화면이 뜹니다. 로그인 없음 — 대신 할 수 있는 일이 그 버튼 하나로 좁혀집니다.</li>
+      <li>처리하면 board 에 지금과 같은 감사 행이 남습니다(누가·어느 링크로·언제).</li>
+      <li>⚠️ 알림톡 버튼이 생기는 것이라 <b>BizM 템플릿 재승인</b>(두 사이트 × 2종 = 4건)이 필요합니다. 승인 전까지는 지금 알림톡이 그대로 나갑니다.</li>
+    </ul>
+  </div>
+  <div class="phones">
+    <div>
+      <div class="who">① 탁송 배차 결과 → 영업</div>
+      <div class="phone"><div class="bar">board 알림 (카카오톡)</div><div class="chat">
+        <div class="bubble"><div class="kh">알림톡 도착</div>
+          <div class="kb">[배차 결과] 78라1234
+
+담당자님, 요청하신 78라1234 차량의 탁송 배차 결과를 안내드립니다.
+
+■ 결과: 배차완료
+■ 업체: ○○탁송
+■ 처리: 기사 010-****-0001 · 11-24 10:15
+■ 사유: —</div>
+          <div class="kbtn new">💰 매입잔금 요청</div>
+          <div class="kbtn">board 에서 보기</div></div>
+      </div></div>
+    </div>
+    <div>
+      <div class="who">↳ 버튼을 누르면 (로그인 없이)</div>
+      <div class="phone"><div class="bar">board · 매입잔금 요청</div><div class="page">
+        <h3>78라1234 매입잔금 요청</h3>
+        <div class="muted">김영업 님 전용 링크 · 11-29 까지</div>
+        <div class="box">
+          <div class="row"><span>ERP 미지급 전액</span><b>₩8,420,000</b></div>
+          <div class="row"><span>배차</span><span>○○탁송 · 11-24 13:00 희망</span></div>
+          <div class="row"><span>받는 사람</span><span>ERP 시각 규칙대로</span></div>
+        </div>
+        <div class="muted" style="margin-bottom:8px">금액을 바꾸려면 board 에서 보내 주세요.</div>
+        <button class="btn p big">이 금액으로 매입잔금 요청</button>
+        <div class="arrow-down">↓ 누르면</div>
+        <div class="box" style="background:#ecfdf5;border-color:#a7f3d0;color:#047857">✅ 요청을 보냈습니다. 결과(확인·거절)는 종과 휴대폰 알림으로 옵니다.</div>
+      </div></div>
+    </div>
+    <div>
+      <div class="who">② 전달 대기 → 등록 영업</div>
+      <div class="phone"><div class="bar">board 알림 (카카오톡)</div><div class="chat">
+        <div class="bubble"><div class="kh">알림톡 도착</div>
+          <div class="kb">[사내 업무용] 전달 대기 안내 90마5678
+
+담당자님, 등록하신 매물 90마5678의 사진/영상 업로드가 완료되어 바이어 전달 대기 상태입니다.</div>
+          <div class="kbtn new">📨 바이어에게 전달</div>
+          <div class="kbtn">board 에서 보기</div></div>
+        <div style="height:14px"></div>
+        <div class="phone" style="width:auto;border:0;border-radius:10px;box-shadow:none"><div class="page" style="min-height:0;border-radius:10px">
+          <h3 style="font-size:14px">90마5678 바이어 전달</h3>
+          <div class="muted">BUYER BETA · EUR · 사진 42 · 영상 2</div>
+          <div class="thumbs"><div>사진</div><div>사진</div><div>영상</div><div>영상</div></div>
+          <button class="btn p big" style="margin-top:10px">바이어에게 전달</button>
+        </div></div>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+</main>
+<script>
+  document.querySelectorAll('nav.tabs button').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('nav.tabs button').forEach(x => x.classList.toggle('on', x === b));
+    document.querySelectorAll('section.scene').forEach(s => s.classList.toggle('on', s.id === b.dataset.s));
+    window.scrollTo({ top: 0 });
+  }));
+</script>
+</body>
+</html>

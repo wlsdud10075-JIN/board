@@ -20,6 +20,7 @@ use Livewire\WithFileUploads;
 use Livewire\WithPagination;
 
 new #[Layout('components.layouts.app')] class extends Component {
+    use \App\Livewire\Concerns\PurchaseLockRequests;   // 재고매입 차 바이어 지정에서 락 바이어 승인 요청(2026-11-24 Jin — 구매탭과 같은 동작)
     use WithFileUploads, WithPagination;
 
     // ─────── 목록 탭 + 페이지네이션 (2026-09-11 Jin) ───────
@@ -652,6 +653,205 @@ new #[Layout('components.layouts.app')] class extends Component {
         $this->syncSince = null;
         $this->reset(['eSalesFiles']);
         $this->resetErrorBag();
+        $this->loadAssignBuyers($l);
+    }
+
+    // ─────── 재고매입 차에 바이어 + 판매 금액 지정 (2026-11-24 Jin, ERP §19 `assign-buyer`) ───────
+    // 재고매입(바이어 미정)으로 ERP 에 넘어간 차 → 나중에 바이어가 정해지면 여기서 바이어·판매 금액을 **함께** 보낸다.
+    // ERP 에서 「일반재고」→「선적전」(판매일 = 받은 날, 담당자 일반재고 합계에서 빠짐). 금액 칸은 「금액 다시 보내기」와 같은 칸·같은 쪼개기(resendSplit).
+    // 매입 락은 구매확정과 같게 — 락 바이어는 §17 승인 남은 대수가 있을 때만(ERP 가 1대 차감). board 는 /buyers 판정으로 **미리 보여 주기만**, 최종 판정은 ERP 응답.
+    // 🚫 purchase-sync 재전송(resendToErp)에 바이어를 실어 보내지 않는다 — 그 길엔 락 검사가 없다(Job 이 이후 재전송에서 바이어를 뺀다).
+    public ?int $a_buyer_id = null;
+
+    public ?int $a_consignee_id = null;
+
+    public array $aBuyerOpts = [];
+
+    public array $aConsigneeOpts = [];
+
+    /** 마지막 지정 결과 — ok·message(422 사유 사람 말)·raw(ERP 원문 코드)·lock(차감 결과). */
+    public ?array $assignResult = null;
+
+    public function canAssignBuyer(PurchaseListing $l): bool
+    {
+        return (bool) $l->car_erp_vehicle_id && (bool) $l->buyer_undecided;
+    }
+
+    /** ERP 스코프 = 등록 영업(그 영업의 차·그 영업의 바이어만 — §19 `salesman_email`). 대리로 누른 사람은 `requested_by_email`. */
+    private function creatorErpEmail(PurchaseListing $l): string
+    {
+        $c = $l->creator;
+
+        return $c?->car_erp_salesman_email ?: ($c?->email ?? '');
+    }
+
+    private function loadAssignBuyers(PurchaseListing $l): void
+    {
+        $this->reset(['a_buyer_id', 'a_consignee_id', 'aBuyerOpts', 'aConsigneeOpts', 'assignResult', 'lockCount', 'lockReason', 'lockStatus', 'lockNotice', 'lockError']);
+        if (! $this->canAssignBuyer($l)) {
+            return;
+        }
+        $r = app(CarErpReadService::class)->buyers($this->creatorErpEmail($l));
+        $this->aBuyerOpts = ($r['ok'] ?? false) ? (array) data_get($r['data'], 'data', []) : [];
+    }
+
+    public function updatedABuyerId(): void
+    {
+        $this->a_consignee_id = null;
+        $this->aConsigneeOpts = [];
+        $this->reset('lockCount', 'lockReason', 'lockNotice', 'lockError');
+        $this->loadAssignLockStatus();
+        $l = $this->editingId ? PurchaseListing::find($this->editingId) : null;
+        if (! $l || ! $this->a_buyer_id) {
+            return;
+        }
+        $r = app(CarErpReadService::class)->consignees($this->creatorErpEmail($l), (int) $this->a_buyer_id);
+        $this->aConsigneeOpts = ($r['ok'] ?? false) ? (array) data_get($r['data'], 'data', []) : [];
+    }
+
+    /** 고른 바이어가 락이면 ERP 승인 상태(승인 남은 대수·대기 건)를 묻는다 — 구매탭 loadLockStatus 와 같은 규칙(락 아니면 호출 없음). */
+    private function loadAssignLockStatus(): void
+    {
+        $this->lockStatus = null;
+        $lock = $this->assignBuyerLock();
+        $l = $this->editingId ? PurchaseListing::find($this->editingId) : null;
+        if (! $l || ! $lock || ! $lock['locked']) {
+            return;
+        }
+        $this->lockStatus = app(CarErpReadService::class)->purchaseLockStatus($this->creatorErpEmail($l), (int) $this->a_buyer_id);
+    }
+
+    /** PurchaseLockRequests — 재고매입 차 + 고른 락 바이어. 등록 영업 명의로 ERP 승인큐에. */
+    protected function lockContext(): ?array
+    {
+        $l = $this->editingId ? PurchaseListing::find($this->editingId) : null;
+        $lock = $this->assignBuyerLock();
+        if (! $l || ! $this->canAssignBuyer($l) || ! $lock || ! $lock['locked']) {
+            return null;
+        }
+
+        return ['email' => $this->creatorErpEmail($l), 'buyer_id' => (int) $this->a_buyer_id,
+            'buyer_name' => collect($this->aBuyerOpts)->firstWhere('id', (int) $this->a_buyer_id)['name'] ?? null, 'listing' => $l];
+    }
+
+    protected function reloadLockState(): void
+    {
+        $keep = $this->a_buyer_id;
+        $l = $this->editingId ? PurchaseListing::find($this->editingId) : null;
+        if ($l) {
+            $r = app(CarErpReadService::class)->buyers($this->creatorErpEmail($l));
+            $this->aBuyerOpts = ($r['ok'] ?? false) ? (array) data_get($r['data'], 'data', []) : $this->aBuyerOpts;
+        }
+        $this->a_buyer_id = $keep;
+        $this->loadAssignLockStatus();
+    }
+
+    /** 고른 바이어의 락 미리보기 — ERP `/buyers` 의 `purchase_locked`·`purchase_lock_allowance.remaining` 그대로(조건을 board 에 옮겨 적지 않는다). */
+    public function assignBuyerLock(): ?array
+    {
+        foreach ($this->aBuyerOpts as $b) {
+            if ((int) ($b['id'] ?? 0) === (int) $this->a_buyer_id) {
+                return ['locked' => (bool) data_get($b, 'purchase_locked', false), 'remaining' => max(0, (int) data_get($b, 'purchase_lock_allowance.remaining', 0))];
+            }
+        }
+
+        return null;
+    }
+
+    public function assignBuyer(): void
+    {
+        $l = PurchaseListing::findOrFail($this->editingId);   // SalesmanScope: 볼 수 있는 차만
+        $this->assignResult = null;
+        $this->resetErrorBag();
+
+        if (! $this->canAssignBuyer($l)) {
+            $this->addError('a_buyer_id', __('listings.assign.not_stock'));
+
+            return;
+        }
+        if (! $this->a_buyer_id) {
+            $this->addError('a_buyer_id', __('listings.assign.buyer_required'));
+
+            return;
+        }
+        $lock = $this->assignBuyerLock();
+        if ($lock && $lock['locked'] && $lock['remaining'] < 1) {
+            $this->addError('a_buyer_id', __('listings.assign.locked'));
+
+            return;
+        }
+        $s = $this->resendSplit();
+        if ($s['total'] === null) {
+            $this->addError('e_sale_total', __('listings.assign.amount_required'));
+
+            return;
+        }
+        if ($this->applyResendAmounts($l) === null) {
+            return;   // 통화·환율 세트 검증 — 에러는 칸에 붙어 있다
+        }
+        if ($s['sale'] === null || $s['sale'] <= 0) {
+            $this->addError('e_sale_total', __('listings.assign.amount_required'));
+
+            return;
+        }
+
+        $me = Auth::user();
+        $payload = array_filter([
+            'buyer_id' => (int) $this->a_buyer_id,
+            'consignee_id' => $this->a_consignee_id ? (int) $this->a_consignee_id : null,
+            'sale_price' => $s['sale'],
+            'sale_currency' => $s['currency'],
+            'sale_exchange_rate' => $s['currency'] === 'KRW' ? 1 : $s['rate'],
+            'transport_fee' => $s['freight'] ?: null,
+            'transport_fee_usd' => $s['fusd'],
+            'usd_exchange_rate' => $s['usd'],
+            'board_listing_id' => $l->id,
+            'requested_by_email' => $me?->car_erp_salesman_email ?: $me?->email,
+        ], fn ($v) => $v !== null && $v !== '');
+
+        $r = app(CarErpReadService::class)->assignBuyer($this->creatorErpEmail($l), (int) $l->car_erp_vehicle_id, $payload);
+        $ok = (bool) ($r['ok'] ?? false);
+        $error = (string) (($r['error'] ?? null) ?: data_get($r['data'], 'error', ''));   // 실패면 send() 가 ERP 사유 코드를 `error` 로 준다
+        $buyerName = (string) (collect($this->aBuyerOpts)->firstWhere('id', (int) $this->a_buyer_id)['name'] ?? '');
+
+        BoardAuditLog::create([
+            'user_id' => Auth::id(), 'purchase_listing_id' => $l->id, 'action' => 'erp_assign_buyer',
+            'field' => $ok ? 'erp_assign_buyer' : 'erp_assign_buyer_failed',
+            'old_value' => null,
+            'new_value' => json_encode([
+                'erp_vehicle_id' => $l->car_erp_vehicle_id, 'buyer_id' => (int) $this->a_buyer_id, 'buyer' => $buyerName, 'consignee_id' => $this->a_consignee_id,
+                'sale_price' => $s['sale'], 'currency' => $s['currency'], 'rate' => $payload['sale_exchange_rate'] ?? null, 'transport_fee' => $s['freight'], 'transport_fee_usd' => $s['fusd'],
+                'result' => $ok ? 'ok' : ($error ?: 'HTTP '.($r['status'] ?? 0)), 'purchase_lock' => data_get($r['data'], 'purchase_lock'),
+            ], JSON_UNESCAPED_UNICODE),
+            'ip_address' => BoardAuditLog::currentIp(),
+        ]);
+
+        if (! $ok) {
+            $known = $error !== '' && __('listings.assign.error.'.$error) !== 'listings.assign.error.'.$error;
+            $raw = trim((string) ($r['message'] ?? ''));
+            $msg = $known ? __('listings.assign.error.'.$error)
+                : (($raw !== '' && ! str_starts_with($raw, '{')) ? $raw : __('listings.assign.error_http', ['status' => $r['status'] ?? 0]));
+            $this->assignResult = ['ok' => false, 'message' => $msg, 'raw' => $error ?: null];
+
+            return;   // 금액 칸 값은 모델에만 적용됐고 저장하지 않았다 — 원장(ERP)과 갈리지 않게
+        }
+
+        $l->buyer_undecided = false;
+        $l->car_erp_buyer_id = (int) $this->a_buyer_id;
+        $l->car_erp_buyer_name = mb_substr($buyerName, 0, 120) ?: null;
+        $l->car_erp_consignee_id = $this->a_consignee_id ? (int) $this->a_consignee_id : null;
+        $l->save();   // 옵저버가 칸별 감사(바이어·판매가·통화·환율·운임비)
+
+        $this->assignResult = [
+            'ok' => true, 'buyer' => $buyerName, 'sale_date' => data_get($r['data'], 'sale_date'),
+            'consumed' => (bool) data_get($r['data'], 'purchase_lock.consumed', false), 'remaining' => data_get($r['data'], 'purchase_lock.remaining'),
+        ];
+        $this->aBuyerOpts = [];
+        unset($this->listings);
+        // 성공하면 오른쪽 위 초록 알림 + 드로어 닫기(2026-11-24 Jin — 구매탭 [내용만 저장]과 같은 결)
+        $this->dispatch('listings-saved', msg: __('listings.assign.ok', ['buyer' => $buyerName ?: '—']).($this->assignResult['sale_date'] ? ' '.__('listings.assign.ok_date', ['date' => $this->assignResult['sale_date']]) : ''));
+        session()->flash('ok', __('listings.assign.ok', ['buyer' => $buyerName ?: '—']));
+        $this->closeEdit();
     }
 
     // ─────── 판매 금액 보완 + ERP 재전송 (2026-08-18 Jin) ───────
@@ -1167,7 +1367,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'drawerTab', 'e_remitter_name', 'e_remitter_id', 'invoiceNote', 'passportFile', 'e_sale_total', 'e_transport_fee_usd', 'e_rate_usd', 'e_rate_eur', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'e_inspection_request', 'e_loc_choice', 'e_loc_address', 'e_urgent_note', 'eSalesFiles', 'e_sale_currency', 'resyncResult', 'attachResult', 'syncSince']);
+        $this->reset(['editingId', 'drawerTab', 'e_remitter_name', 'e_remitter_id', 'invoiceNote', 'passportFile', 'e_sale_total', 'e_transport_fee_usd', 'e_rate_usd', 'e_rate_eur', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'e_inspection_request', 'e_loc_choice', 'e_loc_address', 'e_urgent_note', 'eSalesFiles', 'e_sale_currency', 'resyncResult', 'attachResult', 'syncSince', 'a_buyer_id', 'a_consignee_id', 'aBuyerOpts', 'aConsigneeOpts', 'assignResult', 'lockCount', 'lockReason', 'lockStatus', 'lockNotice', 'lockError']);
         unset($this->editing);
     }
 
@@ -1739,6 +1939,13 @@ new #[Layout('components.layouts.app')] class extends Component {
 }; ?>
 
 <div class="p-3 md:p-6">
+    {{-- 저장 알림 — 화면 오른쪽 위에 잠깐 뜬다(2026-11-24 Jin, 구매탭과 같은 모양). 누르면 바로 닫힌다. --}}
+    <div x-data="{ show: false, msg: '', _t: null }" x-on:listings-saved.window="msg = $event.detail.msg || ''; show = msg !== ''; clearTimeout(_t); _t = setTimeout(() => show = false, 4000)">
+        <div x-show="show" x-transition x-cloak @click="show = false" data-toast
+             class="fixed right-4 top-4 z-[70] flex max-w-[90vw] cursor-pointer items-center gap-2 rounded-lg bg-green-600 px-4 py-3 text-sm font-semibold text-white shadow-lg">
+            <span>✓</span><span x-text="msg"></span>
+        </div>
+    </div>
     {{-- 헤더 --}}
     <div class="mb-4 flex items-start justify-between gap-3">
         <div>
