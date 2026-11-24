@@ -30,6 +30,21 @@
     @if ($rem > 0)
         <p class="mt-1 text-gray-600">{{ __('auction.lock_req_approved_hint', ['approved' => $ls['approved'] ?? '—']) }}</p>
     @endif
+    {{-- 마지막 요청과 ERP 결정 내용(2026-11-24 Jin — ERP 에서 적은 승인·거절 사유를 board 에서도 본다). 거둔 요청은 안 보인다. --}}
+    @if ($lt && ! in_array($ltStatus, ['cancelled', ''], true))
+        <div class="mt-1.5 space-y-0.5 rounded border border-gray-100 bg-gray-50 px-2 py-1.5 text-[11px] text-gray-700" data-lock-history>
+            <div><span class="font-semibold text-gray-500">{{ __('auction.lock_hist_request') }}</span>
+                {{ __('auction.lock_hist_request_line', ['count' => $lt['requested_count'] ?? '—', 'by' => $lt['requested_by_name'] ?: '—', 'at' => $fmt($lt['requested_at'] ?? null)]) }}
+                @if (! empty($lt['reason']))<span class="block text-gray-600">“{{ $lt['reason'] }}”</span>@endif
+            </div>
+            @if ($ltStatus !== 'pending')
+                <div><span class="font-semibold {{ $ltStatus === 'rejected' ? 'text-red-600' : 'text-green-700' }}">{{ $ltStatus === 'rejected' ? __('auction.lock_hist_rejected') : __('auction.lock_hist_approved', ['count' => $lt['approved_count'] ?? '—']) }}</span>
+                    {{ __('auction.lock_hist_decided_line', ['by' => $lt['decided_by_name'] ?: '—', 'at' => $fmt($lt['decided_at'] ?? null)]) }}
+                    <span class="block {{ $ltStatus === 'rejected' ? 'text-red-700' : 'text-gray-600' }}">{{ ! empty($lt['note']) ? '“'.$lt['note'].'”' : __('auction.lock_hist_no_note') }}</span>
+                </div>
+            @endif
+        </div>
+    @endif
     {{-- 대기 건이 있으면 새 요청은 못 보낸다(ERP 409). 그 외에는 대수가 남아 있어도 추가 요청 가능 — 승인되면 더해진다(Jin 2026-11-19). --}}
     @if ($ltStatus === 'pending')
         <p class="mt-1 text-gray-600">{{ __('auction.lock_req_pending_hint') }}</p>
@@ -37,8 +52,8 @@
         <button type="button" class="btn-outline btn-sm mt-1.5" wire:click="cancelLockRequest" wire:confirm="{{ __('auction.lock_req_cancel_confirm', ['count' => $lt['requested_count'] ?? '—']) }}"
                 wire:loading.attr="disabled" wire:target="cancelLockRequest">{{ __('auction.lock_req_cancel_btn') }}</button>
     @else
-        @if ($rem < 1 && $ltStatus === 'rejected' && ! empty($lt['note']))
-            <p class="mt-1 text-gray-600">{{ __('auction.lock_req_rejected_reason', ['reason' => $lt['note']]) }}</p>
+        @if ($rem < 1 && $ltStatus === 'rejected')
+            <p class="mt-1 text-gray-600">{{ __('auction.lock_req_rejected_again') }}</p>
         @endif
         @if ($rem > 0)<p class="mt-1.5 text-[10px] text-gray-400">{{ __('auction.lock_req_more') }}</p>@endif
         <div class="mt-1.5 flex items-start gap-1.5">

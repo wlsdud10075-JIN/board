@@ -560,7 +560,10 @@ class CarErpReadService
                 'status' => (string) data_get($latest, 'status', ''),
                 'requested_count' => is_numeric(data_get($latest, 'requested_count')) ? (int) data_get($latest, 'requested_count') : null,
                 'approved_count' => is_numeric(data_get($latest, 'approved_count')) ? (int) data_get($latest, 'approved_count') : null,
-                'note' => data_get($latest, 'decision_note'),
+                'note' => data_get($latest, 'decision_note'),           // ERP 승인·거절 메모(2026-11-24 Jin — 승인 때 쓴 것도 보여 준다)
+                'reason' => data_get($latest, 'reason'),                 // 요청 사유(영업이 적은 것)
+                'requested_by_name' => data_get($latest, 'requested_by_name'),
+                'decided_by_name' => data_get($latest, 'decided_by_name'),
                 'requested_at' => data_get($latest, 'requested_at'),
                 'decided_at' => data_get($latest, 'decided_at'),
             ] : null,
