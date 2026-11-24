@@ -36,11 +36,15 @@
     $alimtalkAttention = $user->isSuper() ? \App\Models\AlimtalkLog::needsAttention()->count() : 0;
 
     // 업무일지 결재 — 지금 내 차례인 기안 수(결재 직급 있는 사람만 쿼리).
+    // 오늘 할 일 배지(2026-11-24) — 판정은 TodayList 한 곳. 화면 이동마다 다시 세지 않게 사용자별 30초.
+    $todayCount = ($user->hasFullAccess() || in_array($user->role, ['sales', 'manager'], true))
+        ? \Illuminate\Support\Facades\Cache::remember('today-badge:'.$user->id, 30, fn () => \App\Support\TodayList::badgeCount($user)) : 0;
     $journalTurn = $user->isJournalApprover() ? app(\App\Services\WorkJournalService::class)->myTurnCount($user) : 0;
 
     $routeName = request()->route()?->getName();
     $breadcrumb = match ($routeName) {
         'dashboard' => __('nav.crumb.dashboard'),
+        'today' => __('nav.crumb.today'),
         'listings' => __('nav.crumb.listings'),
         'forwarding' => __('nav.crumb.forwarding'),
         'verdicts' => __('nav.crumb.verdicts'),
@@ -67,6 +71,7 @@
     $menuGroups = [
         // 업무 흐름 순서대로 (등록 → 검차 → 전달 → 회신 → 구매확정 → 포털). 영업은 본인 역할 항목만 보여 순서 유지.
         ['key' => 'work', 'label' => __('nav.group.work'), 'items' => [
+            ['label' => __('nav.menu.today'), 'href' => route('today'), 'icon' => 'clipboard', 'active' => request()->routeIs('today'), 'show' => $can(['sales', 'manager']), 'badge' => $todayCount ?: null],
             ['label' => __('nav.menu.listings'), 'href' => route('listings'), 'icon' => 'clipboard', 'active' => request()->routeIs('listings'), 'show' => $can(['sales', 'manager']), 'badge' => $pendingPromo ?: null],
             ['label' => __('nav.menu.inspection'), 'href' => route('inspection'), 'icon' => 'camera', 'active' => request()->routeIs('inspection'), 'show' => $can(['inspection', 'manager'])],
             ['label' => __('nav.menu.forwarding'), 'href' => route('forwarding'), 'icon' => 'paper-airplane', 'active' => request()->routeIs('forwarding'), 'show' => $can(['sales', 'manager']), 'badge' => $pendingForward ?: null],

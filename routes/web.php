@@ -50,19 +50,20 @@ Route::middleware(['auth'])->group(function () {
     // 로그인 후 role 별 홈으로 분기
     Route::get('dashboard', function () {
         $user = auth()->user();
-        if ($user->hasFullAccess()) {   // super·업무관리자는 역할 무관 관리자 페이지로
-            return redirect()->route('manage');
+        // 「오늘 할 일」(2026-11-24 Jin (나)안) = 영업·관리·전체 접근 등급의 첫 화면. 현지확인·경매 role 은 종전대로.
+        if ($user->hasFullAccess()) {
+            return redirect()->route('today');
         }
 
         return redirect()->route(match ($user->role) {
             'inspection' => 'inspection',
             'auction' => 'auction',
-            'manager' => 'manage',
-            default => 'listings',
+            default => 'today',
         });
     })->name('dashboard');
 
     // ── board 4뷰 ──
+    Volt::route('today', 'today.index')->middleware('role:sales,manager')->name('today');   // 오늘 할 일(2026-11-24)
     Volt::route('listings', 'listings.index')->middleware('role:sales,manager')->name('listings');
     // 전달 대기 — 검차완료(inspected) 차를 영업이 바이어에게 전달(→awaiting_buyer). SalesmanScope 자동격리.
     Volt::route('forwarding', 'forwarding.index')->middleware('role:sales,manager')->name('forwarding');
