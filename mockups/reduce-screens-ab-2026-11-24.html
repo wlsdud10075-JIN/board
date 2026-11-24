@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>화면 줄이기 두 안</title>
+<link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600" rel="stylesheet">
+<link rel="stylesheet" href="reduce-screens-2026-11-24/app.css">
+<style>
+  /* 목업 전용 — 빌드 CSS 에 없는 것만 */
+  .mk-wrap{max-width:1320px;margin:0 auto;padding:16px}
+  .mk-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+  .mk-tabs button{border:1px solid #d1d5db;background:#fff;border-radius:8px;padding:7px 12px;font-size:13px;font-weight:600;color:#4b5563;cursor:pointer}
+  .mk-tabs button.on{background:#7c3aed;border-color:#7c3aed;color:#fff}
+  .mk-tabs.big button{font-size:15px;padding:9px 16px}
+  .mk-explain{background:#faf5ff;border:1px solid #e9d5ff;border-radius:8px;padding:10px 14px;font-size:13px;color:#3b0764;margin-bottom:12px;line-height:1.6}
+  .mk-alt,.mk-scene{display:none}
+  .mk-alt.on,.mk-scene.on{display:block}
+  .mk-frame{position:relative;overflow:hidden;transform:translateZ(0);height:780px;border:1px solid #cbd5e1;border-radius:10px;background:#f9fafb;box-shadow:0 4px 18px rgba(0,0,0,.08)}
+  .mk-phone{position:relative;overflow:hidden;transform:translateZ(0);width:390px;height:800px;border:10px solid #111827;border-radius:34px;background:#f9fafb;flex-shrink:0}
+  .mk-phones{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+  .mk-cap{font-size:12px;color:#6b7280;margin:6px 0 0 4px;max-width:390px}
+  .co{display:inline-flex;width:20px;height:20px;border-radius:9999px;background:#7c3aed;color:#fff;font-size:11px;font-weight:700;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 0 0 3px #ede9fe}
+  .co-note{position:relative;z-index:60;display:flex;gap:6px;align-items:flex-start;background:#faf5ff;border:1px dashed #a78bfa;border-radius:6px;padding:6px 8px;font-size:11.5px;line-height:1.45;color:#4c1d95;margin:6px 0}
+  .co-float{position:absolute;z-index:60;max-width:250px}
+  /* 비교표 */
+  .mk-cmp{width:100%;border-collapse:collapse;background:#fff;font-size:13px;margin-bottom:14px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden}
+  .mk-cmp th,.mk-cmp td{border-bottom:1px solid #e5e7eb;padding:7px 10px;text-align:left;vertical-align:top}
+  .mk-cmp thead th{background:#f3f4f6;font-weight:700;color:#374151}
+  .mk-cmp tbody th{width:150px;color:#4b5563;font-weight:600;background:#fafafa}
+  .good{color:#047857;font-weight:600}.bad{color:#b91c1c;font-weight:600}.mid{color:#b45309;font-weight:600}
+  /* (가) 단계 한 줄 */
+  .sline{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;border:1px solid var(--color-primary);background:#f5f8ff;border-radius:6px;padding:5px 8px;margin-bottom:10px}
+  .dots{display:flex;align-items:center;gap:3px}
+  .md{width:9px;height:9px;border-radius:9999px;background:#d1d5db}
+  .md.done{background:#10b981}
+  .md.cur{background:var(--color-primary);box-shadow:0 0 0 3px #ece9f8}
+  .md.skip{background:transparent;border:1px dashed #d1d5db}
+  .dash{width:8px;height:2px;background:#e5e7eb}
+  .slabel{font-size:12px;font-weight:700;color:var(--color-primary-text);white-space:nowrap}
+  .slabel small{font-weight:500;color:#9ca3af;margin-right:3px}
+  .sacts{display:flex;flex-wrap:wrap;gap:4px;margin-left:auto}
+  .mk-ph{background:#e5e7eb;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:11px}
+  .mk-gone-tag{font-size:10px;background:#a78bfa;color:#fff;border-radius:9999px;padding:1px 6px;margin-left:auto;white-space:nowrap}
+  .sidebar-item.mk-gone{opacity:.45}.sidebar-item.mk-gone .flex-1{text-decoration:line-through}
+  .mk-row-hot{background:#f5f3ff !important;box-shadow:inset 3px 0 0 #7c3aed}
+  .todo{display:flex;gap:10px;align-items:flex-start}
+  .todo .ic{font-size:18px;line-height:1;margin-top:2px}
+  .todo.red{border-left:4px solid #ef4444}.todo.amber{border-left:4px solid #f59e0b}.todo.blue{border-left:4px solid #3b82f6}
+</style>
+</head>
+<body class="bg-gray-50">
+<div class="mk-wrap">
+  <h1 class="text-xl font-bold text-gray-800">화면 줄이기 — 두 가지 안</h1>
+  <p class="mt-0.5 mb-3 text-xs text-gray-500">영업 계정(김영업) 기준. 앞 목업에서 단계 상자가 드로어 탭을 아래로 밀어낸 문제를 반영했습니다. 값은 전부 예시입니다.</p>
+
+  <table class="mk-cmp">
+    <thead><tr><th></th><th>(가) 합치되 단계는 한 줄로만</th><th>(나) 화면은 그대로, 「오늘 할 일」에서 바로 열기</th></tr></thead>
+    <tbody>
+      <tr><th>화면 수 (영업 업무 메뉴)</th><td class="good">5개 → 3개</td><td class="mid">5개 → 6개 (「오늘 할 일」 추가)</td></tr>
+      <tr><th>드로어 탭 밀림</th><td class="good">없음 — 단계는 탭 위 한 줄(버튼 포함)</td><td class="good">해당 없음 — 드로어는 지금 그대로</td></tr>
+      <tr><th>바뀌는 습관</th><td class="bad">큼 — 전달·회신을 매입예정 탭 → 드로어에서. 사진은 「검차」 탭에서 봄</td><td class="good">작음 — 첫 화면만 바뀌고, 누르면 아는 화면이 열림</td></tr>
+      <tr><th>견적 통화 문제</th><td class="bad">남음 — 금액 칸을 빼면 통화만 필수로 남고, 링크의 「견적」이 빔. 정리 필요</td><td class="good">지금 그대로 (전달 화면에 금액 칸·통화 그대로)</td></tr>
+      <tr><th>바이어별 묶음 보기</th><td class="bad">사라짐 — 차 한 대씩 회신 처리</td><td class="good">유지 — 회신 화면의 바이어별 묶음 그대로</td></tr>
+      <tr><th>손대는 범위</th><td class="bad">큼 (드로어·검차 탭·사이드바·알림 문구·가이드 여러 장)</td><td class="good">작음 (새 화면 1개 + 두 화면에 「바로 열기」)</td></tr>
+    </tbody>
+  </table>
+
+  <div class="mk-tabs big" id="alt-tabs">
+    <button data-a="altA" class="on">(가) 합치되 단계는 한 줄로만</button>
+    <button data-a="altB">(나) 화면 그대로 + 「오늘 할 일」</button>
+  </div>
+
+  <!-- ══════════════════ (가) ══════════════════ -->
+  <div class="mk-alt on" id="altA">
+    <div class="mk-tabs" data-group="A">
+      <button data-s="a1" class="on">가-1 드로어 (기본 탭)</button>
+      <button data-s="a2">가-2 드로어 (검차 탭)</button>
+      <button data-s="a3">가-3 회신대기 차</button>
+      <button data-s="a4">📱 가-4 폰</button>
+      <button data-s="a5">가-5 사이드바</button>
+    </div>
+
+    <section class="mk-scene on" id="a1">
+      <div class="mk-explain">검차완료 차(90마5678)를 연 모습. 제목 바로 아래 <b>한 줄</b>에 단계 점 + 지금 단계 이름 + 그 단계 버튼만 있고, 탭은 지금과 같은 자리에 있습니다.</div>
+      <div class="mk-frame">
+        <div class="flex h-full">
+          <div data-sidebar="after" data-active="listings"></div>
+          <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <div data-topbar="매입예정(Invoice)"></div>
+            <main class="flex-1 overflow-auto bg-gray-50"><div data-listings="inspected"></div></main>
+          </div>
+        </div>
+        <div class="co-note co-float" style="left:250px;top:330px;max-width:320px"><span class="co">1</span><span>단계는 <b>한 줄(버튼 포함)</b>만 차지합니다. 기본·검차·첨부·Invoice·탁송 배차 탭은 지금 위치 그대로라 아래로 밀리지 않습니다.</span></div>
+        <div class="co-note co-float" style="left:250px;top:420px;max-width:320px"><span class="co">4</span><span>셀프검차매입 차는 검차·전달·회신이 없어 단계 줄이 이렇게 보입니다:<br>
+          <span class="sline" style="margin:4px 0 0;display:inline-flex"><span class="dots"><span class="md done"></span><span class="dash"></span><span class="md skip"></span><span class="dash"></span><span class="md skip"></span><span class="dash"></span><span class="md skip"></span><span class="dash"></span><span class="md cur"></span></span><span class="slabel"><small>등록 →</small>구매</span><span class="text-[11px] text-gray-400">검차·전달·회신 건너뜀</span></span></span></div>
+        <div class="fixed inset-0 z-40 bg-black/40"></div>
+        <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[440px]" data-ga="inspected:basic"></div>
+      </div>
+    </section>
+
+    <section class="mk-scene" id="a2">
+      <div class="mk-explain">같은 차에서 「검차」 탭을 누른 모습. 지금 「전달 대기」 화면에 있던 사진·영상·견적 통화·바이어 링크가 <b>검차 탭 맨 위 「바이어 전달」</b>로 들어옵니다. 금액 칸은 넣지 않습니다(금액은 경매/구매 화면에서).</div>
+      <div class="mk-frame">
+        <div class="flex h-full">
+          <div data-sidebar="after" data-active="listings"></div>
+          <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <div data-topbar="매입예정(Invoice)"></div>
+            <main class="flex-1 overflow-auto bg-gray-50"><div data-listings="inspected"></div></main>
+          </div>
+        </div>
+        <div class="fixed inset-0 z-40 bg-black/40"></div>
+        <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[440px]" data-ga="inspected:inspection"></div>
+      </div>
+    </section>
+
+    <section class="mk-scene" id="a3">
+      <div class="mk-explain">회신대기 차(11바2222). 한 줄에 「바이어 회신」 화면의 버튼 세 개가 그대로 들어갑니다. 아래 탭은 기본 탭이 열린 그대로입니다.</div>
+      <div class="mk-frame">
+        <div class="flex h-full">
+          <div data-sidebar="after" data-active="listings"></div>
+          <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <div data-topbar="매입예정(Invoice)"></div>
+            <main class="flex-1 overflow-auto bg-gray-50"><div data-listings="awaiting_buyer"></div></main>
+          </div>
+        </div>
+        <div class="co-note co-float" style="left:250px;top:330px;max-width:320px"><span class="co">5</span><span>[재견적]은 단계 줄을 「바이어 전달」로 되돌립니다. 다만 지금 회신 화면처럼 <b>같은 바이어의 여러 대를 한 번에 보는 묶음</b>은 없어지고 차 한 대씩 처리합니다.</span></div>
+        <div class="fixed inset-0 z-40 bg-black/40"></div>
+        <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[440px]" data-ga="awaiting:basic"></div>
+      </div>
+    </section>
+
+    <section class="mk-scene" id="a4">
+      <div class="mk-explain">폰에서 가-1. 한 줄이 좁으면 버튼만 아랫줄로 내려가고(두 줄), 탭은 여전히 바로 아래에 있습니다.</div>
+      <div class="mk-phones">
+        <div>
+          <div class="mk-phone">
+            <div class="flex h-full flex-col">
+              <div data-topbar="매입예정(Invoice)" data-mobile="1"></div>
+              <main class="flex-1 overflow-auto bg-gray-50"></main>
+            </div>
+            <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl" data-ga="inspected:basic:m"></div>
+          </div>
+          <p class="mk-cap">검차완료 차 · 기본 탭</p>
+        </div>
+        <div>
+          <div class="mk-phone">
+            <div class="flex h-full flex-col">
+              <div data-topbar="매입예정(Invoice)" data-mobile="1"></div>
+              <main class="flex-1 overflow-auto bg-gray-50"></main>
+            </div>
+            <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl" data-ga="awaiting:basic:m"></div>
+          </div>
+          <p class="mk-cap">회신대기 차 · 버튼 세 개가 아랫줄로</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="mk-scene" id="a5">
+      <div class="mk-explain">사이드바에서 「전달 대기」「바이어 회신」이 빠집니다. 그 차들은 매입예정의 「검차완료」「회신대기」 탭에 있습니다.</div>
+      <div class="mk-frame">
+        <div class="flex h-full">
+          <div data-sidebar="marked" data-active="listings"></div>
+          <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <div data-topbar="매입예정(Invoice)"></div>
+            <main class="flex-1 overflow-auto bg-gray-50"><div data-listings="all"></div></main>
+          </div>
+        </div>
+        <div class="co-note co-float" style="left:232px;top:240px;max-width:300px"><span class="co">6</span><span>메뉴가 빠지면 지금 「전달 대기」 옆 주황 숫자(검차완료 대수)와 「🔔 검차완료 N대 — 전달 대기」 알림이 갈 곳을 새로 정해야 합니다(예: 매입예정 옆 숫자).</span></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ══════════════════ (나) ══════════════════ -->
+  <div class="mk-alt" id="altB">
+    <div class="mk-tabs" data-group="B">
+      <button data-s="b1" class="on">나-1 오늘 할 일</button>
+      <button data-s="b2">나-2 전달 대기로 바로 열기</button>
+      <button data-s="b3">나-3 바이어 회신으로 바로 열기</button>
+      <button data-s="b4">📱 나-4 폰</button>
+    </div>
+
+    <section class="mk-scene on" id="b1">
+      <div class="mk-explain">사이드바는 지금 그대로 두고, 맨 위에 「오늘 할 일」 하나만 더합니다. 로그인하면 이 화면이 먼저 뜨고, 줄의 버튼을 누르면 <b>지금 쓰는 그 화면</b>이 그 차를 연 채로 열립니다.</div>
+      <div class="mk-frame">
+        <div class="flex h-full">
+          <div data-sidebar="today" data-active="today"></div>
+          <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <div data-topbar="오늘 할 일"></div>
+            <main class="flex-1 overflow-auto bg-gray-50"><div data-today></div></main>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="mk-scene" id="b2">
+      <div class="mk-explain">[전달 화면에서 열기]를 누른 결과. 지금의 「전달 대기」 화면이 그대로 열리고, 그 차 줄이 표시된 채 상세 창이 자동으로 열려 있습니다. 위에 「← 오늘 할 일」 칩으로 돌아갑니다.</div>
+      <div class="mk-frame">
+        <div class="flex h-full">
+          <div data-sidebar="today" data-active="forwarding"></div>
+          <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <div data-topbar="전달 대기"></div>
+            <main class="flex-1 overflow-auto bg-gray-50">
+              <div class="p-3 md:p-6">
+                <button type="button" class="btn-outline btn-sm mb-2">← 오늘 할 일</button>
+                <div class="mb-4">
+                  <h1 class="text-xl font-bold text-gray-800">전달 대기</h1>
+                  <p class="mt-0.5 text-xs text-gray-500">🔍 검차완료 차의 사진을 받아(다운로드/공유) 바이어에게 보낸 뒤, "전달 완료"를 누르면 "바이어 회신"으로 넘어갑니다.</p>
+                </div>
+                <div class="card" style="max-width:520px">
+                  <div class="mb-3 flex items-center gap-2"><h2 class="font-bold text-gray-800">검차완료 · 전달 대기</h2><span class="pill-count">2대 대기</span></div>
+                  <table class="tbl">
+                    <thead><tr><th>차량</th><th>출처</th><th>최종금액</th><th>추가검사사항</th><th style="text-align:right">상세</th></tr></thead>
+                    <tbody>
+                      <tr class="cursor-pointer mk-row-hot">
+                        <td class="whitespace-nowrap align-middle"><div class="font-semibold text-gray-800">90마5678</div><div class="text-xs text-gray-400">홍길동</div><div class="mt-1 flex gap-1"><span class="badge badge-green">검차완료</span><span class="badge badge-blue">📷 6</span></div></td>
+                        <td class="align-middle"><span class="badge badge-blue">싼카-재고</span></td>
+                        <td class="align-middle font-semibold text-[var(--color-primary-text)]">18,500,000원</td>
+                        <td class="max-w-[200px] truncate align-middle text-xs text-gray-500">앞범퍼 도색</td>
+                        <td class="whitespace-nowrap align-middle text-right font-medium text-[var(--color-primary-text)]">상세 ›</td>
+                      </tr>
+                      <tr class="cursor-pointer hover:bg-gray-50">
+                        <td class="whitespace-nowrap align-middle"><div class="font-semibold text-gray-800">44마4444</div><div class="text-xs text-gray-400">—</div><div class="mt-1 flex gap-1"><span class="badge badge-green">검차완료</span><span class="badge badge-amber">사진 없음</span></div></td>
+                        <td class="align-middle"><span class="badge badge-encar">엔카</span></td>
+                        <td class="align-middle font-semibold text-gray-400">—</td>
+                        <td class="max-w-[200px] truncate align-middle text-xs text-gray-500">—</td>
+                        <td class="whitespace-nowrap align-middle text-right font-medium text-[var(--color-primary-text)]">상세 ›</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="co-note" style="max-width:520px;margin-top:12px"><span class="co">8</span><span>화면·칸·버튼은 <b>하나도 안 바뀝니다</b>(금액 칸·견적 통화도 지금 그대로). 「오늘 할 일」에서 온 차만 자동으로 열어 주고, 돌아갈 칩을 붙입니다.</span></div>
+              </div>
+            </main>
+          </div>
+        </div>
+        <div class="fixed inset-0 z-40 bg-black/40"></div>
+        <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[440px]" data-fwd-drawer></div>
+      </div>
+    </section>
+
+    <section class="mk-scene" id="b3">
+      <div class="mk-explain">회신 줄의 [회신 화면에서 열기]를 누른 결과. 지금의 「바이어 회신」 화면이 열리고, 그 바이어 묶음이 맨 위·표시된 채로, 그 차 상세 창이 열려 있습니다.</div>
+      <div class="mk-frame">
+        <div class="flex h-full">
+          <div data-sidebar="today" data-active="verdicts"></div>
+          <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <div data-topbar="바이어 회신"></div>
+            <main class="flex-1 overflow-auto bg-gray-50">
+              <div class="p-3 md:p-6">
+                <button type="button" class="btn-outline btn-sm mb-2">← 오늘 할 일</button>
+                <div class="mb-4">
+                  <h1 class="text-xl font-bold text-gray-800">바이어 회신</h1>
+                  <p class="mt-0.5 text-xs text-gray-500">회신대기 차량을 바이어별로 묶어 표시 · 차마다 수락/거절을 처리하세요 (한 바이어가 여러 대 검토 가능)</p>
+                </div>
+                <div class="card mb-4 mk-row-hot" style="max-width:560px">
+                  <div class="mb-3 flex items-center justify-between border-b border-gray-100 pb-2"><div><span class="font-bold text-gray-800">🧑 BUYER GAMMA</span><span class="ml-1 text-gray-400">· 2대 회신대기</span></div></div>
+                  <table class="tbl">
+                    <thead><tr><th>차량</th><th>출처</th><th>최종금액</th><th>추가검사사항</th><th style="text-align:right">회신 처리</th></tr></thead>
+                    <tbody>
+                      <tr class="cursor-pointer" style="background:#ede9fe">
+                        <td class="whitespace-nowrap align-middle"><div class="font-semibold text-gray-800">11바2222</div><div class="text-xs text-gray-400">소유자 —</div></td>
+                        <td class="align-middle"><span class="badge badge-encar">엔카</span></td>
+                        <td class="align-middle font-semibold text-[var(--color-primary-text)]">21,300,000원</td>
+                        <td class="max-w-[200px] truncate align-middle text-xs text-gray-500">타이어 교체 필요</td>
+                        <td class="whitespace-nowrap align-middle text-right font-medium text-[var(--color-primary-text)]">상세 ›</td>
+                      </tr>
+                      <tr class="cursor-pointer hover:bg-gray-50">
+                        <td class="whitespace-nowrap align-middle"><div class="font-semibold text-gray-800">55사5555</div><div class="text-xs text-gray-400">소유자 —</div></td>
+                        <td class="align-middle"><span class="badge badge-blue">싼카-재고</span></td>
+                        <td class="align-middle font-semibold text-[var(--color-primary-text)]">16,800,000원</td>
+                        <td class="max-w-[200px] truncate align-middle text-xs text-gray-500">—</td>
+                        <td class="whitespace-nowrap align-middle text-right font-medium text-[var(--color-primary-text)]">상세 ›</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="card mb-4" style="max-width:560px">
+                  <div class="flex items-center justify-between"><div><span class="font-bold text-gray-800">🧑 BUYER BETA</span><span class="ml-1 text-gray-400">· 1대 회신대기</span></div></div>
+                </div>
+                <div class="co-note" style="max-width:560px"><span class="co">9</span><span><b>바이어별 묶음이 그대로 남습니다</b> — 같은 바이어의 다른 차(55사5555)도 한눈에 보며 이어서 처리할 수 있습니다.</span></div>
+              </div>
+            </main>
+          </div>
+        </div>
+        <div class="fixed inset-0 z-40 bg-black/40"></div>
+        <div class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto bg-white shadow-xl sm:w-[440px]">
+          <div class="flex items-center justify-between border-b border-gray-200 px-5 py-4"><h3 class="font-bold text-gray-800">11바2222 · 상세</h3><button class="text-gray-400 hover:text-gray-600">✕</button></div>
+          <div class="px-5 py-4 text-sm">
+            <div class="card-sm mb-3 bg-gray-50 text-xs text-gray-600"><span class="badge badge-encar">엔카</span> · 🧑 <b>BUYER GAMMA</b> · 영업 <b>김영업</b></div>
+            <div class="grid grid-cols-2 gap-2 text-xs text-gray-500">
+              <div>차값<br><b class="text-sm text-gray-800">21,300,000원</b></div>
+              <div>할인율<br><b class="text-sm text-gray-800">—</b></div>
+              <div>배송<br><b class="text-sm text-gray-800">—</b></div>
+              <div>추가검사사항<br><b class="text-sm text-gray-800">타이어 교체 필요</b></div>
+            </div>
+            <div class="mt-3 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5"><span class="font-semibold text-gray-700">현지 최종금액</span><span class="text-base font-bold text-[var(--color-primary-text)]">21,300,000원</span></div>
+            <div class="section-title-sm">차량 사진</div>
+            <div class="grid grid-cols-4 gap-2"><div class="mk-ph aspect-square w-full rounded-md">사진</div><div class="mk-ph aspect-square w-full rounded-md">사진</div><div class="mk-ph aspect-square w-full rounded-md">사진</div><div class="mk-ph aspect-square w-full rounded-md">사진</div></div>
+            <div class="section-title-sm">회신 처리</div>
+            <button class="btn-green w-full justify-center">수락</button>
+            <div class="mt-2 flex gap-2"><button class="btn-outline flex-1 justify-center">재견적 (전달대기로)</button><button class="btn-red flex-1 justify-center">거절 (딜 종료)</button></div>
+            <p class="mt-1 text-xs text-gray-400">재견적 = 거절 아님. 전달대기로 되돌려 통화/가격 조정 후 다시 보냅니다. 거절(딜 종료)은 되돌릴 수 없습니다.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="mk-scene" id="b4">
+      <div class="mk-explain">폰에서 나-1. 줄마다 버튼이 하나라 엄지로 바로 누릅니다.</div>
+      <div class="mk-phones">
+        <div>
+          <div class="mk-phone">
+            <div class="flex h-full flex-col">
+              <div data-topbar="오늘 할 일" data-mobile="1"></div>
+              <main class="flex-1 overflow-auto bg-gray-50"><div data-today="m"></div></main>
+            </div>
+          </div>
+          <p class="mk-cap">오늘 할 일 — 폰</p>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+(function () {
+  var I = {
+    clipboard: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>',
+    chat: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4-.8L3 20l1.3-3.9A7.96 7.96 0 013 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>',
+    wallet: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M21 12V7H5a2 2 0 010-4h14v4M3 5v14a2 2 0 002 2h16v-5M18 12a2 2 0 000 4h4v-4h-4z"/>',
+    banknotes: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 8h18v8H3V8zm9 4a2 2 0 11-4 0 2 2 0 014 0zm-9 0h.01M21 12h.01"/>',
+    plane: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6 12L3.27 4.36a.6.6 0 01.83-.73l16.5 7.82a.6.6 0 010 1.08l-16.5 7.82a.6.6 0 01-.83-.73L6 12zm0 0h7"/>',
+    document: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>',
+    cog: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>',
+    book: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>',
+    logout: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>',
+    menu: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 6h16M4 12h16M4 18h16"/>',
+    chev: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/>',
+    bell: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2a2 2 0 01-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>'
+  };
+  function svg(p) { return '<svg class="sidebar-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">' + I[p] + '</svg>'; }
+  function item(key, label, icon, active, extra, cls) {
+    return '<a class="sidebar-item ' + (active === key ? 'is-active ' : '') + (cls || '') + '">' + svg(icon) + '<span class="flex-1 truncate">' + label + '</span>' + (extra || '') + '</a>';
+  }
+  function badge(n) { return '<span class="ml-auto rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">' + n + '</span>'; }
+  function group(label, body) {
+    return '<div><button type="button" class="sidebar-section-label flex w-full items-center justify-between hover:text-white"><span>' + label + '</span><svg class="h-3 w-3 shrink-0 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">' + I.chev + '</svg></button><div>' + body + '</div></div>';
+  }
+  function sidebar(mode, active) {
+    var work = '';
+    if (mode === 'today') work += item('today', '오늘 할 일', 'clipboard', active, badge(3));
+    work += item('listings', '매입예정(Invoice)', 'clipboard', active);
+    if (mode === 'today') {
+      work += item('forwarding', '전달 대기', 'plane', active, badge(2));
+      work += item('verdicts', '바이어 회신', 'chat', active);
+    } else if (mode === 'marked') {
+      var tag = '<span class="mk-gone-tag">매입예정 드로어로</span>';
+      work += item('x', '전달 대기', 'plane', active, tag, 'mk-gone');
+      work += item('x', '바이어 회신', 'chat', active, tag, 'mk-gone');
+    }
+    work += item('auction', '경매/구매', 'banknotes', active);
+    work += item('portal', '내 정산·미수 (포털)', 'wallet', active);
+    return '<aside class="app-sidebar flex flex-col text-white shrink-0 h-full" style="width:220px">' +
+      '<div class="flex h-12 items-center border-b border-white/5 px-2 shrink-0"><a class="flex w-full items-center gap-2 overflow-hidden px-1.5"><span class="flex h-7 w-7 items-center justify-center rounded-md text-[11px] font-bold text-white shrink-0" style="background-color:var(--color-primary);">B</span><span class="min-w-0 flex-1 truncate text-[13px] font-medium text-white">Board</span></a></div>' +
+      '<div class="border-b border-white/5 px-3 py-3 shrink-0 overflow-hidden"><div class="truncate text-[13px] font-medium text-white">김영업</div><div class="text-[11px]" style="color:var(--color-sidebar-text);">영업</div></div>' +
+      '<nav class="flex-1 space-y-3 overflow-y-auto py-3">' + group('업무', work) + group('업무일지', item('wj', '업무일지', 'document', active)) + '</nav>' +
+      '<div class="border-t border-white/5 py-2 shrink-0">' + item('g', '업무 가이드', 'book', active) + item('s', '내 설정', 'cog', active) +
+      '<button type="button" class="sidebar-item w-[calc(100%-16px)] text-left">' + svg('logout') + '<span class="truncate">로그아웃</span></button></div></aside>';
+  }
+  function topbar(crumb, mobile) {
+    return '<header class="flex h-11 items-center border-b border-gray-200 bg-white px-3 shrink-0">' +
+      '<button type="button" class="flex h-8 w-8 items-center justify-center rounded text-gray-600 transition hover:bg-gray-100"><svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">' + I.menu + '</svg></button>' +
+      '<div class="ml-2 truncate text-[13px] text-gray-700">' + crumb + '</div><div class="ml-auto flex items-center gap-2">' +
+      '<button type="button" class="relative flex h-8 w-8 items-center justify-center rounded text-gray-600 transition hover:bg-gray-100"><svg class="h-[18px] w-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">' + I.bell + '</svg></button>' +
+      '<div class="flex shrink-0 items-center gap-0.5 rounded-md bg-gray-100 p-0.5"><button type="button" class="whitespace-nowrap rounded px-2 py-0.5 text-[11px] font-medium transition text-white" style="background-color: var(--color-primary)">' + (mobile ? 'KO' : '한국어') + '</button><button type="button" class="whitespace-nowrap rounded px-2 py-0.5 text-[11px] font-medium transition text-gray-500 hover:bg-gray-200">' + (mobile ? 'EN' : 'English') + '</button></div></div></header>';
+  }
+
+  // ───── 매입예정 목록 ─────
+  var ROWS = [
+    { d: '11-24', t: '09:12', p: '90마5678', vin: 'KMHJ381ABL', o: ['싼카-재고', 'badge-blue'], amt: '18,500,000원', req: '하부 누유 확인', note: '앞범퍼 도색', buyer: '—', v: null, s: ['검차완료 (전달대기)', 'badge-teal'], k: 'inspected' },
+    { d: '11-23', t: '16:40', p: '11바2222', vin: 'KNAPX81BBK', o: ['엔카', 'badge-encar'], amt: '21,300,000원', req: '—', note: '타이어 교체 필요', buyer: 'BUYER GAMMA', v: ['회신대기', 'badge-amber'], s: ['회신대기', 'badge-amber'], k: 'awaiting_buyer' },
+    { d: '11-23', t: '10:05', p: '22나3333', vin: 'KMHL141CBM', o: ['셀프검차매입', 'badge-purple'], amt: '15,900,000원', req: '—', note: '—', buyer: 'BUYER BETA', v: ['수락', 'badge-green'], s: ['구매대기', 'badge-teal'], k: 'accepted' },
+    { d: '11-24', t: '11:30', p: '33가1234', vin: 'KNAGM41BBL', o: ['싼카-경매', 'badge-blue'], amt: '—', req: '실내 냄새 확인', note: '—', buyer: '—', v: null, s: ['현지확인 대기', 'badge-blue'], k: 'draft' }
+  ];
+  var TABS = [['all', '전체', 4], ['active', '진행중', 4], ['draft', '현지확인 대기', 1], ['inspected', '검차완료', 1], ['awaiting_buyer', '회신대기', 1], ['accepted', '바이어수락', 1], ['won', '낙찰/확정', 0], ['synced', 'ERP 전환완료', 0], ['closed', '종료', 0]];
+  function chips(cur) {
+    var h = '';
+    TABS.forEach(function (t) {
+      var on = t[0] === cur;
+      h += '<button type="button" class="shrink-0 rounded-md border px-2.5 py-1.5 text-[12px] font-semibold ' + (on ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600') + '">' + t[1] + ' <span class="' + (on ? 'text-white/80' : 'text-gray-400') + '">' + t[2] + '</span></button>';
+    });
+    return h;
+  }
+  function listings(cur) {
+    var rows = ROWS.filter(function (r) { return cur === 'all' || r.k === cur; }), body = '';
+    rows.forEach(function (r) {
+      body += '<tr class="cursor-pointer hover:bg-gray-50"><td class="w-px whitespace-nowrap text-[12px] text-gray-600">' + r.d + '<div class="text-[11px] text-gray-400">' + r.t + '</div></td>' +
+        '<td class="w-px whitespace-nowrap"><div class="font-semibold text-gray-800">' + r.p + '</div><div class="text-xs text-gray-400">VIN ·' + r.vin + '</div></td>' +
+        '<td class="whitespace-nowrap"><span class="badge ' + r.o[1] + '">' + r.o[0] + '</span></td>' +
+        '<td class="font-semibold ' + (r.amt !== '—' ? 'text-[var(--color-primary-text)]' : 'text-gray-400') + '">' + r.amt + '</td>' +
+        '<td class="max-w-[180px] truncate text-xs text-gray-600">' + r.req + '</td><td class="max-w-[180px] truncate text-xs text-gray-500">' + r.note + '</td>' +
+        '<td class="max-w-[160px] truncate text-gray-700">' + r.buyer + '</td>' +
+        '<td class="whitespace-nowrap">' + (r.v ? '<span class="badge ' + r.v[1] + '">' + r.v[0] + '</span>' : '<span class="text-gray-300">—</span>') + '</td>' +
+        '<td class="whitespace-nowrap"><span class="badge ' + r.s[1] + '">' + r.s[0] + '</span></td>' +
+        '<td class="whitespace-nowrap"><span class="badge badge-gray">미입력</span></td></tr>';
+    });
+    return '<div class="p-3 md:p-6"><div class="mb-4"><h1 class="text-xl font-bold text-gray-800">매입예정(Invoice)</h1><p class="mt-0.5 text-xs text-gray-500">🔒 본인(김영업) 리스트만 표시 — 서버/DB 레벨 격리</p></div>' +
+      '<div class="card"><div class="mb-3 flex items-center justify-between"><h2 class="font-bold text-gray-800">내 매입예정 리스트 <span class="text-gray-400">· ' + rows.length + '건</span></h2><button class="btn-primary">+ 매입예정 추가</button></div>' +
+      '<div class="mb-3 -mx-1 flex min-w-0 gap-1 overflow-x-auto whitespace-nowrap px-1 pb-1">' + chips(cur) + '</div>' +
+      '<div class="overflow-x-auto"><table class="tbl tbl-center"><thead><tr><th class="w-px whitespace-nowrap">등록일</th><th class="w-px whitespace-nowrap">차량</th><th>출처</th><th>최종금액</th><th>추가 검사 요청</th><th>검차 메모</th><th>바이어</th><th>바이어 회신</th><th>상태</th><th>Invoice</th></tr></thead><tbody>' + body + '</tbody></table></div>' +
+      '<p class="mt-2 text-xs text-gray-400">💡 행을 클릭하면 내용을 보고 수정할 수 있습니다 (시간잠금된 경매 차량 제외).</p></div></div>';
+  }
+
+  // ───── (가) 드로어 ─────
+  var CARS = {
+    inspected: { p: '90마5678', vin: 'KMHJ381ABLU000001', o: ['싼카-재고', 'badge-blue'], step: 3, label: '바이어 전달', st: ['검차완료 (전달대기)', 'badge-teal'], v: null, buyer: '—' },
+    awaiting: { p: '11바2222', vin: 'KNAPX81BBKK000002', o: ['엔카', 'badge-encar'], step: 4, label: '바이어 회신', st: ['회신대기', 'badge-amber'], v: ['회신대기', 'badge-amber'], buyer: 'BUYER GAMMA' }
+  };
+  var NAMES = ['등록', '검차', '바이어 전달', '회신', '구매'];
+  function stepLine(c) {
+    var dots = '';
+    for (var i = 1; i <= 5; i++) {
+      if (i > 1) dots += '<span class="dash"></span>';
+      dots += '<span class="md ' + (i < c.step ? 'done' : (i === c.step ? 'cur' : '')) + '" title="' + NAMES[i - 1] + '"></span>';
+    }
+    var acts = (c.step === 3)
+      ? '<button type="button" class="btn-outline btn-sm">🔗 전체 보내기</button><button type="button" class="btn-primary btn-sm">✅ 전달 완료</button>'
+      : '<button type="button" class="btn-green btn-sm">수락</button><button type="button" class="btn-outline btn-sm">재견적 (전달대기로)</button><button type="button" class="btn-red btn-sm">거절 (딜 종료)</button>';
+    var extra = (c.step === 3) ? '<span class="text-[11px] font-semibold text-amber-600">통화 미선택</span>' : '<span class="text-[11px] text-gray-500">🧑 BUYER GAMMA</span>';
+    return '<div class="sline"><span class="dots">' + dots + '</span><span class="slabel"><small>' + c.step + '/5</small>' + c.label + '</span>' + extra + '<span class="sacts">' + acts + '</span></div>';
+  }
+  function tabBar(cur) {
+    var h = '';
+    [['basic', '기본'], ['inspection', '검차'], ['attach', '첨부'], ['invoice', 'Invoice'], ['transport', '탁송 배차']].forEach(function (t) {
+      var on = t[0] === cur;
+      h += '<button type="button" class="shrink-0 whitespace-nowrap rounded-md border px-3 py-1.5 text-[12px] font-semibold ' + (on ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600') + '">' + t[1] + (t[0] === 'invoice' ? '<span class="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-red-500 align-middle"></span>' : '') + '</button>';
+    });
+    return '<div class="-mx-1 mb-3 flex gap-1 overflow-x-auto px-1 pb-1">' + h + '</div>';
+  }
+  function basicTab(c) {
+    return '<div class="card-sm mb-3 border-blue-100 bg-blue-50/50 text-[11px] text-gray-500">금액·입금계좌·차량첨부는 이후 단계(견적·전달 / 구매확정)에서 입력합니다.</div>' +
+      '<label class="label-base mt-3">지역</label><input class="input-base" value="경기 안산시">' +
+      '<label class="label-base mt-3">소유자 <span class="text-gray-400">(차주명)</span></label><input class="input-base" value="홍길동">' +
+      '<label class="label-base mt-3">추가 검사 요청</label><input class="input-base" value="하부 누유 확인">' +
+      '<div class="mt-4 grid grid-cols-2 gap-3 text-xs text-gray-500"><div>현지 최종금액<br><b class="text-sm text-gray-800">18,500,000원</b></div>' +
+      '<div>상태<br><span class="badge ' + c.st[1] + '">' + c.st[0] + '</span></div><div>바이어<br>' + (c.v ? '<span class="badge ' + c.v[1] + '">' + c.v[0] + '</span>' : '<span class="text-gray-300">—</span>') + '</div>' +
+      '<div>바이어명<br><b class="text-gray-800">' + c.buyer + '</b></div></div>';
+  }
+  function inspectionTab() {
+    return '<div class="rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] p-3 text-sm">' +
+      '<div class="font-bold text-[var(--color-primary-text)]">바이어 전달</div>' +
+      '<div class="section-title-sm">차량 사진</div><div class="grid grid-cols-4 gap-2"><div class="mk-ph aspect-square w-full rounded-md">사진</div><div class="mk-ph aspect-square w-full rounded-md">사진</div><div class="mk-ph aspect-square w-full rounded-md">사진</div><div class="mk-ph aspect-square w-full rounded-md">+3</div></div>' +
+      '<div class="section-title-sm">ssancar 검차영상</div><div class="grid grid-cols-4 gap-2"><div class="mk-ph col-span-2 aspect-video w-full rounded-md">▶ 영상</div><div class="mk-ph col-span-2 aspect-video w-full rounded-md">▶ 영상</div></div>' +
+      '<p class="mt-1 text-xs text-gray-400">ssancar 에서 자동 감지된 검차영상·사진입니다. 바이어 링크에 자동 포함돼 함께 전송됩니다.</p>' +
+      '<div class="section-title-sm">견적 통화 <span class="ml-1 text-[11px] font-semibold text-amber-600">통화 미선택</span></div>' +
+      '<div class="inline-flex overflow-hidden rounded-md border border-gray-300 text-xs"><button type="button" class="px-3 py-1 font-semibold bg-white text-gray-600">₩ KRW</button><button type="button" class="px-3 py-1 font-semibold bg-white text-gray-600">$ USD</button><button type="button" class="px-3 py-1 font-semibold bg-white text-gray-600">€ EUR</button></div>' +
+      '<p class="mt-1 text-xs text-gray-400">금액 미설정 — 가격 협의 중(카드 없이 사진만 전송).</p>' +
+      '<div class="co-note"><span class="co">3</span><span>바이어 링크에 <b>견적</b>이 실려 나가서 지금도 견적 통화를 골라야 전달됩니다. 이 탭에서 금액 칸을 빼면 통화만 남고 링크의 견적은 비어 나갑니다 — 통화를 계속 받을지 정해야 합니다.</span></div>' +
+      '<button type="button" class="btn-primary mt-3 w-full justify-center">🔗 바이어 링크 복사 (사진·영상·견적)</button>' +
+      '<p class="mt-1 text-xs text-gray-400">사진·영상·견적이 담긴 링크 1개가 복사됩니다. 카톡 PC / WhatsApp Web 창에 붙여넣어(Ctrl+V) 보내세요. (30일 유효)</p>' +
+      '<button type="button" class="btn-outline btn-sm mt-2 w-full justify-center">📤 사진 전체 공유 6장</button>' +
+      '<div class="section-title-sm">바이어명</div><input class="input-base" placeholder="바이어명 (선택)" value="BUYER BETA">' +
+      '</div>' +
+      '<div class="co-note"><span class="co">2</span><span>사진·영상·통화·링크는 「전달 대기」 화면에서 이 <b>검차 탭 맨 위</b>로 옮겨 옵니다. [전달 완료]는 위 단계 줄에 있습니다.</span></div>' +
+      '<p class="mt-3 text-[12px] text-gray-500">검차 단계는 지났습니다 — 현재 상태 검차완료 (전달대기). 검차 사진·영상은 위 「바이어 전달」에서 봅니다.</p>' +
+      '<div class="mt-3 text-[11px] text-gray-400">검차 메모</div><div class="text-[13px] text-gray-700">앞범퍼 도색</div>';
+  }
+  function gaDrawer(spec) {
+    var parts = spec.split(':'), c = CARS[parts[0]], tab = parts[1];
+    return '<div class="flex items-center justify-between border-b border-gray-200 px-5 py-4"><h3 class="font-bold text-gray-800">' + c.p + ' · 매입예정 수정</h3><button class="text-gray-400 hover:text-gray-600">✕</button></div>' +
+      '<div class="px-5 py-4">' + stepLine(c) +
+      '<div class="card-sm mb-3 bg-gray-50 text-xs text-gray-500">차량번호 <b>' + c.p + '</b> · VIN <b>' + c.vin + '</b> · <span class="badge ' + c.o[1] + '">' + c.o[0] + '</span> <span class="text-gray-400">(엔카 즉시구매)</span><br><span class="text-gray-400">식별값(차량번호·VIN)·출처는 수정 불가</span></div>' +
+      tabBar(tab) + (tab === 'basic' ? basicTab(c) : inspectionTab()) +
+      '<div class="mt-5 flex gap-2"><button class="btn-primary flex-1 justify-center">저장</button><button class="btn-ghost">취소</button></div></div>';
+  }
+
+  // ───── (나) 오늘 할 일 ─────
+  function today(mobile) {
+    var rows = [
+      ['red', '📎', '34나5678 · 구매확정을 못 하고 있습니다 — 첨부 0장', '금액·바이어는 저장돼 있고 사진·서류만 없습니다.', '구매대기 3일째', '열기'],
+      ['blue', '🎥', '90마5678 · 검차 영상 도착 — 바이어에게 전달할 수 있습니다', '검차 사진 6장 · 영상 2개가 들어왔습니다.', '검차완료 오늘 08:51', '전달 화면에서 열기'],
+      ['amber', '💬', '11바2222 · BUYER GAMMA 회신을 처리할 차례입니다', '같은 바이어에게 회신대기 차 2대 · 수락하면 구매대기로 넘어갑니다.', '전달 11-23 17:02 · 1일째', '회신 화면에서 열기']
+    ], h = '';
+    rows.forEach(function (r) {
+      h += '<div class="card-tight todo ' + r[0] + '"><div class="ic">' + r[1] + '</div><div class="min-w-0 flex-1"><div class="text-[13px] font-semibold text-gray-800">' + r[2] + '</div>' +
+        '<div class="mt-0.5 text-xs text-gray-500">' + r[3] + '</div><div class="mt-0.5 text-[11px] text-gray-400">' + r[4] + '</div>' +
+        (mobile ? '<button type="button" class="btn-primary btn-sm mt-2 w-full justify-center">' + r[5] + '</button>' : '') + '</div>' +
+        (mobile ? '' : '<button type="button" class="btn-primary btn-sm shrink-0">' + r[5] + '</button>') + '</div>';
+    });
+    var chip = function (l, n, on) { return '<button type="button" class="shrink-0 rounded-md border px-2.5 py-1.5 text-[12px] font-semibold ' + (on ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-white' : 'border-gray-300 bg-white text-gray-600') + '">' + l + ' <span class="' + (on ? 'text-white/80' : 'text-gray-400') + '">' + n + '</span></button>'; };
+    var co = mobile ? '' : '<div class="co-note" style="max-width:680px"><span class="co">7</span><span>줄은 board 가 이미 아는 사실(검차 영상 도착·회신 대기·첨부 0장 등)로만 만듭니다. 버튼은 <b>지금 쓰는 화면</b>을 그 차가 열린 채로 엽니다 — 전달 대기·바이어 회신 화면은 그대로 둡니다.</span></div>';
+    return '<div class="' + (mobile ? 'p-3' : 'p-3 md:p-6') + '"><div class="mb-4"><h1 class="text-xl font-bold text-gray-800">오늘 할 일</h1><p class="mt-0.5 text-xs text-gray-500">11월 24일 (월) · 김영업 · 지금 3건</p></div>' +
+      '<div class="card" style="max-width:720px"><div class="mb-3 -mx-1 flex min-w-0 gap-1 overflow-x-auto whitespace-nowrap px-1 pb-1">' + chip('전체', 3, true) + chip('막힘', 1) + chip('다음 단계 가능', 2) + '</div>' +
+      '<div class="space-y-2">' + h + '</div></div>' + co + '</div>';
+  }
+
+  // ───── (나-2) 지금의 전달 대기 상세 창 ─────
+  function fwdDrawer() {
+    return '<div class="flex items-center justify-between border-b border-gray-200 px-5 py-4"><h3 class="font-bold text-gray-800">90마5678 · 상세</h3><button class="text-gray-400 hover:text-gray-600">✕</button></div>' +
+      '<div class="px-5 py-4 text-sm"><div class="card-sm mb-3 bg-gray-50 text-xs text-gray-600"><span class="badge badge-blue">싼카-재고</span> · 영업 <b>김영업</b></div>' +
+      '<div class="section-title-sm">금액 (입력=미리보기 · [적용]에서 저장)</div><div class="grid grid-cols-2 gap-2">' +
+      '<div><label class="mb-0.5 block text-xs text-gray-500">차값 <span class="text-gray-400">(KRW)</span></label><input class="input-base" value="18500000"></div>' +
+      '<div><label class="mb-0.5 block text-xs text-gray-500">할인율 (%)</label><input class="input-base"></div>' +
+      '<div><label class="mb-0.5 block text-xs text-gray-500">차감액 <span class="text-gray-400">(원)</span></label><input class="input-base" placeholder="0"></div>' +
+      '<div><label class="mb-0.5 block text-xs text-gray-500">배송 (USD)</label><select class="input-base"><option>—</option></select></div></div>' +
+      '<div class="mt-3 flex items-center justify-between rounded-md border border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5"><span class="font-semibold text-gray-700">현지 최종금액</span><span class="text-base font-bold text-[var(--color-primary-text)]">18,500,000원</span></div>' +
+      '<div class="section-title-sm">견적 통화 <span class="ml-1 text-[11px] font-semibold text-amber-600">통화 미선택</span></div>' +
+      '<div class="inline-flex overflow-hidden rounded-md border border-gray-300 text-xs"><button class="px-3 py-1 font-semibold bg-white text-gray-600">₩ KRW</button><button class="px-3 py-1 font-semibold bg-white text-gray-600">$ USD</button><button class="px-3 py-1 font-semibold bg-white text-gray-600">€ EUR</button></div>' +
+      '<div class="section-title-sm">차량 사진</div><div class="grid grid-cols-4 gap-2"><div class="mk-ph aspect-square w-full rounded-md">사진</div><div class="mk-ph aspect-square w-full rounded-md">사진</div><div class="mk-ph aspect-square w-full rounded-md">사진</div><div class="mk-ph aspect-square w-full rounded-md">사진</div></div>' +
+      '<button class="btn-primary mt-3 w-full justify-center">🔗 바이어 링크 복사 (사진·영상·견적)</button>' +
+      '<div class="section-title-sm">바이어 전달</div><input class="input-base" placeholder="바이어명 (선택)">' +
+      '<button class="btn-primary mt-2 w-full justify-center">✅ 전달 완료</button><p class="mt-1 text-xs text-gray-400">바이어에게 보냈으면 누르세요. (자동채널 연결 시 사진+최종금액도 함께 발송) → "바이어 회신" 화면으로.</p></div>';
+  }
+
+  document.querySelectorAll('[data-sidebar]').forEach(function (el) { el.outerHTML = sidebar(el.dataset.sidebar, el.dataset.active); });
+  document.querySelectorAll('[data-topbar]').forEach(function (el) { el.outerHTML = topbar(el.dataset.topbar, el.dataset.mobile === '1'); });
+  document.querySelectorAll('[data-listings]').forEach(function (el) { el.outerHTML = listings(el.dataset.listings); });
+  document.querySelectorAll('[data-ga]').forEach(function (el) { el.innerHTML = gaDrawer(el.dataset.ga); });
+  document.querySelectorAll('[data-today]').forEach(function (el) { el.outerHTML = today(el.dataset.today === 'm'); });
+  document.querySelectorAll('[data-fwd-drawer]').forEach(function (el) { el.innerHTML = fwdDrawer(); });
+
+  // ───── 전환 ─────
+  var alts = document.querySelectorAll('#alt-tabs button');
+  alts.forEach(function (b) {
+    b.addEventListener('click', function () {
+      alts.forEach(function (x) { x.classList.toggle('on', x === b); });
+      document.querySelectorAll('.mk-alt').forEach(function (a) { a.classList.toggle('on', a.id === b.dataset.a); });
+    });
+  });
+  document.querySelectorAll('[data-group]').forEach(function (g) {
+    var bs = g.querySelectorAll('button'), root = g.parentNode;
+    bs.forEach(function (b) {
+      b.addEventListener('click', function () {
+        bs.forEach(function (x) { x.classList.toggle('on', x === b); });
+        root.querySelectorAll('.mk-scene').forEach(function (s) { s.classList.toggle('on', s.id === b.dataset.s); });
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
