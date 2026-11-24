@@ -967,10 +967,10 @@ class BoardTest extends TestCase
 
     public function test_dashboard_redirects_by_role(): void
     {
-        $this->actingAs($this->mkUser('sales'))->get('/dashboard')->assertRedirect('/listings');
+        $this->actingAs($this->mkUser('sales'))->get('/dashboard')->assertRedirect('/today');   // 오늘 할 일(2026-11-24)
         $this->actingAs($this->mkUser('inspection'))->get('/dashboard')->assertRedirect('/inspection');
         $this->actingAs($this->mkUser('auction'))->get('/dashboard')->assertRedirect('/auction');
-        $this->actingAs($this->mkUser('manager'))->get('/dashboard')->assertRedirect('/manage');
+        $this->actingAs($this->mkUser('manager'))->get('/dashboard')->assertRedirect('/today');
     }
 
     public function test_sales_is_isolated_to_own_listings(): void
@@ -9195,7 +9195,7 @@ class BoardTest extends TestCase
             $this->get($path)->assertOk();
         }
         $this->get('/admin/settings')->assertForbidden();
-        $this->get('/dashboard')->assertRedirect(route('manage'));
+        $this->get('/dashboard')->assertRedirect(route('today'));   // 전체 접근 등급 첫 화면 = 오늘 할 일(2026-11-24)
     }
 
     /** 영업 role 에 업무관리자 등급을 얹으면 본인 격리가 풀려 전체를 본다(메뉴가 전체인데 목록만 본인 것이면 어긋난다). */

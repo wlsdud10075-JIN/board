@@ -624,6 +624,12 @@ class CarErpReadService
         return $this->post('/claims', ['salesman_email' => $email], $payload);
     }
 
+    /** POST /claims/bundle(§20, 2026-11-24) — 같은 바이어 클레임 N건을 한 번에. 전부 받거나 전부 거절. 서명 이메일 = 누른 담당자(ERP 는 범위 검사에 안 씀). */
+    public function sendClaimBundle(string $email, array $payload): array
+    {
+        return $this->post('/claims/bundle', ['salesman_email' => $email], $payload);
+    }
+
     /**
      * GET /requests — 상태 폴링(칩 갱신). 응답 = {count, requests[{batch_id,type,status,buyer_name,requested_at,vehicles[]}]}.
      * 묶음 status = open | partial | done | cancelled (ERP 집계값). **board 가 재계산·완료 coerce 금지**(§11-4 항목 4).
@@ -780,6 +786,7 @@ class CarErpReadService
         $type = match (true) {
             $endpoint === '/requests' => 'board_request',
             $endpoint === '/claims' => 'claim_mirror',
+            $endpoint === '/claims/bundle' => 'claim_bundle',   // 클레임 묶음(§20, 2026-11-24)
             str_ends_with($endpoint, '/assign-buyer') => 'assign_buyer',   // 재고매입 차 바이어 지정(§19, 2026-11-24)
             str_ends_with($endpoint, '/stock-location') => 'stock_location',   // 탁송 도착 위치 → ERP 보관 위치(2026-11-12)
             $endpoint === '/shipping-requests/sync' => 'shipping_sync',

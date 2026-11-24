@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
 use Livewire\WithFileUploads;
 
@@ -98,11 +99,22 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public int $krwPerEur = 0;
 
+    /** 「오늘 할 일」 바로 열기(2026-11-24) — `?open=<id>` 면 mount 에서 그 차 상세 창을 연다(스코프·상태가 안 맞으면 조용히 무시). `from=today` 면 돌아갈 칩. */
+    #[Url(except: 0)]
+    public int $open = 0;
+
+    #[Url(except: '')]
+    public string $from = '';
+
     public function mount(ExchangeRateService $rates): void
     {
         $rates->refreshIfStale();   // 오래됐을 때만 갱신(lazy)
         $this->krwPerUsd = $rates->krwPerUsd();
         $this->krwPerEur = $rates->krwPerEur();
+        if ($this->open > 0 && PurchaseListing::whereIn('status', ['accepted', 'won', 'failed'])->whereKey($this->open)->exists()) {
+            $this->openDetail($this->open);
+        }
+        $this->open = 0;
     }
 
     private function usdRate(): int
@@ -1087,6 +1099,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             <span>✓</span><span x-text="msg"></span>
         </div>
     </div>
+    @include('livewire._back-today', ['from' => $from])
     <div class="mb-4">
         <h1 class="text-xl font-bold text-gray-800">{{ __('auction.title') }}</h1>
         <p class="mt-0.5 text-xs text-gray-500">{!! __('auction.subtitle') !!}</p>

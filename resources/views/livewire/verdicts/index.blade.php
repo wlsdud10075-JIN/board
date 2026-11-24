@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
 
 /**
@@ -16,6 +17,21 @@ use Livewire\Volt\Component;
 new #[Layout('components.layouts.app')] class extends Component {
     /** 상세 드로어 — 영업이 검차 사진/금액을 보고 바이어와 협의 후 회신(읽기전용 + 수락/거절). */
     public ?int $detailId = null;
+
+    /** 「오늘 할 일」 바로 열기(2026-11-24) — `?open=<id>` 면 mount 에서 그 차 상세 창을 연다(스코프·상태가 안 맞으면 조용히 무시). `from=today` 면 돌아갈 칩. */
+    #[Url(except: 0)]
+    public int $open = 0;
+
+    #[Url(except: '')]
+    public string $from = '';
+
+    public function mount(): void
+    {
+        if ($this->open > 0 && PurchaseListing::where('status', 'awaiting_buyer')->whereKey($this->open)->exists()) {
+            $this->openDetail($this->open);
+        }
+        $this->open = 0;
+    }
 
     /** 회신대기 차를 바이어(respond_contact_id ?: buyer_name)별로 그룹 */
     #[Computed]
@@ -112,6 +128,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 }; ?>
 
 <div class="p-3 md:p-6">
+    @include('livewire._back-today', ['from' => $from])
     <div class="mb-4">
         <h1 class="text-xl font-bold text-gray-800">{{ __('verdicts.title') }}</h1>
         <p class="mt-0.5 text-xs text-gray-500">{!! __('verdicts.subtitle', ['accept' => '<b>'.__('verdicts.accept').'</b>', 'reject' => '<b>'.__('verdicts.reject').'</b>']) !!}</p>

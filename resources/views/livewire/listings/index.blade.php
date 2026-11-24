@@ -53,6 +53,16 @@ new #[Layout('components.layouts.app')] class extends Component {
     #[Url]
     public int $edit = 0;
 
+    /** 「오늘 할 일」 바로 열기(2026-11-24) — `?open=<id>` 면 mount 에서 그 차 상세 창을 연다(스코프·상태가 안 맞으면 조용히 무시). `from=today` 면 돌아갈 칩. */
+    #[Url(except: 0)]
+    public int $open = 0;
+
+    #[Url(except: '')]
+    public string $from = '';
+
+    #[Url(except: '')]
+    public string $dtab = '';
+
     /**
      * 검색(2026-11-05 Jin) — 차량번호·바이어·담당자 한 칸 + 차대번호 한 칸. 목록·탭 건수가 같은 조건(tabQuery·tabCounts → applySearch).
      * 차량번호는 공백을 무시하고 부분일치(「12가 3456」도 걸린다). 바이어 = 직접 적은 이름·ERP 바이어 이름 둘 다.
@@ -250,6 +260,12 @@ new #[Layout('components.layouts.app')] class extends Component {
             $this->drawerTab = 'transport';
         }
         $this->edit = 0;
+        if ($this->open > 0 && PurchaseListing::whereKey($this->open)->exists()) {
+            $this->openEdit($this->open);
+            $this->drawerTab = in_array($this->dtab, ['basic', 'inspection', 'attach', 'invoice', 'transport'], true) ? $this->dtab : 'basic';
+        }
+        $this->open = 0;
+        $this->dtab = '';
         $this->qInput = $this->q;      // ?q= 로 들어오면 입력칸에도 보이게
         $this->vinInput = $this->qVin;
         $rates->refreshIfStale();   // 오래됐을 때만 갱신(lazy, cron 불필요)
@@ -1946,6 +1962,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             <span>✓</span><span x-text="msg"></span>
         </div>
     </div>
+    @include('livewire._back-today', ['from' => $from])
     {{-- 헤더 --}}
     <div class="mb-4 flex items-start justify-between gap-3">
         <div>
