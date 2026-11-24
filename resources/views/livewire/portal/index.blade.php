@@ -442,7 +442,7 @@ new #[Layout('components.layouts.app')] class extends Component {
     public function portalUsers()
     {
         $me = Auth::user();
-        if ($me->hasFullAccess()) {
+        if ($me->seesAllPortals()) {
             return User::whereIn('role', ['sales', 'manager'])
                 ->where('is_active', true)
                 ->orderBy('name')
@@ -475,7 +475,7 @@ new #[Layout('components.layouts.app')] class extends Component {
      */
     public function settlementHidden(): bool
     {
-        return $this->isViewingOther() && ! Auth::user()->hasFullAccess();
+        return $this->isViewingOther() && ! Auth::user()->seesAllPortals();
     }
 
     /** 정산·지급·마진 키를 재귀로 제거(ERP `/finance`·by-buyer 행의 settlement_pending_count·payout_*·margin_rate 등 — 이름 패턴 거부가 열거보다 안전). */
@@ -1570,7 +1570,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         <div class="card-sm mb-3" style="background:#f8f9fb">
             <div class="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
                 <span class="text-[12px] font-semibold text-gray-600">👁️ {{ __('portal.view_by_user') }}</span>
-                <span class="text-[11px] text-gray-400">{{ auth()->user()->hasFullAccess() ? __('portal.view_by_user_hint') : __('portal.view_by_user_hint_manager') }}</span>
+                <span class="text-[11px] text-gray-400">{{ auth()->user()->seesAllPortals() ? __('portal.view_by_user_hint') : __('portal.view_by_user_hint_manager') }}</span>
             </div>
             @if ($this->settlementHidden())
                 <p class="mb-1.5 text-[11px] font-semibold text-amber-700">🔒 {{ __('portal.settlement_hidden_notice') }}</p>

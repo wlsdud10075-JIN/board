@@ -9239,6 +9239,25 @@ class BoardTest extends TestCase
         Http::assertNotSent(fn ($req) => $req->method() === 'POST');
     }
 
+    /** 영업 역할 업무관리자는 포털에서 남의 것을 못 본다(2026-11-24 Jin) — 다른 화면 전체 접근은 그대로. */
+    public function test_sales_role_work_manager_sees_only_own_portal(): void
+    {
+        $this->carErpReadConfig();
+        Http::fake(['*' => Http::response(['count' => 0, 'data' => []], 200)]);
+        $other = $this->mkUser('sales');
+        $other->update(['car_erp_salesman_email' => 'other2@ce.test']);
+        $me = $this->mkUser('sales', null, 'manager');
+        $this->assertTrue($me->hasFullAccess());
+        $this->assertFalse($me->canViewOthersPortal());
+        $this->assertTrue($this->mkUser('manager', null, 'manager')->canViewOthersPortal());
+
+        $this->actingAs($me);
+        Volt::test('portal.index')->assertDontSee('사용자별 조회')
+            ->call('viewUser', $other->id)->assertSet('viewUserId', null);
+        Http::assertNotSent(fn ($req) => str_contains($req->url(), 'salesman_email=other2%40ce.test'));
+        $this->get('/manage')->assertOk();   // 관리자 화면 등 전체 접근은 그대로
+    }
+
     // ───── 관리 담당 영업 지정 → 포털 조회 전용·정산 숨김 (2026-11-02 Jin, car-erp manager_salesman 미러) ─────
 
     private function designatedManager(array $salesIds): User

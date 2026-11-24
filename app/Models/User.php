@@ -233,12 +233,21 @@ class User extends Authenticatable // implements MustVerifyEmail
     }
 
     /**
-     * 남의 포털을 **볼** 수 있나 — super·업무관리자(전체, 정산 포함) 또는 담당 영업이 지정된 관리(지정된 영업만, 정산 제외).
+     * 남의 포털을 **볼** 수 있나 — 전체(`seesAllPortals`) 또는 담당 영업이 지정된 관리(지정된 영업만, 정산 제외).
      * 대신 실행(쓰기)은 여전히 super 만(`proxyWriteBlocked`).
      */
     public function canViewOthersPortal(): bool
     {
-        return $this->hasFullAccess() || ($this->isManager() && $this->managedSalesmanUsers()->exists());
+        return $this->seesAllPortals() || ($this->isManager() && $this->managedSalesmanUsers()->exists());
+    }
+
+    /**
+     * 포털을 **전부** 볼 수 있나(정산 포함) — super + 역할이 「관리」인 최고관리자·업무관리자(2026-11-24 Jin 「관리&업무관리자만 남의 것,
+     * 영업이면서 업무관리자면 포털에서 남의 것 볼 수 없게」). 영업 역할 업무관리자는 자기 포털만 — 다른 화면의 전체 접근(`hasFullAccess`)은 그대로.
+     */
+    public function seesAllPortals(): bool
+    {
+        return $this->isSuper() || ($this->hasFullAccess() && $this->isManager());
     }
 
     /** respond.io 상담원 이메일 — 매핑값 우선, 없으면 로그인 이메일(연동 A 승격 라우팅). */
