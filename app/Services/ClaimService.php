@@ -14,6 +14,7 @@ use App\Support\Plate;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * 클레임 흐름의 단일 경로(2026-11-10, 정본 = meetings/plan-claims-2026-11.md) — 접수 · ERP 스냅샷 · 보고서 저장 · 대표 승인 요청/재전송 · 결정 · 종결.
@@ -534,29 +535,8 @@ class ClaimService
             return ['ok' => false, 'message' => __('claims.erp_send_not_ready')];
         }
         $approved = in_array($claim->status, [Claim::APPROVED, Claim::CLOSED], true) && $claim->decision === Claim::APPROVED;
-        $final = $claim->lineSteps()->last();
-        $sales = $claim->salesman;
-        $email = $sales ? ($sales->car_erp_salesman_email ?: $sales->email) : '';
-        $payload = [
-            'board_claim_id' => $claim->id,
-            'revision' => (int) $claim->revision,
-            'vehicle_id' => $claim->car_erp_vehicle_id ?: null,
-            'buyer_id' => $claim->car_erp_buyer_id ?: null,
-            'buyer_name' => $claim->buyer_name,
-            'vehicle_number' => $claim->vehicle_number,
-            'vin' => $claim->vin,
-            'confirmed_amount' => $approved ? (float) $claim->confirmed_amount : 0.0,
-            'currency' => $claim->claim_currency ?: $claim->sale_currency,
-            'compensation_type' => $claim->compensation_type,
-            'result' => $approved ? 'accepted' : 'declined',
-            'result_reason' => $approved ? ($claim->result_reason ?: $claim->result) : ($claim->decision_reason ?: $claim->result_reason),
-            'approved_at' => $claim->decided_at?->toIso8601String(),
-            'approved_by_name' => $claim->approver?->name ?? $final?->approver?->name,
-            'handler_name' => $claim->requester?->name ?? $handler->name,
-            'salesman_email' => $email,
-            'buyer_claim_count' => $claim->buyerClaimCount(),
-            'board_url' => route('claims'),
-        ];
+        $payload = $this->erpPayload($claim, $handler);
+        $email = $payload['salesman_email'];
 
         $r = $this->erp->sendClaim($email, $payload);
         if ($r['ok'] ?? false) {
@@ -578,6 +558,112 @@ class ClaimService
         $this->audit($claim, $handler->id, 'claim_erp_send', null, __('claims.audit_erp_failed', ['rev' => $claim->revision, 'reason' => $msg]));
 
         return ['ok' => false, 'message' => $msg];
+    }
+
+    /** ERP 클레임 미러 1건 payload(§15) — 단건 [ERP 로 보내기]와 묶음(§20 items[])이 같은 모양을 쓴다. */
+    public function erpPayload(Claim $claim, User $handler): array
+    {
+        $approved = in_array($claim->status, [Claim::APPROVED, Claim::CLOSED], true) && $claim->decision === Claim::APPROVED;
+        $final = $claim->lineSteps()->last();
+        $sales = $claim->salesman;
+        $email = $sales ? ($sales->car_erp_salesman_email ?: $sales->email) : '';
+
+        return [
+            'board_claim_id' => $claim->id,
+            'revision' => (int) $claim->revision,
+            'vehicle_id' => $claim->car_erp_vehicle_id ?: null,
+            'buyer_id' => $claim->car_erp_buyer_id ?: null,
+            'buyer_name' => $claim->buyer_name,
+            'vehicle_number' => $claim->vehicle_number,
+            'vin' => $claim->vin,
+            'confirmed_amount' => $approved ? (float) $claim->confirmed_amount : 0.0,
+            'currency' => $claim->claim_currency ?: $claim->sale_currency,
+            'compensation_type' => $claim->compensation_type,
+            'result' => $approved ? 'accepted' : 'declined',
+            'result_reason' => $approved ? ($claim->result_reason ?: $claim->result) : ($claim->decision_reason ?: $claim->result_reason),
+            'approved_at' => $claim->decided_at?->toIso8601String(),
+            'approved_by_name' => $claim->approver?->name ?? $final?->approver?->name,
+            'handler_name' => $claim->requester?->name ?? $handler->name,
+            'salesman_email' => $email,
+            'buyer_claim_count' => $claim->buyerClaimCount(),
+            'board_url' => route('claims'),
+        ];
+    }
+
+    /**
+     * [묶어서 ERP 로 보내기](2026-11-24 Jin) — 같은 바이어의 승인 클레임 N건을 한 번에(car-erp `board-portal-api.md` §20 `POST /claims/bundle`).
+     * ERP 는 **전부 받거나 전부 거절**한다(바이어·통화·합계·회차 검증 뒤 한 트랜잭션). 항목 = 단건 payload 그대로(차량별 금액·판매 영업 유지),
+     * 합계(`total`)는 ERP 검증용. 이미 단건으로 보낸 같은 회차는 ERP 가 묶음 번호만 붙인다(「연결」).
+     * 판매 영업이 달라도 묶는다(Jin 「영업이 퇴사해도 바이어는 남는다」). 성공 = 건마다 erp_claim_id·묶음 번호·감사 행, 실패 = 아무것도 안 바꾸고 사유.
+     *
+     * @param  list<int>  $ids
+     * @return array{ok: bool, message: ?string, bundle_id?: string}
+     */
+    public function sendBundle(array $ids, User $handler): array
+    {
+        $claims = Claim::with(['salesman', 'requester', 'approver', 'steps.approver'])->whereIn('id', array_unique(array_map('intval', $ids)))->orderBy('id')->get();
+        if ($claims->count() < 2) {
+            return ['ok' => false, 'message' => __('claims.bundle.err_min')];
+        }
+        if ($claims->contains(fn ($c) => ! $c->canBundle())) {
+            return ['ok' => false, 'message' => __('claims.bundle.err_not_ready')];
+        }
+        if ($claims->pluck('car_erp_buyer_id')->map(fn ($v) => (int) $v)->unique()->count() !== 1) {
+            return ['ok' => false, 'message' => __('claims.bundle.err_buyer')];
+        }
+        $items = $claims->map(fn ($c) => $this->erpPayload($c, $handler))->values()->all();
+        if (collect($items)->pluck('currency')->unique()->count() !== 1) {
+            return ['ok' => false, 'message' => __('claims.bundle.err_currency')];
+        }
+        $bundleId = self::newBundleId();
+        $requester = $handler->car_erp_salesman_email ?: $handler->email;
+        $payload = [
+            'board_bundle_id' => $bundleId,
+            'buyer_id' => (int) $claims->first()->car_erp_buyer_id,
+            'currency' => $items[0]['currency'],
+            'total' => round(array_sum(array_column($items, 'confirmed_amount')), 2),
+            'requested_by_email' => $requester,
+            'items' => $items,
+        ];
+
+        $r = $this->erp->sendClaimBundle($requester, $payload);
+        if (! ($r['ok'] ?? false)) {
+            $msg = trim((string) ($r['message'] ?? '')) ?: ($r['reason'] ?? 'HTTP '.($r['status'] ?? 0));
+            foreach ($claims as $c) {
+                $this->audit($c, $handler->id, 'claim_erp_bundle', null, __('claims.bundle.audit_failed', ['bundle' => $bundleId, 'count' => $claims->count(), 'reason' => $msg]));
+            }
+
+            return ['ok' => false, 'message' => $msg];
+        }
+
+        $erpIds = collect(data_get($r['data'], 'items', data_get($r['data'], 'data.items', [])))->keyBy(fn ($row) => (int) data_get($row, 'board_claim_id'));
+        foreach ($claims as $c) {
+            $wasSent = $c->erp_sent_at !== null && (int) $c->erp_sent_revision === (int) $c->revision;
+            $c->forceFill([
+                'erp_bundle_id' => $bundleId,
+                'erp_claim_id' => data_get($erpIds->get($c->id), 'erp_claim_id', $c->erp_claim_id),
+                'erp_sent_at' => $wasSent ? $c->erp_sent_at : now(), 'erp_sent_revision' => $c->revision,
+                'erp_sent_by_user_id' => $wasSent ? $c->erp_sent_by_user_id : $handler->id, 'erp_send_error' => null,
+            ])->saveQuietly();
+            $this->audit($c, $handler->id, 'claim_erp_bundle', null, __('claims.bundle.audit_sent', [
+                'bundle' => $bundleId, 'count' => $claims->count(), 'amount' => $c->amountDisplay('confirmed_amount'),
+                'total' => $payload['currency'].' '.number_format($payload['total'], 2), 'mode' => __($wasSent ? 'claims.bundle.mode_linked' : 'claims.bundle.mode_sent'),
+            ]));
+            // 처음 ERP 로 가는 건만 「ERP 전송 완료」 알림(이미 단건으로 보낸 건은 그때 이미 갔다).
+            if (! $wasSent) {
+                $this->notifyExtras($c, AlimtalkRecipients::CLAIM_ERP_SENT, $this->detailVars($c), []);
+            }
+        }
+
+        return ['ok' => true, 'message' => null, 'bundle_id' => $bundleId];
+    }
+
+    /** 묶음 번호 — 인스턴스 이름 + 시각 + 3자(ERP 는 40자 문자열 그대로 비교, 형식 제약 없음). 실패하면 다음 시도는 새 번호(ERP 가 전부 거절했으니 반쪽 묶음이 없다). */
+    public static function newBundleId(): string
+    {
+        $inst = preg_replace('/[^a-z0-9]+/', '', strtolower((string) config('app.name'))) ?: 'board';
+
+        return mb_substr($inst.'-B'.now()->format('ymdHis').strtoupper(Str::random(3)), 0, 40);
     }
 
     // ── 종결 ──

@@ -814,4 +814,102 @@ class ClaimsTest extends TestCase
         $this->assertStringNotContainsString('처리 사유', $v['사유']);   // 빈 칸은 줄째 뺀다
         $this->assertLessThanOrEqual(1000, mb_strlen(AlimtalkTemplates::render('board_claim_decision', $v)));
     }
+
+    // ── 묶어서 ERP 로 보내기(2026-11-24 Jin) ──
+
+    /** 승인된 클레임 1건 + 같은 바이어의 다른 차 승인 클레임(복제) 1건. */
+    private function approvedPair(): array
+    {
+        [$c, $sales, $h, $ceo] = $this->pending();
+        $this->post($this->decideUrl($c, $ceo), ['action' => 'approve', 'confirmed_amount' => '850'])->assertOk();
+        $c->refresh();
+        $c2 = $c->replicate();
+        $c2->forceFill(['car_erp_vehicle_id' => 56, 'vehicle_number' => '34나5678', 'vin' => 'VIN56', 'confirmed_amount' => 400])->saveQuietly();
+
+        return [$c, $c2->fresh(), $sales, $h];
+    }
+
+    public function test_bundle_sends_items_with_total_and_links_already_sent_claim(): void
+    {
+        [$c, $c2, $sales, $h] = $this->approvedPair();
+        app(ClaimService::class)->sendToErp($c, $h);   // 1건은 이미 단건으로 보냄
+        $sentAt = $c->fresh()->erp_sent_at;
+        $this->claimMirror = ['status' => 201, 'body' => ['board_bundle_id' => 'x', 'items' => [['board_claim_id' => $c->id, 'erp_claim_id' => 41], ['board_claim_id' => $c2->id, 'erp_claim_id' => 42]]]];
+
+        $this->actingAs($h);
+        Volt::test('claims.index')->call('togglePick', $c->id)->call('togglePick', $c2->id)->assertSet('pick', [$c->id, $c2->id])
+            ->call('openBundleModal')->assertSet('bundleModal', true)->assertSee('EUR 1,250.00')->assertSee(__('claims.bundle.state_linked'))
+            ->call('sendBundle')->assertSet('pick', [])->assertSet('bundleModal', false);
+
+        $c->refresh();
+        $c2->refresh();
+        $this->assertNotNull($c->erp_bundle_id);
+        $this->assertSame($c->erp_bundle_id, $c2->erp_bundle_id);
+        $this->assertSame(42, (int) $c2->erp_claim_id);
+        $this->assertNotNull($c2->erp_sent_at);
+        $this->assertTrue($sentAt->equalTo($c->erp_sent_at));   // 연결 = 보낸 시각 그대로
+        $this->assertFalse($c->canBundle());
+        Http::assertSent(function ($req) use ($c) {
+            if (! str_ends_with(parse_url($req->url(), PHP_URL_PATH), '/claims/bundle')) {
+                return false;
+            }
+            $d = $req->data();
+
+            return $d['buyer_id'] === 7 && $d['currency'] === 'EUR' && $d['total'] == 1250 && count($d['items']) === 2
+                && $d['items'][0]['board_claim_id'] === $c->id && $d['items'][1]['confirmed_amount'] == 400
+                && $d['items'][1]['salesman_email'] !== '' && str_contains($d['board_bundle_id'], '-B');
+        });
+        $this->assertSame(2, BoardAuditLog::where('field', 'claim_erp_bundle')->count());
+    }
+
+    public function test_bundle_refused_by_erp_changes_nothing(): void
+    {
+        [$c, $c2, $sales, $h] = $this->approvedPair();
+        $this->claimMirror = ['status' => 409, 'body' => ['message' => '다른 묶음에 이미 든 건이 있습니다']];
+        $r = app(ClaimService::class)->sendBundle([$c->id, $c2->id], $h);
+        $this->assertFalse($r['ok']);
+        $this->assertStringContainsString('다른 묶음', $r['message']);
+        $this->assertNull($c->fresh()->erp_bundle_id);
+        $this->assertNull($c2->fresh()->erp_sent_at);
+    }
+
+    public function test_bundle_only_same_buyer_and_approved(): void
+    {
+        [$c, $c2, $sales, $h] = $this->approvedPair();
+        $c2->forceFill(['car_erp_buyer_id' => 99, 'buyer_name' => 'Other'])->saveQuietly();
+        $this->assertSame('err_buyer', $this->bundleErr([$c->id, $c2->id], $h));
+        $this->actingAs($h);
+        Volt::test('claims.index')->call('togglePick', $c->id)->call('togglePick', $c2->id)
+            ->assertSet('pick', [$c2->id])->assertSet('bundleNotice', __('claims.bundle.other_buyer'));
+
+        $c2->forceFill(['car_erp_buyer_id' => 7, 'decision' => Claim::REJECTED, 'status' => Claim::REJECTED])->saveQuietly();
+        $this->assertSame('err_not_ready', $this->bundleErr([$c->id, $c2->id], $h));
+        $this->assertSame('err_min', $this->bundleErr([$c->id], $h));
+        Http::assertNotSent(fn ($req) => str_contains($req->url(), '/claims/bundle'));
+    }
+
+    private function bundleErr(array $ids, User $h): ?string
+    {
+        $r = app(ClaimService::class)->sendBundle($ids, $h);
+        foreach (['err_min', 'err_not_ready', 'err_buyer', 'err_currency'] as $k) {
+            if ($r['message'] === __('claims.bundle.'.$k)) {
+                return $k;
+            }
+        }
+
+        return $r['message'];
+    }
+
+    public function test_claim_sent_to_erp_cannot_be_sent_for_approval_again(): void
+    {
+        [$c, $c2, $sales, $h] = $this->approvedPair();
+        $this->assertTrue($c->canRequestApproval());   // 보내기 전엔 재승인 가능(종전)
+        app(ClaimService::class)->sendToErp($c, $h);
+        $c->refresh();
+        $this->assertFalse($c->canRequestApproval());
+        $this->actingAs($h);
+        Volt::test('claims.index')->call('openDetail', $c->id)->assertSee('data-erp-locked', false);
+        $this->expectException(\DomainException::class);
+        app(ClaimService::class)->requestApproval($c, $h, ['대표' => $c->approver_user_id ?? $h->id]);
+    }
 }

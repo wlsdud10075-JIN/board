@@ -62,6 +62,15 @@ new #[Layout('components.layouts.app')] class extends Component
 
     public ?string $error = null;
 
+    /** 묶어서 ERP 로 보내기(2026-11-24 Jin) — 목록에서 체크한 클레임 id(같은 바이어만). */
+    public array $pick = [];
+
+    public bool $bundleModal = false;
+
+    public ?string $bundleNotice = null;
+
+    public ?string $bundleError = null;
+
     public function mount(): void
     {
         abort_unless(Auth::user()->isClaimHandler(), 403);
@@ -344,6 +353,67 @@ new #[Layout('components.layouts.app')] class extends Component
         $this->refreshDetail();
     }
 
+    /** 목록 체크 — 묶을 수 있는 건만. 다른 바이어 건을 고르면 앞 선택을 풀고 그 건부터 새로(같은 바이어만 묶인다). */
+    public function togglePick(int $id): void
+    {
+        $this->bundleError = null;
+        $this->bundleNotice = null;
+        $c = Claim::find($id);
+        if (! $c || ! $c->canBundle()) {
+            return;
+        }
+        if (in_array($id, $this->pick, true)) {
+            $this->pick = array_values(array_diff($this->pick, [$id]));
+
+            return;
+        }
+        $first = $this->pick ? Claim::find($this->pick[0]) : null;
+        if ($first && (int) $first->car_erp_buyer_id !== (int) $c->car_erp_buyer_id) {
+            $this->pick = [$id];
+            $this->bundleNotice = __('claims.bundle.other_buyer');
+
+            return;
+        }
+        $this->pick[] = $id;
+    }
+
+    public function clearPick(): void
+    {
+        $this->reset('pick', 'bundleModal', 'bundleNotice', 'bundleError');
+    }
+
+    #[Computed]
+    public function picked()
+    {
+        return $this->pick ? Claim::whereIn('id', $this->pick)->orderBy('id')->get() : collect();
+    }
+
+    public function openBundleModal(): void
+    {
+        $this->bundleError = null;
+        $this->bundleModal = count($this->pick) >= 2;
+    }
+
+    public function closeBundleModal(): void
+    {
+        $this->bundleModal = false;
+    }
+
+    /** 모달 [N건 묶어서 보내기] — ERP 가 전부 받거나 전부 거절. 실패하면 모달에 사유를 남기고 선택은 그대로. */
+    public function sendBundle(ClaimService $svc): void
+    {
+        $r = $svc->sendBundle($this->pick, Auth::user());
+        if (! $r['ok']) {
+            $this->bundleError = __('claims.bundle.failed', ['reason' => $r['message']]);
+
+            return;
+        }
+        $n = count($this->pick);
+        $this->reset('pick', 'bundleModal', 'bundleError');
+        unset($this->picked);
+        $this->bundleNotice = __('claims.bundle.sent_ok', ['count' => $n, 'bundle' => $r['bundle_id']]);
+    }
+
     public function reloadErp(ClaimService $svc): void
     {
         $c = $this->detail;
@@ -412,12 +482,29 @@ new #[Layout('components.layouts.app')] class extends Component
         @endforeach
     </div>
 
+    {{-- 묶어서 ERP 로 보내기(2026-11-24 Jin) — 같은 바이어 승인 건을 체크하면 나타난다. --}}
+    @if ($bundleNotice)<div class="card-sm mb-3 border-green-200 bg-green-50 text-[13px] text-green-700" data-bundle-notice>✓ {{ $bundleNotice }}</div>@endif
+    @if (count($pick) > 0)
+        @php $pk = $this->picked; $pkCur = $pk->first()?->claim_currency ?: $pk->first()?->sale_currency; @endphp
+        <div class="card-sm mb-3 flex flex-wrap items-center gap-2 border-[var(--color-primary)] bg-[#f5f8ff] text-[13px]" data-bundle-bar>
+            <span class="font-semibold text-gray-800">{{ __('claims.bundle.selected', ['count' => $pk->count(), 'buyer' => $pk->first()?->buyer_name ?: '—', 'total' => trim($pkCur.' '.number_format((float) $pk->sum('confirmed_amount'), 2))]) }}</span>
+            <button type="button" class="btn-primary btn-sm ml-auto" wire:click="openBundleModal" @disabled($pk->count() < 2)>{{ __('claims.bundle.btn') }}</button>
+            <button type="button" class="btn-outline btn-sm" wire:click="clearPick">{{ __('claims.bundle.clear') }}</button>
+            <p class="w-full text-[11px] text-gray-500">{{ __('claims.bundle.pick_hint') }}</p>
+        </div>
+    @endif
+
     <div class="card">
         @forelse ($this->claims as $c)
             {{-- Jin 2줄: 차량번호 / 차대번호 / 바이어 / 금액 / 총 구매차량수 ↵ 클레임내용(호버 전체) / 도착일+14 경과 --}}
             <div wire:key="claim-{{ $c->id }}" class="cursor-pointer border-b border-gray-100 px-1 py-2.5 hover:bg-gray-50" wire:click="openDetail({{ $c->id }})">
                 <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
+                    @if ($c->canBundle())
+                        <input type="checkbox" class="h-4 w-4 cursor-pointer" title="{{ __('claims.bundle.pick_title') }}" data-bundle-pick="{{ $c->id }}"
+                               wire:click.stop="togglePick({{ $c->id }})" @checked(in_array($c->id, $pick, true))>
+                    @endif
                     <span class="font-bold text-gray-800">{{ \App\Support\Plate::show($c->vehicle_number) }}</span>
+                    @if ($c->erp_bundle_id)<span class="badge badge-blue">{{ __('claims.bundle.in_bundle', ['bundle' => $c->erp_bundle_id]) }}</span>@endif
                     <span class="text-gray-400">{{ $c->vin ?: '—' }}</span>
                     <span class="text-gray-700">🧑 {{ $c->buyer_name ?: '—' }}</span>
                     <span class="tabular-nums text-gray-700">{{ $c->salePriceDisplay() }}</span>
@@ -442,6 +529,47 @@ new #[Layout('components.layouts.app')] class extends Component
         @endforelse
         <div class="mt-2">{{ $this->claims->links() }}</div>
     </div>
+
+    {{-- ─────────── 묶어서 ERP 로 보내기 모달(2026-11-24 Jin) — 차량별 확정 금액 + 합계를 보고 보낸다 ─────────── --}}
+    @if ($bundleModal && count($pick) >= 2)
+        @php $pk = $this->picked; $pkCur = $pk->first()?->claim_currency ?: $pk->first()?->sale_currency; @endphp
+        <div class="fixed inset-0 z-[60] bg-black/40" wire:click="closeBundleModal"></div>
+        <div class="fixed inset-x-0 bottom-0 z-[70] max-h-[85vh] overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl
+                    sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-[480px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl"
+             x-data @keydown.escape.window="$wire.closeBundleModal()" data-bundle-modal>
+            <div class="mb-1 flex items-center justify-between">
+                <h4 class="font-bold text-gray-800">{{ __('claims.bundle.modal_title') }}</h4>
+                <button type="button" class="text-gray-400 hover:text-gray-600" wire:click="closeBundleModal">✕</button>
+            </div>
+            <p class="mb-3 text-xs text-gray-500">{{ __('claims.bundle.modal_hint') }}</p>
+            <div class="rounded-lg border-2 border-[var(--color-primary)] bg-[#f5f8ff] px-3 py-2.5">
+                <div class="text-[11px] font-semibold text-gray-500">{{ __('claims.erp_modal_buyer') }}</div>
+                <div class="text-base font-bold text-gray-900">{{ $pk->first()?->buyer_name ?: '—' }}</div>
+                <div class="text-xs text-gray-500">{{ __('claims.erp_modal_buyer_id', ['id' => $pk->first()?->car_erp_buyer_id]) }}</div>
+            </div>
+            <table class="mt-3 w-full text-sm">
+                <thead><tr class="text-[11px] text-gray-500"><th class="py-1 text-left font-semibold">{{ __('claims.bundle.col_car') }}</th><th class="py-1 text-right font-semibold">{{ __('claims.bundle.col_amount') }}</th><th class="py-1 text-right font-semibold">{{ __('claims.bundle.col_state') }}</th></tr></thead>
+                <tbody>
+                    @foreach ($pk as $pc)
+                        <tr class="border-t border-gray-100">
+                            <td class="py-1.5 font-semibold">{{ \App\Support\Plate::show($pc->vehicle_number) }}<div class="text-[11px] font-normal text-gray-400">{{ $pc->salesman?->name }}</div></td>
+                            <td class="py-1.5 text-right tabular-nums">{{ $pc->amountDisplay('confirmed_amount') }}</td>
+                            <td class="py-1.5 text-right text-[11px] text-gray-500">{{ $pc->erp_sent_at && (int) $pc->erp_sent_revision === (int) $pc->revision ? __('claims.bundle.state_linked') : __('claims.bundle.state_new') }}</td>
+                        </tr>
+                    @endforeach
+                    <tr class="border-t-2 border-gray-300"><td class="py-1.5 font-bold">{{ __('claims.bundle.total') }}</td><td class="py-1.5 text-right text-base font-bold tabular-nums">{{ trim($pkCur.' '.number_format((float) $pk->sum('confirmed_amount'), 2)) }}</td><td></td></tr>
+                </tbody>
+            </table>
+            @if ($bundleError)<div class="card-sm mt-3 border-red-200 bg-red-50 text-[13px] text-red-700">⚠️ {{ $bundleError }}</div>@endif
+            <div class="mt-4 flex gap-2">
+                <button type="button" class="btn-outline flex-1 justify-center py-2.5" wire:click="closeBundleModal">{{ __('common.cancel') }}</button>
+                <button type="button" class="btn-primary flex-1 justify-center py-2.5" wire:click="sendBundle" wire:loading.attr="disabled" wire:target="sendBundle">
+                    <span wire:loading.remove wire:target="sendBundle">{{ __('claims.bundle.send', ['count' => $pk->count()]) }}</span>
+                    <span wire:loading wire:target="sendBundle">{{ __('claims.saving') }}</span>
+                </button>
+            </div>
+        </div>
+    @endif
 
     {{-- ─────────── 처리 드로어 ─────────── --}}
     @if ($this->detail)
@@ -523,6 +651,7 @@ new #[Layout('components.layouts.app')] class extends Component
                                     {{ $d->erp_sent_at ? __('claims.erp_resend_btn') : __('claims.erp_send_btn') }}
                                 </button>
                             @endif
+                            @if ($d->erp_bundle_id)<span class="badge badge-blue">{{ __('claims.bundle.in_bundle', ['bundle' => $d->erp_bundle_id]) }}</span>@endif
                             @if ($d->erp_send_error)<span class="text-red-600">⚠️ {{ $d->erp_send_error }}</span>@endif
                         </div>
                         @if ($d->decision_reason)<div class="mt-0.5 whitespace-pre-wrap">{{ $d->decision_reason }}</div>@endif
@@ -646,6 +775,8 @@ new #[Layout('components.layouts.app')] class extends Component
                         <button type="button" class="btn-outline" wire:click="save" wire:loading.attr="disabled">{{ __('common.save') }}</button>
                         @if ($d->canRequestApproval())
                             <button type="button" class="btn-primary" wire:click="openLineModal">{{ $d->revision > 0 ? __('claims.request_again') : __('claims.request') }}</button>
+                        @elseif ($d->erp_sent_at)
+                            <span class="self-center text-xs text-gray-500" data-erp-locked>🔒 {{ __('claims.erp_locked_hint') }}</span>
                         @endif
                         @if ($d->status === 'approved')
                             <button type="button" class="btn-green" wire:click="closeClaim" wire:confirm="{{ __('claims.confirm_close') }}">{{ __('claims.close_btn') }}</button>

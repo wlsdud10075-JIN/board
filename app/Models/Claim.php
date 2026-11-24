@@ -73,7 +73,7 @@ class Claim extends Model
         'bank_name', 'bank_iban', 'bank_swift', 'bank_phone', 'bank_address',
         'requested_at', 'requested_by_user_id', 'request_notified_at', 'approver_user_id', 'decided_at', 'decision', 'decision_reason', 'decision_ip', 'self_approved_at',
         'closed_at', 'closed_by_user_id',
-        'erp_claim_id', 'erp_sent_at', 'erp_sent_revision', 'erp_sent_by_user_id', 'erp_send_error',
+        'erp_claim_id', 'erp_sent_at', 'erp_sent_revision', 'erp_sent_by_user_id', 'erp_send_error', 'erp_bundle_id',
     ];
 
     protected function casts(): array
@@ -219,10 +219,14 @@ class Claim extends Model
         return $this->status === self::PENDING_CEO;
     }
 
-    /** [대표 승인 요청] 을 누를 수 있는 상태 — 접수·검토·반려·승인(재승인). 요청 중·종결은 불가. */
+    /**
+     * [대표 승인 요청] 을 누를 수 있는 상태 — 접수·검토·반려·승인(재승인). 요청 중·종결은 불가.
+     * **ERP 로 보낸 클레임은 다시 결재 요청을 못 한다**(2026-11-24 Jin 「ERP 로 보낸 금액이 확정 금액, 거기서 취소될 일 없다」) —
+     * 다시 열면 ERP 판매탭에서 이미 쓴 클레임 금액보다 확정 금액이 작아지는 경로가 생긴다(ERP 세션 지적).
+     */
     public function canRequestApproval(): bool
     {
-        return in_array(self::PENDING_CEO, self::TRANSITIONS[$this->status] ?? [], true);
+        return $this->erp_sent_at === null && in_array(self::PENDING_CEO, self::TRANSITIONS[$this->status] ?? [], true);
     }
 
     /**
@@ -376,6 +380,17 @@ class Claim extends Model
         $cur = $this->currentStep();
 
         return $cur !== null && $this->lineSteps()->first(fn ($s) => $s->seq > $cur->seq && $s->status === 'pending') === null;
+    }
+
+    /**
+     * 묶어서 ERP 로 보내기(2026-11-24 Jin) 후보 — 같은 바이어의 **승인** 건(반려는 금액 0 이라 묶지 않음), 아직 어느 묶음에도 안 들었고,
+     * 이 회차를 아직 안 보냈거나 **이미 단건으로 보낸 같은 회차**(ERP 가 묶음 번호만 붙여 「연결」한다). ERP 바이어 id 가 있어야 한다.
+     */
+    public function canBundle(): bool
+    {
+        return $this->decided_at !== null && $this->decision === self::APPROVED
+            && in_array($this->status, [self::APPROVED, self::CLOSED], true)
+            && $this->erp_bundle_id === null && (int) $this->car_erp_buyer_id > 0;
     }
 
     /** [ERP 로 보내기] 가능 — 결재가 끝났고(승인·반려·종결) 이 회차를 아직 안 보냄. 반려도 보낸다(declined·금액 0, Jin 2026-11-11). */
