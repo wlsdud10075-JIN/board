@@ -86,21 +86,20 @@ class PurchaseListing extends Model
 
     // ─────────────────────── 금액 (§6) ───────────────────────
 
-    /** 차값을 KRW 로 환산 — car_cost 는 expected_price_currency 통화(엔카=KRW). 차값 자체는 불변, 계산용. */
+    /**
+     * 차값(원화). **차값은 항상 원화** — `expected_price_currency` 는 「매물 표시가」(expected_price)의 통화일 뿐 차값·매입가를 환산하지 않는다.
+     * 2026-11-24 Jin «매입가는 통화 영향 없이 한화로만 — 통화 버튼은 매물 표시가를 보이게 하기 위함» (ssancarboard 31다3054: € 가 눌린 셀프검차 차의 차값 600만이 600만 유로로 계산돼 최종 매입가 86억).
+     * 환율 인자는 호출부 호환용으로만 남긴다(쓰지 않음).
+     */
     public function carCostKrw(?int $krwPerUsd = null, ?int $krwPerEur = null): ?int
     {
-        return Money::toKrw(
-            $this->car_cost,
-            $this->expected_price_currency,
-            $krwPerUsd ?? (int) config('board.default_krw_per_usd'),
-            $krwPerEur ?? (int) config('board.default_krw_per_eur'),
-        );
+        return $this->car_cost === null ? null : (int) $this->car_cost;
     }
 
-    /** 차값 표시(통화기호 포함) — 가져온 통화 그대로. */
+    /** 차값 표시 — 항상 원화. */
     public function carCostDisplay(): string
     {
-        return Money::display($this->car_cost, $this->expected_price_currency);
+        return Money::display($this->car_cost, 'KRW');
     }
 
     /**
