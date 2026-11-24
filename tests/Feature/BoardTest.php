@@ -8853,8 +8853,9 @@ class BoardTest extends TestCase
         ]);
         $this->actingAs($kim);
 
+        // 2026-11-24 — 안내문 대신 「바이어 지정해서 ERP 로 보내기」(§19)가 뜬다. 금액 재전송(purchase-sync) 길은 여전히 막힌다.
         Volt::test('listings.index')->call('openEdit', $l->id)
-            ->assertSee(__('listings.resync.stock_purchase'))
+            ->assertSee(__('listings.assign.title'))->assertDontSee(__('listings.resync.btn'))
             ->set('e_sale_total', '8590')->set('e_sale_currency', 'USD')->set('e_rate_usd', '1380')
             ->call('resendToErp')->assertHasErrors('e_sale_total');
 
@@ -9984,5 +9985,99 @@ class BoardTest extends TestCase
         $this->assertNotNull($l3->fresh()->region_notified_at);
         app(RegionInspectionNotifier::class)->run($date);
         $this->assertSame(1, $logs('board_region_inspection'));
+    }
+
+    // ── 재고매입 차에 바이어 + 판매 금액 지정(2026-11-24 Jin, ERP §19 assign-buyer) ──
+
+    private function stockCar(array $erpBuyer, array $assignResponse, int $assignStatus = 200): array
+    {
+        config(['services.car_erp.base_url' => 'https://carerp.test', 'services.car_erp.read_hmac_secret' => 'rs', 'services.car_erp.hmac_secret' => 'shh']);
+        Http::fake([
+            '*/vehicles/900/assign-buyer*' => Http::response($assignResponse, $assignStatus),
+            '*/buyers*' => Http::response(['data' => [$erpBuyer]], 200),
+            '*/consignees*' => Http::response(['data' => []], 200),
+            '*/api/internal/purchase-sync' => Http::response(['vehicle_id' => 900], 200),
+            '*' => Http::response(['data' => []], 200),
+        ]);
+        $sales = $this->mkUser('sales', 'kim-stock@t.test');
+        $l = $this->mkListing($sales, [
+            'status' => 'synced', 'source' => 'auction', 'car_cost' => 9000000, 'expected_price_currency' => 'KRW',
+            'buyer_undecided' => true, 'car_erp_buyer_id' => null, 'car_erp_vehicle_id' => 900,
+        ]);
+
+        return [$sales, $l];
+    }
+
+    public function test_stock_car_buyer_assign_sends_buyer_and_amounts_and_updates_listing(): void
+    {
+        [$sales, $l] = $this->stockCar(['id' => 12, 'name' => 'BUYER ALPHA', 'purchase_locked' => false],
+            ['vehicle_id' => 900, 'buyer_id' => 12, 'consignee_id' => null, 'sale_date' => '2026-11-24', 'updated' => ['buyer_id', 'sale_price'], 'purchase_lock' => ['locked' => false, 'consumed' => false, 'remaining' => 0]]);
+        $this->actingAs($sales);
+
+        Volt::test('listings.index')->call('openEdit', $l->id)
+            ->assertSee(__('listings.assign.title'))->assertSee('BUYER ALPHA')
+            ->set('a_buyer_id', 12)->set('e_sale_total', '9000')->set('e_sale_currency', 'USD')
+            ->set('e_rate_usd', '1400')->set('e_transport_fee_usd', '1500')
+            ->call('assignBuyer')->assertHasNoErrors()
+            ->assertSee(__('listings.assign.ok', ['buyer' => 'BUYER ALPHA']));
+
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/vehicles/900/assign-buyer')
+            && $r['salesman_email'] === 'kim-stock@t.test' && $r['buyer_id'] === 12
+            && (float) $r['sale_price'] === 7500.0 && $r['sale_currency'] === 'USD' && (int) $r['sale_exchange_rate'] === 1400
+            && (float) $r['transport_fee'] === 1500.0 && (int) $r['transport_fee_usd'] === 1500 && $r['board_listing_id'] === $l->id
+            && $r['requested_by_email'] === 'kim-stock@t.test');
+        $f = $l->fresh();
+        $this->assertFalse((bool) $f->buyer_undecided);
+        $this->assertSame(12, (int) $f->car_erp_buyer_id);
+        $this->assertSame('BUYER ALPHA', $f->car_erp_buyer_name);
+        $this->assertSame(7500.0, (float) $f->sale_price);
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'action' => 'erp_assign_buyer', 'field' => 'erp_assign_buyer', 'user_id' => $sales->id]);
+
+        // 그 뒤 재전송(purchase-sync)엔 바이어를 싣지 않는다 — 그 길엔 락 검사가 없다(ERP §19-3)
+        (new SyncWonListingToCarErp($l->id, resync: true))->handle();
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/api/internal/purchase-sync') && $r['buyer_id'] === null && $r['buyer_undecided'] === false);
+    }
+
+    public function test_stock_car_buyer_assign_blocked_for_locked_buyer_without_allowance(): void
+    {
+        [$sales, $l] = $this->stockCar(['id' => 13, 'name' => 'BUYER LOCK', 'purchase_locked' => true, 'purchase_lock_allowance' => ['remaining' => 0]], []);
+        $this->actingAs($sales);
+
+        Volt::test('listings.index')->call('openEdit', $l->id)
+            ->set('a_buyer_id', 13)->set('e_sale_total', '9000')->set('e_sale_currency', 'KRW')
+            ->assertSee(__('listings.assign.locked'))
+            ->call('assignBuyer')->assertHasErrors('a_buyer_id');
+
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), 'assign-buyer'));
+        $this->assertTrue((bool) $l->fresh()->buyer_undecided);
+    }
+
+    public function test_stock_car_buyer_assign_shows_erp_reason_and_keeps_listing(): void
+    {
+        [$sales, $l] = $this->stockCar(['id' => 14, 'name' => 'BUYER GAMMA', 'purchase_locked' => true, 'purchase_lock_allowance' => ['remaining' => 2]],
+            ['error' => 'already_has_buyer'], 422);
+        $this->actingAs($sales);
+
+        Volt::test('listings.index')->call('openEdit', $l->id)
+            ->set('a_buyer_id', 14)->set('e_sale_total', '5000')->set('e_sale_currency', 'EUR')->set('e_rate_eur', '1500')
+            ->assertSee(__('listings.assign.lock_allowance', ['n' => 2]))
+            ->call('assignBuyer')
+            ->assertSee(__('listings.assign.error.already_has_buyer'));
+
+        $f = $l->fresh();
+        $this->assertTrue((bool) $f->buyer_undecided);
+        $this->assertNull($f->sale_price);   // 실패하면 board 에 금액을 남기지 않는다(원장과 갈림 방지)
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'field' => 'erp_assign_buyer_failed']);
+    }
+
+    public function test_normal_synced_car_keeps_amount_resend_and_no_buyer_assign(): void
+    {
+        [$sales, $l] = $this->stockCar(['id' => 12, 'name' => 'BUYER ALPHA', 'purchase_locked' => false], []);
+        $l->forceFill(['buyer_undecided' => false, 'car_erp_buyer_id' => 12])->saveQuietly();
+        $this->actingAs($sales);
+
+        Volt::test('listings.index')->call('openEdit', $l->id)
+            ->assertDontSee(__('listings.assign.title'))->assertSee(__('listings.resync.title'));
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), '/buyers'));
     }
 }

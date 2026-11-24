@@ -14,7 +14,7 @@ return [
     // View by user (super)
     'view_by_user' => 'View by user',
     'view_by_user_hint' => "Click a name to display that user's settlement, receivables, and shipping (admins and work managers — only system admins can act on their behalf)",
-    'view_by_user_hint_manager' => "Only salespeople who shared with you are listed — click a name to see their receivables, inventory, sales and shipping and act on their behalf (settlement items hidden)",
+    'view_by_user_hint_manager' => 'Only salespeople who shared with you are listed — click a name to see their receivables, inventory, sales and shipping and act on their behalf (settlement items hidden)',
     'settlement_hidden_notice' => 'Team-salesperson view — settlement items (settlement tab, monthly payouts, in-progress settlements, margin rate) are hidden. Requests go out under that salesperson\'s name.',
     'view_self_btn' => 'Me',
 

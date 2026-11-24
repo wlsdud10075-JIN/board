@@ -588,6 +588,20 @@ class CarErpReadService
     }
 
     /**
+     * 재고매입(바이어 미정) 차에 바이어 + 판매 금액 지정(§19, 2026-11-24 Jin — 함께 보낸다·락 규칙은 구매확정과 같게).
+     * `salesman_email` = 등록 영업(그 영업 차만, 아니면 403) · `requested_by_email` = 실제 누른 사람(ERP 감사 행위자).
+     * 200 `{vehicle_id, buyer_id, consignee_id, sale_date, updated[], purchase_lock:{locked, consumed, remaining}}`
+     * 422 `{error}` already_has_buyer·purchase_locked·purchase_cancelled·settlement_locked·ledger_closed·invalid_buyer·invalid_consignee·missing_exchange_rate
+     * 락·승인 대수 판정은 ERP 가 한다(board 는 /buyers 로 미리 보여 주기만). 🚫 purchase-sync 재전송에 buyer_id 를 싣지 않는다(그 길엔 락이 없다).
+     */
+    public function assignBuyer(string $email, int $vehicleId, array $payload): array
+    {
+        $payload['salesman_email'] = $email;
+
+        return $this->post('/vehicles/'.$vehicleId.'/assign-buyer', ['salesman_email' => $email], $payload);
+    }
+
+    /**
      * 대기 중인 매입 락 승인 요청 취소(§17-1b, 2026-11-19 Jin — 대수를 잘못 적었을 때 board 에서 거둔다). 대기(pending) 건만.
      * 200 `{id, status: "cancelled"}`(바로 다시 요청 가능) · 409 `already_decided`(이미 승인·거절 — 승인된 대수는 못 거둔다) · 404.
      */
@@ -763,6 +777,7 @@ class CarErpReadService
         $type = match (true) {
             $endpoint === '/requests' => 'board_request',
             $endpoint === '/claims' => 'claim_mirror',
+            str_ends_with($endpoint, '/assign-buyer') => 'assign_buyer',   // 재고매입 차 바이어 지정(§19, 2026-11-24)
             str_ends_with($endpoint, '/stock-location') => 'stock_location',   // 탁송 도착 위치 → ERP 보관 위치(2026-11-12)
             $endpoint === '/shipping-requests/sync' => 'shipping_sync',
             $endpoint === '/shipping-request' => 'shipping_request',
