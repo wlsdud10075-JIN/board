@@ -9996,6 +9996,9 @@ class BoardTest extends TestCase
             '*/vehicles/900/assign-buyer*' => Http::response($assignResponse, $assignStatus),
             '*/buyers*' => Http::response(['data' => [$erpBuyer]], 200),
             '*/consignees*' => Http::response(['data' => []], 200),
+            '*/purchase-lock-requests*' => fn ($r) => $r->method() === 'POST'
+                ? Http::response(['id' => 77, 'status' => 'pending'], 201)
+                : Http::response(['data' => ['allowance' => ['remaining' => (int) data_get($erpBuyer, 'purchase_lock_allowance.remaining', 0)], 'latest' => null]], 200),
             '*/api/internal/purchase-sync' => Http::response(['vehicle_id' => 900], 200),
             '*' => Http::response(['data' => []], 200),
         ]);
@@ -10019,7 +10022,7 @@ class BoardTest extends TestCase
             ->set('a_buyer_id', 12)->set('e_sale_total', '9000')->set('e_sale_currency', 'USD')
             ->set('e_rate_usd', '1400')->set('e_transport_fee_usd', '1500')
             ->call('assignBuyer')->assertHasNoErrors()
-            ->assertSee(__('listings.assign.ok', ['buyer' => 'BUYER ALPHA']));
+            ->assertDispatched('listings-saved')->assertSet('editingId', null);   // 성공 = 오른쪽 위 알림 + 드로어 닫힘(2026-11-24 Jin)
 
         Http::assertSent(fn ($r) => str_contains($r->url(), '/vehicles/900/assign-buyer')
             && $r['salesman_email'] === 'kim-stock@t.test' && $r['buyer_id'] === 12
@@ -10043,13 +10046,20 @@ class BoardTest extends TestCase
         [$sales, $l] = $this->stockCar(['id' => 13, 'name' => 'BUYER LOCK', 'purchase_locked' => true, 'purchase_lock_allowance' => ['remaining' => 0]], []);
         $this->actingAs($sales);
 
-        Volt::test('listings.index')->call('openEdit', $l->id)
+        $t = Volt::test('listings.index')->call('openEdit', $l->id)
             ->set('a_buyer_id', 13)->set('e_sale_total', '9000')->set('e_sale_currency', 'KRW')
-            ->assertSee(__('listings.assign.locked'))
+            ->assertSee(__('listings.assign.locked'))->assertSee(__('auction.lock_req_btn'))
             ->call('assignBuyer')->assertHasErrors('a_buyer_id');
 
         Http::assertNotSent(fn ($r) => str_contains($r->url(), 'assign-buyer'));
         $this->assertTrue((bool) $l->fresh()->buyer_undecided);
+
+        // 이 차는 구매탭에 없다 — 매입예정 드로어에서 바로 ERP 승인큐로(등록 영업 명의, 이 차 번호를 실어서)
+        $t->set('lockCount', '2')->set('lockReason', '재고 차 바이어 확정')->call('requestLockApproval')->assertHasNoErrors()
+            ->assertSee(__('auction.lock_req_sent', ['count' => 2]));
+        Http::assertSent(fn ($r) => $r->method() === 'POST' && str_contains($r->url(), '/purchase-lock-requests')
+            && $r['buyer_id'] === 13 && $r['requested_count'] === 2 && $r['purchase_listing_id'] === $l->id && $r['salesman_email'] === 'kim-stock@t.test');
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'action' => 'erp_purchase_lock_request']);
     }
 
     public function test_stock_car_buyer_assign_shows_erp_reason_and_keeps_listing(): void

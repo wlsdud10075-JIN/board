@@ -20,6 +20,7 @@ use Livewire\WithFileUploads;
 use Livewire\WithPagination;
 
 new #[Layout('components.layouts.app')] class extends Component {
+    use \App\Livewire\Concerns\PurchaseLockRequests;   // 재고매입 차 바이어 지정에서 락 바이어 승인 요청(2026-11-24 Jin — 구매탭과 같은 동작)
     use WithFileUploads, WithPagination;
 
     // ─────── 목록 탭 + 페이지네이션 (2026-09-11 Jin) ───────
@@ -686,7 +687,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     private function loadAssignBuyers(PurchaseListing $l): void
     {
-        $this->reset(['a_buyer_id', 'a_consignee_id', 'aBuyerOpts', 'aConsigneeOpts', 'assignResult']);
+        $this->reset(['a_buyer_id', 'a_consignee_id', 'aBuyerOpts', 'aConsigneeOpts', 'assignResult', 'lockCount', 'lockReason', 'lockStatus', 'lockNotice', 'lockError']);
         if (! $this->canAssignBuyer($l)) {
             return;
         }
@@ -698,12 +699,51 @@ new #[Layout('components.layouts.app')] class extends Component {
     {
         $this->a_consignee_id = null;
         $this->aConsigneeOpts = [];
+        $this->reset('lockCount', 'lockReason', 'lockNotice', 'lockError');
+        $this->loadAssignLockStatus();
         $l = $this->editingId ? PurchaseListing::find($this->editingId) : null;
         if (! $l || ! $this->a_buyer_id) {
             return;
         }
         $r = app(CarErpReadService::class)->consignees($this->creatorErpEmail($l), (int) $this->a_buyer_id);
         $this->aConsigneeOpts = ($r['ok'] ?? false) ? (array) data_get($r['data'], 'data', []) : [];
+    }
+
+    /** 고른 바이어가 락이면 ERP 승인 상태(승인 남은 대수·대기 건)를 묻는다 — 구매탭 loadLockStatus 와 같은 규칙(락 아니면 호출 없음). */
+    private function loadAssignLockStatus(): void
+    {
+        $this->lockStatus = null;
+        $lock = $this->assignBuyerLock();
+        $l = $this->editingId ? PurchaseListing::find($this->editingId) : null;
+        if (! $l || ! $lock || ! $lock['locked']) {
+            return;
+        }
+        $this->lockStatus = app(CarErpReadService::class)->purchaseLockStatus($this->creatorErpEmail($l), (int) $this->a_buyer_id);
+    }
+
+    /** PurchaseLockRequests — 재고매입 차 + 고른 락 바이어. 등록 영업 명의로 ERP 승인큐에. */
+    protected function lockContext(): ?array
+    {
+        $l = $this->editingId ? PurchaseListing::find($this->editingId) : null;
+        $lock = $this->assignBuyerLock();
+        if (! $l || ! $this->canAssignBuyer($l) || ! $lock || ! $lock['locked']) {
+            return null;
+        }
+
+        return ['email' => $this->creatorErpEmail($l), 'buyer_id' => (int) $this->a_buyer_id,
+            'buyer_name' => collect($this->aBuyerOpts)->firstWhere('id', (int) $this->a_buyer_id)['name'] ?? null, 'listing' => $l];
+    }
+
+    protected function reloadLockState(): void
+    {
+        $keep = $this->a_buyer_id;
+        $l = $this->editingId ? PurchaseListing::find($this->editingId) : null;
+        if ($l) {
+            $r = app(CarErpReadService::class)->buyers($this->creatorErpEmail($l));
+            $this->aBuyerOpts = ($r['ok'] ?? false) ? (array) data_get($r['data'], 'data', []) : $this->aBuyerOpts;
+        }
+        $this->a_buyer_id = $keep;
+        $this->loadAssignLockStatus();
     }
 
     /** 고른 바이어의 락 미리보기 — ERP `/buyers` 의 `purchase_locked`·`purchase_lock_allowance.remaining` 그대로(조건을 board 에 옮겨 적지 않는다). */
@@ -808,6 +848,10 @@ new #[Layout('components.layouts.app')] class extends Component {
         ];
         $this->aBuyerOpts = [];
         unset($this->listings);
+        // 성공하면 오른쪽 위 초록 알림 + 드로어 닫기(2026-11-24 Jin — 구매탭 [내용만 저장]과 같은 결)
+        $this->dispatch('listings-saved', msg: __('listings.assign.ok', ['buyer' => $buyerName ?: '—']).($this->assignResult['sale_date'] ? ' '.__('listings.assign.ok_date', ['date' => $this->assignResult['sale_date']]) : ''));
+        session()->flash('ok', __('listings.assign.ok', ['buyer' => $buyerName ?: '—']));
+        $this->closeEdit();
     }
 
     // ─────── 판매 금액 보완 + ERP 재전송 (2026-08-18 Jin) ───────
@@ -1323,7 +1367,7 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public function closeEdit(): void
     {
-        $this->reset(['editingId', 'drawerTab', 'e_remitter_name', 'e_remitter_id', 'invoiceNote', 'passportFile', 'e_sale_total', 'e_transport_fee_usd', 'e_rate_usd', 'e_rate_eur', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'e_inspection_request', 'e_loc_choice', 'e_loc_address', 'e_urgent_note', 'eSalesFiles', 'e_sale_currency', 'resyncResult', 'attachResult', 'syncSince', 'a_buyer_id', 'a_consignee_id', 'aBuyerOpts', 'aConsigneeOpts', 'assignResult']);
+        $this->reset(['editingId', 'drawerTab', 'e_remitter_name', 'e_remitter_id', 'invoiceNote', 'passportFile', 'e_sale_total', 'e_transport_fee_usd', 'e_rate_usd', 'e_rate_eur', 'e_region', 'e_c_no', 'e_respond_contact_id', 'e_owner_name', 'e_payee_name', 'e_payee_bank', 'e_payee_account', 'e_selling_fee_payee_name', 'e_selling_fee_payee_bank', 'e_selling_fee_payee_account', 'e_car_cost', 'e_discount_rate', 'e_shipping_usd', 'e_encar_url', 'e_encar_dealer', 'e_auction_venue', 'e_lot_number', 'e_inspection_request', 'e_loc_choice', 'e_loc_address', 'e_urgent_note', 'eSalesFiles', 'e_sale_currency', 'resyncResult', 'attachResult', 'syncSince', 'a_buyer_id', 'a_consignee_id', 'aBuyerOpts', 'aConsigneeOpts', 'assignResult', 'lockCount', 'lockReason', 'lockStatus', 'lockNotice', 'lockError']);
         unset($this->editing);
     }
 
@@ -1895,6 +1939,13 @@ new #[Layout('components.layouts.app')] class extends Component {
 }; ?>
 
 <div class="p-3 md:p-6">
+    {{-- 저장 알림 — 화면 오른쪽 위에 잠깐 뜬다(2026-11-24 Jin, 구매탭과 같은 모양). 누르면 바로 닫힌다. --}}
+    <div x-data="{ show: false, msg: '', _t: null }" x-on:listings-saved.window="msg = $event.detail.msg || ''; show = msg !== ''; clearTimeout(_t); _t = setTimeout(() => show = false, 4000)">
+        <div x-show="show" x-transition x-cloak @click="show = false" data-toast
+             class="fixed right-4 top-4 z-[70] flex max-w-[90vw] cursor-pointer items-center gap-2 rounded-lg bg-green-600 px-4 py-3 text-sm font-semibold text-white shadow-lg">
+            <span>✓</span><span x-text="msg"></span>
+        </div>
+    </div>
     {{-- 헤더 --}}
     <div class="mb-4 flex items-start justify-between gap-3">
         <div>

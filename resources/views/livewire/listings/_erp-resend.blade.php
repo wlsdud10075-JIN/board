@@ -40,10 +40,12 @@
         </div>
     </div>
     @php $aLock = $this->assignBuyerLock(); @endphp
-    @if ($aLock && $aLock['locked'] && $aLock['remaining'] < 1)
-        <p class="mt-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-700">🔒 {{ __('listings.assign.locked') }}</p>
-    @elseif ($aLock && $aLock['locked'])
-        <p class="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800">🔓 {{ __('listings.assign.lock_allowance', ['n' => $aLock['remaining']]) }}</p>
+    @if ($aLock && $aLock['locked'])
+        {{-- 락 바이어 — 구매탭과 같은 승인 요청 상자(2026-11-24 Jin: 이 차는 구매탭에 없으니 여기서 요청한다). 승인 남은 대수가 있으면 노란색. --}}
+        <div class="mt-1.5 rounded-md border px-2.5 py-2 text-[11px] {{ $aLock['remaining'] > 0 ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-red-300 bg-red-50 text-red-700' }}" data-assign-lock>
+            <div class="font-semibold">{{ $aLock['remaining'] > 0 ? '🔓 '.__('listings.assign.lock_allowance', ['n' => $aLock['remaining']]) : '🔒 '.__('listings.assign.locked') }}</div>
+            @include('livewire._lock-request')
+        </div>
     @endif
     @error('a_buyer_id') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 @elseif ($synced)
@@ -99,7 +101,6 @@
     @error('e_sale_currency') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
     @if ($stock)
-        <p class="mt-1 text-[11px] text-gray-500">{{ __('listings.assign.effect') }}</p>
         <button type="button" wire:click="assignBuyer" wire:loading.attr="disabled" wire:target="assignBuyer"
             wire:confirm="{{ __('listings.assign.confirm') }}"
             @disabled($aLock && $aLock['locked'] && $aLock['remaining'] < 1)
