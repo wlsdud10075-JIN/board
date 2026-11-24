@@ -1,0 +1,7 @@
+{"slug":"today","base":"http://localhost:8003","login":{"email":"leader@board.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/today"},{"wait":2000},
+  {"shot":"_02-team","full":true},
+  {"click":"[data-today-team] button"},{"wait":1500},
+  {"shot":"_03-picked","full":true}
+ ]}
