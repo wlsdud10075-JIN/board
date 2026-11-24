@@ -203,7 +203,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
         $carCostKrw = \App\Support\Money::toKrw(
             ($this->e_car_cost === null || $this->e_car_cost === '') ? null : (int) $this->e_car_cost,
-            $d->expected_price_currency ?: 'KRW',
+            'KRW',   // 차값은 항상 원화(2026-11-24 Jin) — 표시가 통화로 환산하지 않는다
             $this->usdRate(),
             $this->eurRate(),
         );
@@ -466,7 +466,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 <div class="section-title-sm">{{ __('forwarding.amount_section') }}</div>
                 <div class="grid grid-cols-2 gap-2">
                     <div>
-                        <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.car_cost') }} <span class="text-gray-400">({{ $d->expected_price_currency }})</span></label>
+                        <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.car_cost') }} <span class="text-gray-400">(KRW)</span></label>
                         <input type="number" min="0" class="input-base" wire:model.live.debounce.500ms="e_car_cost">
                         @error('e_car_cost') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
                     </div>

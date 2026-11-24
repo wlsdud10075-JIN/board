@@ -139,11 +139,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         $cost = (float) $this->car_cost;
         $num = fn ($v) => ($v === null || $v === '') ? null : (float) $v;
 
-        return (int) round(match ($this->detail->expected_price_currency ?: 'KRW') {
-            'USD' => $cost * ($num($this->rate_usd) ?: $this->usdRate()),
-            'EUR' => $cost * ($num($this->rate_eur) ?: $this->eurRate()),
-            default => $cost,
-        });
+        // 차값은 항상 원화(2026-11-24 Jin «매입가는 통화 영향 없이 한화로만 — 통화 버튼은 매물 표시가를 보이게 하기 위함» (ssancarboard 31다3054: € 가 눌린 셀프검차 차의 차값 600만이 600만 유로로 계산돼 최종 매입가 86억)) — 표시가 통화로 환산하지 않는다.
+        return (int) round($cost);
     }
 
     /** 통화별 오늘 환율(KRW 는 1) — 셀프검차 환율칸 기본값. */
@@ -685,11 +682,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
         $usd = $num($this->rate_usd);
         $eur = $num($this->rate_eur);
-        $costKrw = match ($l->expected_price_currency ?: 'KRW') {
-            'USD' => $cost * ($usd ?: $this->usdRate()),
-            'EUR' => $cost * ($eur ?: $this->eurRate()),
-            default => $cost,
-        };
+        $costKrw = $cost;   // 차값은 항상 원화(2026-11-24 Jin)
         // 2026-11-12 — 매입가 = 차값 − 매도비, 매도비는 따로 더하므로 「매입가 + 매도비」 = 차값. 부가세 기준은 매입가(차값 − 매도비).
         $fee = $num($this->selling_fee) ?? 0;
         $purchaseKrw = max(0.0, $costKrw - $fee);
@@ -750,7 +743,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             $l->car_erp_buyer_name = mb_substr((string) ($b['name'] ?? ''), 0, 120) ?: null;
         }
         $l->car_erp_consignee_id = $this->buyerUndecided ? null : ($this->consigneeId ?: null);
-        // 차값 — 통화는 등록 시 정해진 `expected_price_currency` 그대로(여기선 금액만 보정).
+        // 차값 — 항상 원화(2026-11-24 Jin). `expected_price_currency` 는 매물 표시가 통화일 뿐.
         $l->car_cost = ($this->car_cost === null || $this->car_cost === '') ? null : (int) $this->car_cost;
         $l->shipping_usd = ($this->shipping_usd === null || $this->shipping_usd === '') ? null : (int) $this->shipping_usd;
         // 매도비 — **출처 무관 공통**(2026-09-11). 적은 것만 저장하고, 비우면 null(= ERP 로 안 보낸다).
@@ -1225,7 +1218,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                             <div>
                                 {{-- 차값·매도비는 **항상 원화** — 견적통화 토글의 영향을 받지 않는다(2026-08-10 Jin). --}}
                                 @php $costKrwNow = $this->carCostKrwInput(); $feeNow = ($selling_fee === null || $selling_fee === '') ? 0 : (int) $selling_fee; @endphp
-                                <label class="mb-0.5 block whitespace-nowrap text-xs text-gray-500">{{ __('auction.car_cost') }} <span class="text-gray-400">({{ $d->isSelfInspection() ? __('common.won_currency') : \App\Support\Money::symbol($costCur) }})</span></label>
+                                <label class="mb-0.5 block whitespace-nowrap text-xs text-gray-500">{{ __('auction.car_cost') }} <span class="text-gray-400">({{ __('common.won_currency') }})</span></label>
                                 <input type="number" min="0" class="input-base" wire:model.live.debounce.400ms="car_cost" placeholder="{{ __('auction.car_cost_ph') }}">
                                 {{-- 매도비가 있으면 차값 칸 **아래**에 최종 매입가 작은 칩(Jin 2026-11-12). 라벨 옆에 두면 폰에서 칩이 내려와 차값 입력칸이 매도비 칸보다 한 줄 낮아진다(실측) — 입력칸 아래가 두 칸 정렬을 안 깬다. --}}
                                 @if ($costKrwNow !== null && $feeNow > 0)

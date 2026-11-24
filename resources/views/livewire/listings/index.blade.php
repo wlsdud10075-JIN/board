@@ -327,7 +327,8 @@ new #[Layout('components.layouts.app')] class extends Component {
      */
     public function calcCarPrice($cost, $rate, string $cur = 'KRW'): ?int
     {
-        $krw = \App\Support\Money::toKrw($cost, $cur, $this->usdRate(), $this->eurRate());
+        // 차값은 항상 원화(2026-11-24 Jin) — $cur(표시가 통화)로 환산하지 않는다.
+        $krw = \App\Support\Money::toKrw($cost, 'KRW', $this->usdRate(), $this->eurRate());
         if ($krw === null) {
             return null;
         }
@@ -1575,10 +1576,10 @@ new #[Layout('components.layouts.app')] class extends Component {
             $this->expected_price_currency = $cur;
             $this->expected_price = (string) $prices[$cur];
             $filled[] = __('listings.links.fill_price', ['currencies' => implode('/', array_keys($prices))]);
-            // 차값 = 선택통화 금액 그대로(외화 그대로 보관). 빈 칸만(영업 입력 보존).
-            if ($this->car_cost === null || $this->car_cost === '') {
-                $this->car_cost = (string) $prices[$cur];
-                $filled[] = __('listings.links.fill_car_cost', ['currency' => $cur]);
+            // 차값 = **원화 가격만**(2026-11-24 Jin — 차값은 항상 원화, 통화 버튼은 표시가용). 원화 가격이 없으면 비워 둔다(영업이 원화로 적는다). 빈 칸만(영업 입력 보존).
+            if (($this->car_cost === null || $this->car_cost === '') && isset($prices['KRW'])) {
+                $this->car_cost = (string) $prices['KRW'];
+                $filled[] = __('listings.links.fill_car_cost', ['currency' => 'KRW']);
             }
         }
         if (! empty($e['region']) && $this->region === '') {
@@ -1631,8 +1632,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         }
         $this->expected_price_currency = $cur;
         if (isset($this->priceOptions[$cur])) {
-            $this->expected_price = (string) $this->priceOptions[$cur];
-            $this->car_cost = (string) $this->priceOptions[$cur];   // 차값 = 선택통화 금액 그대로(환산X)
+            $this->expected_price = (string) $this->priceOptions[$cur];   // 표시가만 바뀐다 — 차값은 원화 그대로(2026-11-24 Jin)
         }
     }
 
@@ -1760,7 +1760,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         // 매물 표시가 = 차값(라벨 그대로) — 링크 추출(parseLink·pickCurrency)은 이미 옮기는데 **손으로 적은 표시가는 안 옮겨져**
         // 차값이 빈 채로 저장됐다(2026-11-11 ssancarboard 김성중 06우7069 등록·삭제 6회, Jin 「미러가 안 돼서 생긴 문제」).
         // 같은 규칙: 차값이 비어 있을 때만, 선택 통화 금액 그대로(환산 X — expected_price_currency 와 함께 보관).
-        if ($carCost === null && $this->expected_price !== null && $this->expected_price !== '') {
+        //   단 **원화 표시가만** 옮긴다(2026-11-24 Jin — 차값은 항상 원화. 외화 표시가를 옮기면 유로 숫자가 원화 차값이 된다).
+        if ($carCost === null && $this->expected_price !== null && $this->expected_price !== '' && $this->expected_price_currency === 'KRW') {
             $carCost = (int) $this->expected_price;
         }
         $discount = ($this->discount_rate === null || $this->discount_rate === '') ? null : (float) $this->discount_rate;

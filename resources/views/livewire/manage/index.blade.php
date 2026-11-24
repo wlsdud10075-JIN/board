@@ -464,7 +464,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                 @error('region') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
 
                 <div class="mt-3 grid grid-cols-3 gap-2">
-                    <div><label class="label-base">{{ __('manage.car_cost') }} ({{ \App\Support\Money::symbol($costCurrency) }})</label><input class="input-base" wire:model="car_cost" inputmode="numeric"></div>
+                    <div><label class="label-base">{{ __('manage.car_cost') }} (₩)</label><input class="input-base" wire:model="car_cost" inputmode="numeric"></div>
                     <div><label class="label-base">{{ __('manage.discount_rate') }}</label><input class="input-base" wire:model="discount_rate" inputmode="decimal"></div>
                     <div><label class="label-base">{{ __('manage.shipping_usd') }}</label>
                         <select class="input-base" wire:model="shipping_usd">
