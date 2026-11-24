@@ -71,6 +71,9 @@ new #[Layout('components.layouts.app')] class extends Component
 
     public ?string $bundleError = null;
 
+    /** 선택 줄의 노란 경고(다른 바이어를 눌렀을 때·1건만 고르고 보내기를 눌렀을 때) — 초록 완료 안내와 분리. */
+    public ?string $bundleWarn = null;
+
     public function mount(): void
     {
         abort_unless(Auth::user()->isClaimHandler(), 403);
@@ -353,11 +356,15 @@ new #[Layout('components.layouts.app')] class extends Component
         $this->refreshDetail();
     }
 
-    /** 목록 체크 — 묶을 수 있는 건만. 다른 바이어 건을 고르면 앞 선택을 풀고 그 건부터 새로(같은 바이어만 묶인다). */
+    /**
+     * 목록 체크 — 묶을 수 있는 건만. **다른 바이어 건을 누르면 선택을 바꾸지 않고 노란 경고**(2026-11-24 Jin 로컬 확인 — 앞 선택을 조용히 풀던 방식은
+     * 화면 체크 표시와 서버 선택이 어긋나 「2건 체크했는데 3건」·「버튼이 아무 반응 없음」으로 보였다). 체크 표시는 Alpine 이 $wire.pick 을 그대로 그린다.
+     */
     public function togglePick(int $id): void
     {
         $this->bundleError = null;
         $this->bundleNotice = null;
+        $this->bundleWarn = null;
         $c = Claim::find($id);
         if (! $c || ! $c->canBundle()) {
             return;
@@ -369,8 +376,7 @@ new #[Layout('components.layouts.app')] class extends Component
         }
         $first = $this->pick ? Claim::find($this->pick[0]) : null;
         if ($first && (int) $first->car_erp_buyer_id !== (int) $c->car_erp_buyer_id) {
-            $this->pick = [$id];
-            $this->bundleNotice = __('claims.bundle.other_buyer');
+            $this->bundleWarn = __('claims.bundle.other_buyer', ['buyer' => $first->buyer_name ?: '—']);
 
             return;
         }
@@ -379,7 +385,7 @@ new #[Layout('components.layouts.app')] class extends Component
 
     public function clearPick(): void
     {
-        $this->reset('pick', 'bundleModal', 'bundleNotice', 'bundleError');
+        $this->reset('pick', 'bundleModal', 'bundleNotice', 'bundleError', 'bundleWarn');
     }
 
     #[Computed]
@@ -391,6 +397,7 @@ new #[Layout('components.layouts.app')] class extends Component
     public function openBundleModal(): void
     {
         $this->bundleError = null;
+        $this->bundleWarn = count($this->pick) < 2 ? __('claims.bundle.err_min') : null;
         $this->bundleModal = count($this->pick) >= 2;
     }
 
@@ -488,8 +495,9 @@ new #[Layout('components.layouts.app')] class extends Component
         @php $pk = $this->picked; $pkCur = $pk->first()?->claim_currency ?: $pk->first()?->sale_currency; @endphp
         <div class="card-sm mb-3 flex flex-wrap items-center gap-2 border-[var(--color-primary)] bg-[#f5f8ff] text-[13px]" data-bundle-bar>
             <span class="font-semibold text-gray-800">{{ __('claims.bundle.selected', ['count' => $pk->count(), 'buyer' => $pk->first()?->buyer_name ?: '—', 'total' => trim($pkCur.' '.number_format((float) $pk->sum('confirmed_amount'), 2))]) }}</span>
-            <button type="button" class="btn-primary btn-sm ml-auto" wire:click="openBundleModal" @disabled($pk->count() < 2)>{{ __('claims.bundle.btn') }}</button>
+            <button type="button" class="btn-primary btn-sm ml-auto" wire:click="openBundleModal">{{ __('claims.bundle.btn') }}</button>
             <button type="button" class="btn-outline btn-sm" wire:click="clearPick">{{ __('claims.bundle.clear') }}</button>
+            @if ($bundleWarn)<p class="w-full rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[12px] font-semibold text-amber-800" data-bundle-warn>⚠ {{ $bundleWarn }}</p>@endif
             <p class="w-full text-[11px] text-gray-500">{{ __('claims.bundle.pick_hint') }}</p>
         </div>
     @endif
@@ -500,7 +508,9 @@ new #[Layout('components.layouts.app')] class extends Component
             <div wire:key="claim-{{ $c->id }}" class="cursor-pointer border-b border-gray-100 px-1 py-2.5 hover:bg-gray-50" wire:click="openDetail({{ $c->id }})">
                 <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
                     @if ($c->canBundle())
+                        {{-- 체크 표시 = 서버 선택($wire.pick) 그대로(누른 순간의 브라우저 체크가 남지 않게). --}}
                         <input type="checkbox" class="h-4 w-4 cursor-pointer" title="{{ __('claims.bundle.pick_title') }}" data-bundle-pick="{{ $c->id }}"
+                               x-data x-bind:checked="$wire.pick.includes({{ $c->id }})" x-on:click="$el.checked = $wire.pick.includes({{ $c->id }})"
                                wire:click.stop="togglePick({{ $c->id }})" @checked(in_array($c->id, $pick, true))>
                     @endif
                     <span class="font-bold text-gray-800">{{ \App\Support\Plate::show($c->vehicle_number) }}</span>

@@ -880,7 +880,8 @@ class ClaimsTest extends TestCase
         $this->assertSame('err_buyer', $this->bundleErr([$c->id, $c2->id], $h));
         $this->actingAs($h);
         Volt::test('claims.index')->call('togglePick', $c->id)->call('togglePick', $c2->id)
-            ->assertSet('pick', [$c2->id])->assertSet('bundleNotice', __('claims.bundle.other_buyer'));
+            ->assertSet('pick', [$c->id])->assertSet('bundleWarn', __('claims.bundle.other_buyer', ['buyer' => 'Arif']))   // 선택은 그대로 + 노란 경고
+            ->call('openBundleModal')->assertSet('bundleModal', false)->assertSet('bundleWarn', __('claims.bundle.err_min'))->assertSee('data-bundle-warn', false);
 
         $c2->forceFill(['car_erp_buyer_id' => 7, 'decision' => Claim::REJECTED, 'status' => Claim::REJECTED])->saveQuietly();
         $this->assertSame('err_not_ready', $this->bundleErr([$c->id, $c2->id], $h));
