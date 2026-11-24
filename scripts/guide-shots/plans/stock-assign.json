@@ -1,0 +1,11 @@
+{"slug":"stock-assign","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"xtall",
+ "steps":[
+  {"goto":"/listings?edit=124"},{"wait":2500},{"clickText":"기본","in":"button[role=tab]"},{"wait":1000},
+  {"select":"select@model(a_buyer_id)","text":"AUTO SCOUT"},{"wait":2500},
+  {"shot":"_01-locked","clip":{"x":840,"y":0,"width":440,"height":3400}},
+  {"select":"select@model(a_buyer_id)","text":"데모 내수바이어"},{"wait":2000},
+  {"select":"select@model(e_sale_currency)","text":"EUR"},{"wait":800},
+  {"type":"input@model(e_sale_total)","text":"9500"},{"type":"input@model(e_transport_fee_usd)","text":"1500"},
+  {"type":"input@model(e_rate_usd)","text":"1400"},{"type":"input@model(e_rate_eur)","text":"1500"},{"wait":2000},
+  {"shot":"_02-filled","clip":{"x":840,"y":0,"width":440,"height":3400}}
+ ]}
