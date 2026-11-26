@@ -6,6 +6,7 @@ use App\Models\BoardAuditLog;
 use App\Models\Claim;
 use App\Models\IntegrationEvent;
 use App\Models\PurchaseListing;
+use App\Models\TodayDismissal;
 use App\Models\TransportRequest;
 use App\Models\User;
 use App\Services\WorkJournalService;
@@ -74,8 +75,8 @@ class TodayList
         $rows = collect();
         foreach ($listings as $l) {
             $at = $since[$l->id][$l->status] ?? $l->created_at;
-            foreach (self::kindsFor($l, $lastSync[$l->id] ?? null, $at) as [$kind, $detail, $when]) {
-                $rows->push(self::row($l, $kind, $detail, $when));
+            foreach (self::kindsFor($l, $lastSync[$l->id] ?? null, $at) as [$kind, $detail, $when, $ref]) {
+                $rows->push(self::row($l, $kind, $detail, $when, $ref));
             }
         }
 
@@ -83,9 +84,11 @@ class TodayList
     }
 
     /**
-     * 차 1대에서 나오는 줄 — [kind, 설명, 기준 시각].
+     * 차 1대에서 나오는 줄 — [kind, 설명, 기준 시각, 지문 재료].
+     * 지문 재료 = 그 줄을 만든 사실 중 기준 시각 말고 바뀔 수 있는 것(전송 행 id·탁송 요청 id·첨부 장수 등).
+     * 🚫 설명 문구로 지문을 만들지 말 것 — 언어를 바꾸면 확인한 줄이 다시 뜬다.
      *
-     * @return list<array{0:string,1:string,2:?Carbon}>
+     * @return list<array{0:string,1:string,2:?Carbon,3:string}>
      */
     private static function kindsFor(PurchaseListing $l, ?IntegrationEvent $ev, ?Carbon $at): array
     {
@@ -94,27 +97,27 @@ class TodayList
             case 'draft':
                 $hint = $l->ssancarHoldHint();
                 if ($hint && ($hint['alert'] ?? false)) {
-                    $out[] = ['insp_alert', __($hint['key'], $hint['params']), $l->inspection_skipped_at ?? $at];
+                    $out[] = ['insp_alert', __($hint['key'], $hint['params']), $l->inspection_skipped_at ?? $at, $hint['key'].json_encode($hint['params'])];
                 }
                 break;
             case 'inspected':
-                $out[] = ['forward', __('today.d.forward'), $at];
+                $out[] = ['forward', __('today.d.forward'), $at, ''];
                 break;
             case 'awaiting_buyer':
-                $out[] = ['verdict', __('today.d.verdict', ['buyer' => $l->buyer_name ?: '—']), $at];
+                $out[] = ['verdict', __('today.d.verdict', ['buyer' => $l->buyer_name ?: '—']), $at, ''];
                 break;
             case 'accepted':
                 $out[] = $l->sales_attachments_count === 0
-                    ? ['no_attach', __('today.d.no_attach'), $at]
-                    : ['confirm', __('today.d.confirm', ['n' => $l->sales_attachments_count]), $at];
+                    ? ['no_attach', __('today.d.no_attach'), $at, '0']
+                    : ['confirm', __('today.d.confirm', ['n' => $l->sales_attachments_count]), $at, (string) $l->sales_attachments_count];
                 break;
             case 'won':
                 if ($cap = $l->erpStockCapRejection()) {
-                    $out[] = ['erp_fail', __('today.d.erp_cap', ['used' => number_format((int) ($cap['used'] ?? 0)), 'cap' => number_format((int) ($cap['cap'] ?? 0))]), $at];
+                    $out[] = ['erp_fail', __('today.d.erp_cap', ['used' => number_format((int) ($cap['used'] ?? 0)), 'cap' => number_format((int) ($cap['cap'] ?? 0))]), $at, 'cap'.($ev?->id ?? '')];
                 } elseif ($ev && ($ev->error !== null || $ev->response_status === null || $ev->response_status < 200 || $ev->response_status >= 300)) {
-                    $out[] = ['erp_fail', __('today.d.erp_error', ['status' => $ev->response_status ?: '—']), $at];
+                    $out[] = ['erp_fail', __('today.d.erp_error', ['status' => $ev->response_status ?: '—']), $at, 'ev'.$ev->id];
                 } elseif (! $ev && $at && $at->lte(now()->subMinutes(self::ERP_WAIT_MINUTES))) {
-                    $out[] = ['erp_fail', __('today.d.erp_none'), $at];
+                    $out[] = ['erp_fail', __('today.d.erp_none'), $at, 'none'];
                 }
                 break;
         }
@@ -122,16 +125,16 @@ class TodayList
         $t = $l->latestTransport;
         if ($t && $t->decided_at && $t->decided_at->gte(now()->subDays(self::TRANSPORT_DAYS))) {
             if ($t->status === TransportRequest::REJECTED) {
-                $out[] = ['transport_rejected', __('today.d.transport_rejected', ['company' => $t->company_name ?: '—', 'reason' => $t->reject_reason ?: '—']), $t->decided_at];
+                $out[] = ['transport_rejected', __('today.d.transport_rejected', ['company' => $t->company_name ?: '—', 'reason' => $t->reject_reason ?: '—']), $t->decided_at, 't'.$t->id];
             } elseif ($t->status === TransportRequest::ACCEPTED && $t->balance_requested_at === null) {
-                $out[] = ['balance', __('today.d.balance', ['line' => $t->dispatchLine()]), $t->decided_at];
+                $out[] = ['balance', __('today.d.balance', ['line' => $t->dispatchLine()]), $t->decided_at, 't'.$t->id];
             }
         }
 
         return $out;
     }
 
-    private static function row(PurchaseListing $l, string $kind, string $detail, ?Carbon $since): array
+    private static function row(PurchaseListing $l, string $kind, string $detail, ?Carbon $since, string $ref): array
     {
         [$route, $params, $btn] = match ($kind) {
             'forward' => ['forwarding', ['open' => $l->id], 'today.btn.forward'],
@@ -155,6 +158,7 @@ class TodayList
             'href' => route($route, $params + ['from' => 'today']),
             'btn' => __($btn),
             'blocked' => in_array($kind, self::BLOCKED, true),
+            'sig' => sha1($kind.'|'.($since?->getTimestamp() ?? '').'|'.$ref),
         ];
     }
 
@@ -176,10 +180,29 @@ class TodayList
         return $out;
     }
 
-    /** 사이드바 배지 — 내가 등록한 차의 줄 + 차 없는 내 일. */
+    /**
+     * [확인] 표시 — 사용자가 확인한 지문과 지금 지문이 같으면 dismissed=true(2026-11-26 Jin).
+     * 새 일이 생겨 지문이 바뀌면 다시 false(줄이 다시 뜬다). 사람별 — 다른 사람(팀 표)에는 영향 없음.
+     */
+    public static function markDismissed(Collection $rows, int $userId): Collection
+    {
+        if ($rows->isEmpty()) {
+            return $rows;
+        }
+        $seen = TodayDismissal::where('user_id', $userId)
+            ->whereIn('purchase_listing_id', $rows->pluck('listing_id')->unique()->all())
+            ->get()
+            ->mapWithKeys(fn ($d) => [$d->purchase_listing_id.'|'.$d->kind => $d->signature]);
+
+        return $rows->map(fn ($r) => $r + ['dismissed' => ($seen[$r['listing_id'].'|'.$r['kind']] ?? null) === $r['sig']])->values();
+    }
+
+    /** 사이드바 배지 — 내가 등록한 차의 줄(확인한 것 제외) + 차 없는 내 일. */
     public static function badgeCount(User $u): int
     {
-        return self::rows()->where('owner_id', $u->id)->count() + array_sum(array_column(self::personal($u), 'count'));
+        $mine = self::markDismissed(self::rows()->where('owner_id', $u->id)->values(), $u->id);
+
+        return $mine->where('dismissed', false)->count() + array_sum(array_column(self::personal($u), 'count'));
     }
 
     /** 팀 표 칸 이름 — 배차 두 종류는 한 칸. */

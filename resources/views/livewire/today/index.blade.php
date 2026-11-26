@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\BoardAuditLog;
+use App\Models\TodayDismissal;
 use App\Models\User;
 use App\Support\TodayList;
 use Illuminate\Support\Facades\Auth;
@@ -11,7 +13,9 @@ use Livewire\Volt\Component;
 /**
  * 「오늘 할 일」(2026-11-24 Jin, (나)안) — 로그인 첫 화면. 줄 판정은 전부 `App\Support\TodayList`.
  * 줄 버튼 = 지금 쓰는 화면(전달 대기·바이어 회신·경매/구매·매입예정)을 그 차 상세 창이 열린 채로(`?open=&from=today`).
- * 이 화면엔 쓰기 동작이 없다 — 처리는 늘 원래 화면에서.
+ * 이 화면의 쓰기는 [확인] 하나뿐이다 — 처리는 늘 원래 화면에서.
+ * [확인](2026-11-26 Jin) = 그 사람 화면에서만 줄을 숨긴다(지문이 같을 때만 — 새 일이 생기면 다시 뜬다).
+ *   팀 표 숫자는 확인과 무관하게 전체(관리자는 영업이 넘긴 것도 봐야 한다). 숨긴 줄은 아래 「확인한 것」에서 다시 본다.
  * 관리 role·전체 접근 등급은 위에 팀 표(영업별 칸 건수, 누르면 아래 목록을 그 사람·그 칸으로 거름). 격리는 기본 스코프 그대로.
  */
 new #[Layout('components.layouts.app')] class extends Component {
@@ -24,6 +28,9 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     #[Url(except: '')]
     public string $col = '';
+
+    /** 「확인한 것 N건」 펼침. */
+    public bool $showDismissed = false;
 
     public function mount(): void
     {
@@ -60,16 +67,71 @@ new #[Layout('components.layouts.app')] class extends Component {
                 : $rows->where('owner_id', Auth::id());
         }
 
-        return $rows->values();
+        return TodayList::markDismissed($rows->values(), Auth::id());
+    }
+
+    /** 아직 확인 안 한 줄 — 칩 건수·목록은 이것으로. */
+    #[Computed]
+    public function openRows()
+    {
+        return $this->list->where('dismissed', false)->values();
+    }
+
+    #[Computed]
+    public function dismissedRows()
+    {
+        return $this->list->where('dismissed', true)->values();
+    }
+
+    /** [확인] — 지금 이 사람에게 보이는 줄만(스코프 밖·이미 바뀐 줄은 무시). */
+    public function dismiss(int $listingId, string $kind): void
+    {
+        $r = $this->list->first(fn ($x) => $x['listing_id'] === $listingId && $x['kind'] === $kind);
+        if (! $r || $r['dismissed']) {
+            return;
+        }
+        TodayDismissal::updateOrCreate(
+            ['user_id' => Auth::id(), 'purchase_listing_id' => $listingId, 'kind' => $kind],
+            ['signature' => $r['sig']],
+        );
+        BoardAuditLog::create([
+            'user_id' => Auth::id(),
+            'purchase_listing_id' => $listingId,
+            'action' => 'today_dismiss',
+            'field' => $kind,
+            'new_value' => $r['title'],
+        ]);
+        $this->forgetCaches();
+    }
+
+    /** 확인 취소 — 다시 목록에 띄운다. */
+    public function undismiss(int $listingId, string $kind): void
+    {
+        $n = TodayDismissal::where('user_id', Auth::id())->where('purchase_listing_id', $listingId)->where('kind', $kind)->delete();
+        if ($n > 0) {
+            BoardAuditLog::create([
+                'user_id' => Auth::id(),
+                'purchase_listing_id' => $listingId,
+                'action' => 'today_undismiss',
+                'field' => $kind,
+            ]);
+        }
+        $this->forgetCaches();
+    }
+
+    private function forgetCaches(): void
+    {
+        \Illuminate\Support\Facades\Cache::forget('today-badge:'.Auth::id());
+        unset($this->list, $this->openRows, $this->dismissedRows, $this->shown);
     }
 
     #[Computed]
     public function shown()
     {
         return match ($this->chip) {
-            'blocked' => $this->list->where('blocked', true)->values(),
-            'next' => $this->list->where('blocked', false)->values(),
-            default => $this->list,
+            'blocked' => $this->openRows->where('blocked', true)->values(),
+            'next' => $this->openRows->where('blocked', false)->values(),
+            default => $this->openRows,
         };
     }
 
@@ -139,7 +201,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         'amber' => 'border-amber-200 bg-amber-50',
         'blue' => 'border-blue-200 bg-blue-50',
     ];
-    $list = $this->list;
+    $list = $this->openRows;
     $chipCount = ['all' => $list->count(), 'blocked' => $list->where('blocked', true)->count(), 'next' => $list->where('blocked', false)->count()];
     $team = $this->showsTeam() ? $this->team : [];
 @endphp
@@ -225,12 +287,41 @@ new #[Layout('components.layouts.app')] class extends Component {
                             </div>
                         </div>
                     </div>
-                    <a href="{{ $r['href'] }}" wire:navigate class="btn-primary btn-sm shrink-0 justify-center">{{ $r['btn'] }}</a>
+                    <div class="flex shrink-0 gap-1.5">
+                        <button type="button" wire:click="dismiss({{ $r['listing_id'] }}, '{{ $r['kind'] }}')" class="btn-outline btn-sm flex-1 justify-center" title="{{ __('today.dismiss_hint') }}" data-today-dismiss>{{ __('today.dismiss') }}</button>
+                        <a href="{{ $r['href'] }}" wire:navigate class="btn-primary btn-sm flex-1 justify-center">{{ $r['btn'] }}</a>
+                    </div>
                 </div>
             @empty
                 <p class="py-6 text-center text-sm text-gray-400">{{ __('today.empty') }}</p>
             @endforelse
         </div>
+
+        @php $dismissed = $this->dismissedRows; @endphp
+        @if ($dismissed->isNotEmpty())
+            <div class="mt-3 border-t border-gray-100 pt-2" data-today-dismissed>
+                <button type="button" wire:click="$toggle('showDismissed')" class="text-xs font-semibold text-gray-500 hover:text-gray-700">
+                    {{ $showDismissed ? '▾' : '▸' }} {{ __('today.dismissed_toggle', ['count' => $dismissed->count()]) }}
+                </button>
+                @if ($showDismissed)
+                    <p class="mt-1 text-[11px] text-gray-400">{{ __('today.dismissed_hint') }}</p>
+                    <div class="mt-2 space-y-1.5">
+                        @foreach ($dismissed as $r)
+                            <div class="flex flex-col gap-1.5 rounded-md border bg-white px-3 py-2 sm:flex-row sm:items-center {{ $r['blocked'] ? 'border-red-200' : 'border-gray-200' }}" data-today-dismissed-row="{{ $r['kind'] }}">
+                                <div class="min-w-0 flex-1 text-[12px] {{ $r['blocked'] ? 'text-red-700' : 'text-gray-600' }}">
+                                    {{ $r['icon'] }} <span class="font-semibold">{{ $r['plate'] }}</span> · {{ $r['title'] }}
+                                    <span class="text-[11px] text-gray-400">· {{ $this->sinceText($r['since']) }}</span>
+                                </div>
+                                <div class="flex shrink-0 gap-1.5">
+                                    <button type="button" wire:click="undismiss({{ $r['listing_id'] }}, '{{ $r['kind'] }}')" class="btn-outline btn-sm flex-1 justify-center">{{ __('today.undismiss') }}</button>
+                                    <a href="{{ $r['href'] }}" wire:navigate class="btn-outline btn-sm flex-1 justify-center">{{ $r['btn'] }}</a>
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                @endif
+            </div>
+        @endif
 
         @if ($this->personal !== [] && $col === '')
             <div class="mt-4 border-t border-gray-100 pt-3">

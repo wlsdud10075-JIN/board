@@ -8,6 +8,11 @@ return [
     'back' => '← Today',
     'since' => ':at · day :days',
     'since_today' => ':at · today',
+    'dismiss' => 'Got it',
+    'dismiss_hint' => 'Hide from my list for now. It comes back if something new happens on this car.',
+    'undismiss' => 'Show again',
+    'dismissed_toggle' => 'Acknowledged :count',
+    'dismissed_hint' => 'Lines you acknowledged. They move back up when something new happens on the car (status change, new ERP send or dispatch result).',
     'owner' => 'Owner :name',
     'note' => 'Rows come only from what board already knows (inspection results, attachments, ERP responses, dispatch results). ERP purchase-lock approvals and payment request results are in the bell (🔔) at the top.',
 

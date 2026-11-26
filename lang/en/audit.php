@@ -59,6 +59,8 @@ return [
         'claim_cs_proposed_amount' => 'Claim CS PROPOSED AMOUNT',
         'claim_confirmed_amount' => 'Claim final confirmed amount',
         'claim_erp_send' => 'Claim sent to ERP',
+        'today_dismiss' => 'Today list acknowledged',
+        'today_undismiss' => 'Today list shown again',
         'claim_erp_bundle' => 'Claim bundle sent to ERP',
         'claim_notice_extra' => 'Claim Alimtalk extra recipients',
         'alimtalk_recipients' => 'Alimtalk extra recipients setting',

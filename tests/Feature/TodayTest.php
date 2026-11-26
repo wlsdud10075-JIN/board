@@ -181,4 +181,66 @@ class TodayTest extends TestCase
         Livewire::withQueryParams(['open' => $l->id])->test('listings.index')->assertSet('drawerTab', 'basic');
         Livewire::withQueryParams(['edit' => $l->id])->test('listings.index')->assertSet('drawerTab', 'transport');   // 종·웹푸시 배차 링크(종전)
     }
+
+    public function test_dismiss_hides_row_and_badge_until_something_new_happens(): void
+    {
+        $s = $this->user();
+        $l = $this->listing($s, ['status' => 'accepted', 'buyer_verdict' => 'accepted']);
+        $this->attach($l);
+        $this->assertSame(1, TodayList::badgeCount($s->fresh()));
+
+        $c = Volt::actingAs($s)->test('today.index')->call('dismiss', $l->id, 'confirm')
+            ->assertDontSee('data-today-row="confirm"', false)
+            ->assertSee('data-today-dismissed', false);
+        $this->assertSame(0, TodayList::badgeCount($s));
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'action' => 'today_dismiss', 'field' => 'confirm', 'user_id' => $s->id]);
+
+        $c->set('showDismissed', true)->assertSee('data-today-dismissed-row="confirm"', false);
+
+        // 새 일(첨부가 늘었다) = 지문이 바뀐다 → 다시 뜬다
+        $this->attach($l);
+        Volt::actingAs($s)->test('today.index')->assertSee('data-today-row="confirm"', false);
+        $this->assertSame(1, TodayList::badgeCount($s));
+    }
+
+    public function test_dismissed_row_returns_when_status_moves_on(): void
+    {
+        $s = $this->user();
+        $l = $this->listing($s, ['status' => 'inspected']);
+        Volt::actingAs($s)->test('today.index')->call('dismiss', $l->id, 'forward')->assertDontSee('data-today-row="forward"', false);
+
+        $l->update(['status' => 'awaiting_buyer', 'buyer_name' => 'B']);
+        Volt::actingAs($s)->test('today.index')->assertSee('data-today-row="verdict"', false);
+    }
+
+    public function test_undismiss_brings_row_back(): void
+    {
+        $s = $this->user();
+        $l = $this->listing($s, ['status' => 'inspected']);
+        Volt::actingAs($s)->test('today.index')->call('dismiss', $l->id, 'forward')->call('undismiss', $l->id, 'forward')
+            ->assertSee('data-today-row="forward"', false);
+        $this->assertDatabaseHas('board_audit_logs', ['purchase_listing_id' => $l->id, 'action' => 'today_undismiss']);
+    }
+
+    public function test_dismiss_is_per_person_and_team_table_still_counts_it(): void
+    {
+        $s = $this->user();
+        $wm = $this->user('manager', 'manager');
+        $l = $this->listing($s, ['status' => 'inspected']);
+        Volt::actingAs($s)->test('today.index')->call('dismiss', $l->id, 'forward');
+
+        // 관리자: 팀 표 숫자는 그대로, 그 칸을 누르면 줄도 그대로 보인다
+        $team = Volt::actingAs($wm)->test('today.index')->get('team');
+        $this->assertSame(1, collect($team)->firstWhere('id', $s->id)['cells']['forward']);
+        Volt::actingAs($wm)->test('today.index')->call('pick', $s->id, 'forward')->assertSee('data-today-row="forward"', false);
+    }
+
+    public function test_cannot_dismiss_rows_outside_own_scope(): void
+    {
+        $a = $this->user();
+        $b = $this->user();
+        $lb = $this->listing($b, ['status' => 'inspected']);
+        Volt::actingAs($a)->test('today.index')->call('dismiss', $lb->id, 'forward');
+        $this->assertDatabaseCount('today_dismissals', 0);
+    }
 }

@@ -8,6 +8,11 @@ return [
     'back' => '← 오늘 할 일',
     'since' => ':at · :days일째',
     'since_today' => ':at · 오늘',
+    'dismiss' => '확인',
+    'dismiss_hint' => '지금은 내 목록에서 숨깁니다. 이 차에 새 일이 생기면 바뀐 내용으로 다시 뜹니다.',
+    'undismiss' => '다시 띄우기',
+    'dismissed_toggle' => '확인한 것 :count건',
+    'dismissed_hint' => '확인한 줄입니다. 이 차에 새 일이 생기면(상태가 바뀌거나 새 전송·배차 결과) 위 목록으로 다시 올라옵니다.',
     'owner' => '담당 :name',
     'note' => '줄은 board 가 이미 아는 사실(검차 결과·첨부·ERP 응답·배차 결과)로만 만듭니다. ERP 의 매입 락 승인·입금 요청 결과는 위쪽 종(🔔)에서 봅니다.',
 

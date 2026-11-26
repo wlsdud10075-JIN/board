@@ -60,6 +60,8 @@ return [
         'claim_cs_proposed_amount' => '클레임 CS PROPOSED AMOUNT',
         'claim_confirmed_amount' => '클레임 최종 확정 금액',
         'claim_erp_send' => '클레임 ERP 전송',
+        'today_dismiss' => '오늘 할 일 확인',
+        'today_undismiss' => '오늘 할 일 다시 띄우기',
         'claim_erp_bundle' => '클레임 묶음 ERP 전송',
         'claim_notice_extra' => '클레임 알림톡 추가 수신',
         'alimtalk_recipients' => '알림톡 추가 수신자 설정',
