@@ -1,0 +1,9 @@
+{"slug":"today","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/today"},{"wait":2000},
+  {"shot":"_01-sales","full":true},
+  {"click":"[data-today-row=\"forward\"] [data-today-dismiss]"},{"wait":1500},
+  {"clickText":"확인한 것","in":"button"},{"wait":1500},
+  {"shot":"_05-dismissed","full":true},
+  {"clickText":"다시 띄우기","in":"button"},{"wait":1500}
+ ]}
