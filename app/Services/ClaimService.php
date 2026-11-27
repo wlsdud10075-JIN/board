@@ -14,6 +14,7 @@ use App\Support\Plate;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
@@ -68,6 +69,10 @@ class ClaimService
         }
 
         $this->snapshotErp($claim, $salesman);
+        // Proforma Invoice — 직접 올린 게 없으면 ERP 에서 받아 붙인다. 실패해도 접수는 된다(담당자 드로어에서 다시 가져온다).
+        if (! $claim->files()->where('kind', ClaimFile::KIND_PROFORMA)->exists()) {
+            $this->attachProforma($claim, $actor->id);
+        }
 
         $this->audit($claim, $actor->id, 'claim_intake', null, $this->summary($claim).' · '.__('claims.audit_intake', [
             'km' => number_format($claim->received_km), 'arrived' => $claim->arrived_at->format('Y-m-d'), 'files' => $claim->files()->count(),
@@ -83,7 +88,7 @@ class ClaimService
 
     public function storeFile(Claim $claim, string $kind, UploadedFile $f, ?int $userId): ClaimFile
     {
-        $kind = in_array($kind, [...ClaimFile::KINDS, ClaimFile::KIND_SELF_PROOF], true) ? $kind : ClaimFile::KIND_OTHER;
+        $kind = in_array($kind, [...ClaimFile::KINDS, ClaimFile::KIND_SELF_PROOF, ClaimFile::KIND_PROFORMA], true) ? $kind : ClaimFile::KIND_OTHER;
         $path = $f->store(config('board.claims_prefix').'/'.$claim->id.'/'.$kind, config('board.photo_disk'));
 
         return $claim->files()->create([
@@ -94,6 +99,42 @@ class ClaimService
             'size' => $f->getSize(),
             'uploaded_by_user_id' => $userId,
         ]);
+    }
+
+    /**
+     * 그 차의 Proforma Invoice 를 ERP 에서 받아 클레임에 붙인다(2026-11-27 Jin) — 명의 영업의 ERP 이메일로 `/documents/invoice`(포털 선적 계획 버튼과 같은 통로).
+     * ERP 가 그 순간 데이터로 새로 만든 xlsx 다(판매 당시 보낸 파일이 아님). 받을 때마다 한 장 더 쌓인다(앞 것은 지우지 않는다 — 접수 시점 값이 남는다).
+     * 반환 = 실패 사유(성공이면 null). 실패·성공 모두 감사 행.
+     */
+    public function attachProforma(Claim $claim, ?int $actorId): ?string
+    {
+        $as = $claim->salesman;
+        $email = $as?->car_erp_salesman_email ?: $as?->email;
+        $res = $email && $claim->car_erp_vehicle_id
+            ? $this->erp->document('invoice', [(int) $claim->car_erp_vehicle_id], $email)
+            : ['ok' => false, 'status' => 0, 'message' => null];
+        $body = (string) ($res['body'] ?? '');
+        // xlsx 는 zip(PK) — ERP 가 200 으로 다른 것을 주면(로그인 화면·JSON) 서류로 붙이지 않는다.
+        if (! ($res['ok'] ?? false) || ! str_starts_with($body, 'PK')) {
+            $why = trim((string) ($res['message'] ?? '')) ?: __('claims.proforma_fail_generic', ['status' => (int) ($res['status'] ?? 0)]);
+            $this->audit($claim, $actorId, 'claim_proforma_failed', null, $why);
+
+            return $why;
+        }
+        $name = 'proforma-invoice-'.preg_replace('/[^0-9A-Za-z가-힣]/u', '', (string) $claim->vehicle_number).'-'.now()->format('Ymd-His').'.xlsx';
+        $path = config('board.claims_prefix').'/'.$claim->id.'/'.ClaimFile::KIND_PROFORMA.'/'.$name;
+        Storage::disk(config('board.photo_disk'))->put($path, $body);
+        $claim->files()->create([
+            'kind' => ClaimFile::KIND_PROFORMA,
+            's3_path' => $path,
+            'original_name' => $name,
+            'mime' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'size' => strlen($body),
+            'uploaded_by_user_id' => $actorId,
+        ]);
+        $this->audit($claim, $actorId, 'claim_proforma_fetch', null, $name);
+
+        return null;
     }
 
     /**

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\AlimtalkLog;
 use App\Models\BoardAuditLog;
 use App\Models\Claim;
+use App\Models\ClaimFile;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\CarErpReadService;
@@ -110,6 +111,64 @@ class ClaimsTest extends TestCase
     }
 
     // ── 접수 ──
+
+    /** ERP 가 Proforma Invoice(xlsx)를 주는 가짜 — fakeErp 보다 먼저 걸어야 그 주소가 이쪽으로 온다. */
+    private function fakeProforma(int $status = 200, mixed $body = "PK\x03\x04demo-xlsx"): void
+    {
+        Http::fake(['*/documents/invoice*' => is_string($body)
+            ? Http::response($body, $status, ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'])
+            : Http::response($body, $status)]);
+    }
+
+    /** 접수하면 그 차의 Proforma Invoice 를 명의 영업 이메일로 ERP 에서 받아 붙인다(2026-11-27 Jin). 감사 행 1. */
+    public function test_intake_attaches_proforma_invoice_from_erp(): void
+    {
+        $this->fakeProforma();
+        $this->fakeErp();
+        $sales = $this->mk('김영업', 'sales', 'user', ['car_erp_salesman_email' => 'kim@ce.test']);
+        $this->handler();
+
+        $c = $this->intake($sales);
+
+        $pf = $c->files()->where('kind', ClaimFile::KIND_PROFORMA)->get();
+        $this->assertCount(1, $pf);
+        $this->assertStringEndsWith('.xlsx', $pf[0]->original_name);
+        Storage::disk('public')->assertExists($pf[0]->s3_path);
+        $this->assertStringStartsWith('PK', Storage::disk('public')->get($pf[0]->s3_path));
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/documents/invoice') && $r['ids'] === '55' && $r['salesman_email'] === 'kim@ce.test');
+        $this->assertTrue(BoardAuditLog::where('field', 'claim_proforma_fetch')->exists());
+        $this->assertFalse(in_array(ClaimFile::KIND_PROFORMA, ClaimFile::KINDS, true));   // 바이어 증빙 묶음(보고서·결재 링크)엔 안 섞인다
+    }
+
+    /** ERP 가 거절하거나 xlsx 가 아닌 것을 주면 접수는 그대로 되고 서류만 안 붙는다. 담당자가 드로어에서 다시 가져온다. 직접 올렸으면 ERP 를 안 부른다. */
+    public function test_proforma_failure_does_not_block_intake_and_handler_can_fetch_or_sales_can_upload(): void
+    {
+        $this->fakeProforma(422, ['message' => 'No sale price: 12가3456']);
+        $this->fakeErp();
+        $sales = $this->mk('김영업', 'sales', 'user', ['car_erp_salesman_email' => 'kim@ce.test']);
+        $h = $this->handler();
+
+        $c = $this->intake($sales);
+        $this->assertSame(0, $c->files()->where('kind', ClaimFile::KIND_PROFORMA)->count());
+        $this->assertSame(4, $c->files()->count());
+        $this->assertStringContainsString('No sale price', (string) BoardAuditLog::where('field', 'claim_proforma_failed')->value('new_value'));
+
+        $this->actingAs($h);
+        Volt::test('claims.index')->call('openDetail', $c->id)->assertSeeHtml('data-claim-proforma')
+            ->call('fetchProforma')->assertSee('No sale price')->assertDontSeeHtml('data-claim-proforma-file');
+
+        // 영업이 직접 올린 건 — ERP 를 부르지 않는다
+        $this->actingAs($sales);
+        Volt::test('claims.intake')->call('openFor', $this->row(), $sales->id)
+            ->set('arrived_at', now()->subDays(3)->format('Y-m-d'))->set('received_km', '1000')->set('content', '직접 올림')
+            ->set('odometer', [UploadedFile::fake()->image('odo.jpg')])->set('damage', [UploadedFile::fake()->image('dmg.jpg')])
+            ->set('invoice', [UploadedFile::fake()->create('inv.pdf', 10, 'application/pdf')])
+            ->set('proforma', [UploadedFile::fake()->create('pi-sent.pdf', 10, 'application/pdf')])
+            ->call('save')->assertHasNoErrors();
+        $c2 = Claim::latest('id')->firstOrFail();
+        $this->assertSame(['pi-sent.pdf'], $c2->files()->where('kind', ClaimFile::KIND_PROFORMA)->pluck('original_name')->all());
+        $this->assertSame(2, BoardAuditLog::whereIn('field', ['claim_proforma_failed', 'claim_proforma_fetch'])->count());   // 접수 1 + 담당자 1, 직접 올린 건 0
+    }
 
     public function test_intake_creates_claim_with_files_snapshot_and_audit(): void
     {

@@ -23,6 +23,12 @@ class ClaimFile extends Model
     /** 자체승인 증빙(결재자 답장 캡처, 2026-11-19 Jin) — 바이어 증빙이 아니라 KINDS 밖. 보고서·결재 링크 화면에는 안 나온다. */
     public const KIND_SELF_PROOF = 'self_proof';
 
+    /**
+     * 그 차의 Proforma Invoice(2026-11-27 Jin) — 접수 때 ERP 에서 자동으로 받아 붙이거나(영업 명의, `/documents/invoice`) 직접 올린다.
+     * 바이어 증빙이 아니라 KINDS 밖(담당자 드로어에 따로 보인다). 목적 = 클레임 담당자가 판매 내용을 보려고 ERP 전체를 볼 필요가 없게.
+     */
+    public const KIND_PROFORMA = 'proforma';
+
     public const KINDS = [self::KIND_ODOMETER, self::KIND_DAMAGE, self::KIND_INVOICE, self::KIND_OTHER];
 
     /** 접수 저장에 꼭 있어야 하는 종류(§12 → §15). */

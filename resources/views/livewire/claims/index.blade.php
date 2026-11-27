@@ -168,6 +168,19 @@ new #[Layout('components.layouts.app')] class extends Component
         unset($this->detail, $this->media, $this->claims, $this->counts);
     }
 
+    /** [ERP 에서 Proforma Invoice 가져오기](2026-11-27) — 접수 때 못 받았거나 접수가 이 기능 전인 건. 받을 때마다 한 장 더 붙는다. */
+    public function fetchProforma(ClaimService $svc): void
+    {
+        $c = $this->detail;
+        if (! $c) {
+            return;
+        }
+        $why = $svc->attachProforma($c, Auth::id());
+        $this->notice = $why === null ? __('claims.proforma_fetched') : null;
+        $this->error = $why === null ? null : __('claims.proforma_failed', ['reason' => $why]);
+        $this->refreshDetail();
+    }
+
     private function refreshDetail(): void
     {
         [$n, $e] = [$this->notice, $this->error];   // openDetail 이 비우므로 보존
@@ -727,6 +740,22 @@ new #[Layout('components.layouts.app')] class extends Component
                                 @endforeach
                             </div>
                         @endforeach
+                        {{-- Proforma Invoice(2026-11-27) — 판매 내용을 보려고 ERP 에 들어갈 필요가 없게. 엑셀이라 눌러서 내려받는다. --}}
+                        <div class="mt-3 border-t border-gray-100 pt-2" data-claim-proforma>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <span class="text-[11px] font-semibold text-gray-600">{{ __('claims.kind.proforma') }}</span>
+                                <button type="button" wire:click="fetchProforma" wire:loading.attr="disabled" wire:target="fetchProforma" class="btn-outline btn-sm">
+                                    <span wire:loading.remove wire:target="fetchProforma">{{ __('claims.proforma_fetch_btn') }}</span>
+                                    <span wire:loading wire:target="fetchProforma">{{ __('claims.proforma_fetching') }}</span>
+                                </button>
+                            </div>
+                            @forelse ($kinds[\App\Models\ClaimFile::KIND_PROFORMA] ?? [] as $file)
+                                <a href="{{ $file->shareUrl() }}" target="_blank" class="mt-1 block truncate text-xs text-[var(--color-primary-text)] hover:underline" data-claim-proforma-file>📄 {{ $file->original_name }}
+                                    <span class="text-[10px] text-gray-400">· {{ $file->created_at?->format('m-d H:i') }}</span></a>
+                            @empty
+                                <p class="mt-1 text-[11px] text-gray-400">{{ __('claims.proforma_none') }}</p>
+                            @endforelse
+                        </div>
                         @if ($editable)
                             <div class="mt-2">
                                 <input type="file" multiple class="block w-full text-xs" wire:model="extra">
