@@ -1815,6 +1815,31 @@ class BoardTest extends TestCase
      * ★환율 락 — 통화를 골라도 환율칸이 '1' 로 미리 채워져 있으면 USD 딜이 **환율 1** 로 ERP 에 박힌다
      * (통화 락을 통과한 뒤 생기는 두 번째 구멍). 그래서 셀프검차는 환율을 미리 채우지 않는다.
      */
+    /** 2026-11-27 Jin — 환율이 전혀 없고 ERP 로 안 간 차만 오늘 환율을 채운다. 저장된 환율·ERP 로 간 차·받아 둔 환율 없음은 그대로. */
+    public function test_auction_drawer_prefills_todays_rates_only_when_empty_and_not_sent_to_erp(): void
+    {
+        ExchangeRate::create(['currency' => 'USD', 'krw_per_unit' => 1516.4, 'fetched_at' => now()]);
+        ExchangeRate::create(['currency' => 'EUR', 'krw_per_unit' => 1650.6, 'fetched_at' => now()]);
+        $sales = $this->mkUser('sales');
+        $base = ['status' => 'accepted', 'buyer_verdict' => 'accepted', 'origin' => 'self_inspection', 'source' => 'encar'];
+        $empty = $this->mkListing($sales, $base);
+        $typed = $this->mkListing($sales, $base + ['offer_rate_usd' => 1400]);
+        $sent = $this->mkListing($sales, ['status' => 'won', 'car_erp_vehicle_id' => 77] + $base);
+        $this->actingAs($this->mkUser('manager', null, 'manager'));
+
+        Volt::test('auction.index')->call('openDetail', $empty->id)
+            ->assertSet('rate_usd', '1516')->assertSet('rate_eur', '1651')
+            ->assertSeeHtml('data-rate-auto');
+        $this->assertNull($empty->fresh()->offer_rate_usd);   // 열기만 해선 저장하지 않는다
+
+        Volt::test('auction.index')->call('openDetail', $typed->id)
+            ->assertSet('rate_usd', '1400')->assertSet('rate_eur', null)
+            ->assertDontSeeHtml('data-rate-auto');
+
+        Volt::test('auction.index')->call('openDetail', $sent->id)
+            ->assertSet('rate_usd', null)->assertSet('rate_eur', null);
+    }
+
     public function test_self_inspection_requires_rate_for_foreign_currency(): void
     {
         Bus::fake();
