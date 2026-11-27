@@ -128,10 +128,15 @@ class User extends Authenticatable // implements MustVerifyEmail
         };
     }
 
-    /** 업무일지 작성자 — 등급 「일반」 활성 사용자(결재 직급·관리자 등급은 쓰지 않고 결재·조회만). */
+    /**
+     * 업무일지 작성자 — 등급 「일반」 활성 사용자 + **팀장**(2026-11-27 Jin «팀장 직급도 업무일지 쓸 수 있도록»).
+     * 팀장 일지는 그날 기안에 다른 사람 것과 같이 들고, 팀장이 기안을 올릴 때 함께 부장·상무·대표에게 간다.
+     * 부장·상무·대표와 직급 없는 관리자 등급은 종전대로 쓰지 않는다(결재·조회만). 팀장은 「쓸 수 있다」일 뿐 — 미상신 집계(WorkJournalService::writers)엔 안 든다.
+     */
     public function isJournalWriter(): bool
     {
-        return $this->is_active && $this->permission === 'user';
+        return $this->is_active && ($this->permission === 'user'
+            || ($this->isWorkManager() && $this->approval_title === self::TEAM_LEADER));
     }
 
     /** 업무일지 결재선에 들어가는 사람 — 팀장 지정 업무관리자 또는 직급 있는 최고관리자. */
