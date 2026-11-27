@@ -1,11 +1,6 @@
 {"slug":"claim-summary","base":"http://localhost:8003","login":{"email":"manager@board.test"},"viewport":"pc",
  "steps":[
-  {"goto":"/claims?tab=all"},{"wait":1500},
-  {"clickText":"00가1131","in":"span"},{"wait":2500},
-  {"click":"[data-claim-erp-reload]"},
-  {"wait":3000},
-  {"waitFor":"[data-claim-erp-reload] .text-green-700"},
-  {"shot":"reload-done","of":"[data-claim-erp-reload]"},
-  {"wait":3200},
-  {"shot":"reload-back","of":"[data-claim-erp-reload]"}
+  {"goto":"/claims?tab=open"},{"wait":1500},
+  {"clickText":"99데9999","in":"span"},{"wait":3000},
+  {"shot":"demo-drawer","full":true}
  ]}
