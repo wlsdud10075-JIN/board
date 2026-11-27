@@ -67,6 +67,12 @@ class ExchangeRateService
     public const CLOSING_CACHE_KEY = 'exchange_rate_closing';
 
     /**
+     * 환율 상자의 마감환율 줄에 보여 줄 종류 — **송금받을때만**(2026-11-27 Jin «board 는 송금받을때 기준, 마감환율도»).
+     * ERP 는 매매기준율(`base`)도 같이 주고 board 도 받아 두지만 그리지 않는다. 다시 보이려면 여기에 'base' 만 더한다.
+     */
+    public const CLOSING_KINDS = ['receive'];
+
+    /**
      * 마감환율(2026-11-27 Jin) — ERP `/rates` 의 `closing` 블록을 받은 그대로(캐시). **보여 주기 전용**:
      * krwPer()·exchange_rates 행(계산·ERP 전송이 쓰는 값)과 섞지 않는다. ERP 가 안 주면 null → 화면은 마감 줄을 안 그린다.
      * 날짜·「아직 없음」(stale)도 ERP 값 그대로 — board 는 「직전 영업일」을 계산하지 않는다.

@@ -1,6 +1,7 @@
 {{--
     환율 줄(2026-11-27 Jin «매입예정·전달대기·구매 세 곳에, ERP 처럼 실시간·마감 전부, 모바일에서 안 뭉개지게»).
-    값은 전부 ERP `/rates` 가 준 것(board 는 계산·수집 없음) — 실시간 = 송금 받을 때, 마감 = ERP 가 준 날짜의 송금받을때·매매기준율.
+    값은 전부 ERP `/rates` 가 준 것(board 는 계산·수집 없음) — 실시간 = 송금 받을 때, 마감 = ERP 가 준 날짜의 송금받을때
+    (같은 날 저녁 Jin «board 는 송금받을때 기준» — 매매기준율 줄은 뺐다. 종류 = ExchangeRateService::CLOSING_KINDS).
     마감 값은 **보여 주기 전용**(계산·ERP 전송에 안 쓴다). ERP 응답에 마감이 없으면 마감 줄을 안 그린다.
     날짜 칸(같은 날 Jin «일자별로 과거 것도») = 화면의 `$fxDate`(빈 값 = 가장 최근 마감). 고르면 그날 마감 두 줄로 바뀌고 실시간 줄은 그대로.
     ↻ = 화면의 `refreshRate`(ERP 값을 다시 읽기만 한다). 표는 3칸 고정(이름·USD·EUR) — 360px 에서도 줄이 안 깨진다.
@@ -44,7 +45,7 @@
                     @endif
                 @endif
             </div>
-            @foreach (['receive', 'base'] as $kind)
+            @foreach (\App\Services\ExchangeRateService::CLOSING_KINDS as $kind)
                 <div class="min-w-0 whitespace-nowrap" data-rate-closing="{{ $kind }}">{{ __('rates.kind_'.$kind) }}</div>
                 <div class="whitespace-nowrap text-right font-semibold text-gray-700">{{ $fmt($cl[$kind]['USD'] ?? null) }}</div>
                 <div class="whitespace-nowrap text-right font-semibold text-gray-700">{{ $fmt($cl[$kind]['EUR'] ?? null) }}</div>

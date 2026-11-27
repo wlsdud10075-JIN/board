@@ -45,7 +45,7 @@ class RateStripTest extends TestCase
                 ->assertSee('1,520.25')->assertSee('1,655.75')          // 실시간
                 ->assertSeeHtml('value="2026-11-26"')                    // 날짜 칸 = 가장 최근 마감일
                 ->assertSee('1,516.40')->assertSee('1,650.60')          // 마감 · 송금받을때
-                ->assertSee('1,531.50')->assertSee('1,667.20')          // 마감 · 매매기준율
+                ->assertDontSee('1,531.50')->assertDontSee('매매기준율')   // 매매기준율 줄은 안 그린다(송금받을때 기준)
                 ->assertDontSeeHtml('data-rate-closing-stale');
         }
     }
@@ -92,16 +92,16 @@ class RateStripTest extends TestCase
         $this->actingAs($this->sales());
 
         $c = Volt::test('auction.index')->set('fxDate', '2026-11-22');   // 일요일 → ERP 가 금요일 값을 준다
-        $c->assertSee('1,400.10')->assertSee('1,600.20')->assertSee('1,411.30')
+        $c->assertSee('1,400.10')->assertSee('1,600.20')->assertDontSee('1,411.30')
             ->assertSee('11월 20일 마감 값')
             ->assertSee('1,520.25')                                        // 실시간 줄은 그대로
             ->assertSeeHtml('data-rate-latest')
-            ->assertDontSee('1,531.50');
+            ->assertDontSee('1,516.40');
         $c->call('$refresh');
         Http::assertSentCount(1);
         Http::assertSent(fn ($r) => str_contains($r->url(), 'closing_date=2026-11-22'));
 
-        $c->set('fxDate', '')->assertSee('1,531.50')->assertDontSeeHtml('data-rate-latest');
+        $c->set('fxDate', '')->assertSee('1,516.40')->assertDontSeeHtml('data-rate-latest');
     }
 
     public function test_missing_or_future_date_shows_note_instead_of_latest_values(): void
@@ -115,7 +115,7 @@ class RateStripTest extends TestCase
         $this->actingAs($this->sales());
 
         Volt::test('auction.index')->set('fxDate', '2026-11-10')
-            ->assertSeeHtml('data-rate-closing-missing')->assertDontSee('1,531.50');
+            ->assertSeeHtml('data-rate-closing-missing')->assertDontSee('1,516.40');
         Volt::test('auction.index')->set('fxDate', '2026-11-27')          // 오늘 — ERP 에 묻지 않는다
             ->assertSeeHtml('data-rate-closing-missing');
         Http::assertSentCount(1);

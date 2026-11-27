@@ -1294,7 +1294,7 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     @error('rate_eur') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
                                 </div>
                                 @if ($rateAutoAt)
-                                    <p class="col-span-full text-[11px] text-gray-500" data-rate-auto>{{ __('auction.rate_auto_hint', ['at' => $rateAutoAt]) }}</p>
+                                    <p class="col-span-2 text-[11px] text-gray-500" data-rate-auto>{{ __('auction.rate_auto_hint', ['at' => $rateAutoAt]) }}</p>
                                 @endif
                                 <div>
                                     <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.transport_fee') }} <span class="text-gray-400">({{ __('auction.auto') }})</span></label>
