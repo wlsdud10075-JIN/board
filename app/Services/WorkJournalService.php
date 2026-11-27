@@ -47,7 +47,7 @@ class WorkJournalService
         return ! self::isWeekend($d) && $d->lt(today());
     }
 
-    /** 작성 대상 전원(등급 일반 활성) — 미상신 집계 기준. */
+    /** 작성 대상 전원(등급 일반 활성) — 미상신 집계 기준. 팀장은 쓸 수 있지만(2026-11-27) 의무가 아니라 미상신으로 세지 않는다. */
     public function writers(): Collection
     {
         return User::where('permission', 'user')->where('is_active', true)->orderBy('name')->get();

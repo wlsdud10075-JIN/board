@@ -246,6 +246,9 @@ new #[Layout('components.layouts.app')] class extends Component {
     public $passportFile = null;
 
     // ── 환율 (§6a 라이브) ──
+    /** 환율 줄 — 마감환율을 볼 날짜(빈 값 = 가장 최근 마감). 2026-11-27. */
+    public string $fxDate = '';
+
     public int $krwPerUsd = 0;
     public int $krwPerEur = 0;
     public string $krwPerUsdDisplay = '';   // 표시용 2자리(car-erp 일치)
@@ -1970,18 +1973,8 @@ new #[Layout('components.layouts.app')] class extends Component {
             <h1 class="text-xl font-bold text-gray-800">{{ __('listings.heading') }}</h1>
             <p class="mt-0.5 text-xs text-gray-500">{{ __('listings.own_only_note', ['name' => auth()->user()->name]) }}</p>
         </div>
-        {{-- 환율 (car-erp 전신환 매입률 · 실패 시 폴백) — car-erp 표시(소수 2자리)와 일치 --}}
-        <div class="card-sm shrink-0 text-right text-[13px]" style="background:#f5f8ff;border-color:#dbeafe">
-            <div class="flex items-center justify-end gap-1 text-[11px] text-gray-500">
-                {{ __('listings.rate.label') }}
-                <span class="font-semibold {{ $rateLive ? 'text-green-600' : 'text-amber-600' }}">{{ $rateLive ? __('listings.rate.live') : __('listings.rate.temp') }}</span>
-                <button wire:click="refreshRate" wire:loading.attr="disabled" class="text-blue-500 hover:text-blue-700" title="{{ __('listings.rate.refresh_title') }}">↻</button>
-            </div>
-            <div class="font-bold text-gray-800">{{ __('listings.rate.usd_line', ['amount' => $krwPerUsdDisplay]) }}</div>
-            <div class="font-bold text-gray-800">{{ __('listings.rate.eur_line', ['amount' => $krwPerEurDisplay]) }}</div>
-            @if ($rateFetchedAt)<div class="text-[10px] text-gray-400">{{ __('listings.rate.as_of', ['time' => $rateFetchedAt]) }}</div>@endif
-        </div>
     </div>
+    @include('livewire._rate-strip')
 
     {{-- 시간잠금 안내 --}}
     <div class="card-sm mb-3 flex items-center gap-2 text-[13px]"

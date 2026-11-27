@@ -3,7 +3,7 @@
 return [
     'title' => 'Work journal',
     'subtitle' => 'Write what you did today and [Submit] — it goes to journal approvals. [+ Add row] stamps the current time (editable). Changes save automatically.',
-    'forbidden' => 'The work journal is written by "User" level accounts.',
+    'forbidden' => 'The work journal is written by "User" level accounts and the team leader.',
     'prev_day' => '◀ Prev',
     'next_day' => 'Next ▶',
     'today' => 'Today',

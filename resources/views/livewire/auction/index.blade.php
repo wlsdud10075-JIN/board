@@ -95,6 +95,9 @@ new #[Layout('components.layouts.app')] class extends Component {
     /** 견적 통화 — 드로어 열 때 offer_currency 표시, 저장 시 바뀐 경우만 재스냅(EUR 딜 보존). */
     public string $quoteCurrency = 'KRW';
 
+    /** 환율 줄 — 마감환율을 볼 날짜(빈 값 = 가장 최근 마감). 2026-11-27. */
+    public string $fxDate = '';
+
     public int $krwPerUsd = 0;
 
     public int $krwPerEur = 0;
@@ -115,6 +118,14 @@ new #[Layout('components.layouts.app')] class extends Component {
             $this->openDetail($this->open);
         }
         $this->open = 0;
+    }
+
+    /** 환율 줄 ↻ — ERP 값을 다시 읽는다(2026-11-27). */
+    public function refreshRate(ExchangeRateService $rates): void
+    {
+        $rates->refresh();
+        $this->krwPerUsd = $rates->krwPerUsd();
+        $this->krwPerEur = $rates->krwPerEur();
     }
 
     private function usdRate(): int
@@ -1097,6 +1108,7 @@ new #[Layout('components.layouts.app')] class extends Component {
         <h1 class="text-xl font-bold text-gray-800">{{ __('auction.title') }}</h1>
         <p class="mt-0.5 text-xs text-gray-500">{!! __('auction.subtitle') !!}</p>
     </div>
+    @include('livewire._rate-strip')
 
     @if (session('ok'))
         <div class="card-sm mb-3 border-green-200 bg-green-50 text-[13px] text-green-700">✓ {{ session('ok') }}</div>

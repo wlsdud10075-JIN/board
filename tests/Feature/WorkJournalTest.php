@@ -107,10 +107,32 @@ class WorkJournalTest extends TestCase
         $writer = $this->mk('김영업');
         $this->actingAs($writer)->get('/work-journal')->assertOk()->assertSee(__('nav.menu.work_journal'));
         $this->actingAs($writer)->get('/work-journal/approvals')->assertForbidden();
-        $this->actingAs($line['lead'])->get('/work-journal')->assertForbidden();
+        $this->actingAs($line['lead'])->get('/work-journal')->assertOk();                 // 팀장도 쓴다(2026-11-27)
+        $this->actingAs($line['bujang'])->get('/work-journal')->assertForbidden();        // 부장·상무·대표는 결재만
+        $this->actingAs($this->mk('백업무2', 'manager'))->get('/work-journal')->assertForbidden();   // 팀장 아닌 업무관리자도 종전대로
         $this->actingAs($line['lead'])->get('/work-journal/approvals')->assertOk();
         $this->actingAs($this->mk('백업무', 'manager'))->get('/work-journal/approvals')->assertOk();   // 관리자 등급은 조회
         $this->actingAs($this->mk('root', 'super'))->get('/work-journal')->assertForbidden();
+    }
+
+    /** 팀장 일지(2026-11-27 Jin) — 그날 기안에 같이 들고, 팀장이 기안을 올리면 부장에게 함께 간다. 미상신 집계에는 안 든다(의무 아님). */
+    public function test_team_leader_writes_own_journal_and_sends_it_up_with_the_batch(): void
+    {
+        $line = $this->line();
+        $writer = $this->mk('김영업');
+        $svc = app(WorkJournalService::class);
+        $this->assertFalse($svc->writers()->contains('id', $line['lead']->id));   // 쓸 수는 있지만 미상신으로 세지 않는다
+
+        $wj = $this->writeAndSubmit($writer);
+        $lj = $this->writeAndSubmit($line['lead'], '팀 회의');
+        $this->assertSame($wj->batch_id, $lj->batch_id);                 // 같은 기안
+
+        $batch = WorkJournalBatch::findOrFail($lj->batch_id);
+        $this->approveAs($line['lead'], $batch);                         // 팀장이 본인 것 포함해 올린다
+        $batch->refresh();
+        $this->assertSame('pending', $batch->status);
+        $this->assertSame($line['bujang']->id, $batch->currentStep()->approver_user_id);
+        $this->assertSame('submitted', $lj->fresh()->status);            // 최종 승인 전 — 부장부터 본다
     }
 
     /** 줄 추가 = 지금 시각, 칸마다 자동 저장, 첫 저장만 감사 1행. */

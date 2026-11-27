@@ -1,0 +1,4 @@
+{"slug":"journal-leader","base":"http://localhost:8003","login":{"email":"leader@board.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/work-journal?date=2026-11-26"},{"wait":2000},{"shot":"leader-journal"}
+ ]}
