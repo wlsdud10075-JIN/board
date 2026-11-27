@@ -332,9 +332,10 @@ class CarErpReadService
      * 스코프 없음(전역값). data = {rates:{USD,JPY,EUR,GBP,CNY}, fetched_at, source}. JPY는 100엔 기준.
      * 권위 = car-erp board-portal-api.md §4-1.
      */
-    public function rates(): array
+    public function rates(?string $closingDate = null): array
     {
-        return $this->get('/rates', []);
+        // closing_date(2026-11-27) = 그날(주말·공휴일이면 직전 영업일)의 마감환율 블록을 달라는 뜻. 옛 ERP 는 인자를 무시한다.
+        return $this->get('/rates', $closingDate ? ['closing_date' => $closingDate] : []);
     }
 
     /**

@@ -64,6 +64,98 @@ class ExchangeRateService
         return number_format($val, 2);
     }
 
+    public const CLOSING_CACHE_KEY = 'exchange_rate_closing';
+
+    /**
+     * 마감환율(2026-11-27 Jin) — ERP `/rates` 의 `closing` 블록을 받은 그대로(캐시). **보여 주기 전용**:
+     * krwPer()·exchange_rates 행(계산·ERP 전송이 쓰는 값)과 섞지 않는다. ERP 가 안 주면 null → 화면은 마감 줄을 안 그린다.
+     * 날짜·「아직 없음」(stale)도 ERP 값 그대로 — board 는 「직전 영업일」을 계산하지 않는다.
+     * 로컬 미리 보기 = config board.fake_closing_rates(JSON 파일, **local 전용**).
+     *
+     * @return array{date: ?string, stale: bool, receive: array<string, ?float>, base: array<string, ?float>}|null
+     */
+    public function closing(): ?array
+    {
+        $raw = Cache::get(self::CLOSING_CACHE_KEY);
+        if (app()->environment('local') && ($fake = config('board.fake_closing_rates')) && is_file(base_path($fake))) {
+            $raw = json_decode((string) file_get_contents(base_path($fake)), true);
+        }
+
+        return $this->normalizeClosing($raw);
+    }
+
+    /**
+     * 과거 날짜의 마감환율(2026-11-27 Jin «일자별로 과거 것도») — ERP `/rates?closing_date=` 를 그날 처음 볼 때 한 번 묻고 보관한다
+     * (지난 마감은 안 바뀐다 → 7일). ERP 가 못 주면 null(1분만 기억 — 화면을 그릴 때마다 다시 묻지 않게, ERP 호출 한도는 분당 120 공유).
+     * 주말·공휴일을 고르면 ERP 가 직전 영업일 값을 주고 `date` 에 그 실제 날짜가 온다. 오늘·미래·형식 오류는 null.
+     */
+    public function closingOn(string $date): ?array
+    {
+        if (! preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || $date >= now()->toDateString()) {
+            return null;
+        }
+        if (app()->environment('local') && config('board.fake_closing_rates')) {
+            // 가짜 파일의 `history`(날짜 → 블록)에서 그날 이전 가장 가까운 날 — ERP 의 「직전 영업일」 흉내. 없으면 null(「받지 못했습니다」).
+            $file = base_path((string) config('board.fake_closing_rates'));
+            $hist = is_file($file) ? (json_decode((string) file_get_contents($file), true)['history'] ?? []) : [];
+            krsort($hist);
+            foreach ($hist as $d => $block) {
+                if ($d <= $date) {
+                    return $this->normalizeClosing(['date' => $d, 'stale' => false] + (array) $block);
+                }
+            }
+
+            return null;
+        }
+        $key = self::CLOSING_CACHE_KEY.':'.$date;
+        $hit = Cache::get($key);
+        if ($hit === null) {
+            $resp = app(CarErpReadService::class)->rates($date);
+            $block = ($resp['ok'] ?? false) === true ? ($resp['data']['closing'] ?? null) : null;
+            // 날짜가 없는 블록 = 옛 ERP 가 인자를 무시하고 준 최신 마감일 수 있다 — 요청한 날 이후 날짜면 버린다.
+            $ok = is_array($block) && is_string($block['date'] ?? null) && $block['date'] <= $date;
+            $hit = $ok ? $block : 'none';
+            Cache::put($key, $hit, $ok ? now()->addDays(7) : now()->addMinute());
+        }
+
+        return is_array($hit) ? $this->normalizeClosing($hit) : null;
+    }
+
+    private function normalizeClosing(mixed $raw): ?array
+    {
+        if (! is_array($raw)) {
+            return null;
+        }
+        $pick = function (string $kind) use ($raw): array {
+            $out = [];
+            foreach (self::SUPPORTED as $cur) {
+                $v = $raw[$kind][$cur] ?? null;
+                $out[$cur] = is_numeric($v) && (float) $v > 0 ? (float) $v : null;
+            }
+
+            return $out;
+        };
+        $date = isset($raw['date']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $raw['date']) ? (string) $raw['date'] : null;
+
+        return ['date' => $date, 'stale' => (bool) ($raw['stale'] ?? false), 'receive' => $pick('receive'), 'base' => $pick('base')];
+    }
+
+    /** 화면 환율 줄(`livewire._rate-strip`) 한 벌 — 실시간(snapshot) + 마감. */
+    public function strip(string $date = ''): array
+    {
+        if ($date === '') {
+            return $this->snapshot() + ['closing' => $this->closing(), 'picked' => null, 'missing' => false];
+        }
+        $cl = $this->closingOn($date);
+        $none = array_fill_keys(self::SUPPORTED, null);
+
+        return $this->snapshot() + [
+            'closing' => $cl ?? ['date' => null, 'stale' => false, 'receive' => $none, 'base' => $none],
+            'picked' => $date,
+            'missing' => $cl === null,
+        ];
+    }
+
     private function fallback(string $currency): int
     {
         return $currency === 'EUR'
@@ -114,6 +206,11 @@ class ExchangeRateService
             Log::warning('환율 조회 실패(car-erp /rates): '.($resp['reason'] ?? 'unknown'));
 
             return $updated;
+        }
+
+        // 마감환율 블록 — 있으면 그대로 보관(표시 전용). 없는 응답(옛 ERP)이면 지난 값을 그대로 둔다.
+        if (is_array($resp['data']['closing'] ?? null)) {
+            Cache::forever(self::CLOSING_CACHE_KEY, $resp['data']['closing']);
         }
 
         $rates = $resp['data']['rates'] ?? [];

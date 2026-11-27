@@ -34,6 +34,9 @@ return [
     // 로컬 클레임 씬 확인용 — 로컬 ERP 에 없는 차를 `/sales`·`/by-buyer` 응답에 덧붙인다(2026-11-11 Jin, 13라2053). **local 전용**, 파일의 salesman_email 과 같을 때만.
     // 샘플 = database/dev/claim-demo-sales.json. 운영 .env 에 넣어도 environment 가드가 무시한다.
     'portal_fake_sales' => env('BOARD_PORTAL_FAKE_SALES'),
+    // 로컬 환율 줄 확인용 — ERP `/rates` 의 마감환율 블록 대신 이 JSON 파일(base_path 기준)을 쓴다(2026-11-27). **local 전용**
+    // (ExchangeRateService::closing). 샘플 = database/dev/closing-rates-demo.json. 운영 .env 에 넣어도 environment 가드가 무시한다.
+    'fake_closing_rates' => env('BOARD_FAKE_CLOSING_RATES'),
 
     // ─────────── 첨부사진 계좌 추출 (2026-09-10) ───────────
     // 사내 GPU PC 의 비전 모델로 첨부사진에서 계좌를 읽어 **후보로 제안**한다(자동 기입 없음).
