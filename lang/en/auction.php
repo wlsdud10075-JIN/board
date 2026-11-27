@@ -43,6 +43,7 @@ return [
     'transport_fee_usd' => 'Freight (USD)',
     'rate_usd' => 'Rate USD',
     'rate_eur' => 'Rate EUR',
+    'rate_auto_hint' => 'Filled with the current rate (as of :at, T/T buying). Change it if the agreed rate differs.',
     'auto' => 'auto',
     'ideal_title' => 'Ideal total',
     'ideal_diff' => 'Sale price + freight = :sale KRW → vs ideal: :pct',
