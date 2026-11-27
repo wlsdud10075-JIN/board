@@ -206,6 +206,17 @@ class ClaimService
             }
         }
 
+        // 바이어 추가 정보(2026-11-27 Jin) — 바이어 전체 기준 요약을 받은 그대로 보관(계산 없음). 못 받으면 지난 값을 그대로 둔다.
+        if ($claim->car_erp_buyer_id) {
+            $s = $this->erp->buyerSummary($email, (int) $claim->car_erp_buyer_id, $claim->car_erp_vehicle_id ? (int) $claim->car_erp_vehicle_id : null);
+            $sum = ($s['ok'] ?? false) ? data_get($s['data'], 'data', $s['data']) : null;
+            if (is_array($sum) && array_key_exists('vehicle_count', $sum)) {
+                $claim->buyer_summary = $sum;
+                $claim->buyer_summary_at = now();
+                $got[] = 'buyer_summary';
+            }
+        }
+
         $st = $this->erp->settlements($email);
         if ($st['ok'] ?? false) {
             foreach ((array) data_get($st['data'], 'data', []) as $r) {

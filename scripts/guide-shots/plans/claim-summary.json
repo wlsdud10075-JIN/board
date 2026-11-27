@@ -1,0 +1,6 @@
+{"slug":"claim-summary","base":"http://localhost:8003","login":{"email":"manager@board.test"},"viewport":"phone",
+ "steps":[
+  {"goto":"/claims?tab=all"},{"wait":1500},
+  {"clickText":"30가3014","in":"span"},{"wait":2500},
+  {"shot":"phone-box","of":"[data-claim-buyer-summary]"}
+ ]}

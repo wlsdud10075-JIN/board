@@ -766,6 +766,8 @@ new #[Layout('components.layouts.app')] class extends Component
                     </div>
                 </div>
 
+                @include('livewire.claims._buyer-summary', ['d' => $d])
+
                 {{-- 보고서 칸(양식 순서) --}}
                 <div class="section-title-sm">{{ __('claims.report_fields') }}</div>
                 <fieldset @disabled(! $editable) class="grid grid-cols-2 gap-2 text-xs {{ $editable ? '' : 'opacity-70' }}">

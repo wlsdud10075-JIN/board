@@ -255,6 +255,23 @@ class CarErpReadService
     }
 
     /**
+     * 클레임용 바이어 요약(2026-11-27 Jin) — `GET /buyers/{id}/summary` → **바이어 전체 기준**(전 영업) 구매 대수·통화별 판매/미수/입금률·
+     * 미수 차량 수·환율 미입력 수 + `vehicle`(클레임 차량의 입금 상태). 신용도와 같이 **영업 매칭 없음**(이메일은 접근 기록용), 연락처·정산 없음.
+     * 클레임 스냅샷 전용 — 담당자 드로어에만 그린다(영업 화면 ❌). ERP 미배포면 404 → 호출부가 「연동 대기」.
+     * 로컬 미리 보기 = config board.fake_buyer_summary(JSON 파일, **local 전용**).
+     */
+    public function buyerSummary(string $email, int $buyerId, ?int $vehicleId = null): array
+    {
+        if (app()->environment('local') && ($fake = config('board.fake_buyer_summary')) && is_file(base_path($fake))) {
+            $data = json_decode((string) file_get_contents(base_path($fake)), true);
+
+            return ['ok' => is_array($data), 'status' => 200, 'data' => ['data' => ['buyer_id' => $buyerId] + (array) $data], 'reason' => null];
+        }
+
+        return $this->get('/buyers/'.$buyerId.'/summary', ['salesman_email' => $email] + ($vehicleId ? ['vehicle_id' => $vehicleId] : []));
+    }
+
+    /**
      * 바이어 1명(서류 생성용, 2026-10-29 ②) — `{id, name, country, address, phone}`. §3 「연락처·주소 PII 금지」의 **문서 생성용 예외**(권위 §4 `GET /buyers/{id}`,
      * car-erp dev `cc4023e5`). 비면 null(「-」 ❌), 비활성 바이어도 읽힘, 남의 바이어·없는 id = 404, ERP 가 접근 기록 1행. **board 저장 0 — 생성 시점에만 읽는다.**
      */

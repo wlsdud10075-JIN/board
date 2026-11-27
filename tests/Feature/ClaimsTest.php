@@ -170,6 +170,46 @@ class ClaimsTest extends TestCase
         $this->assertSame(2, BoardAuditLog::whereIn('field', ['claim_proforma_failed', 'claim_proforma_fetch'])->count());   // 접수 1 + 담당자 1, 직접 올린 건 0
     }
 
+    /** 바이어 추가 정보(2026-11-27 Jin) — 접수 때 ERP 의 바이어 전체 기준 요약을 받은 그대로 보관하고 담당자 창 상자에 그린다. 못 받으면 「연동 대기」. */
+    public function test_buyer_summary_is_snapshotted_and_shown_in_handler_drawer(): void
+    {
+        Http::fake(['*/buyers/7/summary*' => Http::response(['data' => [
+            'buyer_id' => 7, 'vehicle_count' => 15, 'vehicle_count_12m' => 6, 'first_sale_date' => '2024-03-11',
+            'by_currency' => [['currency' => 'USD', 'vehicle_count' => 10, 'sale_total' => 123000, 'unpaid' => 12000, 'paid_ratio' => 0.902]],
+            'paid_ratio' => 0.934, 'unpaid_vehicle_count' => 2, 'fx_missing_count' => 1,
+            'vehicle' => ['vehicle_id' => 55, 'currency' => 'USD', 'sale_total' => 12000, 'unpaid' => 3000, 'unpaid_ratio' => 0.25, 'fully_paid' => false],
+        ]], 200)]);
+        $this->fakeErp();
+        $sales = $this->mk('김영업', 'sales', 'user', ['car_erp_salesman_email' => 'kim@ce.test']);
+        $h = $this->handler();
+
+        $c = $this->intake($sales);
+
+        $this->assertSame(15, $c->buyer_summary['vehicle_count']);
+        $this->assertNotNull($c->buyer_summary_at);
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/buyers/7/summary') && (string) $r['vehicle_id'] === '55');
+
+        $this->actingAs($h);
+        Volt::test('claims.index')->call('openDetail', $c->id)
+            ->assertSeeHtml('data-claim-buyer-summary')->assertDontSeeHtml('data-claim-buyer-summary-pending')
+            ->assertSee('15대')->assertSee('93.4%')->assertSee('12,000')->assertSee('90.2%')
+            ->assertSee('환율 미입력 1대')->assertSee('미수 USD 3,000')->assertSee('75%');
+    }
+
+    public function test_buyer_summary_shows_pending_note_when_erp_has_no_endpoint(): void
+    {
+        Http::fake(['*/buyers/7/summary*' => Http::response(['message' => 'Not Found'], 404)]);
+        $this->fakeErp();
+        $sales = $this->mk('김영업', 'sales', 'user', ['car_erp_salesman_email' => 'kim@ce.test']);
+        $h = $this->handler();
+
+        $c = $this->intake($sales);
+        $this->assertNull($c->buyer_summary);
+
+        $this->actingAs($h);
+        Volt::test('claims.index')->call('openDetail', $c->id)->assertSeeHtml('data-claim-buyer-summary-pending')->assertSee('총 12대');
+    }
+
     public function test_intake_creates_claim_with_files_snapshot_and_audit(): void
     {
         $this->fakeErp();
