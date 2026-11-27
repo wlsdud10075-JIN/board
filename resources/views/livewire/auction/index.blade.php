@@ -85,9 +85,6 @@ new #[Layout('components.layouts.app')] class extends Component {
 
     public ?string $rate_eur = null;
 
-    /** 환율 칸을 오늘 환율로 자동으로 채웠을 때 그 환율을 받은 시각(안내 줄용). 저장된 환율을 읽어 온 차는 null. */
-    public ?string $rateAutoAt = null;
-
     // ── 매입 락 승인 요청(2026-11-19 Jin) — 속성·동작은 App\Livewire\Concerns\PurchaseLockRequests(매입예정 드로어와 공용, 2026-11-24).
 
     /** 재고매입 — ERP 일반재고 인원당 상한 조회 결과(2026-11-20). null = 안 물었거나 재고매입 아님. */
@@ -604,18 +601,6 @@ new #[Layout('components.layouts.app')] class extends Component {
         // 두 환율도 셀프검차는 미리 채우지 않는다(위 offer_rate 와 같은 이유). 새 칸 이전 행은 견적통화 쪽만 offer_rate 에서 읽는다.
         $this->rate_usd = $l->offer_rate_usd !== null ? (string) $l->offer_rate_usd : ($l->offer_currency === 'USD' && $l->offer_rate ? (string) $l->offer_rate : null);
         $this->rate_eur = $l->offer_rate_eur !== null ? (string) $l->offer_rate_eur : ($l->offer_currency === 'EUR' && $l->offer_rate ? (string) $l->offer_rate : null);
-        // 오늘 환율 자동 기입(2026-11-27 Jin) — **환율이 전혀 없고 아직 ERP 로 안 간 차만**. ERP 로 간 차는 손으로만 고친다(자동으로 바꾸지 않는다).
-        //   받아 둔 환율이 없을 때(config 기본값)는 채우지 않는다 — 지어낸 환율이 ERP 로 가면 안 된다.
-        $this->rateAutoAt = null;
-        if ($l->status === 'accepted' && ! $l->car_erp_vehicle_id
-            && $this->rate_usd === null && $this->rate_eur === null && $l->offer_rate === null) {
-            $snap = app(ExchangeRateService::class)->snapshot();
-            if ($snap['is_live'] && $snap['USD'] > 0 && $snap['EUR'] > 0) {
-                $this->rate_usd = (string) $snap['USD'];
-                $this->rate_eur = (string) $snap['EUR'];
-                $this->rateAutoAt = $snap['fetched_at'];
-            }
-        }
         $this->buyerUndecided = (bool) $l->buyer_undecided;
         $this->buyerId = $l->car_erp_buyer_id;
         $this->consigneeId = $l->car_erp_consignee_id;
@@ -633,7 +618,7 @@ new #[Layout('components.layouts.app')] class extends Component {
             'selling_fee_payee_name', 'selling_fee_payee_bank', 'selling_fee_payee_account',
             'car_cost', 'discount_rate', 'sale_discount', 'shipping_usd', 'quoteCurrency',
             'selling_fee', 'sale_price', 'offer_rate', 'transport_fee',
-            'sale_total', 'transport_fee_usd', 'rate_usd', 'rate_eur', 'rateAutoAt',
+            'sale_total', 'transport_fee_usd', 'rate_usd', 'rate_eur',
             'buyerUndecided', 'buyerId', 'consigneeId', 'buyerOpts', 'consigneeOpts', 'salesFiles',
             'lockCount', 'lockReason', 'lockStatus', 'lockNotice', 'lockError', 'stockCap']);
         unset($this->detail);
@@ -1281,9 +1266,6 @@ new #[Layout('components.layouts.app')] class extends Component {
                                     <input type="number" min="1" class="input-base" wire:model.live.debounce.400ms="rate_eur">
                                     @error('rate_eur') <p class="mt-0.5 text-xs text-red-600">{{ $message }}</p> @enderror
                                 </div>
-                                @if ($rateAutoAt)
-                                    <p class="col-span-full text-[11px] text-gray-500" data-rate-auto>{{ __('auction.rate_auto_hint', ['at' => $rateAutoAt]) }}</p>
-                                @endif
                                 <div>
                                     <label class="mb-0.5 block text-xs text-gray-500">{{ __('auction.transport_fee') }} <span class="text-gray-400">({{ __('auction.auto') }})</span></label>
                                     <div class="input-base bg-gray-100 text-gray-700">{{ $split['freight'] !== null ? number_format($split['freight'], fmod($split['freight'], 1) == 0 ? 0 : 2) : '—' }}</div>
