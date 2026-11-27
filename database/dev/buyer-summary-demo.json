@@ -1,0 +1,14 @@
+{
+  "vehicle_count": 15,
+  "vehicle_count_12m": 6,
+  "first_sale_date": "2024-03-11",
+  "by_currency": [
+    {"currency": "USD", "vehicle_count": 10, "sale_total": 123000, "unpaid": 12000, "paid_ratio": 0.902},
+    {"currency": "EUR", "vehicle_count": 5, "sale_total": 58400, "unpaid": 0, "paid_ratio": 1.0}
+  ],
+  "unpaid_total_krw": 15960000,
+  "paid_ratio": 0.934,
+  "unpaid_vehicle_count": 2,
+  "fx_missing_count": 1,
+  "vehicle": {"vehicle_id": 0, "currency": "USD", "sale_total": 12000, "unpaid": 3000, "unpaid_ratio": 0.25, "fully_paid": false}
+}

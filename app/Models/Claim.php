@@ -66,7 +66,7 @@ class Claim extends Model
         'status', 'revision', 'current_step',
         'car_erp_vehicle_id', 'purchase_listing_id', 'vehicle_number', 'vin', 'brand', 'model_type',
         'car_erp_buyer_id', 'buyer_name', 'buyer_contact_name', 'sale_price', 'sale_currency', 'sale_date', 'eta_date',
-        'total_purchase_count', 'year_purchase_count', 'buyer_credit_grade', 'buyer_credit_score', 'member_since', 'purchase_history', 'margin_rate', 'erp_snapshot_at',
+        'total_purchase_count', 'year_purchase_count', 'buyer_credit_grade', 'buyer_credit_score', 'member_since', 'purchase_history', 'buyer_summary', 'buyer_summary_at', 'margin_rate', 'erp_snapshot_at',
         'salesman_user_id', 'created_by_user_id', 'arrived_at', 'received_km', 'content',
         'inspection_result', 'notes', 'review_notes',
         'claim_amount', 'claim_currency', 'refundable_amount', 'cs_proposed_amount', 'confirmed_amount', 'result', 'result_reason', 'compensation_type', 'overdue_reason',
@@ -80,6 +80,7 @@ class Claim extends Model
     {
         return [
             'purchase_history' => 'array',
+            'buyer_summary' => 'array', 'buyer_summary_at' => 'datetime',
             'sale_date' => 'date', 'eta_date' => 'date', 'arrived_at' => 'date',
             'erp_snapshot_at' => 'datetime', 'requested_at' => 'datetime', 'request_notified_at' => 'datetime',
             'decided_at' => 'datetime', 'self_approved_at' => 'datetime', 'closed_at' => 'datetime', 'erp_sent_at' => 'datetime',

@@ -44,6 +44,8 @@ return [
         'claim_request' => 'Claim approval request',
         'claim_decision' => 'Claim CEO decision',
         'claim_file' => 'Claim file added',
+        'claim_proforma_fetch' => 'Claim Proforma Invoice fetched',
+        'claim_proforma_failed' => 'Claim Proforma Invoice fetch failed',
         'claim_self_approve' => 'Claim self-approved',
         'claim_erp_reload' => 'Claim ERP reload',
         'claim_handlers' => 'Claim handlers',

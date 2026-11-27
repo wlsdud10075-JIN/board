@@ -42,6 +42,9 @@ new class extends Component
 
     public array $other = [];
 
+    /** Proforma Invoice 직접 올리기(선택) — 비우면 접수할 때 ERP 에서 받아 붙인다(2026-11-27). */
+    public array $proforma = [];
+
     /** 같은 차에 열린 클레임이 있으면 그 상태(중복 접수 안내). */
     public ?string $existingStatus = null;
 
@@ -52,7 +55,7 @@ new class extends Component
             return;
         }
         $this->resetErrorBag();
-        $this->reset(['arrived_at', 'received_km', 'content', 'buyer_contact_name', 'odometer', 'damage', 'invoice', 'other', 'existingStatus']);
+        $this->reset(['arrived_at', 'received_km', 'content', 'buyer_contact_name', 'odometer', 'damage', 'invoice', 'other', 'proforma', 'existingStatus']);
         $this->row = $row;
         $this->salesmanId = $salesmanId;
         $this->arrived_at = (string) ($row['eta_date'] ?? '');   // 기본값 = ERP ETA(실제 도착일은 ERP 에 없다) — 영업이 고친다
@@ -97,6 +100,7 @@ new class extends Component
             'damage.*' => ['file', 'max:204800'],
             'invoice.*' => ['file', 'max:204800'],
             'other.*' => ['file', 'max:204800'],
+            'proforma.*' => ['file', 'max:204800'],
         ], [], [
             'arrived_at' => __('claims.arrived_at'), 'received_km' => __('claims.received_km'), 'content' => __('claims.content'),
             'odometer' => __('claims.kind.odometer'), 'damage' => __('claims.kind.damage'), 'invoice' => __('claims.kind.invoice'),
@@ -107,6 +111,7 @@ new class extends Component
             ClaimFile::KIND_DAMAGE => array_values(array_filter($this->damage)),
             ClaimFile::KIND_INVOICE => array_values(array_filter($this->invoice)),
             ClaimFile::KIND_OTHER => array_values(array_filter($this->other)),
+            ClaimFile::KIND_PROFORMA => array_values(array_filter($this->proforma)),
         ];
         foreach ($files as $list) {
             foreach ($list as $f) {
@@ -222,6 +227,18 @@ new class extends Component
                         @error($kind.'.*')<p class="text-xs text-red-600">{{ $message }}</p>@enderror
                     </div>
                 @endforeach
+
+                {{-- Proforma Invoice(2026-11-27) — 비우면 접수할 때 ERP 에서 그 차 것을 받아 붙인다. --}}
+                <div class="mt-3" wire:key="intake-proforma">
+                    <label class="label-base">{{ __('claims.kind.proforma') }}
+                        <span class="font-normal text-gray-400">— {{ __('claims.kind_hint.proforma') }}</span></label>
+                    <input type="file" multiple class="block w-full text-xs" wire:model="proforma" accept=".xlsx,.xls,.pdf,image/*">
+                    <div wire:loading wire:target="proforma" class="text-[11px] text-gray-400">{{ __('claims.uploading') }}</div>
+                    @if (count(array_filter($proforma)))
+                        <p class="mt-0.5 text-[11px] text-gray-500">{{ __('claims.files_selected', ['count' => count(array_filter($proforma))]) }}</p>
+                    @endif
+                    @error('proforma.*')<p class="text-xs text-red-600">{{ $message }}</p>@enderror
+                </div>
 
                 <p class="mt-3 text-[11px] text-gray-400">{{ __('claims.intake_footnote') }}</p>
 

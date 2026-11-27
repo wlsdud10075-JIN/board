@@ -45,6 +45,8 @@ return [
         'claim_request' => '클레임 승인 요청',
         'claim_decision' => '클레임 대표 결재',
         'claim_file' => '클레임 첨부 추가',
+        'claim_proforma_fetch' => '클레임 Proforma Invoice 가져오기',
+        'claim_proforma_failed' => '클레임 Proforma Invoice 가져오기 실패',
         'claim_self_approve' => '클레임 자체승인',
         'claim_erp_reload' => '클레임 ERP 재조회',
         'claim_handlers' => '클레임 담당자 지정',

@@ -168,6 +168,19 @@ new #[Layout('components.layouts.app')] class extends Component
         unset($this->detail, $this->media, $this->claims, $this->counts);
     }
 
+    /** [ERP 에서 Proforma Invoice 가져오기](2026-11-27) — 접수 때 못 받았거나 접수가 이 기능 전인 건. 받을 때마다 한 장 더 붙는다. */
+    public function fetchProforma(ClaimService $svc): void
+    {
+        $c = $this->detail;
+        if (! $c) {
+            return;
+        }
+        $why = $svc->attachProforma($c, Auth::id());
+        $this->notice = $why === null ? __('claims.proforma_fetched') : null;
+        $this->error = $why === null ? null : __('claims.proforma_failed', ['reason' => $why]);
+        $this->refreshDetail();
+    }
+
     private function refreshDetail(): void
     {
         [$n, $e] = [$this->notice, $this->error];   // openDetail 이 비우므로 보존
@@ -430,6 +443,7 @@ new #[Layout('components.layouts.app')] class extends Component
         $got = $svc->snapshotErp($c);
         $svc->audit($c, Auth::id(), 'claim_erp_reload', null, $got ? implode(',', $got) : 'none');
         $this->notice = $got ? __('claims.erp_reloaded', ['parts' => implode(', ', $got)]) : __('claims.erp_reload_failed');
+        $this->dispatch('claim-erp-reloaded', ok: (bool) $got);
         $this->refreshDetail();
     }
 
@@ -680,7 +694,17 @@ new #[Layout('components.layouts.app')] class extends Component
                     </div>
                     <div class="mt-1 flex flex-wrap items-center gap-x-3">
                         <span>ERP {{ $d->erp_snapshot_at?->timezone(config('app.timezone'))->format('m-d H:i') ?? '—' }}</span>
-                        <button type="button" class="btn-ghost btn-sm" wire:click="reloadErp" wire:loading.attr="disabled">↻ {{ __('claims.erp_reload') }}</button>
+                        {{-- 눌린 건지 알 수 있게(2026-11-27 Jin) — 「불러오는 중…」(비활성) → 2.5초 「불러왔습니다 ✓」/「받지 못했습니다」 → 원래 글자. --}}
+                        <span x-data="{ done: '', _t: null }" x-on:claim-erp-reloaded.window="done = $event.detail.ok ? 'ok' : 'fail'; clearTimeout(_t); _t = setTimeout(() => done = '', 2500)">
+                            <button type="button" class="btn-ghost btn-sm" wire:click="reloadErp" wire:loading.attr="disabled" wire:target="reloadErp" data-claim-erp-reload>
+                                <span wire:loading.remove wire:target="reloadErp">
+                                    <span x-show="done === ''">↻ {{ __('claims.erp_reload') }}</span>
+                                    <span x-show="done === 'ok'" x-cloak class="font-semibold text-green-700">✓ {{ __('claims.erp_reload_done') }}</span>
+                                    <span x-show="done === 'fail'" x-cloak class="font-semibold text-amber-700">⚠ {{ __('claims.erp_reload_none') }}</span>
+                                </span>
+                                <span wire:loading wire:target="reloadErp">⟳ {{ __('claims.erp_reloading') }}</span>
+                            </button>
+                        </span>
                         @if ($d->listing)<a class="text-[var(--color-primary-text)] hover:underline" href="{{ route('listings') }}" wire:navigate>{{ __('claims.board_listing', ['id' => $d->listing->id]) }}</a>@endif
                         @if ($iu = \App\Models\Claim::ssancarInspectedUrl($d->vehicle_number))<a class="text-[var(--color-primary-text)] hover:underline" href="{{ $iu }}" target="_blank" rel="noopener">🔎 {{ __('claims.ssancar_inspected_link') }}</a>@endif
                     </div>
@@ -727,6 +751,22 @@ new #[Layout('components.layouts.app')] class extends Component
                                 @endforeach
                             </div>
                         @endforeach
+                        {{-- Proforma Invoice(2026-11-27) — 판매 내용을 보려고 ERP 에 들어갈 필요가 없게. 엑셀이라 눌러서 내려받는다. --}}
+                        <div class="mt-3 border-t border-gray-100 pt-2" data-claim-proforma>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <span class="text-[11px] font-semibold text-gray-600">{{ __('claims.kind.proforma') }}</span>
+                                <button type="button" wire:click="fetchProforma" wire:loading.attr="disabled" wire:target="fetchProforma" class="btn-outline btn-sm">
+                                    <span wire:loading.remove wire:target="fetchProforma">{{ __('claims.proforma_fetch_btn') }}</span>
+                                    <span wire:loading wire:target="fetchProforma">{{ __('claims.proforma_fetching') }}</span>
+                                </button>
+                            </div>
+                            @forelse ($kinds[\App\Models\ClaimFile::KIND_PROFORMA] ?? [] as $file)
+                                <a href="{{ $file->shareUrl() }}" target="_blank" class="mt-1 block truncate text-xs text-[var(--color-primary-text)] hover:underline" data-claim-proforma-file>📄 {{ $file->original_name }}
+                                    <span class="text-[10px] text-gray-400">· {{ $file->created_at?->format('m-d H:i') }}</span></a>
+                            @empty
+                                <p class="mt-1 text-[11px] text-gray-400">{{ __('claims.proforma_none') }}</p>
+                            @endforelse
+                        </div>
                         @if ($editable)
                             <div class="mt-2">
                                 <input type="file" multiple class="block w-full text-xs" wire:model="extra">
@@ -736,6 +776,8 @@ new #[Layout('components.layouts.app')] class extends Component
                         @endif
                     </div>
                 </div>
+
+                @include('livewire.claims._buyer-summary', ['d' => $d])
 
                 {{-- 보고서 칸(양식 순서) --}}
                 <div class="section-title-sm">{{ __('claims.report_fields') }}</div>

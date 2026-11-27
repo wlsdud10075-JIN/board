@@ -1,0 +1,7 @@
+{"slug":"claim-summary","base":"http://localhost:8003","login":{"email":"manager@board.test"},"viewport":"pc",
+ "steps":[
+  {"goto":"/claims?tab=open"},{"wait":1500},
+  {"clickText":"99데9999","in":"span"},{"wait":3000},
+  {"shot":"g-box","of":"[data-claim-buyer-summary]"},
+  {"shot":"g-proforma","of":"[data-claim-proforma]"}
+ ]}
