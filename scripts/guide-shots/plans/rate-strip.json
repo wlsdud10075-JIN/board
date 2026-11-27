@@ -1,6 +1,8 @@
 {"slug":"rate-strip","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"pc",
  "steps":[
-  {"goto":"/auction"},{"wait":1500},{"shot":"g-auction-top","clip":{"x":220,"y":44,"width":1060,"height":330}},
+  {"goto":"/auction"},{"wait":1500},{"shot":"g-auction-top","clip":{"x":220,"y":44,"width":1060,"height":300}},
   {"set":"[data-rate-closing-date] input","value":"2026-11-22"},{"wait":1500},
-  {"shot":"g-strip-picked","of":"[data-rate-strip]"}
+  {"shot":"g-strip-picked","of":"[data-rate-strip]"},
+  {"clickText":"11가1006","in":"td"},{"wait":2500},
+  {"shot":"g-autofill","of":"[data-rate-auto]"}
  ]}

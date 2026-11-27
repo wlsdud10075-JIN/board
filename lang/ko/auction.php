@@ -43,6 +43,7 @@ return [
     'transport_fee_usd' => '운임비 (USD)',
     'rate_usd' => '환율 USD',
     'rate_eur' => '환율 EUR',
+    'rate_auto_hint' => '오늘 환율(:at 기준, 송금 받을 때)을 넣어 두었습니다. 합의한 환율이 다르면 고쳐 적습니다.',
     'auto' => '자동',
     'ideal_title' => '이상 총판매가',
     'ideal_diff' => '판매가 + 운임비 = :sale원 → 이상가 대비 :pct',
