@@ -1836,6 +1836,11 @@ class BoardTest extends TestCase
             ->assertSet('rate_usd', '1400')->assertSet('rate_eur', null)
             ->assertDontSeeHtml('data-rate-auto');
 
+        // 구매확정은 눌렀지만 ERP 전송이 실패해 ERP 에 없는 차 — 채운다(기준 = ERP 에 있나)
+        $wonNotSent = $this->mkListing($sales, ['status' => 'won'] + $base);
+        Volt::test('auction.index')->call('openDetail', $wonNotSent->id)
+            ->assertSet('rate_usd', '1516')->assertSet('rate_eur', '1651');
+
         Volt::test('auction.index')->call('openDetail', $sent->id)
             ->assertSet('rate_usd', null)->assertSet('rate_eur', null);
     }

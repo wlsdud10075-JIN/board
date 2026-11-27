@@ -618,7 +618,8 @@ new #[Layout('components.layouts.app')] class extends Component {
         // 오늘 환율 자동 기입(2026-11-27 Jin) — **환율이 전혀 없고 아직 ERP 로 안 간 차만**. ERP 로 간 차는 손으로만 고친다(자동으로 바꾸지 않는다).
         //   받아 둔 환율이 없을 때(config 기본값)는 채우지 않는다 — 지어낸 환율이 ERP 로 가면 안 된다.
         $this->rateAutoAt = null;
-        if ($l->status === 'accepted' && ! $l->car_erp_vehicle_id
+        // 기준은 상태가 아니라 「ERP 에 있나」 — 구매확정을 눌렀어도 전송이 실패해 ERP 에 없는 차는 채운다(같은 날 Jin).
+        if (! $l->car_erp_vehicle_id
             && $this->rate_usd === null && $this->rate_eur === null && $l->offer_rate === null) {
             $snap = app(ExchangeRateService::class)->snapshot();
             if ($snap['is_live'] && $snap['USD'] > 0 && $snap['EUR'] > 0) {

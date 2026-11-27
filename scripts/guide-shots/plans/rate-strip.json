@@ -1,7 +1,7 @@
 {"slug":"rate-strip","base":"http://localhost:8003","login":{"email":"guide-demo@local.test"},"viewport":"pc",
  "steps":[
   {"goto":"/auction"},{"wait":1500},{"shot":"strip-receive-only","of":"[data-rate-strip]"},
-  {"clickText":"11가1006","in":"td"},{"wait":2500},
+  {"clickText":"77오7003","in":"td"},{"wait":2500},
   {"shot":"autofill","of":"[data-rate-auto]"},
   {"shot":"autofill-drawer"}
  ]}
