@@ -443,6 +443,7 @@ new #[Layout('components.layouts.app')] class extends Component
         $got = $svc->snapshotErp($c);
         $svc->audit($c, Auth::id(), 'claim_erp_reload', null, $got ? implode(',', $got) : 'none');
         $this->notice = $got ? __('claims.erp_reloaded', ['parts' => implode(', ', $got)]) : __('claims.erp_reload_failed');
+        $this->dispatch('claim-erp-reloaded', ok: (bool) $got);
         $this->refreshDetail();
     }
 
@@ -693,7 +694,17 @@ new #[Layout('components.layouts.app')] class extends Component
                     </div>
                     <div class="mt-1 flex flex-wrap items-center gap-x-3">
                         <span>ERP {{ $d->erp_snapshot_at?->timezone(config('app.timezone'))->format('m-d H:i') ?? '—' }}</span>
-                        <button type="button" class="btn-ghost btn-sm" wire:click="reloadErp" wire:loading.attr="disabled">↻ {{ __('claims.erp_reload') }}</button>
+                        {{-- 눌린 건지 알 수 있게(2026-11-27 Jin) — 「불러오는 중…」(비활성) → 2.5초 「불러왔습니다 ✓」/「받지 못했습니다」 → 원래 글자. --}}
+                        <span x-data="{ done: '', _t: null }" x-on:claim-erp-reloaded.window="done = $event.detail.ok ? 'ok' : 'fail'; clearTimeout(_t); _t = setTimeout(() => done = '', 2500)">
+                            <button type="button" class="btn-ghost btn-sm" wire:click="reloadErp" wire:loading.attr="disabled" wire:target="reloadErp" data-claim-erp-reload>
+                                <span wire:loading.remove wire:target="reloadErp">
+                                    <span x-show="done === ''">↻ {{ __('claims.erp_reload') }}</span>
+                                    <span x-show="done === 'ok'" x-cloak class="font-semibold text-green-700">✓ {{ __('claims.erp_reload_done') }}</span>
+                                    <span x-show="done === 'fail'" x-cloak class="font-semibold text-amber-700">⚠ {{ __('claims.erp_reload_none') }}</span>
+                                </span>
+                                <span wire:loading wire:target="reloadErp">⟳ {{ __('claims.erp_reloading') }}</span>
+                            </button>
+                        </span>
                         @if ($d->listing)<a class="text-[var(--color-primary-text)] hover:underline" href="{{ route('listings') }}" wire:navigate>{{ __('claims.board_listing', ['id' => $d->listing->id]) }}</a>@endif
                         @if ($iu = \App\Models\Claim::ssancarInspectedUrl($d->vehicle_number))<a class="text-[var(--color-primary-text)] hover:underline" href="{{ $iu }}" target="_blank" rel="noopener">🔎 {{ __('claims.ssancar_inspected_link') }}</a>@endif
                     </div>
