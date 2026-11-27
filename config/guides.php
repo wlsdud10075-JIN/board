@@ -46,7 +46,7 @@ return [
         'settlement-read' => ['Reading my settlement', 'Settlements in progress, the monthly detail and the hold / extra badges'],
         'shipping-plan' => ['Shipping', 'Group cars, request shipping, download documents, e-sign and request the B/L'],
         'portal-share' => ['Share my portal', 'A salesperson ticks a manager, who can then view and act for them'],
-        'claim-handle' => ['Claims', 'File a claim, write the report, get approval and send it to the ERP'],
+        'claim-handle' => ['Claims', 'File a claim, write the report, get approval and send it to the ERP Proforma Invoice 프로포마 바이어 추가 정보 미수 입금률 구매 대수'],
         'work-journal' => ['Work journal', 'Write, submit, follow the approval line and resubmit after a return'],
         'manage-edit' => ['Fixing a car on the admin screen', 'Edit fields, roll back a status, delete or resend to the ERP'],
         'users-manage' => ['User management', 'Create accounts, set roles and link the ERP salesperson'],
